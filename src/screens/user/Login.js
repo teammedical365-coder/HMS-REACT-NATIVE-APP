@@ -18,8 +18,9 @@ const Login = () => {
     const dispatch = useAppDispatch();
     const { loading, error, isAuthenticated, user, otpStep, preAuthToken, otpEmail, activeSession, otpSuccessMsg, tenant } = useAuth();
     
-    const [formData, setFormData] = useState({ email: '', password: '' });
+    const [formData, setFormData] = useState({ email: '', password: '', hospitalSlug: '' });
     const [nativeSlug, setNativeSlug] = useState(null);
+    const [localError, setLocalError] = useState(null);
     const searchParams = route.params || {};
 
     useEffect(() => {
@@ -91,13 +92,15 @@ const Login = () => {
     const handleChange = (name, value) => {
         setFormData({ ...formData, [name]: value });
         dispatch(clearError());
+        setLocalError(null);
     };
 
     const handleSubmit = async () => {
         dispatch(clearError());
+        setLocalError(null);
         if (!formData.email || !formData.password) return;
 
-        let slug = searchParams.slug || searchParams.tenantId || await AsyncStorage.getItem('tenantSlug') || 'cityhospital';
+        let slug = formData.hospitalSlug || searchParams.slug || searchParams.tenantId || await AsyncStorage.getItem('tenantSlug') || 'cityhospital';
         if (nativeSlug) {
             slug = nativeSlug;
         }
@@ -111,8 +114,8 @@ const Login = () => {
             })).unwrap();
         } catch (err) {
             console.error('[Login] OTP Request Failed:', err);
-            const errDetails = typeof err === 'object' ? JSON.stringify(err) : err;
-            Alert.alert('OTP Error', `Endpoint: ${baseURL}/api/auth/otp/send\nDetails: ${errDetails}`);
+            const errDetails = typeof err === 'object' && err.message ? err.message : (typeof err === 'string' ? err : 'Invalid credentials or network issue');
+            setLocalError(errDetails);
         }
     };
 
@@ -143,16 +146,31 @@ const Login = () => {
 
                         {!otpStep && (
                             <View style={styles.formContainer}>
-                                {error ? (
+                                {(error || localError) ? (
                                     <View style={styles.errorBox}>
-                                        <Text style={styles.errorText}>{error}</Text>
+                                        <Text style={styles.errorText}>{error || localError}</Text>
                                     </View>
                                 ) : null}
 
                                 <View style={styles.inputGroup}>
+                                    <Text style={styles.label}>Workspace ID / Clinic URL</Text>
+                                    <View style={styles.inputWrapper}>
+                                        <Text style={styles.inputIcon}>🏢</Text>
+                                        <TextInput
+                                            style={styles.input}
+                                            value={formData.hospitalSlug}
+                                            onChangeText={(v) => handleChange('hospitalSlug', v)}
+                                            placeholder="Enter workspace ID (e.g., cityhospital)"
+                                            autoCapitalize="none"
+                                            autoCorrect={false}
+                                        />
+                                    </View>
+                                </View>
+
+                                <View style={styles.inputGroup}>
                                     <Text style={styles.label}>Email Address</Text>
                                     <View style={styles.inputWrapper}>
-                                        <Text style={styles.inputIcon}>✉️</Text>
+                                        <Text style={styles.inputIcon}>âœ‰ï¸</Text>
                                         <TextInput
                                             style={styles.input}
                                             value={formData.email}
@@ -167,12 +185,12 @@ const Login = () => {
                                 <View style={styles.inputGroup}>
                                     <Text style={styles.label}>Password</Text>
                                     <View style={styles.inputWrapper}>
-                                        <Text style={styles.inputIcon}>🔒</Text>
+                                        <Text style={styles.inputIcon}>ðŸ”’</Text>
                                         <View style={{ flex: 1 }}>
                                             <PasswordInput
                                                 value={formData.password}
                                                 onChangeText={(v) => handleChange('password', v)}
-                                                placeholder="••••••••"
+                                                placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
                                             />
                                         </View>
                                     </View>

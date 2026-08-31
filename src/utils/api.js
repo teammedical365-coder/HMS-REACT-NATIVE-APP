@@ -15,27 +15,32 @@ const apiClient = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-apiClient.interceptors.request.use(
-  async (config) => {
-    const token = await AsyncStorage.getItem(STORAGE_KEYS.TOKEN);
-    const patientToken = await AsyncStorage.getItem(STORAGE_KEYS.PATIENT_TOKEN);
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    } else if (patientToken) {
-      config.headers.Authorization = `Bearer ${patientToken}`;
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
+export const setAuthHeader = (token) => {
+  if (token) {
+    apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+  } else {
+    delete apiClient.defaults.headers.common['Authorization'];
+  }
+};
+
+apiClient.interceptors.request.use(async (config) => {
+  const token = await AsyncStorage.getItem('token');
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+}, (error) => Promise.reject(error));
 
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
-    if (error.response?.status === 401) {
+    // Check if the failing request is the OTP verification route
+    const isOtpVerifyRoute = error.config?.url?.includes('/otp/verify');
+
+    // Only clear storage and trigger session expiry if it's NOT the OTP route
+    if (error.response?.status === 401 && !isOtpVerifyRoute) {
       const isSessionExpired = error.response?.data?.sessionExpired;
       await AsyncStorage.removeItem(STORAGE_KEYS.TOKEN);
       await AsyncStorage.removeItem(STORAGE_KEYS.USER);
+      
       if (isSessionExpired) {
         await AsyncStorage.setItem(
           STORAGE_KEYS.SESSION_EXPIRED_MESSAGE,
@@ -43,10 +48,8 @@ apiClient.interceptors.response.use(
             'Your account has been logged in from another device. Please login again.'
         );
       }
-      if (_navigationDispatch) {
-        _navigationDispatch({ type: 'NAVIGATE', payload: { name: 'Login' } });
-      }
     }
+    
     return Promise.reject(error);
   }
 );
@@ -80,16 +83,33 @@ export const authAPI = {
       throw error;
     }
   },
+  
   verifyOtp: async (preAuthToken, otp) => {
-    const response = await apiClient.post('/api/auth/otp/verify', { preAuthToken, otp });
-    return response.data;
-  },
+    console.log("🚀 LATEST CODE RUNNING NOW!");
+  const cleanOtp = String(otp).trim();
+  const response = await apiClient.post(
+    '/api/auth/otp/verify', 
+    { preAuthToken, otp: cleanOtp },
+    { headers: { Authorization: `Bearer ${preAuthToken}` } }
+  );
+  return response.data;
+},
   resendOtp: async (preAuthToken) => {
-    const response = await apiClient.post('/api/auth/otp/resend', { preAuthToken });
+    console.log("🔥 [api.js] resendOtp sending preAuthToken:", preAuthToken);
+    const response = await apiClient.post(
+      '/api/auth/otp/resend', 
+      { preAuthToken },
+      { headers: { Authorization: `Bearer ${preAuthToken}` } }
+    );
     return response.data;
   },
   forceLogin: async (preAuthToken) => {
-    const response = await apiClient.post('/api/auth/otp/force-login', { preAuthToken });
+    console.log("🔥 [api.js] forceLogin sending preAuthToken:", preAuthToken);
+    const response = await apiClient.post(
+      '/api/auth/otp/force-login', 
+      { preAuthToken },
+      { headers: { Authorization: `Bearer ${preAuthToken}` } }
+    );
     return response.data;
   },
   getAuthConfig: async () => {
@@ -716,9 +736,6 @@ patientApiClient.interceptors.response.use(
     if (error.response?.status === 401) {
       await AsyncStorage.removeItem(STORAGE_KEYS.PATIENT_TOKEN);
       await AsyncStorage.removeItem(STORAGE_KEYS.PATIENT_USER);
-      if (_navigationDispatch) {
-        _navigationDispatch({ type: 'NAVIGATE', payload: { name: 'PatientPortalLogin' } });
-      }
     }
     return Promise.reject(error);
   }

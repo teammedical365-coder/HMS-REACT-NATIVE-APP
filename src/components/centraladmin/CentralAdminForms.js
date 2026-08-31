@@ -36,8 +36,8 @@ export default function CentralAdminForms({
   return (
     <View style={{ width: '100%', marginVertical: 20 }}>
       {/* Left Main Form Card */}
-      <View style={styles.chMainCard}> {/* .cad-ch-main-card */}
-        <View style={styles.chCardHeader}> {/* .cad-ch-card-header */}
+      <View style={styles.chMainCard}>
+        <View style={styles.chCardHeader}>
           <View style={{
             width: 54, height: 54, backgroundColor: '#ecfdf5',
             borderWidth: 1.5, borderColor: '#a7f3d0', borderRadius: 14,
@@ -46,7 +46,7 @@ export default function CentralAdminForms({
             <Text style={{ fontSize: 24, color: '#059669' }}>🏥</Text>
           </View>
           
-          <View style={styles.chTitleCol}> {/* .cad-ch-title-col */}
+          <View style={styles.chTitleCol}>
             <Text style={styles.chTitleText}>
               {editHospital ? 'Edit Hospital' : 'Create New Hospital'}
             </Text>
@@ -63,9 +63,9 @@ export default function CentralAdminForms({
           </TouchableOpacity>
         </View>
 
-        <View style={{ gap: 20 }}> {/* .cad-ch-form */}
+        <View style={{ gap: 20 }}>
           {/* Row 1 */}
-          <View style={{ flexDirection: 'row', gap: 20 }}> {/* .cad-ch-row-2col */}
+          <View style={{ flexDirection: 'row', gap: 20 }}>
             <View style={{ flex: 1, gap: 6 }}>
               <Text style={styles.chLabel}>Hospital Name <Text style={{ color: '#059669' }}>*</Text></Text>
               <TextInput 

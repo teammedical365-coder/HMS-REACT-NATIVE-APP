@@ -11,6 +11,7 @@ import AdminQuestionLibrary from '../screens/admin/AdminQuestionLibrary';
 import ConsentManagement from '../screens/admin/ConsentManagement';
 import AdminRoles from '../screens/admin/AdminRoles';
 import Admin from '../screens/admin/Admin';
+import AdminDoctors from '../screens/admin/AdminDoctors';
 
 // -- Hospital Admin Pages --
 import HospitalAdminDashboard from '../screens/hospitaladmin/HospitalAdminDashboard';
@@ -63,110 +64,103 @@ import UnifiedPatientProfile from '../screens/patient/UnifiedPatientProfile';
 
 const Stack = createNativeStackNavigator();
 
-// Helper to wrap stacks in DashboardLayout (similar to web <DashboardLayout>)
-const withLayout = (StackComponent) => {
+// Helper to wrap screens in DashboardLayout (similar to web <DashboardLayout>)
+const withLayout = (Component) => {
     return function LayoutWrapper(props) {
         return (
             <DashboardLayout>
-                <StackComponent {...props} />
+                <Component {...props} />
             </DashboardLayout>
         );
     }
 };
 
-const CentralAdminStack = () => (
+export const CentralAdminApp = () => (
     <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
-        <Stack.Screen name="CentralAdminDashboard" component={CentralAdminDashboard} />
-        <Stack.Screen name="SystemRevenueDashboard" component={SystemRevenueDashboard} />
-        <Stack.Screen name="AdminQuestionLibrary" component={AdminQuestionLibrary} />
-        <Stack.Screen name="ConsentManagement" component={ConsentManagement} />
-        <Stack.Screen name="AdminRoles" component={AdminRoles} />
-        <Stack.Screen name="Admin" component={Admin} />
+        <Stack.Screen name="CentralAdminDashboard" component={withLayout(CentralAdminDashboard)} />
+        <Stack.Screen name="SystemRevenueDashboard" component={withLayout(SystemRevenueDashboard)} />
+        <Stack.Screen name="AdminQuestionLibrary" component={withLayout(AdminQuestionLibrary)} />
+        <Stack.Screen name="ConsentManagement" component={withLayout(ConsentManagement)} />
+        <Stack.Screen name="AdminRoles" component={withLayout(AdminRoles)} />
+        <Stack.Screen name="Admin" component={withLayout(Admin)} />
     </Stack.Navigator>
 );
 
-const HospitalAdminStack = () => (
+export const HospitalAdminApp = () => (
     <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
-        <Stack.Screen name="HospitalAdminDashboard" component={HospitalAdminDashboard} />
-        <Stack.Screen name="ClinicDashboard" component={ClinicDashboard} />
-        <Stack.Screen name="HospitalAdminQuestionLibrary" component={HospitalAdminQuestionLibrary} />
-        <Stack.Screen name="BedManagement" component={BedManagement} />
+        <Stack.Screen name="HospitalAdminDashboard" component={withLayout(HospitalAdminDashboard)} />
+        <Stack.Screen name="ClinicDashboard" component={withLayout(ClinicDashboard)} />
+        <Stack.Screen name="HospitalAdminQuestionLibrary" component={withLayout(HospitalAdminQuestionLibrary)} />
+        <Stack.Screen name="BedManagement" component={withLayout(BedManagement)} />
+        <Stack.Screen name="OTDashboard" component={withLayout(OTDashboard)} />
+        <Stack.Screen name="Admin" component={withLayout(Admin)} />
+        <Stack.Screen name="AdminDoctors" component={withLayout(AdminDoctors)} />
+        <Stack.Screen name="PharmacyInventory" component={withLayout(PharmacyInventory)} />
     </Stack.Navigator>
 );
 
-const DoctorStack = () => (
+export const DoctorApp = () => (
     <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
-        <Stack.Screen name="DoctorDashboard" component={Patient} />
-        <Stack.Screen name="DoctorPatients" component={Patient} />
-        <Stack.Screen name="DoctorPatientDetails" component={DoctorPatientDetails} />
-        <Stack.Screen name="AIAssistant" component={AIAssistant} />
+        <Stack.Screen name="DoctorDashboard" component={withLayout(Patient)} />
+        <Stack.Screen name="DoctorPatients" component={withLayout(Patient)} />
+        <Stack.Screen name="DoctorPatientDetails" component={withLayout(DoctorPatientDetails)} />
+        <Stack.Screen name="AIAssistant" component={withLayout(AIAssistant)} />
     </Stack.Navigator>
 );
 
-const OTStack = () => (
+export const OTApp = () => (
     <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
-        <Stack.Screen name="OTDashboard" component={OTDashboard} />
-        <Stack.Screen name="OTPlannedSurgeries" component={OTPlannedSurgeries} />
-        <Stack.Screen name="OTSchedulePage" component={OTSchedulePage} />
-        <Stack.Screen name="OTRoomsPage" component={OTRoomsPage} />
-        <Stack.Screen name="OTPreOpPage" component={OTPreOpPage} />
-        <Stack.Screen name="OTInProgressPage" component={OTInProgressPage} />
-        <Stack.Screen name="OTPostOpPage" component={OTPostOpPage} />
-        <Stack.Screen name="OTCompletedPage" component={OTCompletedPage} />
-        <Stack.Screen name="OTSurgeonsPage" component={OTSurgeonsPage} />
-        <Stack.Screen name="OTReportsPage" component={OTReportsPage} />
+        <Stack.Screen name="OTDashboard" component={withLayout(OTDashboard)} />
+        <Stack.Screen name="OTPlannedSurgeries" component={withLayout(OTPlannedSurgeries)} />
+        <Stack.Screen name="OTSchedulePage" component={withLayout(OTSchedulePage)} />
+        <Stack.Screen name="OTRoomsPage" component={withLayout(OTRoomsPage)} />
+        <Stack.Screen name="OTPreOpPage" component={withLayout(OTPreOpPage)} />
+        <Stack.Screen name="OTInProgressPage" component={withLayout(OTInProgressPage)} />
+        <Stack.Screen name="OTPostOpPage" component={withLayout(OTPostOpPage)} />
+        <Stack.Screen name="OTCompletedPage" component={withLayout(OTCompletedPage)} />
+        <Stack.Screen name="OTSurgeonsPage" component={withLayout(OTSurgeonsPage)} />
+        <Stack.Screen name="OTReportsPage" component={withLayout(OTReportsPage)} />
     </Stack.Navigator>
 );
 
-const LabStack = () => (
+export const LabApp = () => (
     <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
-        <Stack.Screen name="LabDashboard" component={LabDashboard} />
-        <Stack.Screen name="AssignedTests" component={AssignedTests} />
-        <Stack.Screen name="CompletedReports" component={CompletedReports} />
+        <Stack.Screen name="LabDashboard" component={withLayout(LabDashboard)} />
+        <Stack.Screen name="AssignedTests" component={withLayout(AssignedTests)} />
+        <Stack.Screen name="CompletedReports" component={withLayout(CompletedReports)} />
     </Stack.Navigator>
 );
 
-const PharmacyStack = () => (
+export const PharmacyApp = () => (
     <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
-        <Stack.Screen name="PharmacyInventory" component={PharmacyInventory} />
-        <Stack.Screen name="PharmacyOrders" component={PharmacyOrders} />
-        <Stack.Screen name="PurchaseInvoiceHistory" component={PurchaseInvoiceHistory} />
-        <Stack.Screen name="PharmacyReturns" component={PharmacyReturns} />
-        <Stack.Screen name="VendorReturns" component={VendorReturns} />
-        <Stack.Screen name="PharmacyCollections" component={PharmacyCollections} />
-        <Stack.Screen name="PharmacyDepartments" component={PharmacyDepartments} />
+        <Stack.Screen name="PharmacyInventory" component={withLayout(PharmacyInventory)} />
+        <Stack.Screen name="PharmacyOrders" component={withLayout(PharmacyOrders)} />
+        <Stack.Screen name="PurchaseInvoiceHistory" component={withLayout(PurchaseInvoiceHistory)} />
+        <Stack.Screen name="PharmacyReturns" component={withLayout(PharmacyReturns)} />
+        <Stack.Screen name="VendorReturns" component={withLayout(VendorReturns)} />
+        <Stack.Screen name="PharmacyCollections" component={withLayout(PharmacyCollections)} />
+        <Stack.Screen name="PharmacyDepartments" component={withLayout(PharmacyDepartments)} />
     </Stack.Navigator>
 );
 
-const ReceptionStack = () => (
+export const ReceptionApp = () => (
     <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
-        <Stack.Screen name="ReceptionDashboard" component={ReceptionDashboard} />
-        <Stack.Screen name="ReceptionPatients" component={ReceptionPatients} />
-        <Stack.Screen name="PatientBillingProfile" component={PatientBillingProfile} />
+        <Stack.Screen name="ReceptionDashboard" component={withLayout(ReceptionDashboard)} />
+        <Stack.Screen name="ReceptionPatients" component={withLayout(ReceptionPatients)} />
+        <Stack.Screen name="PatientBillingProfile" component={withLayout(PatientBillingProfile)} />
     </Stack.Navigator>
 );
 
-const CashierStack = () => (
+export const CashierApp = () => (
     <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
-        <Stack.Screen name="CashierDashboard" component={CashierDashboard} />
-        <Stack.Screen name="PatientBillingProfile" component={PatientBillingProfile} />
+        <Stack.Screen name="CashierDashboard" component={withLayout(CashierDashboard)} />
+        <Stack.Screen name="PatientBillingProfile" component={withLayout(PatientBillingProfile)} />
     </Stack.Navigator>
 );
 
-const PatientStack = () => (
+export const PatientApp = () => (
     <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
         <Stack.Screen name="PatientDashboard" component={PatientDashboard} />
         <Stack.Screen name="UnifiedPatientProfile" component={UnifiedPatientProfile} />
     </Stack.Navigator>
 );
-
-// We export wrapped versions so the DashboardLayout renders correctly
-export const CentralAdminApp = withLayout(CentralAdminStack);
-export const HospitalAdminApp = withLayout(HospitalAdminStack);
-export const DoctorApp = withLayout(DoctorStack);
-export const OTApp = withLayout(OTStack);
-export const LabApp = withLayout(LabStack);
-export const PharmacyApp = withLayout(PharmacyStack);
-export const ReceptionApp = withLayout(ReceptionStack);
-export const CashierApp = withLayout(CashierStack);
-export const PatientApp = PatientStack; // Usually patients don't get the staff dashboard layout

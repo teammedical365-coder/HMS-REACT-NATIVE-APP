@@ -94,11 +94,11 @@ const DashboardSidebar = ({ isOpen, setOpen }) => {
         if (role === 'doctor' || role === 'clinic doctor') {
             if (user?.clinicType === 'clinic') {
                 return [
-                    { label: 'Doctor Dashboard', path: 'Dashboard', icon: <FiHome /> },
+                    { label: 'Doctor Dashboard', path: 'DoctorDashboard', icon: <FiHome /> },
                 ];
             }
             return [
-                { label: 'Dashboard', path: 'Patient', icon: <FiClipboard /> }, // Adjusted from /doctor/cases
+                { label: 'Dashboard', path: 'DoctorDashboard', icon: <FiClipboard /> }, // Adjusted from /doctor/cases
                 { label: 'My Patients', path: 'DoctorPatientDetails', icon: <FiUsers /> },
                 { label: '🤖 AI Assistant', path: 'AIAssistant', icon: <FiFileText /> },
             ];
@@ -130,7 +130,7 @@ const DashboardSidebar = ({ isOpen, setOpen }) => {
 
         if (role === 'accountant') {
             return [
-                { label: 'Finance Dashboard', path: 'AccountantDashboard', icon: <FiPieChart /> },
+                { label: 'Finance Dashboard', path: 'CashierDashboard', icon: <FiPieChart /> },
             ];
         }
         if (role === 'cashier') {
@@ -272,11 +272,13 @@ const TopBar = ({ toggleSidebar, sidebarOpen }) => {
 
     const [dropdownVisible, setDropdownVisible] = useState(false);
 
-    const handleLogout = () => {
+    const handleLogout = async () => {
         setDropdownVisible(false);
         dispatch(logout());
-        // Depending on your auth flow, the navigator might automatically switch to the Auth stack,
-        // otherwise you can explicitly call navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+        try {
+            await AsyncStorage.removeItem('token');
+            await AsyncStorage.removeItem('user');
+        } catch (e) { console.log('Storage clear error', e); }
     };
 
     // Helper to get initials
@@ -336,70 +338,20 @@ const TopBar = ({ toggleSidebar, sidebarOpen }) => {
             {!isMobile && <GlobalSearch />}
 
             <View style={styles.topbarRight}>
-                {isCentralAdmin ? (
-                    <View style={styles.caTopbarActions}>
-                        {!isMobile && (
-                            <TouchableOpacity style={styles.caActionCircleBtn}>
-                                <Text style={{fontSize: 16}}>✨</Text>
-                            </TouchableOpacity>
-                        )}
-                        
-                        <TouchableOpacity style={[styles.caActionCircleBtn, styles.caNotifBtn]}>
-                            <Text style={{fontSize: 16}}>🔔</Text>
-                            <View style={styles.caNotifBadge}>
-                                <Text style={styles.caNotifBadgeText}>3</Text>
-                            </View>
-                        </TouchableOpacity>
-
-                        {!isMobile && (
-                            <TouchableOpacity 
-                                style={styles.caUserProfileChip}
-                                onPress={() => setDropdownVisible(!dropdownVisible)}
-                                activeOpacity={0.7}
-                            >
-                                <View style={styles.caAvatarWrapper}>
-                                    <View style={styles.caAvatarCircle}>
-                                        {user?.avatar ? (
-                                            <Image source={{ uri: user.avatar }} style={styles.profileAvatarImage} />
-                                        ) : (
-                                            <Text style={styles.caAvatarText}>{getInitials(user?.name) || 'PH'}</Text>
-                                        )}
-                                    </View>
-                                    <View style={styles.caAvatarOnline} />
-                                </View>
-                                <View style={styles.caUserDetailsCol}>
-                                    <Text style={styles.caUserNameText}>{user?.name || 'Pawan Harish'}</Text>
-                                    <Text style={styles.caUserRoleText}>Super Admin</Text>
-                                </View>
-                                <Text style={styles.caChevronArrow}>▾</Text>
-                            </TouchableOpacity>
-                        )}
+                {/* TOP BAR RIGHT SECTION */}
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    {/* Profile Avatar */}
+                    <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#3b82f6', justifyContent: 'center', alignItems: 'center', marginRight: 15 }}>
+                        <Text style={{ color: 'white', fontWeight: 'bold' }}>SA</Text>
                     </View>
-                ) : (
+                    
+                    {/* Logout Button */}
                     <TouchableOpacity 
-                        style={styles.userProfileWidget}
-                        onPress={() => setDropdownVisible(!dropdownVisible)}
-                        activeOpacity={0.7}
-                    >
-                        {!isMobile && (
-                            <View style={styles.profileTextInfo}>
-                                <Text style={styles.userDispName} numberOfLines={1}>
-                                    {(user?.role || '').toLowerCase().includes('doctor') ? 'Dr. ' : ''}{user?.name || 'User'}
-                                </Text>
-                            </View>
-                        )}
-                        <View style={styles.profileAvatarWrap}>
-                            <View style={styles.profileAvatar}>
-                                {user?.avatar ? (
-                                    <Image source={{ uri: user.avatar }} style={styles.profileAvatarImage} />
-                                ) : (
-                                    <Text style={styles.profileAvatarText}>{getInitials(user?.name)}</Text>
-                                )}
-                            </View>
-                            <View style={styles.onlineIndicator} />
-                        </View>
+                        onPress={() => dispatch(logout())} 
+                        style={{ backgroundColor: '#ef4444', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 6 }}>
+                        <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 14 }}>Logout</Text>
                     </TouchableOpacity>
-                )}
+                </View>
 
                 {/* Dropdown Profile Modal (Absolute Positioned) */}
                 {dropdownVisible && (

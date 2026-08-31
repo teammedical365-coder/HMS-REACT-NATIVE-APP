@@ -14,17 +14,16 @@ export default function CentralAdminTabs({ activeTab, setActiveTab, onRevenueAna
 
   return (
     <View>
-      {/* 1. DASHBOARD HEADER AREA */}
-      <View style={styles.headerRow}> {/* .cad-header-row */}
-        <View style={styles.titleGroup}> {/* .cad-title-group */}
-          <View style={styles.titleIconBox}> {/* .cad-title-icon-box */}
+      <View style={styles.headerRow}>
+        <View style={styles.titleGroup}>
+          <View style={styles.titleIconBox}>
             <Text style={{ fontSize: 24 }}>🎛️</Text>
           </View>
-          <View style={styles.titleTextCol}> {/* .cad-title-text-col */}
-            <Text style={styles.mainTitle}> {/* .cad-main-title */}
+          <View style={styles.titleTextCol}>
+            <Text style={styles.mainTitle}>
               Central Administration Dashboard
             </Text>
-            <Text style={styles.mainSubtitle}> {/* .cad-main-subtitle */}
+            <Text style={styles.mainSubtitle}>
               Manage all hospitals, staff, and system configurations
             </Text>
           </View>
@@ -34,14 +33,13 @@ export default function CentralAdminTabs({ activeTab, setActiveTab, onRevenueAna
           style={styles.revenueAnalyticsBtn} 
           onPress={onRevenueAnalyticsPress}
         >
-          <Text style={styles.revenueAnalyticsBtnText}> {/* .cad-revenue-analytics-btn text */}
+          <Text style={styles.revenueAnalyticsBtnText}>
             📊 System Revenue Analytics ▼
           </Text>
         </TouchableOpacity>
       </View>
 
-      {/* 2. CATEGORY / PLAN TABS NAVIGATION */}
-      <View style={styles.tabsNavContainer}> {/* .cad-tabs-nav-container */}
+      <View style={styles.tabsNavContainer}>
         <ScrollView 
           horizontal 
           showsHorizontalScrollIndicator={false}
@@ -50,16 +48,14 @@ export default function CentralAdminTabs({ activeTab, setActiveTab, onRevenueAna
           {tabs.map((tab, idx) => {
             const isActive = activeTab === tab.id;
             
-            // Map to multi-colored active tab pills (.cad-tab-pill.active)
             let activeStyle = {};
             let activeTextStyle = {};
             if (isActive) {
-               // Assign alternating styles based on index for variety matching web behavior
                if(idx % 2 === 0) {
-                   activeStyle = styles.tabPillActiveBlue; // .cad-tab-pill.tab-theme-blue.active
+                   activeStyle = styles.tabPillActiveBlue;
                    activeTextStyle = styles.tabPillTextActiveBlue;
                } else {
-                   activeStyle = styles.tabPillActiveGreen; // .cad-tab-pill.tab-theme-green.active
+                   activeStyle = styles.tabPillActiveGreen;
                    activeTextStyle = styles.tabPillTextActiveGreen;
                }
             }
@@ -70,8 +66,8 @@ export default function CentralAdminTabs({ activeTab, setActiveTab, onRevenueAna
                 style={[styles.tabPill, activeStyle]} 
                 onPress={() => setActiveTab(tab.id)}
               >
-                <Text style={{ fontSize: 16 }}>{tab.icon}</Text> {/* .cad-tab-icon */}
-                <Text style={[styles.tabPillText, activeTextStyle]}> {/* text inside .cad-tab-pill */}
+                <Text style={{ fontSize: 16 }}>{tab.icon}</Text>
+                <Text style={[styles.tabPillText, activeTextStyle]}>
                   {tab.label}
                 </Text>
               </TouchableOpacity>

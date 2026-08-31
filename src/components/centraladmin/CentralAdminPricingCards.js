@@ -16,21 +16,28 @@ export default function CentralAdminPricingCards({
   }
 
   // Content configuration based on active tab
-  let title = 'Enterprise Plan';
-  let subtitle = 'Click any hospital card to view full analytics';
-  let btnAddAdmin = '+ Add Hospital Admin';
-  let btnAddHospital = '+ Add Enterprise Hospital';
-  let planPrice = 'Custom Quote';
-  let features = [
-    'Unlimited Hospital Admins', 'Multi-Branch Management', 
-    'Unlimited Doctor Accounts', 'Dedicated Account Manager',
-    'Unlimited Staff Accounts', 'Priority Support',
-    'Unlimited Branch Locations', 'SLA Support',
-    'Unlimited Patients', 'All HMS Modules Included',
-    'Advanced Role & Permissions'
-  ];
+  let title = '';
+  let subtitle = '';
+  let btnAddAdmin = '+ Add Admin';
+  let btnAddHospital = '+ Add';
+  let planPrice = '';
+  let features = [];
 
-  if (activeTab === 'multi-speciality') {
+  if (activeTab === 'hospitals' || activeTab === 'enterprise') {
+    title = 'Enterprise Plan';
+    subtitle = 'Click any hospital card to view full analytics';
+    btnAddAdmin = '+ Add Hospital Admin';
+    btnAddHospital = '+ Add Enterprise Hospital';
+    planPrice = 'Custom Quote';
+    features = [
+      'Unlimited Hospital Admins', 'Multi-Branch Management', 
+      'Unlimited Doctor Accounts', 'Dedicated Account Manager',
+      'Unlimited Staff Accounts', 'Priority Support',
+      'Unlimited Branch Locations', 'SLA Support',
+      'Unlimited Patients', 'All HMS Modules Included',
+      'Advanced Role & Permissions'
+    ];
+  } else if (activeTab === 'multi-speciality') {
     title = 'Multi-Speciality Starter';
     subtitle = 'Optimized for Multi-Speciality Hospitals and Diagnostic Centers.';
     btnAddHospital = '+ Add Multi-Speciality';
@@ -52,25 +59,39 @@ export default function CentralAdminPricingCards({
       '1 Branch Location', 'Unlimited Patients',
       'Basic Modules Included', 'Standard Permissions'
     ];
+  } else if (activeTab === 'simple-clinics' || activeTab === 'starter') {
+    title = 'Starter Plan';
+    subtitle = 'Designed for single-doctor clinics and basic OPD setups.';
+    btnAddHospital = '+ Add Starter Clinic';
+    planPrice = '₹5,000 / Year';
+    features = [
+      '1 Doctor Account', 'Up to 2 Staff Accounts',
+      'Basic OPD Module', 'Email Support',
+      '1 Branch Location', 'Appointment Scheduling',
+      'Digital Prescriptions', 'Basic Reporting'
+    ];
+  } else {
+    // Hide pricing cards for non-plan tabs like configurations and revenue-plans
+    return null;
   }
 
   return (
-    <View style={styles.featuredPlanSection}> {/* .cad-featured-plan-section */}
+    <View style={styles.featuredPlanSection}>
       
       {/* SECTION HEADER */}
-      <View style={styles.planHeaderRow}> {/* .cad-plan-header-row */}
-        <View style={styles.planTitleCol}> {/* .cad-plan-title-col */}
-          <View style={styles.planBadgeIcon}> {/* .cad-plan-badge-icon */}
+      <View style={styles.planHeaderRow}>
+        <View style={styles.planTitleCol}>
+          <View style={styles.planBadgeIcon}>
             {/* Using text for SVG representation */}
             <Text style={{ fontSize: 22, color: '#2563eb' }}>💼</Text> 
           </View>
           <View>
-            <Text style={styles.planSectionTitle}>{title}</Text> {/* .cad-plan-section-title */}
-            <Text style={styles.planSectionSub}>{subtitle}</Text> {/* .cad-plan-section-sub */}
+            <Text style={styles.planSectionTitle}>{title}</Text>
+            <Text style={styles.planSectionSub}>{subtitle}</Text>
           </View>
         </View>
 
-        <View style={styles.planActionsRow}> {/* .cad-plan-actions-row */}
+        <View style={styles.planActionsRow}>
           <TouchableOpacity 
             style={styles.btnSecondary} 
             onPress={onToggleAdminForm}
@@ -87,19 +108,19 @@ export default function CentralAdminPricingCards({
       </View>
 
       {/* TWO INFORMATION CARDS ROW */}
-      <View style={styles.planCardsGrid}> {/* .cad-plan-cards-grid */}
+      <View style={styles.planCardsGrid}>
         
         {/* Left Card: Plan Operational Provision */}
-        <View style={styles.planInfoCard}> {/* .cad-plan-info-card */}
-          <View style={styles.infoCardHeader}> {/* .cad-info-card-header */}
-            <Text style={styles.infoPlanName}> {/* .cad-info-plan-name */}
+        <View style={styles.planInfoCard}>
+          <View style={styles.infoCardHeader}>
+            <Text style={styles.infoPlanName}>
               {title} Plan
             </Text>
-            <Text style={styles.infoPlanPrice}> {/* .cad-info-plan-price */}
+            <Text style={styles.infoPlanPrice}>
               {planPrice}
             </Text>
           </View>
-          <Text style={styles.infoProvisionHeading}> {/* .cad-info-provision-heading */}
+          <Text style={styles.infoProvisionHeading}>
             Operational Provision
           </Text>
           
@@ -116,15 +137,15 @@ export default function CentralAdminPricingCards({
         </View>
 
         {/* Right Card: Digital Presence Add-on */}
-        <View style={styles.addonCard}> {/* .cad-addon-card */}
-          <View style={styles.addonContentCol}> {/* .cad-addon-content-col */}
-            <View style={styles.addonTag}> {/* .cad-addon-tag */}
-              <Text style={{ fontSize: 16 }}>✨</Text> {/* .cad-addon-sparkle */}
-              <Text style={styles.addonTagText}> {/* .cad-addon-tag-text */}
+        <View style={styles.addonCard}>
+          <View style={styles.addonContentCol}>
+            <View style={styles.addonTag}>
+              <Text style={{ fontSize: 16 }}>✨</Text>
+              <Text style={styles.addonTagText}>
                 Digital Presence Add-on
               </Text>
             </View>
-            <View style={{ gap: 9 }}> {/* .cad-addon-checklist */}
+            <View style={{ gap: 9 }}>
               <View style={styles.featureItem}>
                 <Text style={{ color: '#2563eb', fontWeight: '800', fontSize: 14 }}>✓</Text>
                 <Text style={styles.featureItemText}>White-Labeled Patient App (Android/iOS)</Text>
@@ -140,7 +161,7 @@ export default function CentralAdminPricingCards({
             </View>
           </View>
           
-          <View style={{ alignItems: 'center', justifyContent: 'center', padding: 10 }}> {/* .cad-addon-graphic-col */}
+          <View style={{ alignItems: 'center', justifyContent: 'center', padding: 10 }}>
             <Text style={{ fontSize: 60, opacity: 0.9 }}>📱</Text>
           </View>
         </View>

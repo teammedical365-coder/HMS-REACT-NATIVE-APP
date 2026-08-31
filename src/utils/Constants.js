@@ -1,6 +1,6 @@
 // Central constants — replaces import.meta.env (Vite) for React Native
 
-export const API_BASE_URL = 'https://hms-n6nk.onrender.com';
+export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 
 export const APP_NAME = 'Medical 365';
 

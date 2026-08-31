@@ -119,7 +119,7 @@ const SystemRevenueDashboard = () => {
             {/* ── Header ───────────────────────────────────── */}
             <View style={styles.srdHeader}>
                 <View style={styles.srdHeaderLeft}>
-                    <TouchableOpacity style={styles.srdBackBtn} onPress={() => navigation.navigate('SuperAdmin')}>
+                    <TouchableOpacity style={styles.srdBackBtn} onPress={() => navigation.navigate('CentralAdminDashboard')}>
                         <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13 }}>← Back to Dashboard</Text>
                     </TouchableOpacity>
                     <View style={styles.srdBrandBadge}>
@@ -419,7 +419,7 @@ const SystemRevenueDashboard = () => {
                                         <View style={[styles.td, { width: 120, justifyContent: 'center' }]}>
                                             <TouchableOpacity
                                                 style={styles.srdManageBtn}
-                                                onPress={() => navigation.navigate('SuperAdmin', { state: { openTab: 'revenue-plans', hospitalId: h._id } })}
+                                                onPress={() => navigation.navigate('CentralAdminDashboard', { openTab: 'revenue-plans', hospitalId: h._id })}
                                             >
                                                 <Text style={styles.srdManageBtnText}>Manage Plan</Text>
                                             </TouchableOpacity>

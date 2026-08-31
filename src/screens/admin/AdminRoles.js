@@ -139,7 +139,9 @@ const AdminRoles = () => {
     const fetchRoles = async () => {
         try {
             const res = await adminAPI.getRoles();
-            if (res.success) setRoles(res.data);
+            console.log("🔥 API RESPONSE (AdminRoles):", res);
+            const actualData = res?.data?.data || res?.data?.roles || res?.roles || res?.data || res || [];
+            setRoles(Array.isArray(actualData) ? actualData : []);
         } catch (err) {
             console.error("Error fetching roles", err);
         }

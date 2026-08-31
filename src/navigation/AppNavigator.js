@@ -31,7 +31,7 @@ const FallbackStack = () => (
 
 const AppNavigator = () => {
     // Context ki jagah Redux se status le rahe hain
-    const { loading: isLoading, isAuthenticated, user } = useAuth();
+    const { loading: isLoading, isAuthenticated, user, token } = useAuth();
     const userRole = user?.role;
 
     if (isLoading) {
@@ -44,16 +44,19 @@ const AppNavigator = () => {
 
     // Role-based routing resolution based EXACTLY on web client strings
     const renderRoleStack = () => {
-        const role = (userRole || '').toLowerCase();
+        // Extract role string whether user.role is a string or an object { name: 'admin' }
+       const rawRole = typeof user?.role === 'object' ? user?.role?.name : user?.role;
+const role = (rawRole || '').toLowerCase().replace(/\s+/g, '');
 
-        switch (role) {
-            case 'superadmin':
-            case 'centraladmin':
-                return <Stack.Screen name="CentralAdmin" component={CentralAdminApp} />;
+switch (role) {
+    case 'superadmin':
+    case 'centraladmin':
+    case 'admin':
+        return <Stack.Screen name="CentralAdmin" component={CentralAdminApp} />;
             case 'hospitaladmin':
                 return <Stack.Screen name="HospitalAdmin" component={HospitalAdminApp} />;
             case 'doctor':
-            case 'clinic doctor':
+            case 'clinicdoctor':
                 return <Stack.Screen name="Doctor" component={DoctorApp} />;
             case 'otmanager':
             case 'otstaff':
@@ -80,7 +83,7 @@ const AppNavigator = () => {
 
     return (
         <Stack.Navigator screenOptions={{ headerShown: false, animation: 'fade' }}>
-            {!isAuthenticated ? ( // userToken == null ki jagah ab hum seedha Redux ka status check kar rahe hain
+            {(!isAuthenticated || !token) ? ( // Check both isAuthenticated and token to prevent premature API calls in child screens
                 // No token found, user isn't signed in
                 <Stack.Screen name="Auth" component={AuthStack} />
             ) : (

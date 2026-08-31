@@ -171,7 +171,9 @@ const Admin = () => {
     const fetchRoles = async () => {
         try {
             const response = await adminAPI.getRoles();
-            if (response.success) setRoles(response.data);
+            console.log("🔥 API RESPONSE (Roles):", response);
+            const actualData = response?.data?.data || response?.data?.roles || response?.roles || response?.data || response || [];
+            setRoles(Array.isArray(actualData) ? actualData : []);
         } catch (err) {
             console.error('Error fetching roles:', err);
         }
@@ -181,11 +183,16 @@ const Admin = () => {
         try {
             setLoadingUsers(true);
             const response = await adminAPI.getUsers(plan, hospitalId);
-            if (response.success) {
+            console.log("🔥 API RESPONSE (Users):", response);
+            
+            const actualData = response?.data?.data || response?.data?.users || response?.users || response?.data || response || [];
+            const safeUsers = Array.isArray(actualData) ? actualData : [];
+
+            if (response.success || safeUsers.length > 0) {
                 const uStr = await AsyncStorage.getItem('user');
                 const userObj = JSON.parse(uStr || '{}');
                 const isCentral = ['superadmin', 'centraladmin'].includes(userObj.role);
-                const staffUsers = response.users.filter(u => {
+                const staffUsers = safeUsers.filter(u => {
                     const r = (u.role || '').toLowerCase();
                     if (['patient', 'user'].includes(r)) return false;
                     if (!isCentral && r.includes('doctor')) return false;

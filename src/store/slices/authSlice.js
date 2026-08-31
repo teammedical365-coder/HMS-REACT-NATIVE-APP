@@ -1,6 +1,6 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { authAPI, adminAPI, hospitalAdminAPI } from '../../utils/api';
+import { authAPI, adminAPI, hospitalAdminAPI, setAuthHeader } from '../../utils/api';
 import { STORAGE_KEYS } from '../../utils/Constants';
 
 // ── OTP-Based Login Thunks ────────────────────────────────────────────────────
@@ -12,6 +12,7 @@ export const sendOtp = createAsyncThunk(
       const response = await authAPI.sendOtp(email, password, hospitalId, hospitalSlug, loginType);
       if (response.success) {
         if (response.otpBypassed && !response.activeSessionExists && response.token) {
+          setAuthHeader(response.token);
           await AsyncStorage.setItem(STORAGE_KEYS.TOKEN, response.token);
           await AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(response.user));
         }
@@ -29,10 +30,12 @@ export const sendOtp = createAsyncThunk(
 export const verifyOtp = createAsyncThunk(
   'auth/verifyOtp',
   async ({ preAuthToken, otp }, { rejectWithValue }) => {
+    console.log("🔥 [authSlice] Dispatching verifyOtp with preAuthToken:", !!preAuthToken);
     try {
       const response = await authAPI.verifyOtp(preAuthToken, otp);
       if (response.success) {
         if (!response.activeSessionExists && response.token) {
+          setAuthHeader(response.token);
           await AsyncStorage.setItem(STORAGE_KEYS.TOKEN, response.token);
           await AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(response.user));
         }
@@ -201,7 +204,7 @@ const authSlice = createSlice({
       state.sessionExpiredMessage = null;
       // AsyncStorage cleanup happens via redux-persist on next rehydrate.
       // Manually clear as well for immediate effect:
-      AsyncStorage.multiRemove([STORAGE_KEYS.TOKEN, STORAGE_KEYS.USER]);
+      AsyncStorage.multiRemove([STORAGE_KEYS.TOKEN, STORAGE_KEYS.USER, 'superadmin_token']);
     },
     clearError: (state) => {
       state.error = null;

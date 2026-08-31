@@ -100,7 +100,7 @@ const RoleDashboard = () => {
         if (isReception) {
             navigation.replace('ReceptionDashboard');
         } else if ((roleName || '').toLowerCase() === 'centraladmin' || (roleName || '').toLowerCase() === 'superadmin') {
-            navigation.replace('SuperAdmin');
+            navigation.replace('CentralAdminDashboard');
         }
     }, [isReception, roleName, navigation]);
 

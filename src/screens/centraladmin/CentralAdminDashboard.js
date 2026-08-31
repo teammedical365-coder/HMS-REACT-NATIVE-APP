@@ -8,9 +8,10 @@ import CentralAdminTabs from '../../components/centraladmin/CentralAdminTabs';
 import CentralAdminPricingCards from '../../components/centraladmin/CentralAdminPricingCards';
 import CentralAdminHospitalList from '../../components/centraladmin/CentralAdminHospitalList';
 import CentralAdminForms from '../../components/centraladmin/CentralAdminForms';
+import { hospitalAPI, simpleClinicAPI } from '../../utils/api';
 
 export default function CentralAdminDashboard() {
-  const navigation = useNavigation();
+  const navigation = useNavigation(); 
   const route = useRoute();
 
   // State Management
@@ -50,19 +51,21 @@ export default function CentralAdminDashboard() {
 
   const fetchHospitals = async (tab) => {
     setLoading(true);
-    // Dummy delay simulating API call
-    setTimeout(() => {
-      // Dummy data representing hospitals
-      if (tab === 'hospitals') {
-        setHospitals([
-          { _id: '1', name: 'Apollo Main Branch', city: 'Mumbai', state: 'MH', phone: '9876543210', email: 'contact@apollo.com', slug: 'apollo' },
-          { _id: '2', name: 'Max Super Speciality', city: 'Delhi', state: 'DL', phone: '9876543211', email: 'hello@max.com', slug: 'max', customDomain: 'portal.max.com' }
-        ]);
-      } else {
-        setHospitals([]);
+    try {
+      let data = [];
+      if (tab === 'simple-clinics') {
+        data = await simpleClinicAPI.getClinics(tab);
+      } else if (['hospitals', 'multi-speciality', 'clinic-basic'].includes(tab)) {
+        data = await hospitalAPI.getHospitals(tab);
       }
+      
+      console.log("🔥 HOSPITALS PAYLOAD:", data);
+      setHospitals(Array.isArray(data?.hospitals) ? data.hospitals : Array.isArray(data?.data) ? data.data : []);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to fetch hospitals');
+    } finally {
       setLoading(false);
-    }, 500);
+    }
   };
 
   const handleSaveHospital = () => {
