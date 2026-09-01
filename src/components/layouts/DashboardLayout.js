@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, Image, Dimensions } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Image, Dimensions, Platform } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSelector, useDispatch } from 'react-redux';
 import { logout } from '../../store/slices/authSlice';
@@ -35,6 +35,7 @@ const FiUser = () => <Text style={{fontSize: 18}}>👤</Text>;
 
 const DashboardSidebar = ({ isOpen, setOpen }) => {
     const { user } = useSelector(state => state.auth);
+    const dispatch = useDispatch();
     const { branding, hospitalName } = useBranding();
     const role = (user?.role || '').toLowerCase();
     
@@ -169,8 +170,9 @@ const DashboardSidebar = ({ isOpen, setOpen }) => {
                         <View style={styles.brandDot} />
                     ) : (
                         <Image
-                            source={{ uri: isCentralAdmin ? 'https://via.placeholder.com/175x36?text=Medical365' : (branding?.logoUrl || branding?.logo || 'https://via.placeholder.com/175x36?text=Medical365') }}
+                            source={isCentralAdmin ? require('../../assets/medical365-logo.png') : (branding?.logoUrl ? { uri: branding.logoUrl } : require('../../assets/medical365-logo.png'))}
                             style={styles.brandLogo}
+                            resizeMode="contain"
                         />
                     )}
                 </View>
@@ -247,6 +249,34 @@ const DashboardSidebar = ({ isOpen, setOpen }) => {
                     </View>
                 )}
             </ScrollView>
+
+            <View style={{ borderTopWidth: 1, borderTopColor: '#e2e8f0', paddingVertical: 10, paddingHorizontal: isOpen ? 10 : 0 }}>
+                <TouchableOpacity 
+                    style={[styles.sidebarLink, !isOpen && styles.sidebarLinkCollapsed]} 
+                    onPress={async () => {
+                        try {
+                            dispatch(logout());
+                            await AsyncStorage.removeItem('token');
+                            await AsyncStorage.removeItem('user');
+                            if (Platform.OS === 'web') {
+                                localStorage.removeItem('token');
+                                localStorage.removeItem('user');
+                            }
+                        } catch (err) {
+                            console.error('Logout failed:', err);
+                        }
+                    }}
+                >
+                    <View style={styles.sidebarLinkIcon}>
+                        <FiLogOut />
+                    </View>
+                    {isOpen && (
+                        <Text style={[styles.sidebarLinkText, { color: '#ef4444' }]}>
+                            Logout
+                        </Text>
+                    )}
+                </TouchableOpacity>
+            </View>
 
             {/* Collapse button for Central Admin */}
             {isCentralAdmin && !isMobile && (

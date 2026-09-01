@@ -45,23 +45,30 @@ export default function CentralAdminDashboard() {
   }, [route.params?.openTab, navigation]);
 
   useEffect(() => {
-    // Fetch hospitals based on active plan (dummy fetch for now)
-    fetchHospitals(activeTab);
-  }, [activeTab]);
+    fetchHospitals();
+  }, []);
 
-  const fetchHospitals = async (tab) => {
+  const fetchHospitals = async () => {
     setLoading(true);
     try {
-      let data = [];
-      if (tab === 'simple-clinics') {
-        data = await simpleClinicAPI.getClinics(tab);
-      } else if (['hospitals', 'multi-speciality', 'clinic-basic'].includes(tab)) {
-        data = await hospitalAPI.getHospitals(tab);
+      // Pass empty string to fetch all hospitals across all plans
+      const data = await hospitalAPI.getHospitals('');
+      const hospitalList = Array.isArray(data) ? data : (data?.hospitals || data?.data || []);
+      
+      // Also fetch simple clinics if they are in a separate collection and combine them
+      let allHospitals = [...hospitalList];
+      try {
+        const clinicsData = await simpleClinicAPI.getClinics('');
+        const clinicList = Array.isArray(clinicsData) ? clinicsData : (clinicsData?.clinics || clinicsData?.data || []);
+        allHospitals = [...allHospitals, ...clinicList];
+      } catch (e) {
+        console.log("No simple clinics fetched or endpoint unavailable:", e.message);
       }
       
-      console.log("🔥 HOSPITALS PAYLOAD:", data);
-      setHospitals(Array.isArray(data?.hospitals) ? data.hospitals : Array.isArray(data?.data) ? data.data : []);
+      console.log("🔥 [Dashboard All Hospitals Payload]:", allHospitals);
+      setHospitals(allHospitals);
     } catch (err) {
+      console.error("Error fetching hospitals:", err);
       setError(err.response?.data?.message || 'Failed to fetch hospitals');
     } finally {
       setLoading(false);
@@ -111,8 +118,8 @@ export default function CentralAdminDashboard() {
         />
 
         {/* Global Notifications */}
-        {error ? <Text style={{ color: 'red', marginBottom: 10 }}>⚠️ {error}</Text> : null}
-        {success ? <Text style={{ color: 'green', marginBottom: 10 }}>✅ {success}</Text> : null}
+        {Boolean(error) ? <Text style={{ color: 'red', marginBottom: 10 }}>⚠️ {error}</Text> : null}
+        {Boolean(success) ? <Text style={{ color: 'green', marginBottom: 10 }}>✅ {success}</Text> : null}
 
         {/* Child Component 2: Pricing Cards & Operational Provisions */}
         <CentralAdminPricingCards 

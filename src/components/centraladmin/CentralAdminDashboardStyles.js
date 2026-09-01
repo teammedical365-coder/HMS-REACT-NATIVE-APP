@@ -401,6 +401,19 @@ export const styles = StyleSheet.create({
     gap: 8,
   },
   // .cad-btn-sm-branding
+  loginAsBtn: {
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+  },
+  loginAsBtnText: {
+    color: '#16a34a',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   btnSmBranding: {
     paddingVertical: 5,
     paddingHorizontal: 10,

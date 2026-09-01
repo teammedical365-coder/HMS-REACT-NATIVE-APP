@@ -1,5 +1,17 @@
 {
-  "plugins": [
-  
-  ]
+  "expo": {
+    "name": "HMS",
+    "slug": "hms",
+    "version": "1.0.0",
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ]
+  }
 }

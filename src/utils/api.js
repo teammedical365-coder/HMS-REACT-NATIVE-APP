@@ -1,11 +1,11 @@
 import axios from 'axios';
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL, STORAGE_KEYS } from './Constants';
 
 export const baseURL = API_BASE_URL;
 
 // ─── Navigation ref for redirects from interceptors ────────────────────────
-// Set by AppNavigator via navigationRef.current
 let _navigationDispatch = null;
 export const setNavigationDispatch = (fn) => { _navigationDispatch = fn; };
 
@@ -17,29 +17,44 @@ const apiClient = axios.create({
 
 export const setAuthHeader = (token) => {
   if (token) {
-    apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    const cleanToken = String(token).replace(/^"(.*)"$/, '$1').trim();
+    apiClient.defaults.headers.common['Authorization'] = `Bearer ${cleanToken}`;
   } else {
     delete apiClient.defaults.headers.common['Authorization'];
   }
 };
 
 apiClient.interceptors.request.use(async (config) => {
-  const token = await AsyncStorage.getItem('token');
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+  let token = null;
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    token = localStorage.getItem(STORAGE_KEYS.TOKEN) || localStorage.getItem('token');
+  }
+  if (!token) {
+    token = await AsyncStorage.getItem(STORAGE_KEYS.TOKEN) || await AsyncStorage.getItem('token');
+  }
+  
+  if (token) {
+    const cleanToken = String(token).replace(/^"(.*)"$/, '$1').trim();
+    config.headers.Authorization = `Bearer ${cleanToken}`;
+  }
   return config;
 }, (error) => Promise.reject(error));
 
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
-    // Check if the failing request is the OTP verification route
     const isOtpVerifyRoute = error.config?.url?.includes('/otp/verify');
 
-    // Only clear storage and trigger session expiry if it's NOT the OTP route
     if (error.response?.status === 401 && !isOtpVerifyRoute) {
       const isSessionExpired = error.response?.data?.sessionExpired;
       await AsyncStorage.removeItem(STORAGE_KEYS.TOKEN);
       await AsyncStorage.removeItem(STORAGE_KEYS.USER);
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        localStorage.removeItem(STORAGE_KEYS.TOKEN);
+        localStorage.removeItem('token');
+        localStorage.removeItem(STORAGE_KEYS.USER);
+        localStorage.removeItem('user');
+      }
       
       if (isSessionExpired) {
         await AsyncStorage.setItem(
@@ -83,19 +98,16 @@ export const authAPI = {
       throw error;
     }
   },
-  
   verifyOtp: async (preAuthToken, otp) => {
-    console.log("🚀 LATEST CODE RUNNING NOW!");
-  const cleanOtp = String(otp).trim();
-  const response = await apiClient.post(
-    '/api/auth/otp/verify', 
-    { preAuthToken, otp: cleanOtp },
-    { headers: { Authorization: `Bearer ${preAuthToken}` } }
-  );
-  return response.data;
-},
+    const cleanOtp = String(otp).trim();
+    const response = await apiClient.post(
+      '/api/auth/otp/verify', 
+      { preAuthToken, otp: cleanOtp },
+      { headers: { Authorization: `Bearer ${preAuthToken}` } }
+    );
+    return response.data;
+  },
   resendOtp: async (preAuthToken) => {
-    console.log("🔥 [api.js] resendOtp sending preAuthToken:", preAuthToken);
     const response = await apiClient.post(
       '/api/auth/otp/resend', 
       { preAuthToken },
@@ -104,7 +116,6 @@ export const authAPI = {
     return response.data;
   },
   forceLogin: async (preAuthToken) => {
-    console.log("🔥 [api.js] forceLogin sending preAuthToken:", preAuthToken);
     const response = await apiClient.post(
       '/api/auth/otp/force-login', 
       { preAuthToken },

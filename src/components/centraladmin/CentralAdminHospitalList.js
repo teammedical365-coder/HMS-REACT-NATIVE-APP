@@ -1,5 +1,7 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Image } from 'react-native';
+import { View, Text, TouchableOpacity, Image, Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useNavigation } from '@react-navigation/native';
 import { styles } from './CentralAdminDashboardStyles';
 
 export default function CentralAdminHospitalList({ 
@@ -19,7 +21,43 @@ export default function CentralAdminHospitalList({
     return null; // Hidden when forms are open
   }
 
-  const isEmpty = hospitals.length === 0;
+  const navigation = useNavigation();
+
+  const handleLoginAsHospital = async (hospital) => {
+    try {
+      // Save selected hospital tenant details to storage
+      await AsyncStorage.setItem('tenant_id', hospital._id || hospital.id);
+      await AsyncStorage.setItem('selected_hospital', JSON.stringify(hospital));
+      
+      if (Platform.OS === 'web') {
+        localStorage.setItem('tenant_id', hospital._id || hospital.id);
+        localStorage.setItem('selected_hospital', JSON.stringify(hospital));
+      }
+
+      // Redirect to hospital admin dashboard or login page with pre-filled tenant
+      if (Platform.OS === 'web') {
+        // Direct redirect for Web environment
+        window.location.href = `/dashboard?tenantId=${hospital._id || hospital.id}`;
+      } else {
+        // Safely try common screen names if navigation context exists
+        try {
+          navigation.navigate('AdminDashboard', { hospitalId: hospital._id || hospital.id });
+        } catch (e) {
+          console.error("Navigation screen not found:", e);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to switch hospital portal:", err);
+    }
+  };
+
+  const normalize = (str) => String(str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  
+  const filteredHospitals = hospitals.filter(h => 
+    normalize(h.plan) === normalize(activeTab) || activeTab === 'all' || activeTab === 'hospitals'
+  );
+
+  const isEmpty = filteredHospitals.length === 0;
 
   let emptyMessage = 'No enterprise hospitals found. Add one to get started.';
   if (activeTab === 'multi-speciality') emptyMessage = 'No multi-speciality hospitals found.';
@@ -39,7 +77,7 @@ export default function CentralAdminHospitalList({
 
       {/* HOSPITAL CARDS GRID */}
       <View style={styles.hospitalsGrid}>
-        {hospitals.map((hospital) => {
+        {filteredHospitals.map((hospital) => {
           const logoUrl = hospital.brandingSchema?.logoUrl || hospital.branding?.logoUrl;
           
           return (
@@ -52,7 +90,7 @@ export default function CentralAdminHospitalList({
               {/* Card Header */}
               <View style={styles.hospitalCardHeader}>
                 <View style={styles.hospitalLogoBox}>
-                  {logoUrl ? (
+                  {Boolean(logoUrl) ? (
                     <Image 
                       source={{ uri: logoUrl }} 
                       style={{ width: '100%', height: '100%', resizeMode: 'contain' }} 
@@ -62,30 +100,30 @@ export default function CentralAdminHospitalList({
                   )}
                 </View>
                 
-                <View style={styles.hospitalInfo}> {/* .cad-hospital-info */}
-                  <Text style={styles.hospitalName} numberOfLines={1}> {/* .cad-hospital-name */}
+                <View style={styles.hospitalInfo}>
+                  <Text style={styles.hospitalName} numberOfLines={1}>
                     {hospital.name}
                   </Text>
-                  <Text style={styles.hospitalTagline} numberOfLines={1}> {/* .cad-hospital-tagline */}
-                    {hospital.city ? `${hospital.city}, ${hospital.state || ''}` : 'Location not set'}
+                  <Text style={styles.hospitalTagline} numberOfLines={1}>
+                    {Boolean(hospital.city) ? `${hospital.city}${hospital.state ? `, ${hospital.state}` : ''}` : 'Location not set'}
                   </Text>
                 </View>
               </View>
 
               {/* Meta List */}
-              <View style={{ gap: 4, marginBottom: 14 }}> {/* .cad-hospital-meta-list */}
-                {hospital.phone && <Text style={{ fontSize: 13, color: '#64748b' }}>📞 {hospital.phone}</Text>}
-                {hospital.email && <Text style={{ fontSize: 13, color: '#64748b' }}>✉️ {hospital.email}</Text>}
+              <View style={{ gap: 4, marginBottom: 14 }}>
+                {Boolean(hospital.phone) ? <Text style={{ fontSize: 13, color: '#64748b' }}>📞 {hospital.phone}</Text> : null}
+                {Boolean(hospital.email) ? <Text style={{ fontSize: 13, color: '#64748b' }}>✉️ {hospital.email}</Text> : null}
                 
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 }}> {/* .cad-domain-badge-wrap */}
-                  {hospital.customDomain ? (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                  {Boolean(hospital.customDomain) ? (
                     <View style={{ backgroundColor: '#eff6ff', borderWidth: 1, borderColor: '#bfdbfe', paddingVertical: 2, paddingHorizontal: 8, borderRadius: 6 }}>
-                      <Text style={{ color: '#2563eb', fontSize: 11, fontWeight: '600' }}> {/* .cad-domain-badge */}
+                      <Text style={{ color: '#2563eb', fontSize: 11, fontWeight: '600' }}>
                         {hospital.customDomain}
                       </Text>
                     </View>
                   ) : null}
-                  {hospital.slug ? (
+                  {Boolean(hospital.slug) ? (
                     <View style={{ backgroundColor: '#eff6ff', borderWidth: 1, borderColor: '#bfdbfe', paddingVertical: 2, paddingHorizontal: 8, borderRadius: 6 }}>
                       <Text style={{ color: '#2563eb', fontSize: 11, fontWeight: '600' }}>
                         {hospital.slug}.hms.com
@@ -96,12 +134,19 @@ export default function CentralAdminHospitalList({
               </View>
 
               {/* Card Footer */}
-              <View style={styles.hospitalCardFooter}> {/* .cad-hospital-card-footer */}
-                <Text style={{ fontSize: 12, color: '#2563eb', fontWeight: '700' }}> {/* .cad-hospital-click-hint */}
+              <View style={styles.hospitalCardFooter}>
+                <Text style={{ fontSize: 12, color: '#2563eb', fontWeight: '700' }}>
                   📊 Click to view full analytics →
                 </Text>
                 
-                <View style={styles.hospitalBtnGroup}> {/* .cad-hospital-btn-group */}
+                <View style={styles.hospitalBtnGroup}>
+                  <TouchableOpacity 
+                    style={styles.loginAsBtn} 
+                    onPress={(e) => { e.stopPropagation(); handleLoginAsHospital(hospital); }}
+                  >
+                    <Text style={styles.loginAsBtnText}>🔑 Login to Portal</Text>
+                  </TouchableOpacity>
+                  
                   {activeTab !== 'simple-clinics' && (
                     <TouchableOpacity 
                       style={styles.btnSmBranding} 

@@ -1,5 +1,6 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import { authAPI, adminAPI, hospitalAdminAPI, setAuthHeader } from '../../utils/api';
 import { STORAGE_KEYS } from '../../utils/Constants';
 
@@ -13,6 +14,10 @@ export const sendOtp = createAsyncThunk(
       if (response.success) {
         if (response.otpBypassed && !response.activeSessionExists && response.token) {
           setAuthHeader(response.token);
+          if (Platform.OS === 'web') {
+            localStorage.setItem(STORAGE_KEYS.TOKEN, response.token);
+            localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(response.user));
+          }
           await AsyncStorage.setItem(STORAGE_KEYS.TOKEN, response.token);
           await AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(response.user));
         }
@@ -36,6 +41,10 @@ export const verifyOtp = createAsyncThunk(
       if (response.success) {
         if (!response.activeSessionExists && response.token) {
           setAuthHeader(response.token);
+          if (Platform.OS === 'web') {
+            localStorage.setItem(STORAGE_KEYS.TOKEN, response.token);
+            localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(response.user));
+          }
           await AsyncStorage.setItem(STORAGE_KEYS.TOKEN, response.token);
           await AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(response.user));
         }
@@ -191,6 +200,14 @@ const authSlice = createSlice({
   name: 'auth',
   initialState,
   reducers: {
+    setCredentials: (state, action) => {
+      state.user = action.payload.user;
+      state.token = action.payload.token;
+      state.isAuthenticated = true;
+      state.otpStep = null;
+      state.preAuthToken = null;
+      state.activeSession = null;
+    },
     logout: (state) => {
       state.user = null;
       state.token = null;
@@ -411,6 +428,7 @@ const authSlice = createSlice({
 });
 
 export const {
+  setCredentials,
   logout,
   clearError,
   updateUser,

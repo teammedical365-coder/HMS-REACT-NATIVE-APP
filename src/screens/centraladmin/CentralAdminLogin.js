@@ -6,7 +6,8 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAppDispatch, useAuth } from '../../store/hooks';
-import { sendOtp, forceLogin, clearError, resetOtpFlow } from '../../store/slices/authSlice';
+import { sendOtp, forceLogin, clearError, resetOtpFlow, setCredentials } from '../../store/slices/authSlice';
+import { setAuthHeader } from '../../utils/api';
 import PasswordInput from '../../components/PasswordInput';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -149,6 +150,13 @@ const CentralAdminLogin = () => {
                             await AsyncStorage.setItem('token', forceResult.token);
                             await AsyncStorage.setItem('superadmin_token', forceResult.token);
                             await AsyncStorage.removeItem('SAFE_PRE_AUTH_TOKEN');
+                            
+                            if (Platform.OS === 'web') {
+                                localStorage.setItem('token', forceResult.token);
+                                if (forceResult.user) localStorage.setItem('user', JSON.stringify(forceResult.user));
+                            }
+                            setAuthHeader(forceResult.token);
+                            
                             navigation.replace('CentralAdminDashboard');
                             return;
                         }
@@ -160,11 +168,22 @@ const CentralAdminLogin = () => {
 
                 // Normal Flow (Agar future mein session limit cross na ho)
                 const finalToken = data.token || data.accessToken || data.data?.token || data.data?.accessToken;
+                const finalUser = data.user || data.data?.user;
 
                 if (finalToken) {
                     await AsyncStorage.setItem('token', finalToken);
                     await AsyncStorage.setItem('superadmin_token', finalToken);
                     await AsyncStorage.removeItem('SAFE_PRE_AUTH_TOKEN');
+                    
+                    if (Platform.OS === 'web') {
+                        localStorage.setItem('token', finalToken);
+                        if (finalUser) localStorage.setItem('user', JSON.stringify(finalUser));
+                    }
+                    setAuthHeader(finalToken);
+                    if (finalUser) {
+                        dispatch(setCredentials({ user: finalUser, token: finalToken }));
+                    }
+                    
                     navigation.replace('CentralAdminDashboard');
                 } else {
                     setLocalError("Login Success but token missing: " + JSON.stringify(data));
