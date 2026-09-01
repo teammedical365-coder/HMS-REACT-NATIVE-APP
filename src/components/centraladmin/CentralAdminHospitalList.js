@@ -53,9 +53,31 @@ export default function CentralAdminHospitalList({
 
   const normalize = (str) => String(str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   
-  const filteredHospitals = hospitals.filter(h => 
-    normalize(h.plan) === normalize(activeTab) || activeTab === 'all' || activeTab === 'hospitals'
-  );
+  const filteredHospitals = hospitals.filter(h => {
+    // 1. Unify the plan source (handling legacy clinic payloads)
+    const plan = h.subscriptionPlan || h.clinicPlan || h.plan || 'none';
+
+    // 2. All tab
+    if (activeTab === 'all') return true;
+
+    // 3. Exact matching based on Web Blueprint
+    if (activeTab === 'multi-speciality') {
+      return plan === 'multi_speciality_starter';
+    }
+    if (activeTab === 'clinic-basic') {
+      return plan === 'clinic_basic';
+    }
+    if (activeTab === 'simple-clinics') {
+      return plan === 'starter' || plan === 'basic';
+    }
+    
+    // 4. Enterprise uses the Negative Filter
+    if (activeTab === 'hospitals') {
+      return plan !== 'multi_speciality_starter' && plan !== 'clinic_basic' && plan !== 'starter' && plan !== 'basic';
+    }
+    
+    return true;
+  });
 
   const isEmpty = filteredHospitals.length === 0;
 

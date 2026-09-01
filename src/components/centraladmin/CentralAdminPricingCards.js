@@ -142,7 +142,7 @@ export default function CentralAdminPricingCards({
             <View style={styles.addonTag}>
               <Text style={{ fontSize: 16 }}>✨</Text>
               <Text style={styles.addonTagText}>
-                Digital Presence Add-on
+                Digital Presence Add-on (₹5,000 EXTRA)
               </Text>
             </View>
             <View style={{ gap: 9 }}>

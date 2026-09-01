@@ -232,6 +232,23 @@ export const adminAPI = {
   deleteRole: async (id) => (await apiClient.delete(`/api/admin/roles/${id}`)).data,
 };
 
+export const centralAdminAPI = {
+  getHospitals: async (plan = '') => {
+    const url = plan ? `/api/hospitals?plan=${encodeURIComponent(plan)}` : '/api/hospitals';
+    return (await apiClient.get(url)).data;
+  },
+  getSystemAnalytics: async () => (await apiClient.get('/api/revenue/system')).data,
+  getHospitalsRevenue: async () => (await apiClient.get('/api/revenue/hospitals')).data,
+  impersonateHospital: async (hospitalId) => {
+    const response = await apiClient.post(`/api/admin/impersonate/${encodeURIComponent(hospitalId)}`);
+    return response.data;
+  },
+  updateHospitalPlan: async (hospitalId, payload) => {
+    const response = await apiClient.put(`/api/hospitals/${encodeURIComponent(hospitalId)}/plan`, payload);
+    return response.data;
+  },
+};
+
 // ─── Admin Entities API ──────────────────────────────────────────────────────
 export const adminEntitiesAPI = {
   getDoctors: async () => (await apiClient.get('/api/admin-entities/doctors')).data,

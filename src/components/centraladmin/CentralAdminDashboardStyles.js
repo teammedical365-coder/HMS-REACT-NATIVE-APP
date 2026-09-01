@@ -23,11 +23,71 @@ export const styles = StyleSheet.create({
   // .centraladmin-page
   centralAdminPage: {
     flex: 1,
-    backgroundColor: '#f0fdf9', // Simplified gradient: #f0fdf9 -> #e0f2fe -> #fdf2f8
-    padding: 20,
+    backgroundColor: '#F4F9FD', // Adjusted for Web Parity
+    padding: 0, // removed padding to accommodate navbar
     paddingBottom: 60,
   },
-  // .centraladmin-container
+  // Navbar Styles
+  navbarContainer: {
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'space-between', 
+    height: 68, 
+    paddingHorizontal: 20, 
+    backgroundColor: '#FFFFFF', 
+    borderBottomWidth: 1, 
+    borderBottomColor: '#E2E8F0',
+  },
+  searchContainer: {
+    flex: 1, 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    backgroundColor: '#F1F5F9', 
+    borderRadius: 8, 
+    paddingHorizontal: 12, 
+    marginHorizontal: 24, 
+    height: 40,
+  },
+  searchInput: {
+    flex: 1, 
+    marginLeft: 8, 
+    fontSize: 14, 
+    color: '#334155',
+  },
+  rightNavControls: {
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    gap: 16,
+  },
+  notificationWrapper: {
+    position: 'relative', 
+    padding: 4,
+  },
+  notificationBadge: {
+    position: 'absolute', 
+    top: 0, 
+    right: 0, 
+    width: 10, 
+    height: 10, 
+    backgroundColor: '#ef4444', 
+    borderRadius: 5, 
+    borderWidth: 1, 
+    borderColor: '#FFFFFF', 
+    zIndex: 10,
+  },
+  userAvatar: {
+    width: 36, 
+    height: 36, 
+    borderRadius: 18, 
+    backgroundColor: '#6366f1', 
+    alignItems: 'center', 
+    justifyContent: 'center',
+  },
+  userAvatarText: {
+    color: '#FFFFFF', 
+    fontWeight: 'bold', 
+    fontSize: 14,
+  },
   centralAdminContainer: {
     width: '100%',
   },
@@ -522,5 +582,151 @@ export const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 15,
     fontWeight: '800',
+  },
+  // Revenue Tab UI Phase 2
+  revenueCardsContainer: {
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    marginBottom: 24, 
+    gap: 12
+  },
+  revenueSummaryCard: {
+    flex: 1, 
+    padding: 16, 
+    borderRadius: 8, 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    gap: 12,
+    minWidth: 260, // Ensure minimum width for horizontal scroll view
+    marginRight: 12
+  },
+  revenueCardTitle: {
+    fontSize: 14, 
+    fontWeight: '700'
+  },
+  revenueCardSub: {
+    fontSize: 12, 
+    color: '#64748b', 
+    marginTop: 4
+  },
+  tableContainer: {
+    backgroundColor: '#FFFFFF', 
+    borderRadius: 8, 
+    borderWidth: 1, 
+    borderColor: '#e2e8f0', 
+    overflow: 'hidden'
+  },
+  tableHeader: {
+    flexDirection: 'row', 
+    backgroundColor: '#f8fafc', 
+    paddingVertical: 12, 
+    paddingHorizontal: 16, 
+    borderBottomWidth: 1, 
+    borderBottomColor: '#e2e8f0'
+  },
+  tableRow: {
+    flexDirection: 'row', 
+    paddingVertical: 14, 
+    paddingHorizontal: 16, 
+    borderBottomWidth: 1, 
+    borderBottomColor: '#f1f5f9', 
+    alignItems: 'center'
+  },
+  tableCellText: {
+    fontSize: 13, 
+    color: '#334155'
+  },
+  tableHeaderCell: {
+    fontSize: 12, 
+    color: '#64748b', 
+    fontWeight: 'bold', 
+    textTransform: 'uppercase'
+  },
+  badgeHospital: {
+    backgroundColor: '#eff6ff', 
+    color: '#3b82f6', 
+    paddingHorizontal: 8, 
+    paddingVertical: 4, 
+    borderRadius: 4, 
+    fontSize: 12, 
+    overflow: 'hidden',
+    alignSelf: 'flex-start'
+  },
+  badgeClinic: {
+    backgroundColor: '#f5f3ff', 
+    color: '#8b5cf6', 
+    paddingHorizontal: 8, 
+    paddingVertical: 4, 
+    borderRadius: 4, 
+    fontSize: 12, 
+    overflow: 'hidden',
+    alignSelf: 'flex-start'
+  },
+  btnEditPlan: {
+    paddingHorizontal: 12, 
+    paddingVertical: 6, 
+    borderRadius: 6, 
+    backgroundColor: '#f8fafc', 
+    borderWidth: 1, 
+    borderColor: '#cbd5e1'
+  },
+  btnEditPlanText: {
+    color: '#3b82f6', 
+    fontSize: 12, 
+    fontWeight: '600'
+  },
+  // Configurations Tab UI Phase 3
+  configGridContainer: {
+    flexDirection: 'row', 
+    flexWrap: 'wrap', 
+    justifyContent: 'space-between', 
+    marginTop: 10
+  },
+  configCard: {
+    width: '48%', 
+    backgroundColor: '#FFFFFF', 
+    padding: 16, 
+    borderRadius: 12, 
+    flexDirection: 'row', 
+    alignItems: 'flex-start', 
+    shadowColor: '#000', 
+    shadowOffset: { width: 0, height: 1 }, 
+    shadowOpacity: 0.05, 
+    shadowRadius: 3, 
+    elevation: 2, 
+    marginBottom: 16
+  },
+  configIconBox: {
+    width: 44, 
+    height: 44, 
+    borderRadius: 12, 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    marginRight: 12
+  },
+  configTextContainer: {
+    flex: 1
+  },
+  configTitle: {
+    fontSize: 14, 
+    fontWeight: 'bold', 
+    color: '#1e293b', 
+    marginBottom: 4
+  },
+  configSub: {
+    fontSize: 12, 
+    color: '#64748b', 
+    flexWrap: 'wrap'
+  },
+  configHeader: {
+    fontSize: 18, 
+    fontWeight: 'bold', 
+    color: '#0f172a', 
+    marginBottom: 8
+  },
+  configSubHeader: {
+    fontSize: 14, 
+    color: '#64748b', 
+    marginBottom: 20
   }
 });

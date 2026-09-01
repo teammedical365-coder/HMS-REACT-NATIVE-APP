@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import {
-    View, Text, TextInput, TouchableOpacity, Image, StyleSheet,
-    KeyboardAvoidingView, Platform, ScrollView, Dimensions, ActivityIndicator
+    View, Text, TextInput, TouchableOpacity, Image,
+    KeyboardAvoidingView, Platform, ScrollView, StyleSheet, useWindowDimensions, ActivityIndicator
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAppDispatch, useAuth } from '../../store/hooks';
-import { sendOtp, forceLogin, clearError, resetOtpFlow, setCredentials } from '../../store/slices/authSlice';
+import { sendOtp, verifyOtp, forceLogin, clearError, resetOtpFlow, setCredentials } from '../../store/slices/authSlice';
 import { setAuthHeader } from '../../utils/api';
 import PasswordInput from '../../components/PasswordInput';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -28,6 +28,8 @@ const CentralAdminLogin = () => {
     const [localError, setLocalError] = useState(PERSISTED_ERROR);
     const [step, setStep] = useState(1);
     const [otp, setOtp] = useState('');
+    const { width } = useWindowDimensions();
+    const isCompact = width < 768;
 
     useEffect(() => {
         const checkSession = async () => {
@@ -64,12 +66,26 @@ const CentralAdminLogin = () => {
     };
     const displayError = getSafeErrorText();
 
+    const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
     const handleSubmit = async () => {
         const { email, password } = formData;
+        
         if (!email || !password) {
             setLocalError("Please enter email and password");
             return;
         }
+        
+        if (!isValidEmail(email)) {
+            setLocalError("Please enter a valid email address");
+            return;
+        }
+        
+        if (password.length < 6) {
+            setLocalError("Password must be at least 6 characters long");
+            return;
+        }
+        
         setLocalError("");
         setLocalLoading(true);
 
@@ -78,19 +94,27 @@ const CentralAdminLogin = () => {
 
             if (result.preAuthToken) {
                 PERSISTED_PRE_AUTH_TOKEN = result.preAuthToken;
-                // 🔥 FIX 1: Physical lock taaki token hawa mein na ude
                 await AsyncStorage.setItem('SAFE_PRE_AUTH_TOKEN', result.preAuthToken);
             }
 
-            if (result.otpBypassed && result.token) {
-                await AsyncStorage.setItem('superadmin_token', result.token);
+            if (result.token) {
                 await AsyncStorage.setItem('token', result.token);
+                await AsyncStorage.setItem('superadmin_token', result.token);
+                setAuthHeader(result.token);
+                if (result.user) {
+                    dispatch(setCredentials({ user: result.user, token: result.token }));
+                }
+                // Use navigation.reset to properly transition from Auth stack to CentralAdmin stack
+                navigation.reset({
+                    index: 0,
+                    routes: [{ name: 'CentralAdmin' }],
+                });
                 return;
             }
             setStep(2);
         } catch (err) {
             const errMsg = typeof err === 'object' ? (err.message || JSON.stringify(err)) : err;
-            PERSISTED_ERROR = errMsg || "Failed to send OTP";
+            PERSISTED_ERROR = errMsg || "Invalid Credentials";
             setLocalError(PERSISTED_ERROR);
         } finally {
             setLocalLoading(false);
@@ -99,103 +123,71 @@ const CentralAdminLogin = () => {
 
     const handleVerifyOtp = async (e) => {
         if (e && e.preventDefault) e.preventDefault();
-        if (localLoading || window._isVerifyingOtp) return;
+        if (localLoading) return;
 
         const cleanOtp = String(otp).replace(/\D/g, '');
         if (!cleanOtp || cleanOtp.length !== 6) {
             return setLocalError('Please enter a valid 6-digit OTP.');
         }
 
-        window._isVerifyingOtp = true;
         setLocalError('');
         setLocalLoading(true);
 
         try {
-            let freshToken = PERSISTED_PRE_AUTH_TOKEN || await AsyncStorage.getItem('SAFE_PRE_AUTH_TOKEN') || preAuthToken;
+            // Use dispatch(verifyOtp) to maintain consistency with web flow
+            const result = await dispatch(verifyOtp({ preAuthToken, otp: cleanOtp })).unwrap();
+            
+            if (result.activeSessionExists) {
+                setLocalError("OTP Verified! Clearing your old sessions to let you in...");
+                try {
+                    const forceResult = await dispatch(forceLogin({
+                        preAuthToken,
+                        email: formData.email,
+                        loginType: 'admin'
+                    })).unwrap();
 
-            if (!freshToken || freshToken === 'undefined') {
-                setLocalError("Token lost. Please click 'Cancel' and login again.");
-                return;
-            }
-
-            const response = await fetch('http://localhost:3000/api/auth/otp/verify', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${freshToken}`
-                },
-                body: JSON.stringify({
-                    preAuthToken: freshToken,
-                    otp: cleanOtp
-                })
-            });
-
-            const data = await response.json();
-
-            if (response.ok && data.success !== false) {
-
-                // 🔥 THE FINAL BOSS: Active Session Limit Reached
-                if (data.activeSessionExists) {
-                    setLocalError("OTP Verified! Clearing your old sessions to let you in...");
-
-                    try {
-                        // Imported forceLogin thunk ko dispatch karke purane sessions uda do
-                        const forceResult = await dispatch(forceLogin({
-                            preAuthToken: freshToken,
-                            email: formData.email,
-                            loginType: 'admin'
-                        })).unwrap();
-
-                        if (forceResult?.token) {
-                            await AsyncStorage.setItem('token', forceResult.token);
-                            await AsyncStorage.setItem('superadmin_token', forceResult.token);
-                            await AsyncStorage.removeItem('SAFE_PRE_AUTH_TOKEN');
-                            
-                            if (Platform.OS === 'web') {
-                                localStorage.setItem('token', forceResult.token);
-                                if (forceResult.user) localStorage.setItem('user', JSON.stringify(forceResult.user));
-                            }
-                            setAuthHeader(forceResult.token);
-                            
-                            navigation.replace('CentralAdminDashboard');
-                            return;
+                    if (forceResult?.token) {
+                        await AsyncStorage.setItem('token', forceResult.token);
+                        await AsyncStorage.setItem('superadmin_token', forceResult.token);
+                        setAuthHeader(forceResult.token);
+                        
+                        if (forceResult.user) {
+                            dispatch(setCredentials({ user: forceResult.user, token: forceResult.token }));
                         }
-                    } catch (forceErr) {
-                        const msg = typeof forceErr === 'object' ? JSON.stringify(forceErr) : forceErr;
-                        return setLocalError("Force Login error: " + msg);
+                        
+                        // Use navigation.reset to properly transition from Auth stack to CentralAdmin stack
+                        navigation.reset({
+                            index: 0,
+                            routes: [{ name: 'CentralAdmin' }],
+                        });
+                        return;
                     }
+                } catch (forceErr) {
+                    const msg = typeof forceErr === 'object' ? (forceErr.message || JSON.stringify(forceErr)) : forceErr;
+                    setLocalError(msg || "Force Login error");
                 }
-
-                // Normal Flow (Agar future mein session limit cross na ho)
-                const finalToken = data.token || data.accessToken || data.data?.token || data.data?.accessToken;
-                const finalUser = data.user || data.data?.user;
-
-                if (finalToken) {
-                    await AsyncStorage.setItem('token', finalToken);
-                    await AsyncStorage.setItem('superadmin_token', finalToken);
-                    await AsyncStorage.removeItem('SAFE_PRE_AUTH_TOKEN');
-                    
-                    if (Platform.OS === 'web') {
-                        localStorage.setItem('token', finalToken);
-                        if (finalUser) localStorage.setItem('user', JSON.stringify(finalUser));
-                    }
-                    setAuthHeader(finalToken);
-                    if (finalUser) {
-                        dispatch(setCredentials({ user: finalUser, token: finalToken }));
-                    }
-                    
-                    navigation.replace('CentralAdminDashboard');
-                } else {
-                    setLocalError("Login Success but token missing: " + JSON.stringify(data));
+            } else if (result.token) {
+                await AsyncStorage.setItem('token', result.token);
+                await AsyncStorage.setItem('superadmin_token', result.token);
+                setAuthHeader(result.token);
+                
+                if (result.user) {
+                    dispatch(setCredentials({ user: result.user, token: result.token }));
                 }
+                
+                // Use navigation.reset to properly transition from Auth stack to CentralAdmin stack
+                navigation.reset({
+                    index: 0,
+                    routes: [{ name: 'CentralAdmin' }],
+                });
             } else {
-                setLocalError(data.message || data.error || 'Invalid OTP');
+                setLocalError(result.message || 'Invalid OTP');
             }
         } catch (err) {
-            setLocalError('Network error during verification.');
+            const errMsg = typeof err === 'object' ? (err.message || JSON.stringify(err)) : err;
+            setLocalError(errMsg || 'Invalid OTP');
         } finally {
             setLocalLoading(false);
-            window._isVerifyingOtp = false;
         }
     };
 
@@ -219,44 +211,58 @@ const CentralAdminLogin = () => {
 
     return (
         <SafeAreaView style={styles.safeArea}>
-            <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-                <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+            <KeyboardAvoidingView
+                style={styles.container}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            >
+                <ScrollView
+                    contentContainerStyle={styles.scrollContent}
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator={false}
+                >
                     <View style={styles.card}>
-                        <View style={styles.leftColumn}>
+                        {/* LEFT COLUMN: Form */}
+                        <View style={styles.leftColumn} pointerEvents="box-none">
                             {!showOtpScreen && (
                                 <TouchableOpacity
                                     onPress={(e) => {
                                         e?.preventDefault();
                                         if (navigation.canGoBack()) { navigation.goBack(); }
                                     }}
-                                    style={styles.backButton}>
+                                    style={styles.backButton}
+                                    activeOpacity={0.7}
+                                >
                                     <Text style={styles.backButtonText}>← Go Back</Text>
                                 </TouchableOpacity>
                             )}
 
-                            <View style={styles.formContainer}>
-                                <Image source={require('../../assets/medical365-logo.png')} style={styles.logo} resizeMode="contain" />
+                            <View style={styles.formContainer} pointerEvents="box-none">
+                                <Image
+                                    source={require('../../assets/medical365-logo.png')}
+                                    style={styles.logo}
+                                    resizeMode="contain"
+                                />
 
                                 {sessionBanner && (
-                                    <View style={styles.sessionBanner}>
+                                    <View style={styles.sessionBanner} pointerEvents="box-none">
                                         <Text style={styles.sessionBannerText}>⚠️ {sessionBanner}</Text>
                                     </View>
                                 )}
 
                                 {!showOtpScreen ? (
-                                    <View style={{ width: '100%' }}>
+                                    <View style={{ width: '100%' }} pointerEvents="box-none">
                                         <Text style={styles.title}>Supreme Portal</Text>
                                         <Text style={styles.subtitle}>Sign in to the system administration dashboard.</Text>
 
                                         {displayError ? (
-                                            <View style={styles.errorBanner}>
+                                            <View style={styles.errorBanner} pointerEvents="box-none">
                                                 <Text style={styles.errorBannerText}>{displayError}</Text>
                                             </View>
                                         ) : null}
 
-                                        <View style={styles.formGroup}>
+                                        <View style={styles.formGroup} pointerEvents="box-none">
                                             <Text style={styles.label}>Admin Email</Text>
-                                            <View style={styles.inputWrapper}>
+                                            <View style={styles.inputWrapper} pointerEvents="box-none">
                                                 <Text style={styles.inputIcon}>✉️</Text>
                                                 <TextInput
                                                     style={styles.input}
@@ -266,74 +272,102 @@ const CentralAdminLogin = () => {
                                                     onChangeText={(t) => handleChange('email', t)}
                                                     keyboardType="email-address"
                                                     autoCapitalize="none"
+                                                    editable={!localLoading}
                                                 />
                                             </View>
                                         </View>
 
-                                        <View style={styles.formGroup}>
+                                        <View style={styles.formGroup} pointerEvents="box-none">
                                             <Text style={styles.label}>Secret Password</Text>
-                                            <View style={styles.inputWrapper}>
+                                            <View style={styles.inputWrapper} pointerEvents="box-none">
                                                 <Text style={styles.inputIcon}>🔒</Text>
                                                 <PasswordInput
                                                     placeholder="••••••••"
                                                     value={formData.password}
                                                     onChangeText={(t) => handleChange('password', t)}
                                                     style={styles.passwordInputCustom}
+                                                    editable={!localLoading}
                                                 />
                                             </View>
                                         </View>
 
                                         <TouchableOpacity
-                                            onPress={(e) => { e?.preventDefault(); handleSubmit(); }}
-                                            style={[styles.submitBtn, { backgroundColor: '#2563eb', padding: 15, borderRadius: 8, alignItems: 'center', marginTop: 10 }]}
+                                            onPress={handleSubmit}
+                                            style={[
+                                                styles.submitBtn,
+                                                { backgroundColor: '#2563eb' },
+                                                (loading || localLoading) && styles.submitBtnLoading,
+                                            ]}
                                             disabled={loading || localLoading}
+                                            activeOpacity={0.8}
                                         >
-                                            <Text style={{ color: 'white', fontWeight: 'bold' }}>
-                                                {loading || localLoading ? 'Authenticating...' : 'Access system control'}
-                                            </Text>
+                                            {localLoading ? (
+                                                <ActivityIndicator size="small" color="#ffffff" />
+                                            ) : (
+                                                <Text style={styles.submitBtnText}>Access system control</Text>
+                                            )}
                                         </TouchableOpacity>
                                     </View>
                                 ) : (
-                                    <View style={{ width: '100%' }}>
-                                        <Text style={{ marginBottom: 10, fontWeight: 'bold', color: '#333', fontSize: 18 }}>Security Challenge</Text>
-                                        <Text style={{ marginBottom: 20, color: '#64748b' }}>Enter 6-digit OTP sent to {formData.email}</Text>
+                                    <View style={styles.otpScreenContainer} pointerEvents="box-none">
+                                        <Text style={styles.otpTitle}>Security Challenge</Text>
+                                        <Text style={styles.otpSubtitle}>
+                                            Enter 6-digit OTP sent to {formData.email}
+                                        </Text>
 
                                         {displayError ? (
-                                            <View style={styles.errorBanner}>
+                                            <View style={styles.errorBanner} pointerEvents="box-none">
                                                 <Text style={styles.errorBannerText}>{displayError}</Text>
                                             </View>
                                         ) : null}
 
                                         <TextInput
-                                            style={{ borderWidth: 1, borderColor: '#ccc', padding: 12, borderRadius: 8, marginBottom: 15, fontSize: 18, letterSpacing: 5, textAlign: 'center' }}
+                                            style={styles.otpInput}
                                             placeholder="XXXXXX"
                                             value={otp}
                                             onChangeText={setOtp}
                                             keyboardType="number-pad"
+                                            maxLength={6}
+                                            editable={!localLoading}
                                         />
+
                                         <TouchableOpacity
-                                            onPress={(e) => { e?.preventDefault(); handleVerifyOtp(); }}
-                                            style={{ backgroundColor: '#10b981', padding: 15, borderRadius: 8, alignItems: 'center' }}
+                                            onPress={handleVerifyOtp}
+                                            style={[
+                                                styles.verifyBtn,
+                                                (loading || localLoading) && styles.submitBtnLoading,
+                                            ]}
                                             disabled={loading || localLoading}
+                                            activeOpacity={0.8}
                                         >
-                                            <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 16 }}>
-                                                {loading || localLoading ? 'Verifying...' : 'Verify & Login'}
-                                            </Text>
+                                            {localLoading ? (
+                                                <ActivityIndicator size="small" color="#ffffff" />
+                                            ) : (
+                                                <Text style={styles.verifyBtnText}>Verify & Login</Text>
+                                            )}
                                         </TouchableOpacity>
 
-                                        <TouchableOpacity onPress={handleBackToLogin} style={{ marginTop: 20, alignItems: 'center' }}>
-                                            <Text style={{ color: '#2563eb', fontWeight: '600' }}>Cancel & Return to Login</Text>
+                                        <TouchableOpacity
+                                            onPress={handleBackToLogin}
+                                            style={styles.backToLoginBtn}
+                                            activeOpacity={0.7}
+                                        >
+                                            <Text style={styles.backToLoginText}>Cancel & Return to Login</Text>
                                         </TouchableOpacity>
                                     </View>
                                 )}
                             </View>
 
-                            <View style={styles.footer}>
+                            <View style={styles.footer} pointerEvents="box-none">
                                 <Text style={styles.footerText}>ENTERPRISE INTERNAL CONTROL NODE</Text>
                             </View>
                         </View>
 
-                        <View style={styles.rightColumn}>
+                        {/* RIGHT COLUMN: Visual Branding */}
+                        <View
+                            style={[styles.rightColumn, isCompact && { display: 'none' }]}
+                            pointerEvents="none"
+                        >
                             <View style={styles.overlay} />
                             <View style={styles.rightContent}>
                                 <View style={styles.badge}>
@@ -353,38 +387,271 @@ const CentralAdminLogin = () => {
 };
 
 const styles = StyleSheet.create({
-    safeArea: { flex: 1, backgroundColor: '#f8fafc' },
-    container: { flex: 1 },
-    scrollContent: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 16 },
-    card: { width: '100%', maxWidth: 1000, backgroundColor: 'white', borderRadius: 24, overflow: 'hidden', flexDirection: 'row', minHeight: 600, shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 10, borderColor: '#e2e8f0', borderWidth: 1 },
-    leftColumn: { flex: 1, padding: 32, justifyContent: 'center', backgroundColor: 'white' },
-    rightColumn: { flex: 1, backgroundColor: '#020617', padding: 48, justifyContent: 'center', display: Dimensions.get('window').width < 768 ? 'none' : 'flex' },
-    overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(2, 6, 23, 0.8)' },
-    rightContent: { zIndex: 10, maxWidth: 384, alignSelf: 'center' },
-    badge: { alignSelf: 'flex-start', paddingVertical: 4, paddingHorizontal: 12, marginBottom: 24, borderRadius: 20, backgroundColor: 'rgba(99, 102, 241, 0.2)', borderColor: 'rgba(99, 102, 241, 0.3)', borderWidth: 1 },
-    badgeText: { color: '#a5b4fc', fontSize: 14, fontWeight: '600', letterSpacing: 0.5 },
-    rightTitle: { fontSize: 36, fontWeight: 'bold', color: 'white', marginBottom: 24, lineHeight: 40 },
-    rightSubtitle: { color: '#94a3b8', fontSize: 18, lineHeight: 28 },
-    backButton: { marginBottom: 32, alignSelf: 'flex-start' },
-    backButtonText: { color: '#64748b', fontSize: 16, fontWeight: '500' },
-    formContainer: { marginBottom: 24 },
-    logo: { height: 40, width: 150, marginBottom: 32 },
-    sessionBanner: { backgroundColor: '#fffbeb', borderColor: '#fde68a', borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 20 },
-    sessionBannerText: { fontSize: 14, fontWeight: '600', color: '#92400e' },
-    title: { fontSize: 24, fontWeight: 'bold', color: '#1e293b' },
-    subtitle: { color: '#64748b', marginTop: 8, marginBottom: 24, fontSize: 16 },
-    errorBanner: { marginBottom: 16, padding: 12, borderRadius: 8, backgroundColor: '#fef2f2', borderColor: '#fecaca', borderWidth: 1 },
-    errorBannerText: { color: '#dc2626', fontSize: 14, fontWeight: '500' },
-    formGroup: { marginBottom: 16 },
-    label: { fontSize: 14, fontWeight: '600', color: '#334155', marginBottom: 4 },
-    inputWrapper: { flexDirection: 'row', alignItems: 'center', position: 'relative' },
-    inputIcon: { position: 'absolute', left: 12, zIndex: 10, fontSize: 18 },
-    input: { flex: 1, paddingLeft: 40, paddingRight: 16, paddingVertical: 12, borderRadius: 12, borderColor: '#e2e8f0', borderWidth: 1, backgroundColor: 'white', fontSize: 16, color: '#1e293b' },
-    passwordInputCustom: { flex: 1, paddingLeft: 40, paddingRight: 16, paddingVertical: 12, borderRadius: 12, borderColor: '#e2e8f0', borderWidth: 1, backgroundColor: 'white', fontSize: 16, color: '#1e293b' },
-    submitBtn: { width: '100%', marginTop: 16, backgroundColor: '#0f172a', paddingVertical: 14, borderRadius: 12, alignItems: 'center', shadowColor: '#0f172a', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 5 },
-    submitBtnText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
-    footer: { marginTop: 'auto', paddingTop: 32, alignItems: 'center' },
-    footerText: { fontSize: 10, letterSpacing: 1.5, color: '#94a3b8', fontWeight: 'bold', textTransform: 'uppercase' },
+    safeArea: {
+        flex: 1,
+        backgroundColor: '#f8fafc',
+    },
+    container: {
+        flex: 1,
+    },
+    scrollContent: {
+        flexGrow: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingVertical: 20,
+        paddingHorizontal: 16,
+    },
+    card: {
+        width: '100%',
+        maxWidth: 1000,
+        flexDirection: 'row',
+        backgroundColor: '#ffffff',
+        borderRadius: 24,
+        overflow: 'hidden',
+        minHeight: 600,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.1,
+        shadowRadius: 20,
+        elevation: 10,
+    },
+    leftColumn: {
+        flex: 1,
+        padding: 32,
+        justifyContent: 'center',
+        backgroundColor: '#ffffff',
+    },
+    rightColumn: {
+        flex: 0.85,
+        backgroundColor: '#020617',
+        padding: 48,
+        justifyContent: 'center',
+    },
+    overlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(2, 6, 23, 0.8)',
+    },
+    rightContent: {
+        zIndex: 10,
+        maxWidth: 384,
+        alignSelf: 'center',
+    },
+    badge: {
+        alignSelf: 'flex-start',
+        paddingVertical: 4,
+        paddingHorizontal: 12,
+        marginBottom: 24,
+        borderRadius: 20,
+        backgroundColor: 'rgba(99, 102, 241, 0.2)',
+        borderColor: 'rgba(99, 102, 241, 0.3)',
+        borderWidth: 1,
+    },
+    badgeText: {
+        color: '#a5b4fc',
+        fontSize: 14,
+        fontWeight: '600',
+        letterSpacing: 0.5,
+    },
+    rightTitle: {
+        fontSize: 36,
+        fontWeight: 'bold',
+        color: '#ffffff',
+        marginBottom: 24,
+        lineHeight: 40,
+    },
+    rightSubtitle: {
+        color: '#94a3b8',
+        fontSize: 18,
+        lineHeight: 28,
+    },
+    backButton: {
+        marginBottom: 32,
+        alignSelf: 'flex-start',
+    },
+    backButtonText: {
+        color: '#64748b',
+        fontSize: 16,
+        fontWeight: '500',
+    },
+    formContainer: {
+        marginBottom: 24,
+    },
+    logo: {
+        height: 40,
+        width: 150,
+        marginBottom: 32,
+    },
+    sessionBanner: {
+        backgroundColor: '#fffbeb',
+        borderColor: '#fde68a',
+        borderWidth: 1,
+        borderRadius: 12,
+        padding: 12,
+        marginBottom: 20,
+    },
+    sessionBannerText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#92400e',
+    },
+    title: {
+        fontSize: 24,
+        fontWeight: 'bold',
+        color: '#1e293b',
+    },
+    subtitle: {
+        color: '#64748b',
+        marginTop: 8,
+        marginBottom: 24,
+        fontSize: 16,
+    },
+    errorBanner: {
+        marginBottom: 16,
+        padding: 12,
+        borderRadius: 8,
+        backgroundColor: '#fef2f2',
+        borderColor: '#fecaca',
+        borderWidth: 1,
+    },
+    errorBannerText: {
+        color: '#dc2626',
+        fontSize: 14,
+        fontWeight: '500',
+    },
+    formGroup: {
+        marginBottom: 16,
+    },
+    label: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#334155',
+        marginBottom: 4,
+    },
+    inputWrapper: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        position: 'relative',
+    },
+    inputIcon: {
+        position: 'absolute',
+        left: 12,
+        zIndex: 10,
+        fontSize: 18,
+    },
+    input: {
+        flex: 1,
+        paddingLeft: 40,
+        paddingRight: 16,
+        paddingVertical: 12,
+        borderRadius: 12,
+        borderColor: '#e2e8f0',
+        borderWidth: 1,
+        backgroundColor: '#ffffff',
+        fontSize: 16,
+        color: '#1e293b',
+    },
+    passwordInputCustom: {
+        flex: 1,
+        paddingLeft: 40,
+        paddingRight: 16,
+        paddingVertical: 12,
+        borderRadius: 12,
+        borderColor: '#e2e8f0',
+        borderWidth: 1,
+        backgroundColor: '#ffffff',
+        fontSize: 16,
+        color: '#1e293b',
+    },
+    submitBtn: {
+        width: '100%',
+        marginTop: 16,
+        backgroundColor: '#0f172a',
+        paddingVertical: 14,
+        borderRadius: 12,
+        alignItems: 'center',
+        shadowColor: '#0f172a',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+        elevation: 5,
+    },
+    submitBtnText: {
+        color: '#ffffff',
+        fontWeight: 'bold',
+        fontSize: 16,
+    },
+    submitBtnLoading: {
+        opacity: 0.8,
+    },
+    footer: {
+        marginTop: 'auto',
+        paddingTop: 32,
+        alignItems: 'center',
+    },
+    footerText: {
+        fontSize: 10,
+        letterSpacing: 1.5,
+        color: '#94a3b8',
+        fontWeight: 'bold',
+        textTransform: 'uppercase',
+    },
+    otpScreenContainer: {
+        width: '100%',
+    },
+    otpTitle: {
+        marginBottom: 10,
+        fontWeight: '700',
+        color: '#1e293b',
+        fontSize: 18,
+    },
+    otpSubtitle: {
+        marginBottom: 20,
+        color: '#64748b',
+        fontSize: 14,
+        lineHeight: 20,
+    },
+    otpInput: {
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        padding: 12,
+        borderRadius: 8,
+        marginBottom: 15,
+        fontSize: 18,
+        letterSpacing: 5,
+        textAlign: 'center',
+        fontWeight: '700',
+        color: '#1e293b',
+    },
+    verifyBtn: {
+        backgroundColor: '#10b981',
+        borderRadius: 10,
+        paddingVertical: 12,
+        paddingHorizontal: 20,
+        marginTop: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    verifyBtnText: {
+        color: '#ffffff',
+        fontSize: 14,
+        fontWeight: '700',
+    },
+    backToLoginBtn: {
+        marginTop: 20,
+        paddingVertical: 10,
+        alignItems: 'center',
+    },
+    backToLoginText: {
+        color: '#2563eb',
+        fontSize: 14,
+        fontWeight: '600',
+    },
 });
 
 export default CentralAdminLogin;

@@ -12,6 +12,10 @@ import ConsentManagement from '../screens/admin/ConsentManagement';
 import AdminRoles from '../screens/admin/AdminRoles';
 import Admin from '../screens/admin/Admin';
 import AdminDoctors from '../screens/admin/AdminDoctors';
+import AdminLabTests from '../screens/admin/AdminLabTests';
+import AdminTestPackages from '../screens/admin/AdminTestPackages';
+import AdminMedicines from '../screens/admin/AdminMedicines';
+import AdminServices from '../screens/admin/AdminServices';
 
 // -- Hospital Admin Pages --
 import HospitalAdminDashboard from '../screens/hospitaladmin/HospitalAdminDashboard';
@@ -78,16 +82,22 @@ const withLayout = (Component) => {
 export const CentralAdminApp = () => (
     <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
         <Stack.Screen name="CentralAdminDashboard" component={withLayout(CentralAdminDashboard)} />
+        <Stack.Screen name="CentralAdminStack" component={withLayout(CentralAdminDashboard)} />
         <Stack.Screen name="SystemRevenueDashboard" component={withLayout(SystemRevenueDashboard)} />
         <Stack.Screen name="AdminQuestionLibrary" component={withLayout(AdminQuestionLibrary)} />
         <Stack.Screen name="ConsentManagement" component={withLayout(ConsentManagement)} />
         <Stack.Screen name="AdminRoles" component={withLayout(AdminRoles)} />
+        <Stack.Screen name="AdminLabTests" component={withLayout(AdminLabTests)} />
+        <Stack.Screen name="AdminTestPackages" component={withLayout(AdminTestPackages)} />
+        <Stack.Screen name="AdminMedicines" component={withLayout(AdminMedicines)} />
+        <Stack.Screen name="AdminServices" component={withLayout(AdminServices)} />
         <Stack.Screen name="Admin" component={withLayout(Admin)} />
     </Stack.Navigator>
 );
 
 export const HospitalAdminApp = () => (
     <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
+        <Stack.Screen name="HospitalAdminStack" component={withLayout(HospitalAdminDashboard)} />
         <Stack.Screen name="HospitalAdminDashboard" component={withLayout(HospitalAdminDashboard)} />
         <Stack.Screen name="ClinicDashboard" component={withLayout(ClinicDashboard)} />
         <Stack.Screen name="HospitalAdminQuestionLibrary" component={withLayout(HospitalAdminQuestionLibrary)} />
