@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { consentAPI } from '../../utils/api';
-import { FontAwesome5 } from '@expo/vector-icons';
+import { FontAwesome5, Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 
 // Custom Toast / Confirm implementations using Alert for React Native
@@ -523,7 +523,10 @@ const ConsentManagement = () => {
                                     </View>
 
                                     <View style={styles.placeholdersTooltip}>
-                                        <Text style={styles.tooltipText}>💡 <Text style={{fontWeight: '700'}}>Supported Placeholders:</Text> {'{patient_name}'}, {'{age}'}, {'{gender}'}, {'{doctor_name}'}, {'{hospital_name}'}, {'{today}'}</Text>
+                                        <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                                            <Feather name="info" size={14} color="#0f766e" style={{marginRight: 6}} />
+                                            <Text style={styles.tooltipText}><Text style={{fontWeight: '700'}}>Supported Placeholders:</Text> {'{patient_name}'}, {'{age}'}, {'{gender}'}, {'{doctor_name}'}, {'{hospital_name}'}, {'{today}'}</Text>
+                                        </View>
                                     </View>
                                 </View>
 
@@ -604,13 +607,15 @@ const ConsentManagement = () => {
                         </View>
 
                         <View style={styles.tableFilterBar}>
-                            <TextInput 
-                                style={styles.tableSearchInput}
-                                placeholder="🔍 Search templates..."
-                                placeholderTextColor="#94a3b8"
-                                value={searchQuery}
-                                onChangeText={setSearchQuery}
-                            />
+                            <View style={styles.searchBox}>
+                                <Feather name="search" size={14} color="#94a3b8" />
+                                <TextInput 
+                                    style={styles.searchInput}
+                                    placeholder="Search templates..."
+                                    value={searchQuery}
+                                    onChangeText={setSearchQuery}
+                                />
+                            </View>
                             {/* RN Picker Alternative */}
                             <ScrollView style={{maxHeight: 40, borderWidth: 1.5, borderColor: '#ccfbf1', borderRadius: 8, backgroundColor: '#ffffff', paddingHorizontal: 10, alignContent: 'center'}} horizontal>
                                 <TouchableOpacity onPress={() => setCategoryFilter('')} style={{justifyContent: 'center', marginRight: 10}}>

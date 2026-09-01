@@ -52,7 +52,7 @@ switch (role) {
     case 'superadmin':
     case 'centraladmin':
     case 'admin':
-        return <Stack.Screen name="CentralAdmin" component={CentralAdminApp} />;
+        return <Stack.Screen name="CentralAdmin" component={CentralAdminApp} options={{ headerShown: false }} />;
             case 'hospitaladmin':
                 return <Stack.Screen name="HospitalAdmin" component={HospitalAdminApp} />;
             case 'doctor':

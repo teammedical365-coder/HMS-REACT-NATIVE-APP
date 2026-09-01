@@ -44,8 +44,10 @@ apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     const isOtpVerifyRoute = error.config?.url?.includes('/otp/verify');
+    const isOtpSendRoute = error.config?.url?.includes('/otp/send');
+    const isLoginRoute = error.config?.url?.includes('/login');
 
-    if (error.response?.status === 401 && !isOtpVerifyRoute) {
+    if (error.response?.status === 401 && !isOtpVerifyRoute && !isOtpSendRoute && !isLoginRoute) {
       const isSessionExpired = error.response?.data?.sessionExpired;
       await AsyncStorage.removeItem(STORAGE_KEYS.TOKEN);
       await AsyncStorage.removeItem(STORAGE_KEYS.USER);

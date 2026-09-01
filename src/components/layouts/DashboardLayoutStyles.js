@@ -455,6 +455,57 @@ export const styles = StyleSheet.create({
         fontSize: 12,
     },
 
+    /* New Added Styles for Topbar */
+    globalSearchPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#f1f5f9',
+        borderRadius: 20,
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        width: 300,
+    },
+    globalSearchText: {
+        color: '#94a3b8',
+        fontSize: 13,
+        marginLeft: 8,
+    },
+    bellIconBtn: {
+        position: 'relative',
+        padding: 4,
+    },
+    bellBadge: {
+        position: 'absolute',
+        top: 0,
+        right: 2,
+        backgroundColor: '#ef4444',
+        borderRadius: 8,
+        minWidth: 16,
+        height: 16,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 2,
+        borderColor: '#ffffff',
+    },
+    bellBadgeText: {
+        color: '#ffffff',
+        fontSize: 9,
+        fontWeight: 'bold',
+    },
+    profileAvatarBtn: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: '#8b5cf6',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    profileAvatarBtnText: {
+        color: '#ffffff',
+        fontWeight: 'bold',
+        fontSize: 14,
+    },
+
     /* Profile Dropdown (Modal equivalent in RN) */
     dropdownOverlay: {
         flex: 1,
@@ -494,6 +545,28 @@ export const styles = StyleSheet.create({
         fontSize: 13.2,
         color: '#64748b',
     },
+    pHeaderTop: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 12,
+    },
+    pAvatarLg: {
+        width: 50,
+        height: 50,
+        borderRadius: 25,
+        backgroundColor: '#8b5cf6',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 12,
+    },
+    pAvatarLgText: {
+        color: '#ffffff',
+        fontWeight: 'bold',
+        fontSize: 18,
+    },
+    pNameEmail: {
+        flex: 1,
+    },
     pRoleBadge: {
         backgroundColor: 'rgba(30, 132, 127, 0.1)',
         color: '#1e847f',
@@ -506,8 +579,22 @@ export const styles = StyleSheet.create({
         marginTop: 8,
         alignSelf: 'flex-start',
     },
+    pBody: {
+        padding: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#f1f5f9',
+    },
+    lastLoginRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    lastLoginText: {
+        fontSize: 12,
+        color: '#64748b',
+        fontWeight: '500',
+    },
     pFooter: {
-        paddingTop: 8,
+        padding: 16,
     },
     btnPLogout: {
         flexDirection: 'row',
@@ -521,7 +608,7 @@ export const styles = StyleSheet.create({
     },
     btnPLogoutText: {
         color: '#dc2626',
-        fontWeight: '700',
+        fontWeight: '800',
         fontSize: 14,
     },
 

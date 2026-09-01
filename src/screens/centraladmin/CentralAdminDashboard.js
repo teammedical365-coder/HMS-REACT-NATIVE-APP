@@ -44,13 +44,13 @@ export default function CentralAdminDashboard() {
   const availableDepartments = ['Cardiology', 'Neurology', 'Pediatrics', 'Orthopedics', 'General Surgery'];
 
   const configurationItems = [
-    { title: 'Roles & Permissions', sub: 'Create and manage user roles', icon: '🔑', bg: '#eff6ff', color: '#3b82f6', route: 'Roles' },
-    { title: 'Question Library', sub: 'Configure assessment forms', icon: '❓', bg: '#f5f3ff', color: '#8b5cf6', route: 'QuestionLibrary' },
-    { title: 'Lab Tests', sub: 'Manage lab test catalog', icon: '🧪', bg: '#fdf4ff', color: '#d946ef', route: 'LabTests' },
-    { title: 'Test Packages', sub: 'Bundle lab tests into packages', icon: '📦', bg: '#f0fdf4', color: '#22c55e', route: 'TestPackages' },
-    { title: 'Medicine Catalog', sub: 'Global medicine library', icon: '💊', bg: '#fff7ed', color: '#ea580c', route: 'Medicines' },
-    { title: 'Services', sub: 'Configure hospital services', icon: '🩺', bg: '#ecfeff', color: '#06b6d4', route: 'Services' },
-    { title: 'Consent Forms', sub: 'Manage templates for patient consent', icon: '📄', bg: '#f1f5f9', color: '#64748b', route: 'ConsentForms' },
+    { title: 'Roles & Permissions', sub: 'Create and manage user roles', icon: <Feather name="key" size={20} color="#3b82f6" />, bg: '#eff6ff', color: '#3b82f6', route: 'AdminRoles' },
+    { title: 'Question Library', sub: 'Configure assessment forms', icon: <Feather name="help-circle" size={20} color="#8b5cf6" />, bg: '#f5f3ff', color: '#8b5cf6', route: 'AdminQuestionLibrary' },
+    { title: 'Lab Tests', sub: 'Manage lab test catalog', icon: <Feather name="activity" size={20} color="#d946ef" />, bg: '#fdf4ff', color: '#d946ef', route: 'LabTests' },
+    { title: 'Test Packages', sub: 'Bundle lab tests into packages', icon: <Feather name="package" size={20} color="#22c55e" />, bg: '#f0fdf4', color: '#22c55e', route: 'TestPackages' },
+    { title: 'Medicine Catalog', sub: 'Global medicine library', icon: <Feather name="heart" size={20} color="#ea580c" />, bg: '#fff7ed', color: '#ea580c', route: 'Medicines' },
+    { title: 'Services', sub: 'Configure hospital services', icon: <Feather name="grid" size={20} color="#06b6d4" />, bg: '#ecfeff', color: '#06b6d4', route: 'Services' },
+    { title: 'Consent Forms', sub: 'Manage templates for patient consent', icon: <Feather name="file-text" size={20} color="#64748b" />, bg: '#f1f5f9', color: '#64748b', route: 'ConsentManagement' },
   ];
 
   useEffect(() => {
@@ -88,19 +88,45 @@ export default function CentralAdminDashboard() {
   const fetchHospitals = async () => {
     setLoading(true);
     try {
-      const hospitalResponse = await centralAdminAPI.getHospitals('');
-      const hospitalList = Array.isArray(hospitalResponse) ? hospitalResponse : (hospitalResponse?.hospitals || hospitalResponse?.data || []);
-
-      let allHospitals = Array.isArray(hospitalList) ? [...hospitalList] : [];
+      const hospitalsRes = await centralAdminAPI.getHospitals('');
+      let clinicsRes = { data: [] };
       try {
-        const clinicsData = await simpleClinicAPI.getClinics('');
-        const clinicList = Array.isArray(clinicsData) ? clinicsData : (clinicsData?.clinics || clinicsData?.data || []);
-        allHospitals = [...allHospitals, ...(Array.isArray(clinicList) ? clinicList : [])];
+        clinicsRes = await simpleClinicAPI.getClinics('');
       } catch (e) {
-        // Ignore missing clinics endpoint; not all tenants have a simple clinic collection.
+        console.log('Failed to fetch clinics:', e);
       }
 
-      setHospitals(allHospitals);
+      // Handle the fact that Axios might have already unpacked .data via interceptors
+      const hospData = hospitalsRes?.data !== undefined ? hospitalsRes.data : hospitalsRes;
+      const clinData = clinicsRes?.data !== undefined ? clinicsRes.data : clinicsRes;
+
+      console.log('Raw Hospitals API Response:', hospData);
+      console.log('Raw Clinics API Response:', clinData);
+
+      const rawHospitals = Array.isArray(hospData)
+        ? hospData
+        : (hospData?.hospitals || hospData?.data || []);
+
+      const rawClinics = Array.isArray(clinData)
+        ? clinData
+        : (clinData?.clinics || clinData?.simpleClinics || clinData?.data || []);
+
+      const normalizedHospitals = rawHospitals.map(item => ({
+        ...item,
+        isSimpleClinic: false,
+        plan: (item.plan || item.planName || item.subscriptionPlan || 'enterprise').toLowerCase().replace(/[\s-]/g, '_')
+      }));
+
+      const normalizedClinics = rawClinics.map(item => ({
+        ...item,
+        isSimpleClinic: true,
+        name: item.name || item.clinicName || item.hospitalName || 'Clinic',
+        plan: (item.plan || item.planName || item.subscriptionPlan || 'clinic_basic').toLowerCase().replace(/[\s-]/g, '_')
+      }));
+
+      const unifiedList = [...normalizedHospitals, ...normalizedClinics];
+      console.log('Fetched raw hospitals & clinics total count:', unifiedList.length, unifiedList);
+      setHospitals(unifiedList);
     } catch (err) {
       // Safe error handling: 404 or network errors default to empty array
       if (err.response?.status === 404) {
@@ -175,48 +201,7 @@ export default function CentralAdminDashboard() {
 
   return (
     <SafeAreaView style={styles.centralAdminPage}>
-      {/* ── TOP NAVBAR ── */}
-      <View style={styles.navbarContainer} pointerEvents="box-none">
-        {/* Left Section */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }} pointerEvents="box-none">
-          <TouchableOpacity activeOpacity={0.7} pointerEvents="auto">
-            <Feather name="menu" size={24} color="#1e293b" />
-          </TouchableOpacity>
-          <Text style={{ fontSize: 16, fontWeight: '700', color: '#0f172a' }}>Superadmin</Text>
-          <Text style={{ fontSize: 13, fontWeight: '600', color: '#2563eb', letterSpacing: 0.5 }}>/ MANAGE STAFF</Text>
-        </View>
 
-        {/* Middle Search Section */}
-        <View style={styles.searchContainer} pointerEvents="box-none">
-          <Feather name="search" size={18} color="#94a3b8" />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search patients, doctors, MRN..."
-            placeholderTextColor="#94a3b8"
-            pointerEvents="auto"
-          />
-        </View>
-
-        {/* Right Section */}
-        <View style={styles.rightNavControls} pointerEvents="box-none">
-          <TouchableOpacity
-            style={styles.notificationWrapper}
-            activeOpacity={0.7}
-            pointerEvents="auto"
-          >
-            <View style={styles.notificationBadge} pointerEvents="none" />
-            <Feather name="bell" size={22} color="#475569" />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.userAvatar}
-            activeOpacity={0.7}
-            pointerEvents="auto"
-          >
-            <Text style={styles.userAvatarText}>PH</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
 
       <ScrollView contentContainerStyle={[styles.centralAdminContainer, { padding: 20 }]} showsVerticalScrollIndicator={false} pointerEvents="box-none">
         
@@ -228,8 +213,8 @@ export default function CentralAdminDashboard() {
         />
 
         {/* Global Notifications */}
-        {Boolean(error) ? <Text style={{ color: 'red', marginBottom: 10 }}>⚠️ {error}</Text> : null}
-        {Boolean(success) ? <Text style={{ color: 'green', marginBottom: 10 }}>✅ {success}</Text> : null}
+        {Boolean(error) ? <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 10}}><Feather name="alert-triangle" size={16} color="red"/><Text style={{ color: 'red', marginLeft: 6 }}>{error}</Text></View> : null}
+        {Boolean(success) ? <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 10}}><Feather name="check-circle" size={16} color="green"/><Text style={{ color: 'green', marginLeft: 6 }}>{success}</Text></View> : null}
 
         {/* Child Component 2: Pricing Cards & Operational Provisions */}
         <CentralAdminPricingCards 
@@ -307,7 +292,7 @@ export default function CentralAdminDashboard() {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 24 }}>
               <View style={styles.revenueCardsContainer}>
                 <View style={[styles.revenueSummaryCard, { backgroundColor: '#ede9fe' }]}>
-                  <Text style={{ fontSize: 24 }}>👤</Text>
+                  <Feather name="user" size={24} color="#6366f1" />
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.revenueCardTitle, { color: '#6366f1' }]}>Model B - Per Patient</Text>
                     <Text style={styles.revenueCardSub}>Charge per new patient registered monthly</Text>
@@ -315,7 +300,7 @@ export default function CentralAdminDashboard() {
                 </View>
                 
                 <View style={[styles.revenueSummaryCard, { backgroundColor: '#d1fae5' }]}>
-                  <Text style={{ fontSize: 24 }}>📅</Text>
+                  <Feather name="calendar" size={24} color="#10b981" />
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.revenueCardTitle, { color: '#10b981' }]}>Model A - Fixed Monthly</Text>
                     <Text style={styles.revenueCardSub}>Flat fee every billing cycle</Text>
@@ -323,7 +308,7 @@ export default function CentralAdminDashboard() {
                 </View>
                 
                 <View style={[styles.revenueSummaryCard, { backgroundColor: '#fef3c7' }]}>
-                  <Text style={{ fontSize: 24 }}>🔑</Text>
+                  <Feather name="key" size={24} color="#f59e0b" />
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.revenueCardTitle, { color: '#f59e0b' }]}>Model C - Per Login</Text>
                     <Text style={styles.revenueCardSub}>Charge per login session (coming soon)</Text>
@@ -369,7 +354,7 @@ export default function CentralAdminDashboard() {
               ) : (
                 !loading && (
                   <View style={{ padding: 32, alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={{ fontSize: 24, marginBottom: 8 }}>ℹ️</Text>
+                    <Feather name="info" size={24} color="#64748b" style={{marginBottom: 8}} />
                     <Text style={{ fontSize: 14, color: '#64748b' }}>No revenue configurations found.</Text>
                   </View>
                 )
@@ -382,7 +367,10 @@ export default function CentralAdminDashboard() {
         {activeTab === 'configurations' && (
           <View style={{ width: '100%', marginTop: 20 }}>
             {/* Header Section */}
-            <Text style={styles.configHeader}>⚙️ System Configurations</Text>
+            <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 4}}>
+              <Feather name="settings" size={24} color="#1e293b" />
+              <Text style={[styles.configHeader, {marginLeft: 8}]}>System Configurations</Text>
+            </View>
             <Text style={styles.configSubHeader}>Manage global settings — roles, question libraries, lab tests, medicines, services, and test packages.</Text>
             
             {/* Grid Section */}
@@ -394,7 +382,7 @@ export default function CentralAdminDashboard() {
                   onPress={() => console.log(`Navigating to ${item.route}`)}
                 >
                   <View style={[styles.configIconBox, { backgroundColor: item.bg }]}>
-                    <Text style={{ fontSize: 20 }}>{item.icon}</Text>
+                    {item.icon}
                   </View>
                   <View style={styles.configTextContainer}>
                     <Text style={styles.configTitle}>{item.title}</Text>

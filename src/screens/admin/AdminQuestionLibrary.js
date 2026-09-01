@@ -468,7 +468,7 @@ const AdminQuestionLibrary = () => {
             <View style={styles.qlQuestionCard} key={index}>
                 <View style={styles.qlQuestionTop}>
                     <View style={styles.qlQuestionInfo}>
-                        <Text style={styles.qIcon}>❓</Text>
+                        <FontAwesome5 name="question-circle" size={16} color="#64748b" style={styles.qIcon} />
                         <Text style={styles.qlQuestionTitleText}>{item.q}</Text>
                         <View style={styles.qlQuestionTypeBadge}>
                             <Text style={styles.qlQuestionTypeBadgeText}>{getTypeLabel(item.type)}</Text>
@@ -579,10 +579,10 @@ const AdminQuestionLibrary = () => {
                             {departmentTab === dept && allowedDepartments === null && (
                                 <View style={styles.tabActionsQuick}>
                                     <TouchableOpacity style={styles.tabActionIcon} onPress={() => handleEditDepartment(dept)}>
-                                        <Text>✏️</Text>
+                                        <FontAwesome5 name="pen" size={10} color="#64748b" />
                                     </TouchableOpacity>
                                     <TouchableOpacity style={styles.tabActionIcon} onPress={() => handleDeleteDepartment(dept)}>
-                                        <Text>🗑️</Text>
+                                        <FontAwesome5 name="trash" size={10} color="#ef4444" />
                                     </TouchableOpacity>
                                 </View>
                             )}
@@ -624,15 +624,15 @@ const AdminQuestionLibrary = () => {
                                     onPress={() => setActiveCategory(cat)}
                                 >
                                     <View style={styles.catItemLeft}>
-                                        <Text style={styles.catFolderIcon}>{cat === activeCategory ? '📂' : '📁'}</Text>
+                                        <FontAwesome5 name={cat === activeCategory ? 'folder-open' : 'folder'} size={14} color="#64748b" style={styles.catFolderIcon} />
                                         <Text style={[styles.catText, cat === activeCategory && styles.catTextActive]} numberOfLines={1}>{cat}</Text>
                                     </View>
                                     <View style={styles.catItemRight}>
                                         <TouchableOpacity style={styles.qlCatActionBtn} onPress={() => handleEditCategory(cat)}>
-                                            <Text style={styles.qlCatActionBtnText}>✏️</Text>
+                                            <FontAwesome5 name="pen" size={10} color="#64748b" />
                                         </TouchableOpacity>
                                         <TouchableOpacity style={styles.qlCatActionBtn} onPress={() => handleDeleteCategory(cat)}>
-                                            <Text style={styles.qlCatActionBtnText}>🗑️</Text>
+                                            <FontAwesome5 name="trash" size={10} color="#ef4444" />
                                         </TouchableOpacity>
                                         <FontAwesome5 name="angle-right" size={12} color={cat === activeCategory ? '#38B29B' : 'rgba(0,0,0,0.4)'} />
                                     </View>

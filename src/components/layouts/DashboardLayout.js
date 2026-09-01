@@ -6,152 +6,33 @@ import { logout } from '../../store/slices/authSlice';
 import { useBranding } from '../../context/BrandingContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import GlobalSearch from '../GlobalSearch';
+import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { styles, isMobile, SIDEBAR_WIDTH, SIDEBAR_COLLAPSED } from './DashboardLayoutStyles';
-
-// In React Native Web, we don't have direct react-icons imports. 
-// Assuming you map these to proper SVGs or a font library (like @expo/vector-icons). 
-// For structural parity, we'll represent them as Text emojis/strings as placeholders 
-// ensuring NO UI breaks. (You can replace them with Feather Icons later).
-const FiHome = () => <Text style={{fontSize: 18}}>🏠</Text>;
-const FiUsers = () => <Text style={{fontSize: 18}}>👥</Text>;
-const FiCalendar = () => <Text style={{fontSize: 18}}>📅</Text>;
-const FiActivity = () => <Text style={{fontSize: 18}}>📈</Text>;
-const FiPackage = () => <Text style={{fontSize: 18}}>📦</Text>;
-const FiLogOut = () => <Text style={{fontSize: 18}}>🚪</Text>;
-const FiPieChart = () => <Text style={{fontSize: 18}}>🥧</Text>;
-const FiClipboard = () => <Text style={{fontSize: 18}}>📋</Text>;
-const FiFileText = () => <Text style={{fontSize: 18}}>📄</Text>;
-const FiPlusSquare = () => <Text style={{fontSize: 18}}>➕</Text>;
-const FiGrid = () => <Text style={{fontSize: 18}}>🔲</Text>;
-const FiShield = () => <Text style={{fontSize: 18}}>🛡️</Text>;
-const FiMenu = () => <Text style={{fontSize: 24, color: '#1e293b'}}>☰</Text>;
-const FiX = () => <Text style={{fontSize: 24, color: '#64748b'}}>✕</Text>;
-const FiClock = () => <Text style={{fontSize: 18}}>⏱️</Text>;
-const FiBox = () => <Text style={{fontSize: 18}}>📦</Text>;
-const FiUserCheck = () => <Text style={{fontSize: 18}}>✅</Text>;
-const FiHeart = () => <Text style={{fontSize: 18}}>❤️</Text>;
-const FiCheckCircle = () => <Text style={{fontSize: 18}}>✔️</Text>;
-const FiUser = () => <Text style={{fontSize: 18}}>👤</Text>;
 
 const DashboardSidebar = ({ isOpen, setOpen }) => {
     const { user } = useSelector(state => state.auth);
     const dispatch = useDispatch();
-    const { branding, hospitalName } = useBranding();
+    const { branding } = useBranding();
     const role = (user?.role || '').toLowerCase();
     
     const navigation = useNavigation();
     const route = useRoute();
-    // React Navigation route.name acts like location.pathname
     const currentPath = route.name; 
 
     const isCentralAdmin = (role === 'centraladmin' || role === 'superadmin');
     
-    // Categorized Menus
     const getMenu = () => {
-        // In React Navigation, paths are screen names. 
-        const isOTRoute = currentPath.startsWith('OT') || currentPath === 'OTDashboard';
-        const roleClean = role.replace(/\s+/g, '');
-
-        if (roleClean === 'otmanager' || roleClean === 'otstaff' || (isOTRoute && (role === 'hospitaladmin' || role === 'centraladmin' || role === 'superadmin' || role === 'doctor'))) {
+        if (isCentralAdmin) {
             return [
-                { label: 'OT Dashboard', path: 'OTDashboard', icon: <FiHome /> },
-                { label: 'Planned Surgeries', path: 'OTPlannedSurgeries', icon: <FiClock /> },
-                { label: 'OT Schedule', path: 'OTSchedulePage', icon: <FiCalendar /> },
-                { label: 'OT Rooms', path: 'OTRoomsPage', icon: <FiBox /> },
-                { label: 'Pre-Op Patients', path: 'OTPreOpPage', icon: <FiUserCheck /> },
-                { label: 'In OT', path: 'OTInProgressPage', icon: <FiActivity /> },
-                { label: 'Post-Op', path: 'OTPostOpPage', icon: <FiHeart /> },
-                { label: 'Completed Surgeries', path: 'OTCompletedPage', icon: <FiCheckCircle /> },
-                { label: 'Surgeons', path: 'OTSurgeonsPage', icon: <FiUser /> },
-                { label: 'OT Reports', path: 'OTReportsPage', icon: <FiFileText /> }
-            ];
-        }
-
-        if (role === 'centraladmin' || role === 'superadmin') {
-            return [
-                { label: 'System Overview', path: 'CentralAdminDashboard', icon: <FiHome /> },
-                { label: 'Question Library', path: 'AdminQuestionLibrary', icon: <FiFileText /> },
-                { label: 'Consent Hub', path: 'ConsentManagement', icon: <FiClipboard /> },
-                { label: 'Role & Permissions', path: 'AdminRoles', icon: <FiShield /> },
-                { label: 'Manage All Staff', path: 'Admin', icon: <FiUsers /> }, // Adjusted from /admin/users
-            ];
-        }
-        if (role === 'hospitaladmin') {
-            // AsyncStorage logic wrapped in useEffect generally, but for sync returns we mock it based on Redux state
-            if (user?.clinicType === 'clinic' || user?.subscriptionPlan === 'starter') {
-                return [
-                    { label: 'Clinic Hub', path: 'HospitalAdminDashboard', icon: <FiHome /> },
-                ];
-            }
-            return [
-                { label: 'Hospital Overview', path: 'HospitalAdminDashboard', icon: <FiPieChart /> },
-                { label: 'OT Operations', path: 'OTDashboard', icon: <FiActivity /> },
-                { label: 'Clinical Questions', path: 'HospitalAdminQuestionLibrary', icon: <FiFileText /> },
-                { label: 'Staff Management', path: 'Admin', icon: <FiUsers /> },
-                { label: 'Doctors Feed', path: 'AdminDoctors', icon: <FiActivity /> },
-                { label: 'Pharma Inventory', path: 'PharmacyInventory', icon: <FiPackage /> },
-            ];
-        }
-        if (role === 'doctor' || role === 'clinic doctor') {
-            if (user?.clinicType === 'clinic') {
-                return [
-                    { label: 'Doctor Dashboard', path: 'DoctorDashboard', icon: <FiHome /> },
-                ];
-            }
-            return [
-                { label: 'Dashboard', path: 'DoctorDashboard', icon: <FiClipboard /> }, // Adjusted from /doctor/cases
-                { label: 'My Patients', path: 'DoctorPatientDetails', icon: <FiUsers /> },
-                { label: '🤖 AI Assistant', path: 'AIAssistant', icon: <FiFileText /> },
-            ];
-        }
-        if (role === 'reception' || role === 'receptionist') {
-            return [
-                { label: 'Reception Dashboard', path: 'ReceptionDashboard', icon: <FiHome /> },
-                { label: 'Patient Registration', path: 'ReceptionPatients', icon: <FiPlusSquare /> }, // Adjusted param logic
-                { label: 'Patient Billing', path: 'PatientBillingProfile', icon: <FiFileText /> },
-            ];
-        }
-        if (role === 'lab') {
-            return [
-                { label: 'Lab Dashboard', path: 'LabDashboard', icon: <FiActivity /> },
-                { label: 'Assigned Tests', path: 'AssignedTests', icon: <FiFileText /> },
-            ];
-        }
-        if (role.includes('pharmac')) {
-            return [
-                { label: 'Inventory', path: 'PharmacyInventory', icon: <FiPackage /> },
-                { label: 'Pharmacy Orders', path: 'PharmacyOrders', icon: <FiClipboard /> },
-                { label: 'Purchase Invoices', path: 'PurchaseInvoiceHistory', icon: <FiFileText /> },
-                { label: 'Returns', path: 'PharmacyReturns', icon: <FiActivity /> },
-                { label: 'Vendor Returns', path: 'VendorReturns', icon: <FiActivity /> },
-                { label: 'Collections', path: 'PharmacyCollections', icon: <FiPieChart /> },
-                { label: 'Departments', path: 'PharmacyDepartments', icon: <FiGrid /> },
-            ];
-        }
-
-        if (role === 'accountant') {
-            return [
-                { label: 'Finance Dashboard', path: 'CashierDashboard', icon: <FiPieChart /> },
-            ];
-        }
-        if (role === 'cashier') {
-            return [
-                { label: 'Billing/Payments', path: 'CashierDashboard', icon: <FiFileText /> },
-            ];
-        }
-        if (role === 'nurse') {
-            return [
-                { label: 'Patient Queue', path: 'ReceptionPatients', icon: <FiUsers /> }, // Fallback
-                { label: 'Appointments', path: 'Appointments', icon: <FiCalendar /> },
-            ];
-        }
-        if (role === 'billing') {
-            return [
-                { label: 'Patient Billing', path: 'CashierDashboard', icon: <FiFileText /> },
+                { label: 'System Overview', path: 'CentralAdminDashboard', icon: <Feather name="grid" size={18} /> },
+                { label: 'Question Library', path: 'AdminQuestionLibrary', icon: <Feather name="layers" size={18} /> },
+                { label: 'Consent Hub', path: 'ConsentManagement', icon: <Feather name="clipboard" size={18} /> },
+                { label: 'Role & Permissions', path: 'AdminRoles', icon: <Feather name="shield" size={18} /> },
+                { label: 'Manage All Staff', path: 'Admin', icon: <Feather name="users" size={18} /> },
             ];
         }
         return [
-            { label: 'My Dashboard', path: 'Dashboard', icon: <FiHome /> },
+            { label: 'Dashboard', path: 'Dashboard', icon: <Feather name="home" size={18} /> },
         ];
     };
 
@@ -179,14 +60,13 @@ const DashboardSidebar = ({ isOpen, setOpen }) => {
                 
                 {isMobile && isOpen && (
                     <TouchableOpacity style={styles.mobileCloseBtn} onPress={() => setOpen(false)}>
-                        <FiX />
+                        <Feather name="x" size={24} color="#64748b" />
                     </TouchableOpacity>
                 )}
             </View>
             
             <ScrollView style={styles.sidebarNav} showsVerticalScrollIndicator={false}>
                 {menuItems.map((item, idx) => {
-                    // Logic simplification for RN screen matching
                     const isActive = currentPath === item.path;
 
                     const caThemes = [
@@ -215,8 +95,8 @@ const DashboardSidebar = ({ isOpen, setOpen }) => {
                             }}
                             activeOpacity={0.7}
                         >
-                            <View style={styles.sidebarLinkIcon}>
-                                {item.icon}
+                            <View style={[styles.sidebarLinkIcon, isActive && isCentralAdmin && themeObj.text]}>
+                                {React.cloneElement(item.icon, { color: (isActive && isCentralAdmin) ? themeObj.text.color : '#64748b' })}
                             </View>
                             
                             {isOpen && (
@@ -233,18 +113,18 @@ const DashboardSidebar = ({ isOpen, setOpen }) => {
                     );
                 })}
 
-                {/* Need Help Widget Card inside Sidebar for Central Admin */}
                 {isCentralAdmin && isOpen && (
                     <View style={styles.caSidebarHelpCard}>
                         <View style={styles.caSidebarHelpAvatarWrap}>
-                            <Text style={{fontSize: 20}}>🎧</Text>
+                            <MaterialCommunityIcons name="robot-outline" size={24} color="#059669" />
                         </View>
-                        <Text style={styles.caSidebarHelpTitle}>Need Help?</Text>
+                        <Text style={styles.caSidebarHelpTitle}>AI Assistant</Text>
                         <Text style={styles.caSidebarHelpDesc}>
-                            Check our documentation or contact support.
+                            Get automated insights and support from our AI bot.
                         </Text>
-                        <TouchableOpacity style={styles.caSidebarHelpBtn} onPress={() => Linking.openURL('mailto:teammedical365@gmail.com')}>
-                            <Text style={styles.caSidebarHelpBtnText}>🎧 Contact Support</Text>
+                        <TouchableOpacity style={styles.caSidebarHelpBtn} onPress={() => {}}>
+                            <Feather name="message-circle" size={14} color="#059669" />
+                            <Text style={styles.caSidebarHelpBtnText}>Ask AI</Text>
                         </TouchableOpacity>
                     </View>
                 )}
@@ -258,17 +138,13 @@ const DashboardSidebar = ({ isOpen, setOpen }) => {
                             dispatch(logout());
                             await AsyncStorage.removeItem('token');
                             await AsyncStorage.removeItem('user');
-                            if (Platform.OS === 'web') {
-                                localStorage.removeItem('token');
-                                localStorage.removeItem('user');
-                            }
                         } catch (err) {
                             console.error('Logout failed:', err);
                         }
                     }}
                 >
                     <View style={styles.sidebarLinkIcon}>
-                        <FiLogOut />
+                        <Feather name="log-out" size={18} color="#ef4444" />
                     </View>
                     {isOpen && (
                         <Text style={[styles.sidebarLinkText, { color: '#ef4444' }]}>
@@ -278,24 +154,22 @@ const DashboardSidebar = ({ isOpen, setOpen }) => {
                 </TouchableOpacity>
             </View>
 
-            {/* Collapse button for Central Admin */}
             {isCentralAdmin && !isMobile && (
                 <View style={styles.caSidebarFooter}>
                     <TouchableOpacity style={styles.caSidebarCollapseBtn} onPress={() => setOpen(!isOpen)}>
-                        <Text style={styles.caSidebarCollapseBtnText}>{isOpen ? '«' : '»'}</Text>
+                        <Feather name={isOpen ? "chevrons-left" : "chevrons-right"} size={16} color="#64748b" />
                     </TouchableOpacity>
                 </View>
             )}
         </View>
     );
 };
+
 const TopBar = ({ toggleSidebar, sidebarOpen }) => {
     const { user } = useSelector(state => state.auth);
-    const { branding, hospitalName } = useBranding();
     const dispatch = useDispatch();
-    const navigation = useNavigation();
     const route = useRoute();
-    const currentPath = route.name; // Replacing location.pathname
+    const currentPath = route.name; 
 
     const role = (user?.role || '').toLowerCase();
     const isCentralAdmin = (role === 'centraladmin' || role === 'superadmin');
@@ -308,16 +182,15 @@ const TopBar = ({ toggleSidebar, sidebarOpen }) => {
         try {
             await AsyncStorage.removeItem('token');
             await AsyncStorage.removeItem('user');
-        } catch (e) { console.log('Storage clear error', e); }
+        } catch (e) {}
     };
 
-    // Helper to get initials
     const getInitials = (name) => {
-        return (name || 'U').split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
+        return (name || 'PH').split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
     };
 
     const getCentralAdminTag = () => {
-        if (currentPath === 'SuperAdmin') return 'CENTRAL ADMIN';
+        if (currentPath === 'CentralAdminDashboard') return 'CENTRAL ADMIN';
         if (currentPath.includes('QuestionLibrary')) return 'QUESTION LIBRARY';
         if (currentPath.includes('Consent')) return 'CONSENT HUB';
         if (currentPath.includes('Roles')) return 'ROLES & PERMISSIONS';
@@ -326,18 +199,11 @@ const TopBar = ({ toggleSidebar, sidebarOpen }) => {
         return 'CENTRAL ADMIN';
     };
 
-    // Helper to make Route names look like readable breadcrumbs
-    const formatPageName = (name) => {
-        if (name.includes('PatientProfile')) return 'Patient Profile';
-        // Add spaces before capital letters for camelCase screen names
-        return name.replace(/([A-Z])/g, ' $1').trim() || 'Dashboard';
-    };
-
     return (
         <View style={[styles.erpTopbar, isCentralAdmin && styles.caErpTopbar, isMobile && styles.mobileTopbarLeft]}>
             <View style={styles.topbarLeft}>
                 <TouchableOpacity style={styles.sidebarToggle} onPress={toggleSidebar} activeOpacity={0.6}>
-                    <FiMenu />
+                    <Feather name="menu" size={24} color="#1e293b" />
                 </TouchableOpacity>
 
                 {isCentralAdmin ? (
@@ -352,49 +218,63 @@ const TopBar = ({ toggleSidebar, sidebarOpen }) => {
                     </View>
                 ) : (
                     <View style={styles.breadcrumbWrap}>
-                        {!isMobile && (
-                            <Text style={styles.currPageName} numberOfLines={1}>
-                                {formatPageName(currentPath)}
-                            </Text>
-                        )}
-                        {!isMobile && <Text style={styles.pathSlash}>/</Text>}
-                        <Text style={styles.pathUserRole}>{user?.role || 'User'}</Text>
+                        <Text style={styles.currPageName} numberOfLines={1}>{currentPath}</Text>
                     </View>
                 )}
             </View>
 
-            {/* GlobalSearch needs to be compatible with React Native. 
-                Assuming it has been or will be converted independently. */}
-            {!isMobile && <GlobalSearch />}
+            {/* Global Search */}
+            {!isMobile && isCentralAdmin && (
+                <View style={styles.globalSearchPill}>
+                    <Feather name="search" size={16} color="#94a3b8" />
+                    <Text style={styles.globalSearchText}>Search patients, doctors, st...</Text>
+                </View>
+            )}
+            {!isCentralAdmin && !isMobile && <GlobalSearch />}
 
             <View style={styles.topbarRight}>
-                {/* TOP BAR RIGHT SECTION */}
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    {/* Profile Avatar */}
-                    <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#3b82f6', justifyContent: 'center', alignItems: 'center', marginRight: 15 }}>
-                        <Text style={{ color: 'white', fontWeight: 'bold' }}>SA</Text>
-                    </View>
-                    
-                    {/* Logout Button */}
-                    <TouchableOpacity 
-                        onPress={() => dispatch(logout())} 
-                        style={{ backgroundColor: '#ef4444', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 6 }}>
-                        <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 14 }}>Logout</Text>
+                {isCentralAdmin && (
+                    <TouchableOpacity style={styles.bellIconBtn}>
+                        <Feather name="bell" size={20} color="#64748b" />
+                        <View style={styles.bellBadge}>
+                            <Text style={styles.bellBadgeText}>3</Text>
+                        </View>
                     </TouchableOpacity>
-                </View>
+                )}
+
+                <TouchableOpacity 
+                    style={styles.profileAvatarBtn}
+                    onPress={() => setDropdownVisible(!dropdownVisible)}
+                >
+                    <Text style={styles.profileAvatarBtnText}>{getInitials(user?.name)}</Text>
+                </TouchableOpacity>
 
                 {/* Dropdown Profile Modal (Absolute Positioned) */}
                 {dropdownVisible && (
                     <View style={styles.profileDropdownContent}>
                         <View style={styles.pHeader}>
-                            <Text style={styles.pHeaderTitle}>{user?.name || 'Pawan Harish'}</Text>
-                            <Text style={styles.pHeaderEmail}>{user?.email || 'admin@medical365.in'}</Text>
-                            <Text style={styles.pRoleBadge}>{user?.role || 'Super Admin'}</Text>
+                            <View style={styles.pHeaderTop}>
+                                <View style={styles.pAvatarLg}>
+                                    <Text style={styles.pAvatarLgText}>{getInitials(user?.name)}</Text>
+                                </View>
+                                <View style={styles.pNameEmail}>
+                                    <Text style={styles.pHeaderTitle}>{user?.name || 'Pawan Harish'}</Text>
+                                    <Text style={styles.pHeaderEmail}>{user?.email || 'pawanharish2@gmail.c...'}</Text>
+                                </View>
+                            </View>
+                            <Text style={styles.pRoleBadge}>{user?.role || 'CENTRALADMIN'}</Text>
                         </View>
+                        
+                        <View style={styles.pBody}>
+                            <View style={styles.lastLoginRow}>
+                                <Feather name="clock" size={14} color="#64748b" style={{marginRight: 8}} />
+                                <Text style={styles.lastLoginText}>LAST LOGIN: Today, 09:42 AM</Text>
+                            </View>
+                        </View>
+
                         <View style={styles.pFooter}>
                             <TouchableOpacity onPress={handleLogout} style={styles.btnPLogout}>
-                                <FiLogOut />
-                                <Text style={styles.btnPLogoutText}>Logout Session</Text>
+                                <Text style={styles.btnPLogoutText}>[→ Logout</Text>
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -403,12 +283,12 @@ const TopBar = ({ toggleSidebar, sidebarOpen }) => {
         </View>
     );
 };
+
 const DashboardLayout = ({ children }) => {
     const [windowWidth, setWindowWidth] = useState(Dimensions.get('window').width);
     const [sidebarOpen, setSidebarOpen] = useState(windowWidth > 1024);
 
     useEffect(() => {
-        // Handle screen resizing or orientation changes (Tablet/Web)
         const subscription = Dimensions.addEventListener('change', ({ window }) => {
             setWindowWidth(window.width);
             if (window.width <= 1024) {
@@ -417,23 +297,15 @@ const DashboardLayout = ({ children }) => {
                 setSidebarOpen(true);
             }
         });
-        return () => {
-            if (subscription?.remove) {
-                subscription.remove();
-            }
-        };
+        return () => subscription?.remove && subscription.remove();
     }, []);
 
-    // We recalculate this locally in addition to the static 'isMobile' from styles 
-    // so it reacts dynamically to screen rotations.
     const isMobileView = windowWidth <= 1024;
-
+    
     return (
         <View style={styles.erpLayout}>
-            {/* The Sidebar Component */}
             <DashboardSidebar isOpen={sidebarOpen} setOpen={setSidebarOpen} />
             
-            {/* Mobile Overlay - Darkens background when sidebar is open on small screens */}
             {isMobileView && sidebarOpen && (
                 <TouchableOpacity 
                     style={styles.sidebarOverlay} 
@@ -442,15 +314,9 @@ const DashboardLayout = ({ children }) => {
                 />
             )}
 
-            {/* Main Content Area */}
-            <View style={[
-                styles.erpMainArea,
-                // On desktop, we shift the main area so the sidebar doesn't overlap it
-                !isMobileView && (sidebarOpen ? { paddingLeft: SIDEBAR_WIDTH } : { paddingLeft: SIDEBAR_COLLAPSED }),
-            ]}>
+            <View style={styles.erpMainArea}>
                 <TopBar sidebarOpen={sidebarOpen} toggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
                 
-                {/* The actual screen content goes here */}
                 <View style={styles.erpPageContent}>
                     {children}
                 </View>

@@ -396,14 +396,14 @@ const styles = StyleSheet.create({
         paddingVertical: 12,
     },
     btnPrimary: {
-        backgroundColor: '#2563eb',
+        backgroundColor: '#d91a8a',
         borderRadius: 10,
         paddingVertical: 12,
         paddingHorizontal: 20,
         alignItems: 'center',
         justifyContent: 'center',
         marginTop: 12,
-        shadowColor: '#2563eb',
+        shadowColor: '#d91a8a',
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3,
         shadowRadius: 8,
@@ -433,7 +433,7 @@ const styles = StyleSheet.create({
         fontWeight: '500',
     },
     switchLink: {
-        color: '#2563eb',
+        color: '#d91a8a',
         fontWeight: '700',
     },
     visualTitle: {

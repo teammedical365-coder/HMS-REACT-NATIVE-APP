@@ -41,7 +41,7 @@ export default function CentralAdminHospitalList({
       } else {
         // Safely try common screen names if navigation context exists
         try {
-          navigation.navigate('AdminDashboard', { hospitalId: hospital._id || hospital.id });
+          navigation.navigate('HospitalAdmin', { hospitalId: hospital._id || hospital.id });
         } catch (e) {
           console.error("Navigation screen not found:", e);
         }
@@ -51,33 +51,30 @@ export default function CentralAdminHospitalList({
     }
   };
 
-  const normalize = (str) => String(str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-  
-  const filteredHospitals = hospitals.filter(h => {
-    // 1. Unify the plan source (handling legacy clinic payloads)
-    const plan = h.subscriptionPlan || h.clinicPlan || h.plan || 'none';
+  const filteredHospitals = hospitals.filter((item) => {
+    const plan = item.plan || item.subscriptionPlan || item.planName || '';
 
-    // 2. All tab
-    if (activeTab === 'all') return true;
-
-    // 3. Exact matching based on Web Blueprint
-    if (activeTab === 'multi-speciality') {
-      return plan === 'multi_speciality_starter';
+    if (activeTab === 'multi-speciality' || activeTab === 'multi_speciality') {
+      return !item.isSimpleClinic && plan === 'multi_speciality_starter';
     }
-    if (activeTab === 'clinic-basic') {
+    if (activeTab === 'clinic-basic' || activeTab === 'clinic_basic') {
       return plan === 'clinic_basic';
     }
-    if (activeTab === 'simple-clinics') {
-      return plan === 'starter' || plan === 'basic';
+    if (activeTab === 'hospitals' || activeTab === 'enterprise') {
+      return !item.isSimpleClinic && plan !== 'multi_speciality_starter' && plan !== 'clinic_basic';
     }
-    
-    // 4. Enterprise uses the Negative Filter
-    if (activeTab === 'hospitals') {
-      return plan !== 'multi_speciality_starter' && plan !== 'clinic_basic' && plan !== 'starter' && plan !== 'basic';
+    if (activeTab === 'simple-clinics' || activeTab === 'starter' || activeTab === 'starter_plan') {
+      return item.isSimpleClinic && plan !== 'clinic_basic';
     }
-    
-    return true;
+    return false;
+  }).sort((a, b) => {
+    const idA = String(a._id || a.id || '');
+    const idB = String(b._id || b.id || '');
+    return idB.localeCompare(idA);
   });
+
+  console.log('Native vs Web matched active tab:', activeTab);
+  console.log('Final filtered list:', filteredHospitals);
 
   const isEmpty = filteredHospitals.length === 0;
 

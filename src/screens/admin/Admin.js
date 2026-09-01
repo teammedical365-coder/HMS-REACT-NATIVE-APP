@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Feather } from '@expo/vector-icons';
 import { adminAPI, uploadAPI, hospitalAPI } from '../../utils/api';
 import { getSubscriptionLimits } from '../../utils/subscriptionPlans';
 
@@ -22,7 +23,7 @@ const CustomSelect = ({ options, value, onChange, placeholder, disabled }) => {
                 activeOpacity={0.7}
             >
                 <Text style={{ color: value ? '#000' : '#94a3b8' }} numberOfLines={1}>{selectedName}</Text>
-                <Text style={{ fontSize: 12, color: '#64748b' }}>▼</Text>
+                <Feather name="chevron-down" size={14} color="#64748b" />
             </TouchableOpacity>
 
             {isOpen && (
@@ -361,7 +362,7 @@ const Admin = () => {
 
             const response = await adminAPI.createUser(userData);
             if (response.success) {
-                setSuccess(`✅ ${response.user?.role?.name || 'Staff'} account created! They can log in with: ${createForm.email}`);
+                setSuccess(`${response.user?.role?.name || 'Staff'} account created! They can log in with: ${createForm.email}`);
                 setCreateForm({ name: '', email: '', password: '', phone: '', age: '', aadhaar: '', roleId: '', file: null, department: '', hospitalId: '' });
                 setShowCreateForm(false);
                 fetchUsers();
@@ -579,7 +580,10 @@ const Admin = () => {
                 {/* Quota Card */}
                 {hospital && (hospital.subscriptionPlan === 'clinic_basic' || hospital.subscriptionPlan === 'multi_speciality_starter') && (
                     <View style={[styles.adminCard, { marginBottom: 20, backgroundColor: '#f8fafc', borderColor: '#e2e8f0' }]}>
-                        <Text style={[styles.cardTitle, { fontSize: 15, marginBottom: 12 }]}>📊 Subscription Quota (Staff)</Text>
+                        <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 12}}>
+                            <Feather name="pie-chart" size={16} color="#0f172a" style={{marginRight: 8}} />
+                            <Text style={[styles.cardTitle, { fontSize: 15, marginBottom: 0 }]}>Subscription Quota (Staff)</Text>
+                        </View>
                         <View style={{ flexDirection: 'row', gap: 20, flexWrap: 'wrap' }}>
                             <View style={{ backgroundColor: '#fff', padding: 16, borderRadius: 8, borderColor: '#cbd5e1', borderWidth: 1, flex: 1, minWidth: 150 }}>
                                 <Text style={{ color: '#64748b', fontSize: 12, fontWeight: '600' }}>Staff Accounts</Text>
@@ -591,8 +595,9 @@ const Admin = () => {
                             </View>
                         </View>
                         {remainingStaff === 0 && (
-                            <View style={{ backgroundColor: '#fee2e2', padding: 16, borderRadius: 8, borderColor: '#fecaca', borderWidth: 1, marginTop: 16 }}>
-                                <Text style={{ color: '#dc2626', fontSize: 13, fontWeight: '600' }}>⚠️ Staff quota has been fully utilized. Upgrade your plan to add more staff.</Text>
+                            <View style={{ backgroundColor: '#fee2e2', padding: 16, borderRadius: 8, borderColor: '#fecaca', borderWidth: 1, marginTop: 16, flexDirection: 'row', alignItems: 'center' }}>
+                                <Feather name="alert-triangle" size={16} color="#dc2626" style={{marginRight: 8}} />
+                                <Text style={{ color: '#dc2626', fontSize: 13, fontWeight: '600', flex: 1 }}>Staff quota has been fully utilized. Upgrade your plan to add more staff.</Text>
                             </View>
                         )}
                     </View>
@@ -605,7 +610,7 @@ const Admin = () => {
                         
                         <View style={{ flex: 1, minWidth: 200, maxWidth: 300 }}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderColor: '#cbd5e1', borderWidth: 1, borderRadius: 4, paddingHorizontal: 10, height: 38 }}>
-                                <Text style={{ color: '#94a3b8' }}>🔍</Text>
+                                <Feather name="search" size={14} color="#94a3b8" />
                                 <TextInput
                                     style={{ flex: 1, paddingHorizontal: 8, height: '100%', outlineStyle: 'none' }}
                                     placeholder="Search by name, email..."
@@ -656,6 +661,7 @@ const Admin = () => {
                                     <Text style={[styles.th, { width: 60 }]}>Avatar</Text>
                                     <Text style={[styles.th, { width: 150 }]}>Name</Text>
                                     <Text style={[styles.th, { width: 150 }]}>Hospital</Text>
+                                    <Text style={[styles.th, { width: 150 }]}>Plan</Text>
                                     <Text style={[styles.th, { width: 120 }]}>Role</Text>
                                     <Text style={[styles.th, { width: 200 }]}>Email</Text>
                                     <Text style={[styles.th, { width: 120 }]}>Phone</Text>
@@ -687,9 +693,16 @@ const Admin = () => {
                                             </View>
                                             <Text style={[styles.td, { width: 150, fontWeight: '500' }]}>{userItem.name}</Text>
                                             <View style={[styles.td, { width: 150 }]}>
-                                                <View style={{ backgroundColor: '#f0f9ff', paddingVertical: 2, paddingHorizontal: 8, borderRadius: 4, alignSelf: 'flex-start' }}>
-                                                    <Text style={{ color: '#0284c7', fontSize: 12 }}>
-                                                        {userItem.hospitalId ? (hospitals.find(h => h._id === String(userItem.hospitalId))?.name || hospital?.name || 'Unknown') : '⚠️ No hospital'}
+                                                <View style={{ backgroundColor: '#f0f9ff', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 4, alignSelf: 'flex-start', borderWidth: 1, borderColor: '#bae6fd' }}>
+                                                    <Text style={{ color: '#0284c7', fontSize: 11, fontWeight: '700' }}>
+                                                        {userItem.hospitalId ? (hospitals.find(h => h._id === String(userItem.hospitalId))?.name || hospital?.name || 'Unknown') : 'No hospital'}
+                                                    </Text>
+                                                </View>
+                                            </View>
+                                            <View style={[styles.td, { width: 150 }]}>
+                                                <View style={{ backgroundColor: '#fdf4ff', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 4, alignSelf: 'flex-start', borderWidth: 1, borderColor: '#fbcfe8' }}>
+                                                    <Text style={{ color: '#d946ef', fontSize: 11, fontWeight: '700' }}>
+                                                        {userItem.hospitalId ? (hospitals.find(h => h._id === String(userItem.hospitalId))?.plan || 'Enterprise') : 'Enterprise'}
                                                     </Text>
                                                 </View>
                                             </View>

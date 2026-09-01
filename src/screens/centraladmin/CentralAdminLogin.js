@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     View, Text, TextInput, TouchableOpacity, Image,
     KeyboardAvoidingView, Platform, ScrollView, StyleSheet, useWindowDimensions, ActivityIndicator
@@ -10,6 +10,8 @@ import { sendOtp, verifyOtp, forceLogin, clearError, resetOtpFlow, setCredential
 import { setAuthHeader } from '../../utils/api';
 import PasswordInput from '../../components/PasswordInput';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import Svg, { Path } from 'react-native-svg';
 
 let PERSISTED_EMAIL = '';
 let PERSISTED_PASSWORD = '';
@@ -27,9 +29,17 @@ const CentralAdminLogin = () => {
     const [localLoading, setLocalLoading] = useState(false);
     const [localError, setLocalError] = useState(PERSISTED_ERROR);
     const [step, setStep] = useState(1);
-    const [otp, setOtp] = useState('');
+    
+    // OTP State (6 inputs)
+    const [otpValues, setOtpValues] = useState(['', '', '', '', '', '']);
+    const otpInputRefs = useRef([]);
+    const [resendTimer, setResendTimer] = useState(20);
+    const [focusedOtpIndex, setFocusedOtpIndex] = useState(null);
+
+    const [rememberMe, setRememberMe] = useState(true);
     const { width } = useWindowDimensions();
-    const isCompact = width < 768;
+    
+    const isDesktop = width >= 1024;
 
     useEffect(() => {
         const checkSession = async () => {
@@ -46,6 +56,19 @@ const CentralAdminLogin = () => {
         dispatch(clearError());
     }, [dispatch]);
 
+    // Resend Timer logic
+    useEffect(() => {
+        let interval = null;
+        if (step === 2 && resendTimer > 0) {
+            interval = setInterval(() => {
+                setResendTimer(t => t - 1);
+            }, 1000);
+        } else if (resendTimer === 0) {
+            clearInterval(interval);
+        }
+        return () => clearInterval(interval);
+    }, [step, resendTimer]);
+
     const handleChange = (name, value) => {
         if (name === 'email') PERSISTED_EMAIL = value;
         if (name === 'password') PERSISTED_PASSWORD = value;
@@ -53,6 +76,40 @@ const CentralAdminLogin = () => {
         dispatch(clearError());
         PERSISTED_ERROR = '';
         setLocalError('');
+    };
+
+    const handleOtpChange = (index, value) => {
+        if (value.length > 1) {
+            // Handle pasting
+            const pasteChars = value.split('').slice(0, 6);
+            const newOtp = [...otpValues];
+            pasteChars.forEach((char, i) => {
+                if (index + i < 6) newOtp[index + i] = char;
+            });
+            setOtpValues(newOtp);
+            // Focus last filled or next empty
+            const nextIndex = Math.min(index + pasteChars.length, 5);
+            otpInputRefs.current[nextIndex]?.focus();
+            return;
+        }
+
+        const newOtp = [...otpValues];
+        newOtp[index] = value;
+        setOtpValues(newOtp);
+        setLocalError('');
+
+        if (value !== '' && index < 5) {
+            otpInputRefs.current[index + 1]?.focus();
+        }
+    };
+
+    const handleOtpKeyPress = (index, e) => {
+        if (e.nativeEvent.key === 'Backspace' && otpValues[index] === '' && index > 0) {
+            otpInputRefs.current[index - 1]?.focus();
+            const newOtp = [...otpValues];
+            newOtp[index - 1] = '';
+            setOtpValues(newOtp);
+        }
     };
 
     const getSafeErrorText = () => {
@@ -75,12 +132,10 @@ const CentralAdminLogin = () => {
             setLocalError("Please enter email and password");
             return;
         }
-        
         if (!isValidEmail(email)) {
             setLocalError("Please enter a valid email address");
             return;
         }
-        
         if (password.length < 6) {
             setLocalError("Password must be at least 6 characters long");
             return;
@@ -104,28 +159,37 @@ const CentralAdminLogin = () => {
                 if (result.user) {
                     dispatch(setCredentials({ user: result.user, token: result.token }));
                 }
-                // Use navigation.reset to properly transition from Auth stack to CentralAdmin stack
-                navigation.reset({
-                    index: 0,
-                    routes: [{ name: 'CentralAdmin' }],
-                });
+                navigation.reset({ index: 0, routes: [{ name: 'CentralAdmin' }] });
                 return;
             }
             setStep(2);
+            setResendTimer(20);
         } catch (err) {
-            const errMsg = typeof err === 'object' ? (err.message || JSON.stringify(err)) : err;
-            PERSISTED_ERROR = errMsg || "Invalid Credentials";
+            console.log('[Login Error]', err);
+            let errMsg = 'Invalid Credentials';
+            if (err) {
+                if (typeof err === 'string') {
+                    errMsg = err;
+                } else if (err.message) {
+                    errMsg = err.message;
+                } else if (typeof err === 'object') {
+                    errMsg = JSON.stringify(err);
+                }
+            }
+            if (errMsg.includes('401') || errMsg.toLowerCase().includes('unauthorized')) {
+                errMsg = 'Invalid email or password. Please try again.';
+            }
+            PERSISTED_ERROR = errMsg;
             setLocalError(PERSISTED_ERROR);
         } finally {
             setLocalLoading(false);
         }
     };
 
-    const handleVerifyOtp = async (e) => {
-        if (e && e.preventDefault) e.preventDefault();
+    const handleVerifyOtp = async () => {
         if (localLoading) return;
 
-        const cleanOtp = String(otp).replace(/\D/g, '');
+        const cleanOtp = otpValues.join('').replace(/\D/g, '');
         if (!cleanOtp || cleanOtp.length !== 6) {
             return setLocalError('Please enter a valid 6-digit OTP.');
         }
@@ -134,32 +198,23 @@ const CentralAdminLogin = () => {
         setLocalLoading(true);
 
         try {
-            // Use dispatch(verifyOtp) to maintain consistency with web flow
             const result = await dispatch(verifyOtp({ preAuthToken, otp: cleanOtp })).unwrap();
             
             if (result.activeSessionExists) {
                 setLocalError("OTP Verified! Clearing your old sessions to let you in...");
                 try {
                     const forceResult = await dispatch(forceLogin({
-                        preAuthToken,
-                        email: formData.email,
-                        loginType: 'admin'
+                        preAuthToken, email: formData.email, loginType: 'admin'
                     })).unwrap();
 
                     if (forceResult?.token) {
                         await AsyncStorage.setItem('token', forceResult.token);
                         await AsyncStorage.setItem('superadmin_token', forceResult.token);
                         setAuthHeader(forceResult.token);
-                        
                         if (forceResult.user) {
                             dispatch(setCredentials({ user: forceResult.user, token: forceResult.token }));
                         }
-                        
-                        // Use navigation.reset to properly transition from Auth stack to CentralAdmin stack
-                        navigation.reset({
-                            index: 0,
-                            routes: [{ name: 'CentralAdmin' }],
-                        });
+                        navigation.reset({ index: 0, routes: [{ name: 'CentralAdmin' }] });
                         return;
                     }
                 } catch (forceErr) {
@@ -170,22 +225,29 @@ const CentralAdminLogin = () => {
                 await AsyncStorage.setItem('token', result.token);
                 await AsyncStorage.setItem('superadmin_token', result.token);
                 setAuthHeader(result.token);
-                
                 if (result.user) {
                     dispatch(setCredentials({ user: result.user, token: result.token }));
                 }
-                
-                // Use navigation.reset to properly transition from Auth stack to CentralAdmin stack
-                navigation.reset({
-                    index: 0,
-                    routes: [{ name: 'CentralAdmin' }],
-                });
+                navigation.reset({ index: 0, routes: [{ name: 'CentralAdmin' }] });
             } else {
                 setLocalError(result.message || 'Invalid OTP');
             }
         } catch (err) {
             const errMsg = typeof err === 'object' ? (err.message || JSON.stringify(err)) : err;
             setLocalError(errMsg || 'Invalid OTP');
+        } finally {
+            setLocalLoading(false);
+        }
+    };
+
+    const handleResendOtp = async () => {
+        setLocalError('');
+        setLocalLoading(true);
+        try {
+            await dispatch(sendOtp({ email: formData.email, password: formData.password, loginType: 'admin' })).unwrap();
+            setResendTimer(20);
+        } catch (err) {
+            setLocalError('Failed to resend OTP.');
         } finally {
             setLocalLoading(false);
         }
@@ -201,7 +263,7 @@ const CentralAdminLogin = () => {
     if (isAuthenticated) {
         return (
             <SafeAreaView style={[styles.safeArea, { justifyContent: 'center', alignItems: 'center' }]}>
-                <ActivityIndicator size="large" color="#2563eb" />
+                <ActivityIndicator size="large" color="#0284c7" />
                 <Text style={{ marginTop: 20, fontSize: 18, fontWeight: 'bold', color: '#1e293b' }}>
                     Authenticating & Redirecting...
                 </Text>
@@ -209,178 +271,305 @@ const CentralAdminLogin = () => {
         );
     }
 
+    const censorEmail = (email) => {
+        if (!email) return 'your email';
+        const [name, domain] = email.split('@');
+        if (!domain) return email;
+        const censoredName = name.length > 2 ? name.substring(0, 2) + '***' : name + '***';
+        return `${censoredName}@${domain}`;
+    };
+
     return (
         <SafeAreaView style={styles.safeArea}>
             <KeyboardAvoidingView
                 style={styles.container}
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             >
-                <ScrollView
-                    contentContainerStyle={styles.scrollContent}
-                    keyboardShouldPersistTaps="handled"
-                    showsVerticalScrollIndicator={false}
-                >
-                    <View style={styles.card}>
-                        {/* LEFT COLUMN: Form */}
-                        <View style={styles.leftColumn} pointerEvents="box-none">
+                <View style={styles.layout}>
+                    
+                    {/* LEFT COLUMN: Visual & Branding */}
+                    {isDesktop && (
+                        <View style={styles.leftColumn}>
+                            <View style={styles.dotGridOverlay} />
+                            <View style={styles.leftContent}>
+                                {/* Top Logo */}
+                                <View style={styles.brandRow}>
+                                    <Image
+                                        source={require('../../assets/medical365-logo.png')}
+                                        style={styles.logo}
+                                        resizeMode="contain"
+                                    />
+                                    <MaterialCommunityIcons name="flower-tulip-outline" size={26} color="#0284c7" style={{marginLeft: 8}} />
+                                </View>
+
+                                {/* Hero Text */}
+                                <Text style={styles.heroLine1}>Smarter Healthcare</Text>
+                                <Text style={styles.heroLine2}>Better Tomorrow</Text>
+                                <Text style={styles.heroSubtitle}>
+                                    Medical365 is your all-in-one healthcare management platform designed to streamline clinical workflows, empower professionals, and deliver better patient outcomes globally.
+                                </Text>
+
+                                {/* Stacked Feature Cards */}
+                                <View style={styles.featuresStack}>
+                                    <View style={styles.featureCard}>
+                                        <View style={styles.featureIconWrap}>
+                                            <Ionicons name="shield-checkmark" size={16} color="#0d9488" />
+                                        </View>
+                                        <Text style={styles.featureText}>Secure & Compliant</Text>
+                                    </View>
+                                    <View style={styles.featureCard}>
+                                        <View style={styles.featureIconWrap}>
+                                            <Ionicons name="people" size={16} color="#0d9488" />
+                                        </View>
+                                        <Text style={styles.featureText}>Smart Management</Text>
+                                    </View>
+                                    <View style={styles.featureCard}>
+                                        <View style={styles.featureIconWrap}>
+                                            <Ionicons name="stats-chart" size={16} color="#0d9488" />
+                                        </View>
+                                        <Text style={styles.featureText}>Better Insights</Text>
+                                    </View>
+                                </View>
+
+                                {/* Center Glow Graphic */}
+                                <View style={styles.glowGraphicContainer}>
+                                    <View style={styles.glowCircle} />
+                                    <MaterialCommunityIcons name="medical-bag" size={90} color="#0ea5e9" style={{zIndex: 2, opacity: 0.8}} />
+                                </View>
+                            </View>
+
+                            {/* Bottom Pulse & Trust Badge */}
+                            <View style={styles.bottomGraphic}>
+                                <View style={styles.pulseContainer}>
+                                    <Svg width="100%" height="40" viewBox="0 0 400 40">
+                                        <Path
+                                            d="M0 20 L50 20 L65 5 L80 35 L95 20 L150 20 L165 5 L180 35 L195 20 L250 20 L265 5 L280 35 L295 20 L350 20 L365 5 L380 35 L395 20 L400 20"
+                                            stroke="#14b8a6"
+                                            strokeWidth="2"
+                                            fill="none"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            opacity="0.3"
+                                        />
+                                    </Svg>
+                                </View>
+                                <View style={styles.trustBadge}>
+                                    <Feather name="check-circle" size={14} color="#14b8a6" style={{marginRight: 6}} />
+                                    <Text style={styles.trustBadgeText}>Trusted by 1000+ Healthcare Professionals</Text>
+                                </View>
+                            </View>
+                        </View>
+                    )}
+
+                    {/* RIGHT COLUMN: Form Card */}
+                    <ScrollView 
+                        contentContainerStyle={[styles.rightColumnScroll, !isDesktop && styles.mobileCenterForm]}
+                        showsVerticalScrollIndicator={false}
+                        keyboardShouldPersistTaps="handled"
+                    >
+                        {!isDesktop && (
+                            <View style={{alignItems: 'center', marginBottom: 20}}>
+                                <Image
+                                    source={require('../../assets/medical365-logo.png')}
+                                    style={styles.logoMobile}
+                                    resizeMode="contain"
+                                />
+                            </View>
+                        )}
+                        <View style={styles.formCard}>
                             {!showOtpScreen && (
                                 <TouchableOpacity
-                                    onPress={(e) => {
-                                        e?.preventDefault();
-                                        if (navigation.canGoBack()) { navigation.goBack(); }
-                                    }}
+                                    onPress={() => navigation.canGoBack() && navigation.goBack()}
                                     style={styles.backButton}
                                     activeOpacity={0.7}
                                 >
-                                    <Text style={styles.backButtonText}>← Go Back</Text>
+                                    <Feather name="arrow-left" size={14} color="#64748b" style={{marginRight: 4}} />
+                                    <Text style={styles.backButtonText}>Go Back</Text>
                                 </TouchableOpacity>
                             )}
 
-                            <View style={styles.formContainer} pointerEvents="box-none">
-                                <Image
-                                    source={require('../../assets/medical365-logo.png')}
-                                    style={styles.logo}
-                                    resizeMode="contain"
-                                />
-
-                                {sessionBanner && (
-                                    <View style={styles.sessionBanner} pointerEvents="box-none">
-                                        <Text style={styles.sessionBannerText}>⚠️ {sessionBanner}</Text>
-                                    </View>
-                                )}
-
-                                {!showOtpScreen ? (
-                                    <View style={{ width: '100%' }} pointerEvents="box-none">
-                                        <Text style={styles.title}>Supreme Portal</Text>
-                                        <Text style={styles.subtitle}>Sign in to the system administration dashboard.</Text>
-
-                                        {displayError ? (
-                                            <View style={styles.errorBanner} pointerEvents="box-none">
-                                                <Text style={styles.errorBannerText}>{displayError}</Text>
-                                            </View>
-                                        ) : null}
-
-                                        <View style={styles.formGroup} pointerEvents="box-none">
-                                            <Text style={styles.label}>Admin Email</Text>
-                                            <View style={styles.inputWrapper} pointerEvents="box-none">
-                                                <Text style={styles.inputIcon}>✉️</Text>
-                                                <TextInput
-                                                    style={styles.input}
-                                                    placeholder="admin@medical365.in"
-                                                    placeholderTextColor="#94a3b8"
-                                                    value={formData.email}
-                                                    onChangeText={(t) => handleChange('email', t)}
-                                                    keyboardType="email-address"
-                                                    autoCapitalize="none"
-                                                    editable={!localLoading}
-                                                />
-                                            </View>
-                                        </View>
-
-                                        <View style={styles.formGroup} pointerEvents="box-none">
-                                            <Text style={styles.label}>Secret Password</Text>
-                                            <View style={styles.inputWrapper} pointerEvents="box-none">
-                                                <Text style={styles.inputIcon}>🔒</Text>
-                                                <PasswordInput
-                                                    placeholder="••••••••"
-                                                    value={formData.password}
-                                                    onChangeText={(t) => handleChange('password', t)}
-                                                    style={styles.passwordInputCustom}
-                                                    editable={!localLoading}
-                                                />
-                                            </View>
-                                        </View>
-
-                                        <TouchableOpacity
-                                            onPress={handleSubmit}
-                                            style={[
-                                                styles.submitBtn,
-                                                { backgroundColor: '#2563eb' },
-                                                (loading || localLoading) && styles.submitBtnLoading,
-                                            ]}
-                                            disabled={loading || localLoading}
-                                            activeOpacity={0.8}
-                                        >
-                                            {localLoading ? (
-                                                <ActivityIndicator size="small" color="#ffffff" />
-                                            ) : (
-                                                <Text style={styles.submitBtnText}>Access system control</Text>
-                                            )}
-                                        </TouchableOpacity>
-                                    </View>
-                                ) : (
-                                    <View style={styles.otpScreenContainer} pointerEvents="box-none">
-                                        <Text style={styles.otpTitle}>Security Challenge</Text>
-                                        <Text style={styles.otpSubtitle}>
-                                            Enter 6-digit OTP sent to {formData.email}
-                                        </Text>
-
-                                        {displayError ? (
-                                            <View style={styles.errorBanner} pointerEvents="box-none">
-                                                <Text style={styles.errorBannerText}>{displayError}</Text>
-                                            </View>
-                                        ) : null}
-
-                                        <TextInput
-                                            style={styles.otpInput}
-                                            placeholder="XXXXXX"
-                                            value={otp}
-                                            onChangeText={setOtp}
-                                            keyboardType="number-pad"
-                                            maxLength={6}
-                                            editable={!localLoading}
-                                        />
-
-                                        <TouchableOpacity
-                                            onPress={handleVerifyOtp}
-                                            style={[
-                                                styles.verifyBtn,
-                                                (loading || localLoading) && styles.submitBtnLoading,
-                                            ]}
-                                            disabled={loading || localLoading}
-                                            activeOpacity={0.8}
-                                        >
-                                            {localLoading ? (
-                                                <ActivityIndicator size="small" color="#ffffff" />
-                                            ) : (
-                                                <Text style={styles.verifyBtnText}>Verify & Login</Text>
-                                            )}
-                                        </TouchableOpacity>
-
-                                        <TouchableOpacity
-                                            onPress={handleBackToLogin}
-                                            style={styles.backToLoginBtn}
-                                            activeOpacity={0.7}
-                                        >
-                                            <Text style={styles.backToLoginText}>Cancel & Return to Login</Text>
-                                        </TouchableOpacity>
-                                    </View>
-                                )}
-                            </View>
-
-                            <View style={styles.footer} pointerEvents="box-none">
-                                <Text style={styles.footerText}>ENTERPRISE INTERNAL CONTROL NODE</Text>
-                            </View>
-                        </View>
-
-                        {/* RIGHT COLUMN: Visual Branding */}
-                        <View
-                            style={[styles.rightColumn, isCompact && { display: 'none' }]}
-                            pointerEvents="none"
-                        >
-                            <View style={styles.overlay} />
-                            <View style={styles.rightContent}>
-                                <View style={styles.badge}>
-                                    <Text style={styles.badgeText}>System Core</Text>
+                            {sessionBanner && (
+                                <View style={styles.sessionBanner}>
+                                    <Ionicons name="warning-outline" size={18} color="#92400e" style={{marginRight: 6}} />
+                                    <Text style={styles.sessionBannerText}>{sessionBanner}</Text>
                                 </View>
-                                <Text style={styles.rightTitle}>Global Oversight.</Text>
-                                <Text style={styles.rightSubtitle}>
-                                    Manage all clinical instances, audit logs, and provider performance from the unified central command.
-                                </Text>
+                            )}
+
+                            {!showOtpScreen ? (
+                                <View>
+                                    <Text style={styles.formTitle}>Supreme Portal</Text>
+                                    <Text style={styles.formSubtitle}>Access Medical365 central system administration core.</Text>
+
+                                    {displayError ? (
+                                        <View style={styles.errorBanner}>
+                                            <Text style={styles.errorBannerText}>{displayError}</Text>
+                                        </View>
+                                    ) : null}
+
+                                    <View style={styles.formGroup}>
+                                        <Text style={styles.label}>ADMINISTRATOR EMAIL</Text>
+                                        <View style={styles.inputWrapper}>
+                                            <Feather name="user" size={16} color="#64748b" style={styles.inputIcon} />
+                                            <TextInput
+                                                style={styles.input}
+                                                placeholder="Enter admin email or ID"
+                                                placeholderTextColor="#94a3b8"
+                                                value={formData.email}
+                                                onChangeText={(t) => handleChange('email', t)}
+                                                keyboardType="email-address"
+                                                autoCapitalize="none"
+                                                editable={!localLoading}
+                                            />
+                                        </View>
+                                    </View>
+
+                                    <View style={styles.formGroup}>
+                                        <Text style={styles.label}>PASSWORD</Text>
+                                        <View style={styles.inputWrapper}>
+                                            <Feather name="lock" size={16} color="#64748b" style={styles.inputIcon} />
+                                            <PasswordInput
+                                                placeholder="•••••••••"
+                                                value={formData.password}
+                                                onChangeText={(t) => handleChange('password', t)}
+                                                style={styles.passwordInputCustom}
+                                                editable={!localLoading}
+                                            />
+                                        </View>
+                                    </View>
+
+                                    <View style={styles.formOptions}>
+                                        <TouchableOpacity 
+                                            style={styles.checkboxRow} 
+                                            activeOpacity={0.7}
+                                            onPress={() => setRememberMe(!rememberMe)}
+                                        >
+                                            <View style={[styles.checkbox, rememberMe && styles.checkboxActive]}>
+                                                {rememberMe && <Feather name="check" size={12} color="#fff" />}
+                                            </View>
+                                            <Text style={styles.checkboxLabel}>Remember me</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity activeOpacity={0.7}>
+                                            <Text style={styles.forgotLink}>Forgot Password?</Text>
+                                        </TouchableOpacity>
+                                    </View>
+
+                                    <TouchableOpacity
+                                        onPress={handleSubmit}
+                                        style={[styles.submitBtn, (loading || localLoading) && styles.submitBtnLoading]}
+                                        disabled={loading || localLoading}
+                                        activeOpacity={0.8}
+                                    >
+                                        {localLoading ? (
+                                            <ActivityIndicator size="small" color="#ffffff" />
+                                        ) : (
+                                            <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                                                <Text style={styles.submitBtnText}>Sign In </Text>
+                                                <Feather name="arrow-right" size={16} color="#ffffff" style={{marginLeft: 6}} />
+                                            </View>
+                                        )}
+                                    </TouchableOpacity>
+
+                                    <View style={styles.securityBox}>
+                                        <Ionicons name="shield-checkmark-outline" size={20} color="#0d9488" style={{marginRight: 12}} />
+                                        <Text style={styles.securityBoxText}>
+                                            Your security is our priority. All data is encrypted and securely protected.
+                                        </Text>
+                                    </View>
+                                </View>
+                            ) : (
+                                <View style={styles.otpScreenContainer}>
+                                    <View style={styles.otpShieldWrap}>
+                                        <Ionicons name="shield-checkmark-sharp" size={40} color="#10b981" />
+                                    </View>
+                                    <Text style={styles.otpTitle}>Two-Factor Authentication</Text>
+                                    <View style={styles.otpBadge}>
+                                        <Text style={styles.otpBadgeText}>Code sent to {censorEmail(formData.email)}</Text>
+                                    </View>
+
+                                    {displayError ? (
+                                        <View style={styles.errorBanner}>
+                                            <Text style={styles.errorBannerText}>{displayError}</Text>
+                                        </View>
+                                    ) : null}
+
+                                    <View style={styles.otpInputsContainer}>
+                                        {otpValues.map((val, index) => (
+                                            <TextInput
+                                                key={index}
+                                                ref={el => otpInputRefs.current[index] = el}
+                                                style={[
+                                                    styles.otpBox, 
+                                                    val && styles.otpBoxFilled,
+                                                    focusedOtpIndex === index && styles.otpBoxFocused
+                                                ]}
+                                                keyboardType="number-pad"
+                                                maxLength={1}
+                                                value={val}
+                                                onChangeText={(t) => handleOtpChange(index, t)}
+                                                onKeyPress={(e) => handleOtpKeyPress(index, e)}
+                                                onFocus={() => setFocusedOtpIndex(index)}
+                                                onBlur={() => setFocusedOtpIndex(null)}
+                                                editable={!localLoading}
+                                            />
+                                        ))}
+                                    </View>
+
+                                    <TouchableOpacity
+                                        onPress={handleVerifyOtp}
+                                        style={[styles.submitBtn, {backgroundColor: '#0d9488'}, (loading || localLoading || otpValues.join('').length !== 6) && styles.submitBtnLoading]}
+                                        disabled={loading || localLoading || otpValues.join('').length !== 6}
+                                        activeOpacity={0.8}
+                                    >
+                                        {localLoading ? (
+                                            <ActivityIndicator size="small" color="#ffffff" />
+                                        ) : (
+                                            <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                                                <Text style={styles.submitBtnText}>Verify & Continue </Text>
+                                                <Feather name="arrow-right" size={16} color="#ffffff" style={{marginLeft: 6}} />
+                                            </View>
+                                        )}
+                                    </TouchableOpacity>
+
+                                    <View style={styles.resendContainer}>
+                                        <Text style={styles.resendText}>Didn't receive code? </Text>
+                                        {resendTimer > 0 ? (
+                                            <Text style={styles.resendTimerText}>Resend in {resendTimer}s</Text>
+                                        ) : (
+                                            <TouchableOpacity onPress={handleResendOtp} disabled={localLoading}>
+                                                <Text style={styles.resendLink}>Resend Code</Text>
+                                            </TouchableOpacity>
+                                        )}
+                                    </View>
+
+                                    <TouchableOpacity onPress={handleBackToLogin} style={styles.backToLoginBtn}>
+                                        <Feather name="arrow-left" size={14} color="#0284c7" style={{marginRight: 4}} />
+                                        <Text style={styles.backToLoginText}>Back to Login</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            )}
+                        </View>
+                        
+                        {!isDesktop && (
+                            <View style={styles.mobileFooter}>
+                                <Text style={styles.footerText}>© 2025 Medical365. All rights reserved.</Text>
+                            </View>
+                        )}
+                    </ScrollView>
+                </View>
+
+                {/* Fixed Footer for Desktop */}
+                {isDesktop && (
+                    <View style={styles.footerRow}>
+                        <Text style={styles.footerText}>© 2025 Medical365. All rights reserved.</Text>
+                        <View style={styles.footerRight}>
+                            <Text style={styles.footerTextRight}>Ver 2.5.1  •  </Text>
+                            <View style={styles.securePill}>
+                                <Feather name="lock" size={10} color="#059669" style={{marginRight: 4}} />
+                                <Text style={styles.securePillText}>Secure</Text>
                             </View>
                         </View>
                     </View>
-                </ScrollView>
+                )}
             </KeyboardAvoidingView>
         </SafeAreaView>
     );
@@ -389,105 +578,179 @@ const CentralAdminLogin = () => {
 const styles = StyleSheet.create({
     safeArea: {
         flex: 1,
-        backgroundColor: '#f8fafc',
+        backgroundColor: '#f0fdfa', // Light cyan background
     },
     container: {
         flex: 1,
     },
-    scrollContent: {
-        flexGrow: 1,
+    layout: {
+        flex: 1,
+        flexDirection: 'row',
+    },
+    
+    // LEFT COLUMN (Visual & Branding)
+    leftColumn: {
+        flex: 1.2,
+        backgroundColor: '#f4fafb',
+        padding: 48,
+        position: 'relative',
+        justifyContent: 'space-between',
+    },
+    dotGridOverlay: {
+        position: 'absolute',
+        top: 0, left: 0, right: 0, bottom: 0,
+        opacity: 0.05,
+        backgroundColor: 'transparent',
+    },
+    leftContent: {
+        zIndex: 10,
+        maxWidth: 500,
+    },
+    brandRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 40,
+    },
+    logo: {
+        height: 35,
+        width: 140,
+    },
+    heroLine1: {
+        fontSize: 42,
+        fontWeight: '900',
+        color: '#0f172a',
+        marginBottom: -5,
+    },
+    heroLine2: {
+        fontSize: 42,
+        fontWeight: '900',
+        color: '#0ea5e9',
+        marginBottom: 16,
+    },
+    heroSubtitle: {
+        fontSize: 16,
+        lineHeight: 24,
+        color: '#475569',
+        marginBottom: 32,
+    },
+    featuresStack: {
+        gap: 12,
+        marginBottom: 40,
+    },
+    featureCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#ffffff',
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        borderRadius: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.04,
+        shadowRadius: 8,
+        elevation: 2,
+        maxWidth: 250,
+    },
+    featureIconWrap: {
+        width: 32,
+        height: 32,
+        borderRadius: 8,
+        backgroundColor: '#f0fdfa',
         justifyContent: 'center',
         alignItems: 'center',
-        paddingVertical: 20,
-        paddingHorizontal: 16,
+        marginRight: 12,
     },
-    card: {
-        width: '100%',
-        maxWidth: 1000,
+    featureText: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: '#334155',
+    },
+    glowGraphicContainer: {
+        position: 'absolute',
+        right: -80,
+        top: '20%',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    glowCircle: {
+        width: 250,
+        height: 250,
+        borderRadius: 125,
+        backgroundColor: '#0ea5e9',
+        opacity: 0.15,
+        position: 'absolute',
+    },
+    bottomGraphic: {
+        zIndex: 10,
+        position: 'relative',
+    },
+    pulseContainer: {
+        marginBottom: 16,
+        width: 400,
+    },
+    trustBadge: {
         flexDirection: 'row',
+        alignItems: 'center',
+        alignSelf: 'flex-start',
         backgroundColor: '#ffffff',
-        borderRadius: 24,
-        overflow: 'hidden',
-        minHeight: 600,
+        paddingVertical: 8,
+        paddingHorizontal: 16,
+        borderRadius: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+        elevation: 2,
+    },
+    trustBadgeText: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#0f172a',
+    },
+
+    // RIGHT COLUMN (Form Card)
+    rightColumnScroll: {
+        flexGrow: 1,
+        justifyContent: 'center',
+        padding: 40,
+    },
+    mobileCenterForm: {
+        alignItems: 'center',
+        padding: 20,
+    },
+    logoMobile: {
+        height: 40,
+        width: 160,
+    },
+    formCard: {
+        width: '100%',
+        maxWidth: 480,
+        backgroundColor: '#ffffff',
+        borderRadius: 20,
+        padding: 40,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 12 },
+        shadowOpacity: 0.08,
+        shadowRadius: 24,
+        elevation: 10,
         borderWidth: 1,
         borderColor: '#e2e8f0',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.1,
-        shadowRadius: 20,
-        elevation: 10,
-    },
-    leftColumn: {
-        flex: 1,
-        padding: 32,
-        justifyContent: 'center',
-        backgroundColor: '#ffffff',
-    },
-    rightColumn: {
-        flex: 0.85,
-        backgroundColor: '#020617',
-        padding: 48,
-        justifyContent: 'center',
-    },
-    overlay: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(2, 6, 23, 0.8)',
-    },
-    rightContent: {
-        zIndex: 10,
-        maxWidth: 384,
         alignSelf: 'center',
     },
-    badge: {
-        alignSelf: 'flex-start',
-        paddingVertical: 4,
-        paddingHorizontal: 12,
-        marginBottom: 24,
-        borderRadius: 20,
-        backgroundColor: 'rgba(99, 102, 241, 0.2)',
-        borderColor: 'rgba(99, 102, 241, 0.3)',
-        borderWidth: 1,
-    },
-    badgeText: {
-        color: '#a5b4fc',
-        fontSize: 14,
-        fontWeight: '600',
-        letterSpacing: 0.5,
-    },
-    rightTitle: {
-        fontSize: 36,
-        fontWeight: 'bold',
-        color: '#ffffff',
-        marginBottom: 24,
-        lineHeight: 40,
-    },
-    rightSubtitle: {
-        color: '#94a3b8',
-        fontSize: 18,
-        lineHeight: 28,
-    },
     backButton: {
-        marginBottom: 32,
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 24,
         alignSelf: 'flex-start',
     },
     backButtonText: {
         color: '#64748b',
-        fontSize: 16,
-        fontWeight: '500',
-    },
-    formContainer: {
-        marginBottom: 24,
-    },
-    logo: {
-        height: 40,
-        width: 150,
-        marginBottom: 32,
+        fontSize: 14,
+        fontWeight: '600',
     },
     sessionBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
         backgroundColor: '#fffbeb',
         borderColor: '#fde68a',
         borderWidth: 1,
@@ -499,158 +762,281 @@ const styles = StyleSheet.create({
         fontSize: 14,
         fontWeight: '600',
         color: '#92400e',
+        flex: 1,
     },
-    title: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        color: '#1e293b',
+    formTitle: {
+        fontSize: 28,
+        fontWeight: '900',
+        color: '#0f172a',
+        marginBottom: 8,
     },
-    subtitle: {
+    formSubtitle: {
         color: '#64748b',
-        marginTop: 8,
+        fontSize: 14,
+        lineHeight: 20,
         marginBottom: 24,
-        fontSize: 16,
     },
     errorBanner: {
         marginBottom: 16,
         padding: 12,
         borderRadius: 8,
         backgroundColor: '#fef2f2',
-        borderColor: '#fecaca',
-        borderWidth: 1,
+        borderLeftWidth: 4,
+        borderLeftColor: '#dc2626',
     },
     errorBannerText: {
         color: '#dc2626',
-        fontSize: 14,
-        fontWeight: '500',
+        fontSize: 13,
+        fontWeight: '600',
     },
     formGroup: {
-        marginBottom: 16,
+        marginBottom: 18,
     },
     label: {
-        fontSize: 14,
-        fontWeight: '600',
+        fontSize: 12,
+        fontWeight: '700',
         color: '#334155',
-        marginBottom: 4,
+        marginBottom: 6,
+        letterSpacing: 0.5,
     },
     inputWrapper: {
         flexDirection: 'row',
         alignItems: 'center',
         position: 'relative',
+        backgroundColor: '#f0f7ff',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        paddingHorizontal: 14,
+        height: 50,
     },
     inputIcon: {
-        position: 'absolute',
-        left: 12,
-        zIndex: 10,
-        fontSize: 18,
+        marginRight: 10,
     },
     input: {
         flex: 1,
-        paddingLeft: 40,
-        paddingRight: 16,
-        paddingVertical: 12,
-        borderRadius: 12,
-        borderColor: '#e2e8f0',
-        borderWidth: 1,
-        backgroundColor: '#ffffff',
-        fontSize: 16,
-        color: '#1e293b',
+        fontSize: 15,
+        color: '#0f172a',
+        fontWeight: '500',
     },
     passwordInputCustom: {
         flex: 1,
-        paddingLeft: 40,
-        paddingRight: 16,
-        paddingVertical: 12,
-        borderRadius: 12,
-        borderColor: '#e2e8f0',
-        borderWidth: 1,
+        fontSize: 15,
+        color: '#0f172a',
+        fontWeight: '500',
+        backgroundColor: 'transparent',
+        borderWidth: 0,
+        padding: 0,
+    },
+    formOptions: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 24,
+        marginTop: 4,
+    },
+    checkboxRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    checkbox: {
+        width: 18,
+        height: 18,
+        borderRadius: 4,
+        borderWidth: 1.5,
+        borderColor: '#cbd5e1',
+        marginRight: 8,
+        justifyContent: 'center',
+        alignItems: 'center',
         backgroundColor: '#ffffff',
-        fontSize: 16,
-        color: '#1e293b',
+    },
+    checkboxActive: {
+        backgroundColor: '#0284c7',
+        borderColor: '#0284c7',
+    },
+    checkboxLabel: {
+        fontSize: 13,
+        color: '#475569',
+        fontWeight: '500',
+    },
+    forgotLink: {
+        fontSize: 13,
+        color: '#0284c7',
+        fontWeight: '600',
     },
     submitBtn: {
         width: '100%',
-        marginTop: 16,
-        backgroundColor: '#0f172a',
+        backgroundColor: '#0284c7',
         paddingVertical: 14,
         borderRadius: 12,
         alignItems: 'center',
-        shadowColor: '#0f172a',
+        justifyContent: 'center',
+        shadowColor: '#0284c7',
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
+        shadowOpacity: 0.3,
         shadowRadius: 8,
         elevation: 5,
+        marginBottom: 24,
     },
     submitBtnText: {
         color: '#ffffff',
-        fontWeight: 'bold',
-        fontSize: 16,
+        fontWeight: '700',
+        fontSize: 15,
     },
     submitBtnLoading: {
-        opacity: 0.8,
+        opacity: 0.7,
     },
-    footer: {
-        marginTop: 'auto',
-        paddingTop: 32,
+    securityBox: {
+        flexDirection: 'row',
+        backgroundColor: '#f0fdfa',
+        borderRadius: 12,
+        padding: 16,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: '#ccfbf1',
+    },
+    securityBoxText: {
+        flex: 1,
+        fontSize: 12,
+        color: '#0d9488',
+        fontWeight: '500',
+        lineHeight: 18,
+    },
+
+    // OTP SCREEN STYLES
+    otpScreenContainer: {
         alignItems: 'center',
     },
-    footerText: {
-        fontSize: 10,
-        letterSpacing: 1.5,
-        color: '#94a3b8',
-        fontWeight: 'bold',
-        textTransform: 'uppercase',
-    },
-    otpScreenContainer: {
-        width: '100%',
+    otpShieldWrap: {
+        width: 80,
+        height: 80,
+        borderRadius: 40,
+        backgroundColor: '#ecfdf5',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 16,
     },
     otpTitle: {
-        marginBottom: 10,
-        fontWeight: '700',
-        color: '#1e293b',
-        fontSize: 18,
+        fontSize: 20,
+        fontWeight: '800',
+        color: '#0f172a',
+        marginBottom: 8,
     },
-    otpSubtitle: {
-        marginBottom: 20,
+    otpBadge: {
+        backgroundColor: '#f1f5f9',
+        paddingVertical: 6,
+        paddingHorizontal: 12,
+        borderRadius: 20,
+        marginBottom: 24,
+    },
+    otpBadgeText: {
+        fontSize: 13,
+        color: '#475569',
+        fontWeight: '600',
+    },
+    otpInputsContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        width: '100%',
+        paddingHorizontal: 4,
+        marginVertical: 20,
+    },
+    otpBox: {
+        width: 42,
+        height: 50,
+        borderRadius: 10,
+        borderWidth: 1.5,
+        borderColor: '#cbd5e1',
+        textAlign: 'center',
+        fontSize: 20,
+        fontWeight: '700',
+        color: '#0f172a',
+        backgroundColor: '#ffffff',
+    },
+    otpBoxFilled: {
+        borderColor: '#14b8a6',
+        backgroundColor: '#f0fdfa',
+        color: '#0f172a',
+    },
+    otpBoxFocused: {
+        borderColor: '#14b8a6',
+    },
+    resendContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 4,
+        marginBottom: 16,
+    },
+    resendText: {
         color: '#64748b',
         fontSize: 14,
-        lineHeight: 20,
     },
-    otpInput: {
-        borderWidth: 1,
-        borderColor: '#e2e8f0',
-        padding: 12,
-        borderRadius: 8,
-        marginBottom: 15,
-        fontSize: 18,
-        letterSpacing: 5,
-        textAlign: 'center',
-        fontWeight: '700',
-        color: '#1e293b',
+    resendTimerText: {
+        color: '#94a3b8',
+        fontSize: 14,
+        fontWeight: '500',
     },
-    verifyBtn: {
-        backgroundColor: '#10b981',
-        borderRadius: 10,
-        paddingVertical: 12,
-        paddingHorizontal: 20,
-        marginTop: 12,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    verifyBtnText: {
-        color: '#ffffff',
+    resendLink: {
+        color: '#0d9488',
         fontSize: 14,
         fontWeight: '700',
     },
     backToLoginBtn: {
-        marginTop: 20,
-        paddingVertical: 10,
+        flexDirection: 'row',
         alignItems: 'center',
+        marginTop: 12,
+        paddingVertical: 10,
     },
     backToLoginText: {
-        color: '#2563eb',
+        color: '#0284c7',
         fontSize: 14,
         fontWeight: '600',
+    },
+
+    // FOOTER STYLES
+    footerRow: {
+        position: 'absolute',
+        bottom: 0, left: 0, right: 0,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingHorizontal: 48,
+        paddingVertical: 16,
+        backgroundColor: 'transparent',
+    },
+    mobileFooter: {
+        marginTop: 32,
+        alignItems: 'center',
+    },
+    footerText: {
+        color: '#94a3b8',
+        fontSize: 12,
+        fontWeight: '500',
+    },
+    footerRight: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    footerTextRight: {
+        color: '#94a3b8',
+        fontSize: 12,
+        fontWeight: '600',
+    },
+    securePill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#ecfdf5',
+        borderWidth: 1,
+        borderColor: '#a7f3d0',
+        paddingVertical: 4,
+        paddingHorizontal: 8,
+        borderRadius: 12,
+    },
+    securePillText: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#059669',
     },
 });
 
