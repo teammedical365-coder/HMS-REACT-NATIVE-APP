@@ -1,16 +1,16 @@
-import React from 'react';
-import { View, Text, Image, TouchableOpacity, Platform } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, Image, TouchableOpacity, Platform, Alert, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
-import { centralAdminAPI } from '../../utils/api';
+import apiClient, { centralAdminAPI } from '../../utils/api';
 import { styles } from './CentralAdminDashboardStyles';
 
 const normalizePlan = (value) => {
-  const plan = String(value || '').trim().toLowerCase();
-  if (!plan || plan === 'none' || plan === 'null') return 'enterprise';
-  if (plan === 'multi_speciality_starter' || plan === 'multi-specialty' || plan === 'multi-speciality') return 'multi-speciality';
-  if (plan === 'clinic_basic' || plan === 'clinic-basic' || plan === 'basic') return 'clinic-basic';
-  if (plan === 'starter') return 'simple-clinics';
+  const plan = String(value || '').trim().toLowerCase().replace(/[\s-]/g, '_');
+  if (!plan || plan === 'none' || plan === 'null' || plan === 'enterprise') return 'enterprise';
+  if (plan.includes('multi_speciality') || plan.includes('multi_specialty')) return 'multi-speciality';
+  if (plan.includes('clinic_basic') || plan === 'basic') return 'clinic-basic';
+  if (plan.includes('starter') && !plan.includes('multi')) return 'simple-clinics';
   return plan;
 };
 
@@ -27,6 +27,7 @@ export default function CentralAdminHospitalCards({
   editHospital,
 }) {
   const navigation = useNavigation();
+  const [buildStatuses, setBuildStatuses] = useState({});
 
   if (showHospitalForm || showHospitalAdminForm || editHospital) return null;
 
@@ -42,22 +43,27 @@ export default function CentralAdminHospitalCards({
     return true;
   });
 
-  const handleLoginAsHospital = async (hospital) => {
+  const handleBuildRNApp = async (hospital) => {
     try {
       const hospitalId = hospital?._id || hospital?.id;
-      const response = await centralAdminAPI.impersonateHospital(hospitalId);
-      const token = response?.token || response?.data?.token || response?.accessToken;
-      const user = response?.user || response?.data?.user || hospital;
-      if (token) {
-        await AsyncStorage.setItem('token', token);
-        await AsyncStorage.setItem('tenant_id', String(hospitalId));
-        await AsyncStorage.setItem('selected_hospital', JSON.stringify(hospital));
-        if (user) await AsyncStorage.setItem('user', JSON.stringify(user));
+      setBuildStatuses(prev => ({ ...prev, [hospitalId]: 'BUILDING' }));
+      
+      // Call the exact backend API
+      console.log("TRIGGERING BUILD FOR ID:", hospitalId);
+      const response = await apiClient.post(`/api/superadmin/hospitals/${hospitalId}/build-rn-app`);
+      
+      if (response.data?.success) {
+        setBuildStatuses(prev => ({ ...prev, [hospitalId]: 'COMPLETED' }));
+        Alert.alert('Success', 'React Native App build triggered successfully.');
+      } else {
+        setBuildStatuses(prev => ({ ...prev, [hospitalId]: 'FAILED' }));
+        Alert.alert('Build Failed', response.data?.message || 'Failed to build app.');
       }
-
-      navigation.navigate('HospitalAdminStack', { hospitalId, hospital });
     } catch (error) {
-      console.error('Hospital impersonation failed:', error);
+      console.error('Build RN App failed:', error);
+      const hospitalId = hospital?._id || hospital?.id;
+      setBuildStatuses(prev => ({ ...prev, [hospitalId]: 'FAILED' }));
+      Alert.alert('Error', 'Failed to trigger React Native App build.');
     }
   };
 
@@ -132,8 +138,16 @@ export default function CentralAdminHospitalCards({
               </Text>
 
               <View style={styles.hospitalBtnGroup}>
-                <TouchableOpacity style={styles.loginAsBtn} onPress={(e) => { e.stopPropagation(); handleLoginAsHospital(hospital); }}>
-                  <Text style={styles.loginAsBtnText}>🔑 Login to Portal</Text>
+                <TouchableOpacity 
+                  style={[styles.loginAsBtn, buildStatuses[hospital._id || hospital.id] === 'BUILDING' ? { backgroundColor: '#f59e0b' } : {}]} 
+                  onPress={(e) => { e.stopPropagation(); handleBuildRNApp(hospital); }}
+                  disabled={buildStatuses[hospital._id || hospital.id] === 'BUILDING'}
+                >
+                  <Text style={styles.loginAsBtnText}>
+                    {buildStatuses[hospital._id || hospital.id] === 'BUILDING' ? 'Building...' : 
+                     buildStatuses[hospital._id || hospital.id] === 'COMPLETED' ? 'Download APK' : 
+                     buildStatuses[hospital._id || hospital.id] === 'FAILED' ? 'Build Failed' : 'Build RN App'}
+                  </Text>
                 </TouchableOpacity>
 
                 {activeTab !== 'simple-clinics' && (
@@ -157,3 +171,5 @@ export default function CentralAdminHospitalCards({
     </View>
   );
 }
+
+

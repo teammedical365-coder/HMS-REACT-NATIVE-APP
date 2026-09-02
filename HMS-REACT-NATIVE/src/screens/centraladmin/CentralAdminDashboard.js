@@ -8,6 +8,7 @@ import { styles } from '../../components/centraladmin/CentralAdminDashboardStyle
 import CentralAdminTabs from '../../components/centraladmin/CentralAdminTabs';
 import CentralAdminPricingCards from '../../components/centraladmin/CentralAdminPricingCards';
 import CentralAdminHospitalCards from '../../components/centraladmin/CentralAdminHospitalCards';
+import CentralAdminHospitalDetails from '../../components/centraladmin/CentralAdminHospitalDetails';
 import CentralAdminForms from '../../components/centraladmin/CentralAdminForms';
 import HospitalBrandingEditor from '../../components/HospitalBrandingEditor';
 import RevenuePlanEditorModal from '../../components/centraladmin/RevenuePlanEditorModal';
@@ -18,6 +19,7 @@ export default function CentralAdminDashboard() {
   const route = useRoute();
 
   // State Management
+  const [selectedHospital, setSelectedHospital] = useState(null);
   const [activeTab, setActiveTab] = useState('hospitals');
   const [loading, setLoading] = useState(false);
   const [hospitals, setHospitals] = useState([]);
@@ -59,7 +61,8 @@ export default function CentralAdminDashboard() {
       setActiveTab(route.params.openTab);
       navigation.setParams({ openTab: undefined });
     }
-  }, [route.params?.openTab, navigation]);
+    setSelectedHospital(null); // Clear selected hospital on tab change
+  }, [activeTab, route.params?.openTab, navigation]);
 
   useEffect(() => {
     fetchHospitals();
@@ -88,10 +91,10 @@ export default function CentralAdminDashboard() {
   const fetchHospitals = async () => {
     setLoading(true);
     try {
-      const hospitalsRes = await centralAdminAPI.getHospitals('');
+      const hospitalsRes = await centralAdminAPI.getHospitals('all');
       let clinicsRes = { data: [] };
       try {
-        clinicsRes = await simpleClinicAPI.getClinics('');
+        clinicsRes = await simpleClinicAPI.getClinics('all');
       } catch (e) {
         console.log('Failed to fetch clinics:', e);
       }
@@ -240,8 +243,16 @@ export default function CentralAdminDashboard() {
           onCreateAdmin={handleCreateHospitalAdmin}
         />
 
+        {/* Hospital Details Inline View */}
+        {selectedHospital && (
+          <CentralAdminHospitalDetails 
+            hospital={selectedHospital} 
+            onBack={() => setSelectedHospital(null)} 
+          />
+        )}
+
         {/* Child Component 4: Hospital List Grid */}
-        {(activeTab !== 'revenue-plans' && activeTab !== 'configurations') && (
+        {(activeTab !== 'revenue-plans' && activeTab !== 'configurations' && !selectedHospital) && (
           <CentralAdminHospitalCards 
             loading={loading}
             hospitals={hospitals}
@@ -250,8 +261,8 @@ export default function CentralAdminDashboard() {
             showHospitalAdminForm={showHospitalAdminForm}
             editHospital={editHospital}
             onSelectHospital={(h) => {
-              if (h?._id) {
-                navigation.navigate('HospitalAdminStack', { hospitalId: h._id, hospital: h });
+              if (h?._id || h?.id) {
+                setSelectedHospital(h);
               }
             }}
             onEditHospital={(h) => {
@@ -430,3 +441,4 @@ export default function CentralAdminDashboard() {
     </SafeAreaView>
   );
 }
+

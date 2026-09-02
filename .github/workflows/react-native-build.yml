@@ -1,0 +1,148 @@
+name: React Native Android Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      tenantId:
+        description: 'Tenant ID'
+        required: true
+      hospitalName:
+        description: 'Hospital Name'
+        required: true
+      applicationId:
+        description: 'Android Application ID (e.g. com.medical365.xyz)'
+        required: true
+      logoUrl:
+        description: 'URL of the Hospital Logo'
+        required: true
+      themeColor:
+        description: 'Primary Theme Color Hex (e.g. #14b8a6)'
+        required: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Update app.json
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            const appJsonPath = 'HMS-REACT-NATIVE/app.json';
+            const hospitalName = context.payload.inputs.hospitalName;
+            const applicationId = context.payload.inputs.applicationId;
+            
+            if (fs.existsSync(appJsonPath)) {
+                let config = JSON.parse(fs.readFileSync(appJsonPath, 'utf8'));
+                if (!config.expo) config.expo = {};
+                
+                config.expo.name = hospitalName;
+                config.expo.slug = hospitalName.toLowerCase().replace(/[^a-z0-9]/g, '');
+                
+                if (!config.expo.android) config.expo.android = {};
+                config.expo.android.package = applicationId;
+                
+                if (!config.expo.ios) config.expo.ios = {};
+                config.expo.ios.bundleIdentifier = applicationId;
+                
+                fs.writeFileSync(appJsonPath, JSON.stringify(config, null, 2));
+                console.log('Successfully updated app.json with App Name:', hospitalName, 'and App ID:', applicationId);
+            } else {
+                console.error('app.json not found at', appJsonPath);
+                process.exit(1);
+            }
+
+      - name: Download & Process Logo
+        run: |
+          LOGO_URL="${{ github.event.inputs.logoUrl }}"
+          
+          if [ "$LOGO_URL" != "default" ] && [ "$LOGO_URL" != "" ]; then
+            mkdir -p HMS-REACT-NATIVE/assets
+            
+            if [[ "$LOGO_URL" == data:image/* ]]; then
+              echo "Processing Base64 logo..."
+              BASE64_DATA=$(echo "$LOGO_URL" | sed 's/^data:image\/[^;]*;base64,//')
+              echo "$BASE64_DATA" | base64 -d > HMS-REACT-NATIVE/assets/icon.png || {
+                echo "::error::Failed to decode Base64 logo"
+                exit 1
+              }
+            else
+              if [[ "$LOGO_URL" == /* ]]; then
+                LOGO_URL="https://hms-n6nk.onrender.com${LOGO_URL}"
+              fi
+              
+              echo "Downloading logo from $LOGO_URL"
+              curl -f -L -s "$LOGO_URL" -o HMS-REACT-NATIVE/assets/icon.png || {
+                echo "::error::Failed to download logo from URL: $LOGO_URL"
+                exit 1
+              }
+            fi
+            
+            cp HMS-REACT-NATIVE/assets/icon.png HMS-REACT-NATIVE/assets/splash.png
+          else
+            echo "Using default logo"
+          fi
+
+      - name: Build APK via Expo Prebuild
+        working-directory: ./HMS-REACT-NATIVE
+        run: |
+          npm install
+          
+          echo "EXPO_PUBLIC_TENANT_ID=${{ github.event.inputs.tenantId }}" > .env
+          
+          npx expo prebuild --platform android --clean
+          
+          cd android
+          chmod +x ./gradlew
+          ./gradlew assembleRelease
+
+      - name: Find and Move Artifacts
+        run: |
+          mkdir -p output_artifacts
+          find HMS-REACT-NATIVE/android/app/build/outputs/apk/release -name "*.apk" -exec cp {} output_artifacts/app-rn.apk \; || echo "No APK found"
+          echo "Found APK:"
+          ls -la output_artifacts/
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hospital-rn-app-${{ github.event.inputs.tenantId }}
+          path: output_artifacts/app-rn.apk
+
+      - name: Notify Backend Webhook (Success)
+        if: success()
+        run: |
+          WEBHOOK_SECRET="${{ secrets.GITHUB_WEBHOOK_SECRET || 'dev-secret-123' }}"
+          
+          curl -X POST "https://hms-n6nk.onrender.com/api/superadmin/hospitals/webhook/github-rn/upload?secret=${WEBHOOK_SECRET}" \
+               -F "apk=@output_artifacts/app-rn.apk" \
+               -F "tenantId=${{ github.event.inputs.tenantId }}"
+
+      - name: Notify Backend Webhook (Failure)
+        if: failure()
+        run: |
+          WEBHOOK_SECRET="${{ secrets.GITHUB_WEBHOOK_SECRET || 'dev-secret-123' }}"
+          
+          curl -X POST "https://hms-n6nk.onrender.com/api/superadmin/hospitals/webhook/github-rn?secret=${WEBHOOK_SECRET}" \
+               -H "Content-Type: application/json" \
+               -d '{
+                 "tenantId": "${{ github.event.inputs.tenantId }}",
+                 "status": "FAILED",
+                 "error": "RN GitHub Action workflow failed"
+               }'

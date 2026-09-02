@@ -159,7 +159,7 @@ const CentralAdminLogin = () => {
                 if (result.user) {
                     dispatch(setCredentials({ user: result.user, token: result.token }));
                 }
-                navigation.reset({ index: 0, routes: [{ name: 'CentralAdmin' }] });
+                navigation.reset({ index: 0, routes: [{ name: 'CentralAdminDashboard' }] });
                 return;
             }
             setStep(2);
@@ -214,7 +214,7 @@ const CentralAdminLogin = () => {
                         if (forceResult.user) {
                             dispatch(setCredentials({ user: forceResult.user, token: forceResult.token }));
                         }
-                        navigation.reset({ index: 0, routes: [{ name: 'CentralAdmin' }] });
+                        navigation.reset({ index: 0, routes: [{ name: 'CentralAdminDashboard' }] });
                         return;
                     }
                 } catch (forceErr) {
@@ -228,7 +228,7 @@ const CentralAdminLogin = () => {
                 if (result.user) {
                     dispatch(setCredentials({ user: result.user, token: result.token }));
                 }
-                navigation.reset({ index: 0, routes: [{ name: 'CentralAdmin' }] });
+                navigation.reset({ index: 0, routes: [{ name: 'CentralAdminDashboard' }] });
             } else {
                 setLocalError(result.message || 'Invalid OTP');
             }

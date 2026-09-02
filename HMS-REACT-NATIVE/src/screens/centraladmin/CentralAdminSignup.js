@@ -86,7 +86,7 @@ const CentralAdminSignup = () => {
                 // Use navigation.reset to properly transition from Auth stack to CentralAdmin stack
                 navigation.reset({
                     index: 0,
-                    routes: [{ name: 'CentralAdmin' }],
+                    routes: [{ name: 'CentralAdminDashboard' }],
                 });
             }
         } catch (err) {

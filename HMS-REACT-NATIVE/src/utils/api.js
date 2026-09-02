@@ -241,10 +241,7 @@ export const centralAdminAPI = {
   },
   getSystemAnalytics: async () => (await apiClient.get('/api/revenue/system')).data,
   getHospitalsRevenue: async () => (await apiClient.get('/api/revenue/hospitals')).data,
-  impersonateHospital: async (hospitalId) => {
-    const response = await apiClient.post(`/api/admin/impersonate/${encodeURIComponent(hospitalId)}`);
-    return response.data;
-  },
+
   updateHospitalPlan: async (hospitalId, payload) => {
     const response = await apiClient.put(`/api/hospitals/${encodeURIComponent(hospitalId)}/plan`, payload);
     return response.data;
@@ -894,3 +891,4 @@ export const consentAPI = {
 };
 
 export default apiClient;
+
