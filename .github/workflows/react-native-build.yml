@@ -106,7 +106,7 @@ jobs:
           
           echo "EXPO_PUBLIC_TENANT_ID=${{ github.event.inputs.tenantId }}" > .env
           
-          npx expo prebuild --platform android --clean
+          npx expo prebuild --platform android --clean --no-install
           
           cd android
           chmod +x ./gradlew
