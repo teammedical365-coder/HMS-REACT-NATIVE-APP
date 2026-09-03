@@ -50,10 +50,10 @@ export default function CentralAdminHospitalCards({
       
       // Call the exact backend API
       console.log("TRIGGERING BUILD FOR ID:", hospitalId);
-      const response = await apiClient.post(`/api/superadmin/hospitals/${hospitalId}/build-rn-app`);
+      const response = await apiClient.post(`/api/superadmin/hospitals/${hospitalId}/trigger-mobile-build`);
       
       if (response.data?.success) {
-        setBuildStatuses(prev => ({ ...prev, [hospitalId]: 'COMPLETED' }));
+        setBuildStatuses(prev => ({ ...prev, [hospitalId]: 'BUILDING' }));
         Alert.alert('Success', 'React Native App build triggered successfully.');
       } else {
         setBuildStatuses(prev => ({ ...prev, [hospitalId]: 'FAILED' }));
@@ -138,17 +138,62 @@ export default function CentralAdminHospitalCards({
               </Text>
 
               <View style={styles.hospitalBtnGroup}>
-                <TouchableOpacity 
-                  style={[styles.loginAsBtn, buildStatuses[hospital._id || hospital.id] === 'BUILDING' ? { backgroundColor: '#f59e0b' } : {}]} 
-                  onPress={(e) => { e.stopPropagation(); handleBuildRNApp(hospital); }}
-                  disabled={buildStatuses[hospital._id || hospital.id] === 'BUILDING'}
-                >
-                  <Text style={styles.loginAsBtnText}>
-                    {buildStatuses[hospital._id || hospital.id] === 'BUILDING' ? 'Building...' : 
-                     buildStatuses[hospital._id || hospital.id] === 'COMPLETED' ? 'Download APK' : 
-                     buildStatuses[hospital._id || hospital.id] === 'FAILED' ? 'Build Failed' : 'Build RN App'}
-                  </Text>
-                </TouchableOpacity>
+                {(() => {
+                  const currentStatus = buildStatuses[hospital._id || hospital.id] || hospital.appConfig?.rnBuildStatus || 'NOT_BUILT';
+                  
+                  if (currentStatus === 'BUILDING') {
+                    return (
+                      <TouchableOpacity style={[styles.loginAsBtn, { backgroundColor: '#f59e0b' }]} disabled>
+                        <Text style={styles.loginAsBtnText}>Building...</Text>
+                      </TouchableOpacity>
+                    );
+                  }
+                  
+                  if (currentStatus === 'FAILED') {
+                    return (
+                      <TouchableOpacity 
+                        style={[styles.loginAsBtn, { backgroundColor: '#ef4444' }]} 
+                        onPress={(e) => { e.stopPropagation(); handleBuildRNApp(hospital); }}
+                      >
+                        <Text style={styles.loginAsBtnText}>Build Failed</Text>
+                      </TouchableOpacity>
+                    );
+                  }
+                  
+                  if (currentStatus === 'COMPLETED') {
+                    return (
+                      <>
+                        <TouchableOpacity 
+                          style={styles.loginAsBtn} 
+                          onPress={(e) => { e.stopPropagation(); handleBuildRNApp(hospital); }}
+                        >
+                          <Text style={styles.loginAsBtnText}>Build RN App</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                          style={[styles.loginAsBtn, { backgroundColor: '#10b981', marginLeft: 6 }]} 
+                          onPress={(e) => { e.stopPropagation(); }}
+                        >
+                          <Text style={styles.loginAsBtnText}>Download APK</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                          style={[styles.loginAsBtn, { backgroundColor: '#8b5cf6', marginLeft: 6 }]} 
+                          onPress={(e) => { e.stopPropagation(); }}
+                        >
+                          <Text style={styles.loginAsBtnText}>Download AAB</Text>
+                        </TouchableOpacity>
+                      </>
+                    );
+                  }
+                  
+                  return (
+                    <TouchableOpacity 
+                      style={styles.loginAsBtn} 
+                      onPress={(e) => { e.stopPropagation(); handleBuildRNApp(hospital); }}
+                    >
+                      <Text style={styles.loginAsBtnText}>Build RN App</Text>
+                    </TouchableOpacity>
+                  );
+                })()}
 
                 {activeTab !== 'simple-clinics' && (
                   <TouchableOpacity style={styles.btnSmBranding} onPress={(e) => { e.stopPropagation(); onBrandingHospital?.(hospital); }}>
