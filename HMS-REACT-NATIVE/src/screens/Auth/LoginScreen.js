@@ -9,9 +9,11 @@ import {
     ActivityIndicator,
     KeyboardAvoidingView,
     Platform,
+    Image,
 } from 'react-native';
 import Toast from 'react-native-toast-message';
 import { useAppDispatch, useAuth } from '../../store/hooks';
+import { useBranding } from '../../context/BrandingContext';
 import { sendOtp, clearError } from '../../store/slices/authSlice';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '../../utils/Constants';
@@ -19,6 +21,8 @@ import { STORAGE_KEYS } from '../../utils/Constants';
 const LoginScreen = ({ navigation }) => {
     const dispatch = useAppDispatch();
     const { loading, error, otpStep, preAuthToken, sessionExpiredMessage } = useAuth();
+    const { branding, getTheme } = useBranding();
+    const theme = getTheme();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [hospitalSlug, setHospitalSlug] = useState('');
@@ -71,7 +75,12 @@ const LoginScreen = ({ navigation }) => {
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
             <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
                 <View style={styles.header}>
-                    <Text style={styles.title}>Medical 365</Text>
+                    {branding?.logoUrl && (
+                        <Image source={{ uri: branding.logoUrl }} style={styles.logo} resizeMode="contain" />
+                    )}
+                    <Text style={[styles.title, { color: theme.secondary }]}>
+                        {branding?.hospitalName || 'Medical 365'}
+                    </Text>
                     <Text style={styles.subtitle}>Staff Login</Text>
                 </View>
 
@@ -103,7 +112,7 @@ const LoginScreen = ({ navigation }) => {
                                 secureTextEntry={!showPassword}
                             />
                             <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-                                <Text style={styles.togglePassword}>{showPassword ? 'Hide' : 'Show'}</Text>
+                                <Text style={[styles.togglePassword, { color: theme.primary }]}>{showPassword ? 'Hide' : 'Show'}</Text>
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -122,7 +131,7 @@ const LoginScreen = ({ navigation }) => {
                     </View>
 
                     <TouchableOpacity
-                        style={[styles.button, loading && styles.buttonDisabled]}
+                        style={[styles.button, { backgroundColor: theme.primary }, loading && styles.buttonDisabled]}
                         onPress={handleLogin}
                         disabled={loading}
                     >
@@ -137,7 +146,7 @@ const LoginScreen = ({ navigation }) => {
                 <View style={styles.footer}>
                     <Text style={styles.footerText}>Don't have an account? </Text>
                     <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
-                        <Text style={styles.footerLink}>Sign up</Text>
+                        <Text style={[styles.footerLink, { color: theme.primary }]}>Sign up</Text>
                     </TouchableOpacity>
                 </View>
             </ScrollView>
@@ -148,9 +157,10 @@ const LoginScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#ffffff' },
     scrollContent: { flexGrow: 1, justifyContent: 'space-between', paddingVertical: 24, paddingHorizontal: 16 },
-    header: { marginBottom: 48 },
-    title: { fontSize: 28, fontWeight: '700', color: '#0a2647', marginBottom: 8 },
-    subtitle: { fontSize: 15, color: '#64748b' },
+    header: { marginBottom: 48, alignItems: 'center' },
+    logo: { width: 120, height: 120, marginBottom: 16 },
+    title: { fontSize: 28, fontWeight: '700', marginBottom: 8, textAlign: 'center' },
+    subtitle: { fontSize: 15, color: '#64748b', textAlign: 'center' },
     form: { marginBottom: 32 },
     inputGroup: { marginBottom: 16 },
     label: { fontSize: 13, fontWeight: '600', color: '#1e293b', marginBottom: 8 },

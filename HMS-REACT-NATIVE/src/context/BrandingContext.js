@@ -17,9 +17,19 @@ export const BrandingProvider = ({ children }) => {
       // FIX: Use the public API endpoint for startup fetching (unauthenticated)
       const response = await axios.get(`${API_BASE_URL}/api/public/branding?tenantId=${hospitalId}`);
       if (response.data && response.data.branding) {
-        const brandingData = response.data.branding;
+        const rawBranding = response.data.branding;
+        const customTheme = rawBranding.themeColors || {};
+        
+        const brandingData = {
+          ...rawBranding,
+          primaryColor: customTheme.primary || rawBranding.primaryColor,
+          secondaryColor: customTheme.secondary || rawBranding.secondaryColor,
+          backgroundColor: customTheme.background || rawBranding.backgroundColor,
+          hospitalName: rawBranding.appName || rawBranding.hospitalName,
+        };
+
         await AsyncStorage.setItem(STORAGE_KEYS.HOSPITAL_BRANDING, JSON.stringify(brandingData));
-        await AsyncStorage.setItem(STORAGE_KEYS.HOSPITAL_BRANDING_NAME, brandingData.hospitalName || brandingData.appName || '');
+        await AsyncStorage.setItem(STORAGE_KEYS.HOSPITAL_BRANDING_NAME, brandingData.hospitalName || '');
         await AsyncStorage.setItem(STORAGE_KEYS.HOSPITAL_BRANDING_ID, hospitalId);
         setBranding(brandingData);
       }
