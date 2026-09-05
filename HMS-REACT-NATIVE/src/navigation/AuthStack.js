@@ -21,9 +21,14 @@ import PatientResetPassword from '../screens/patient/PatientResetPassword';
 const Stack = createNativeStackNavigator();
 
 const AuthStack = () => {
+    // If EXPO_PUBLIC_TENANT_ID is injected, route directly to the Hospital Login.
+    // Otherwise, fallback to WorkspaceLogin (or CentralAdminLogin).
+    const hasTenant = !!process.env.EXPO_PUBLIC_TENANT_ID;
+    const initialRoute = hasTenant ? "Login" : "WorkspaceLogin";
+
     return (
         <Stack.Navigator 
-            initialRouteName="CentralAdminLogin" // <--- BAS YEH LINE CHANGE KI HAI
+            initialRouteName={initialRoute}
             screenOptions={{
                 headerShown: false,
                 animation: 'slide_from_right'

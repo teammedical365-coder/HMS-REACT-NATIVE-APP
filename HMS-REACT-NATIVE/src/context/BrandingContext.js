@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { hospitalAPI } from '../utils/api';
-import { STORAGE_KEYS } from '../utils/Constants';
+import axios from 'axios';
+import { API_BASE_URL, STORAGE_KEYS } from '../utils/Constants';
 import { buildTheme } from '../Theme';
 
 const BrandingContext = createContext();
@@ -14,12 +14,14 @@ export const BrandingProvider = ({ children }) => {
     if (!hospitalId) return;
     setLoading(true);
     try {
-      const response = await hospitalAPI.getBranding(hospitalId);
-      if (response.success && response.branding) {
-        await AsyncStorage.setItem(STORAGE_KEYS.HOSPITAL_BRANDING, JSON.stringify(response.branding));
-        await AsyncStorage.setItem(STORAGE_KEYS.HOSPITAL_BRANDING_NAME, response.branding.hospitalName || '');
+      // FIX: Use the public API endpoint for startup fetching (unauthenticated)
+      const response = await axios.get(`${API_BASE_URL}/api/public/branding?tenantId=${hospitalId}`);
+      if (response.data && response.data.branding) {
+        const brandingData = response.data.branding;
+        await AsyncStorage.setItem(STORAGE_KEYS.HOSPITAL_BRANDING, JSON.stringify(brandingData));
+        await AsyncStorage.setItem(STORAGE_KEYS.HOSPITAL_BRANDING_NAME, brandingData.hospitalName || brandingData.appName || '');
         await AsyncStorage.setItem(STORAGE_KEYS.HOSPITAL_BRANDING_ID, hospitalId);
-        setBranding(response.branding);
+        setBranding(brandingData);
       }
     } catch (error) {
       console.warn('[BrandingContext] Failed to load branding:', error.message);
@@ -27,6 +29,22 @@ export const BrandingProvider = ({ children }) => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const initBranding = async () => {
+      // Use EXPO_PUBLIC_TENANT_ID if injected by GitHub Actions, else fallback to AsyncStorage
+      const injectedTenantId = process.env.EXPO_PUBLIC_TENANT_ID;
+      if (injectedTenantId) {
+        await loadBranding(injectedTenantId);
+      } else {
+        const savedId = await AsyncStorage.getItem(STORAGE_KEYS.HOSPITAL_BRANDING_ID);
+        if (savedId) {
+          await loadBranding(savedId);
+        }
+      }
+    };
+    initBranding();
+  }, []);
 
   const resetBranding = async () => {
     await AsyncStorage.multiRemove([
