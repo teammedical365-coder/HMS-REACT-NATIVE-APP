@@ -101,7 +101,7 @@ jobs:
 
       - name: Build APK via Expo Prebuild
         working-directory: ./HMS-REACT-NATIVE
-        # NAYA: Variables ko direct build environment mein inject karna
+        # NAYA: Build environment mein directly API aur Tenant ID pass karna
         env:
           EXPO_PUBLIC_TENANT_ID: ${{ github.event.inputs.tenantId }}
           EXPO_PUBLIC_API_URL: https://hms-n6nk.onrender.com
@@ -109,7 +109,7 @@ jobs:
           npm install
           npx expo install --fix
           
-          # NAYA: > .env ki jagah .env.local use karein taki purani variables delete na hon
+          # NAYA: Strictly .env.local file create karna (Expo isko top priority deta hai)
           echo "EXPO_PUBLIC_TENANT_ID=${{ github.event.inputs.tenantId }}" > .env.local
           echo "EXPO_PUBLIC_API_URL=https://hms-n6nk.onrender.com" >> .env.local
           
@@ -119,7 +119,6 @@ jobs:
           chmod +x ./gradlew
           ./gradlew clean
           ./gradlew assembleRelease
-
       - name: Find and Move Artifacts
         run: |
           mkdir -p output_artifacts
