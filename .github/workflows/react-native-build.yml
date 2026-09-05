@@ -104,6 +104,9 @@ jobs:
         run: |
           npm install
           
+          # NAYI LINE: Expo packages ke version automatically theek karne ke liye (Crash Fix)
+          npx expo install --fix
+          
           # Yahan hum Tenant ID ke sath API URL bhi inject kar rahe hain
           echo "EXPO_PUBLIC_TENANT_ID=${{ github.event.inputs.tenantId }}" > .env
           echo "EXPO_PUBLIC_API_URL=https://hms-n6nk.onrender.com" >> .env
@@ -112,6 +115,10 @@ jobs:
           
           cd android
           chmod +x ./gradlew
+          
+          # NAYI LINE: C++ Cache ka kachra saaf karne ke liye (Build Fail Fix)
+          ./gradlew clean
+          
           ./gradlew assembleRelease
 
       - name: Find and Move Artifacts
