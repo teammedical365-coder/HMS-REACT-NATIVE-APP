@@ -11,7 +11,8 @@
             "usesCleartextTraffic": true
           }
         }
-      ]
+      ],
+      "expo-font"
     ],
     "android": {
       "package": "com.anonymous.hms"
