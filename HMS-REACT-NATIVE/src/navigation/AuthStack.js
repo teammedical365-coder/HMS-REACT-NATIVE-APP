@@ -24,7 +24,7 @@ const AuthStack = () => {
     // If EXPO_PUBLIC_TENANT_ID is injected, route directly to the Hospital Login.
     // Otherwise, fallback to WorkspaceLogin (or CentralAdminLogin).
     const hasTenant = !!process.env.EXPO_PUBLIC_TENANT_ID;
-    const initialRoute = hasTenant ? "Login" : "WorkspaceLogin";
+    const initialRoute = hasTenant ? "Login" : "CentralAdminLogin";
 
     return (
         <Stack.Navigator 
