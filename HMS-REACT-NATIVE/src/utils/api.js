@@ -76,9 +76,6 @@ export const authAPI = {
   login: async (email, password, hospitalId) => {
     const payload = { email, password };
     if (hospitalId) payload.hospitalId = hospitalId;
-    if (process.env.EXPO_PUBLIC_TENANT_ID) {
-      payload.tenantId = process.env.EXPO_PUBLIC_TENANT_ID;
-    }
     const response = await apiClient.post('/api/auth/login', payload);
     return response.data;
   },
@@ -89,14 +86,12 @@ export const authAPI = {
   sendOtp: async (email, password, hospitalId, hospitalSlug, loginType) => {
     try {
       const payload = { email, password, loginType };
-      if (hospitalId) payload.hospitalId = hospitalId;
+      
+      const idToUse = hospitalId || (loginType !== 'admin' ? process.env.EXPO_PUBLIC_TENANT_ID : null);
+      if (idToUse) payload.hospitalId = idToUse;
+      
       if (hospitalSlug) payload.hospitalSlug = hospitalSlug;
-      
-      // Do not attach tenantId for central admin logins
-      if (process.env.EXPO_PUBLIC_TENANT_ID && loginType !== 'admin') {
-        payload.tenantId = process.env.EXPO_PUBLIC_TENANT_ID;
-      }
-      
+
       const response = await apiClient.post('/api/auth/otp/send', payload);
       return response.data;
     } catch (error) {
@@ -113,8 +108,7 @@ export const authAPI = {
     const cleanOtp = String(otp).trim();
     const response = await apiClient.post(
       '/api/auth/otp/verify', 
-      { preAuthToken, otp: cleanOtp },
-      { headers: { Authorization: `Bearer ${preAuthToken}` } }
+      { preAuthToken, otp: cleanOtp }
     );
     return response.data;
   },
@@ -782,14 +776,8 @@ export const patientAuthAPI = {
     (await patientApiClient.post('/api/patient-auth/register', {
       name, email, mobile, password, hospitalId, age, aadhaarNumber,
     })).data,
-  login: async (loginId, password, hospitalId) => {
-    const payload = { loginId, password, hospitalId };
-    if (process.env.EXPO_PUBLIC_TENANT_ID) {
-      payload.tenantId = process.env.EXPO_PUBLIC_TENANT_ID;
-    }
-    const response = await patientApiClient.post('/api/patient-auth/login', payload);
-    return response.data;
-  },
+  login: async (loginId, password, hospitalId) =>
+    (await patientApiClient.post('/api/patient-auth/login', { loginId, password, hospitalId })).data,
   forgotPassword: async (email, hospitalId) =>
     (await patientApiClient.post('/api/patient-auth/forgot-password', { email, hospitalId })).data,
   resetPassword: async (token, password) =>

@@ -76,7 +76,7 @@ export const BrandingProvider = ({ children }) => {
     setBranding(null);
   };
 
-  const getTheme = () => buildTheme(branding);
+  const getTheme = () => buildTheme(branding || null);
 
   return (
     <BrandingContext.Provider value={{ branding, loading, loadBranding, resetBranding, getTheme }}>

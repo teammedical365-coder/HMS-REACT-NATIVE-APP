@@ -11,19 +11,16 @@ export const sendOtp = createAsyncThunk(
   async ({ email, password, hospitalId, hospitalSlug, loginType }, { rejectWithValue }) => {
     try {
       const response = await authAPI.sendOtp(email, password, hospitalId, hospitalSlug, loginType);
-      if (response.success) {
-        if (response.otpBypassed && !response.activeSessionExists && response.token) {
-          setAuthHeader(response.token);
-          if (Platform.OS === 'web') {
-            localStorage.setItem(STORAGE_KEYS.TOKEN, response.token);
-            localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(response.user));
-          }
-          await AsyncStorage.setItem(STORAGE_KEYS.TOKEN, response.token);
-          await AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(response.user));
+      if (response?.otpBypassed && !response?.activeSessionExists && response?.token) {
+        setAuthHeader(response.token);
+        if (Platform.OS === 'web') {
+          localStorage.setItem(STORAGE_KEYS.TOKEN, response.token);
+          localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(response.user));
         }
-        return response;
+        await AsyncStorage.setItem(STORAGE_KEYS.TOKEN, response.token);
+        await AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(response.user));
       }
-      return rejectWithValue(response.message || 'Failed to send OTP');
+      return response;
     } catch (error) {
       const errMsg = error.response?.data?.message || error.message || 'Failed to send OTP';
       const networkCode = error.code ? ` (${error.code})` : '';
@@ -272,8 +269,9 @@ const authSlice = createSlice({
           }
         } else {
           state.otpStep = 'otp';
-          state.preAuthToken = action.payload.preAuthToken;
-          state.otpEmail = action.payload.email;
+          // Extract robustly, just like we did manually before
+          state.preAuthToken = action.payload.preAuthToken || action.payload.data?.preAuthToken;
+          state.otpEmail = action.payload.email || action.payload.data?.email;
         }
       })
       .addCase(sendOtp.rejected, (state, action) => {

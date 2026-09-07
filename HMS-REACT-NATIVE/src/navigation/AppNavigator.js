@@ -1,7 +1,6 @@
 import React from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-// AuthContext ko hata kar humne Redux ka hook import kiya
 import { useAuth } from '../store/hooks';
 
 import AuthStack from './AuthStack';
@@ -30,9 +29,7 @@ const FallbackStack = () => (
 );
 
 const AppNavigator = () => {
-    // Context ki jagah Redux se status le rahe hain
-    const { loading: isLoading, isAuthenticated, user, token } = useAuth();
-    const userRole = user?.role;
+    const { loading: isLoading, isAuthenticated, user } = useAuth();
 
     if (isLoading) {
         return (
@@ -42,17 +39,15 @@ const AppNavigator = () => {
         );
     }
 
-    // Role-based routing resolution based EXACTLY on web client strings
     const renderRoleStack = () => {
-        // Extract role string whether user.role is a string or an object { name: 'admin' }
-       const rawRole = typeof user?.role === 'object' ? user?.role?.name : user?.role;
-const role = (rawRole || '').toLowerCase().replace(/\s+/g, '');
+        const rawRole = typeof user?.role === 'object' ? user?.role?.name : user?.role;
+        const role = (rawRole || '').toLowerCase().replace(/\s+/g, '');
 
-switch (role) {
-    case 'superadmin':
-    case 'centraladmin':
-    case 'admin':
-        return <Stack.Screen name="CentralAdmin" component={CentralAdminApp} options={{ headerShown: false }} />;
+        switch (role) {
+            case 'superadmin':
+            case 'centraladmin':
+            case 'admin':
+                return <Stack.Screen name="CentralAdmin" component={CentralAdminApp} options={{ headerShown: false }} />;
             case 'hospitaladmin':
                 return <Stack.Screen name="HospitalAdmin" component={HospitalAdminApp} />;
             case 'doctor':
@@ -83,11 +78,10 @@ switch (role) {
 
     return (
         <Stack.Navigator screenOptions={{ headerShown: false, animation: 'fade' }}>
-            {(!isAuthenticated || !token) ? ( // Check both isAuthenticated and token to prevent premature API calls in child screens
-                // No token found, user isn't signed in
+            {/* STRICT TOKEN CHECK REMOVED. Relying cleanly on isAuthenticated switch */}
+            {!isAuthenticated ? (
                 <Stack.Screen name="Auth" component={AuthStack} />
             ) : (
-                // User is signed in, render specific stack based on exact role
                 renderRoleStack()
             )}
         </Stack.Navigator>

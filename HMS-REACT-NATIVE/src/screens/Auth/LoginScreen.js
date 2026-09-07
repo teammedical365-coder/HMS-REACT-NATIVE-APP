@@ -10,6 +10,7 @@ import {
     KeyboardAvoidingView,
     Platform,
     Image,
+    Alert,
 } from 'react-native';
 import Toast from 'react-native-toast-message';
 import { useAppDispatch, useAuth } from '../../store/hooks';
@@ -18,9 +19,15 @@ import { sendOtp, clearError } from '../../store/slices/authSlice';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '../../utils/Constants';
 
+// IMPORTING THE OTP SCREEN DIRECTLY
+import OTPVerificationScreen from './OTPVerificationScreen';
+
 const LoginScreen = ({ navigation }) => {
     const dispatch = useAppDispatch();
-    const { loading, error, otpStep, preAuthToken, sessionExpiredMessage } = useAuth();
+
+    // REDUX SE EXACT STATE NIKALO (Yeh unmount/spinner ke baad bhi delete nahi hota)
+    const { loading, error, sessionExpiredMessage, otpStep, preAuthToken } = useAuth();
+
     const { branding, getTheme } = useBranding();
     const theme = getTheme();
     const [email, setEmail] = useState('');
@@ -28,30 +35,20 @@ const LoginScreen = ({ navigation }) => {
     const [hospitalSlug, setHospitalSlug] = useState('');
     const [showPassword, setShowPassword] = useState(false);
 
-    // Check for session expired message
     useEffect(() => {
         const checkSessionMessage = async () => {
             const message = await AsyncStorage.getItem(STORAGE_KEYS.SESSION_EXPIRED_MESSAGE);
             if (message) {
-                Toast.show({
-                    type: 'error',
-                    text1: 'Session Expired',
-                    text2: message,
-                });
+                Toast.show({ type: 'error', text1: 'Session Expired', text2: message });
                 await AsyncStorage.removeItem(STORAGE_KEYS.SESSION_EXPIRED_MESSAGE);
             }
         };
         checkSessionMessage();
     }, []);
 
-    // Show errors
     useEffect(() => {
         if (error) {
-            Toast.show({
-                type: 'error',
-                text1: 'Login Failed',
-                text2: String(error),
-            });
+            Toast.show({ type: 'error', text1: 'Login Failed', text2: String(error) });
             dispatch(clearError());
         }
     }, [error, dispatch]);
@@ -61,19 +58,28 @@ const LoginScreen = ({ navigation }) => {
             Toast.show({ type: 'error', text1: 'Please fill all fields' });
             return;
         }
-        dispatch(sendOtp({ email, password, hospitalSlug, loginType: 'email' }));
+
+        try {
+            await dispatch(sendOtp({ email, password, hospitalSlug, loginType: 'staff' })).unwrap();
+            // Local state hata di hai. Ab Redux automatically otpStep update karega.
+        } catch (err) {
+            console.error('[LoginScreen] OTP Request Failed:', err);
+            const errorMsg = typeof err === 'string' ? err : err?.message || "Failed to hit API";
+            Alert.alert("Error", errorMsg);
+        }
     };
 
-    // After OTP step is reached, navigate to OTP verification
-    useEffect(() => {
-        if (otpStep === 'otp' && preAuthToken) {
-            navigation.navigate('OTPVerification', { preAuthToken });
-        }
-    }, [otpStep, preAuthToken, navigation]);
-
-    console.log('--- DEBUG LoginScreen RENDER ---');
-    console.log('branding state:', JSON.stringify(branding, null, 2));
-    console.log('theme.primary:', theme.primary, 'theme.secondary:', theme.secondary);
+    // --- BULLETPROOF CONDITIONAL RENDER ---
+    // Jab gol loading spinner hatt jayega, toh app dekhegi ki Redux mein 'otpStep' kya hai.
+    // Agar wo 'otp' hai, toh yeh permanently OTP screen render kar dega.
+    if (otpStep === 'otp' && preAuthToken) {
+        return (
+            <OTPVerificationScreen
+                navigation={navigation}
+                route={{ params: { preAuthToken: preAuthToken } }}
+            />
+        );
+    }
 
     return (
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>

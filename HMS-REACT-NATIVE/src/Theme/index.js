@@ -3,6 +3,27 @@
  * The BrandingContext overrides these at runtime for white-label support.
  */
 
+export const DEFAULT_BRANDING = {
+    appName: 'Medical 365',
+    tagline: 'Healthcare Suite',
+    logoUrl: '/assets/logo.png',
+    faviconUrl: '/assets/logo.png',
+    primaryColor: '#14b8a6',
+    secondaryColor: '#0a2647',
+    accentColor: '#6366f1',
+    successColor: '#10b981',
+    backgroundColor: '#f8fafc',
+    textColor: '#1e293b',
+    supportEmail: '',
+    supportPhone: '',
+    address: '',
+    websiteUrl: '',
+    instagramUrl: '',
+    facebookUrl: '',
+    twitterUrl: '',
+    footerText: '',
+};
+
 export const DEFAULT_COLORS = {
     primary: '#14b8a6',
     secondary: '#0a2647',
@@ -124,12 +145,14 @@ export const SHADOWS = {
  * Build a full theme object from a branding config (BrandingContext).
  * Components call `useTheme()` to get the current theme.
  */
-export const buildTheme = (branding = {}) => {
-    const primary = branding.primaryColor || DEFAULT_COLORS.primary;
-    const secondary = branding.secondaryColor || DEFAULT_COLORS.secondary;
-    const success = branding.successColor || DEFAULT_COLORS.success;
-    const bg = branding.backgroundColor || DEFAULT_COLORS.background;
-    const text = branding.textColor || DEFAULT_COLORS.text;
+export const buildTheme = (branding) => {
+    const safeBranding = branding || DEFAULT_BRANDING;
+    
+    const primary = safeBranding?.primaryColor || DEFAULT_COLORS.primary;
+    const secondary = safeBranding?.secondaryColor || DEFAULT_COLORS.secondary;
+    const success = safeBranding?.successColor || DEFAULT_COLORS.success;
+    const bg = safeBranding?.backgroundColor || DEFAULT_COLORS.background;
+    const text = safeBranding?.textColor || DEFAULT_COLORS.text;
 
     const hexToRgb = (hex) => {
         const r = parseInt(hex.slice(1, 3), 16);

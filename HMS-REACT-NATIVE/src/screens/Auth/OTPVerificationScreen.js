@@ -9,6 +9,7 @@ import {
     KeyboardAvoidingView,
     Platform,
     TextInput,
+    Alert,
 } from 'react-native';
 import Toast from 'react-native-toast-message';
 import { useAppDispatch, useAuth } from '../../store/hooks';
@@ -75,6 +76,8 @@ const OTPVerificationScreen = ({ route, navigation }) => {
             Toast.show({ type: 'error', text1: 'Session expired. Please login again.' });
             return;
         }
+        console.log("Sending Verify Payload:", { preAuthToken, otp });
+        
         dispatch(verifyOtp({ preAuthToken, otp }));
     };
 
