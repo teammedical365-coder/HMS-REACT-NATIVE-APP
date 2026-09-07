@@ -35,17 +35,26 @@ export const verifyOtp = createAsyncThunk(
     console.log("🔥 [authSlice] Dispatching verifyOtp with preAuthToken:", !!preAuthToken);
     try {
       const response = await authAPI.verifyOtp(preAuthToken, otp);
-      if (response.success) {
-        if (!response.activeSessionExists && response.token) {
-          setAuthHeader(response.token);
+      
+      // 🚀 SURGICAL FIX: Forcefully extract deeply nested user and token
+      const actualData = response?.data || response;
+      const extractedToken = actualData?.token || response?.token;
+      const extractedUser = actualData?.user || response?.user;
+      const success = response?.success || actualData?.success;
+      const activeSessionExists = response?.activeSessionExists || actualData?.activeSessionExists;
+
+      if (success) {
+        if (!activeSessionExists && extractedToken) {
+          setAuthHeader(extractedToken);
           if (Platform.OS === 'web') {
-            localStorage.setItem(STORAGE_KEYS.TOKEN, response.token);
-            localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(response.user));
+            localStorage.setItem(STORAGE_KEYS.TOKEN, extractedToken);
+            localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(extractedUser));
           }
-          await AsyncStorage.setItem(STORAGE_KEYS.TOKEN, response.token);
-          await AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(response.user));
+          await AsyncStorage.setItem(STORAGE_KEYS.TOKEN, extractedToken);
+          await AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(extractedUser));
         }
-        return response;
+        // Return original response + our safely extracted data
+        return { ...response, extractedToken, extractedUser, activeSessionExists };
       }
       return rejectWithValue(response.message || 'OTP verification failed');
     } catch (error) {
@@ -292,8 +301,9 @@ const authSlice = createSlice({
           state.otpStep = 'session_check';
           state.activeSession = action.payload.activeSessions || action.payload.activeSession;
         } else {
-          state.user = action.payload.user;
-          state.token = action.payload.token;
+          // 🚀 SURGICAL FIX: Apply extracted user and token explicitly
+          state.user = action.payload.extractedUser || action.payload.user;
+          state.token = action.payload.extractedToken || action.payload.token;
           state.isAuthenticated = true;
           state.otpStep = null;
           state.preAuthToken = null;

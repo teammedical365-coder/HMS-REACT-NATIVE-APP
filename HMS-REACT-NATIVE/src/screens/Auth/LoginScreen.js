@@ -72,7 +72,7 @@ const LoginScreen = ({ navigation }) => {
     // --- BULLETPROOF CONDITIONAL RENDER ---
     // Jab gol loading spinner hatt jayega, toh app dekhegi ki Redux mein 'otpStep' kya hai.
     // Agar wo 'otp' hai, toh yeh permanently OTP screen render kar dega.
-    if (otpStep === 'otp' && preAuthToken) {
+    if ((otpStep === 'otp' || otpStep === 'session_check') && preAuthToken) {
         return (
             <OTPVerificationScreen
                 navigation={navigation}
