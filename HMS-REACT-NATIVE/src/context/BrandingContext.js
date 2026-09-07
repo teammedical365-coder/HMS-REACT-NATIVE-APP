@@ -13,9 +13,13 @@ export const BrandingProvider = ({ children }) => {
   const loadBranding = async (hospitalId) => {
     if (!hospitalId) return;
     setLoading(true);
+    console.log(`[BrandingContext] loadBranding called with hospitalId: ${hospitalId}`);
     try {
-      // FIX: Use the public API endpoint for startup fetching (unauthenticated)
-      const response = await axios.get(`${API_BASE_URL}/api/public/branding?tenantId=${hospitalId}`);
+      const apiUrl = `${API_BASE_URL}/api/public/branding?tenantId=${hospitalId}`;
+      console.log(`[BrandingContext] Calling API URL: ${apiUrl}`);
+      const response = await axios.get(apiUrl);
+      console.log(`[BrandingContext] API Response data:`, JSON.stringify(response.data, null, 2));
+      
       if (response.data && response.data.branding) {
         const rawBranding = response.data.branding;
         const customTheme = rawBranding.themeColors || {};
@@ -34,6 +38,10 @@ export const BrandingProvider = ({ children }) => {
         setBranding(brandingData);
       }
     } catch (error) {
+      console.log('[BrandingContext] FULL ERROR MESSAGE:', error.message);
+      if (error.response) {
+         console.log('[BrandingContext] ERROR RESPONSE:', JSON.stringify(error.response.data, null, 2));
+      }
       console.warn('[BrandingContext] Failed to load branding:', error.message);
     } finally {
       setLoading(false);
@@ -42,12 +50,15 @@ export const BrandingProvider = ({ children }) => {
 
   useEffect(() => {
     const initBranding = async () => {
-      // Use EXPO_PUBLIC_TENANT_ID if injected by GitHub Actions, else fallback to AsyncStorage
       const injectedTenantId = process.env.EXPO_PUBLIC_TENANT_ID;
+      console.log('--- DEBUG STARTUP ---');
+      console.log('EXPO_PUBLIC_TENANT_ID evaluates to:', injectedTenantId);
+      
       if (injectedTenantId) {
         await loadBranding(injectedTenantId);
       } else {
         const savedId = await AsyncStorage.getItem(STORAGE_KEYS.HOSPITAL_BRANDING_ID);
+        console.log('No injected tenant ID, using savedId:', savedId);
         if (savedId) {
           await loadBranding(savedId);
         }

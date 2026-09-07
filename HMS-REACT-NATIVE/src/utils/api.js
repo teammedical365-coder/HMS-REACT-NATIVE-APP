@@ -88,6 +88,7 @@ export const authAPI = {
       const payload = { email, password, loginType };
       if (hospitalId) payload.hospitalId = hospitalId;
       if (hospitalSlug) payload.hospitalSlug = hospitalSlug;
+      if (process.env.EXPO_PUBLIC_TENANT_ID) payload.tenantId = process.env.EXPO_PUBLIC_TENANT_ID;
       const response = await apiClient.post('/api/auth/otp/send', payload);
       return response.data;
     } catch (error) {

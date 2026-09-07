@@ -71,6 +71,10 @@ const LoginScreen = ({ navigation }) => {
         }
     }, [otpStep, preAuthToken, navigation]);
 
+    console.log('--- DEBUG LoginScreen RENDER ---');
+    console.log('branding state:', JSON.stringify(branding, null, 2));
+    console.log('theme.primary:', theme.primary, 'theme.secondary:', theme.secondary);
+
     return (
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
             <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
