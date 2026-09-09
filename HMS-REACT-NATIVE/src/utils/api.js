@@ -778,6 +778,12 @@ export const patientAuthAPI = {
     })).data,
   login: async (loginId, password, hospitalId) =>
     (await patientApiClient.post('/api/patient-auth/login', { loginId, password, hospitalId })).data,
+  sendOtp: async (loginId, password, hospitalId) =>
+    (await patientApiClient.post('/api/patient-auth/send-otp', { loginId, password, hospitalId })).data,
+  verifyOtp: async (preAuthToken, otp) =>
+    (await patientApiClient.post('/api/patient-auth/verify-otp', { preAuthToken, otp })).data,
+  resendOtp: async (preAuthToken) =>
+    (await patientApiClient.post('/api/patient-auth/resend-otp', { preAuthToken })).data,
   forgotPassword: async (email, hospitalId) =>
     (await patientApiClient.post('/api/patient-auth/forgot-password', { email, hospitalId })).data,
   resetPassword: async (token, password) =>

@@ -31,13 +31,7 @@ const FallbackStack = () => (
 const AppNavigator = () => {
     const { loading: isLoading, isAuthenticated, user } = useAuth();
 
-    if (isLoading) {
-        return (
-            <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#3b82f6" />
-            </View>
-        );
-    }
+    // Removed early return that unmounts AuthStack. Loading overlay is now at the bottom.
 
     const renderRoleStack = () => {
         const rawRole = typeof user?.role === 'object' ? user?.role?.name : user?.role;
@@ -77,23 +71,37 @@ const AppNavigator = () => {
     };
 
     return (
-        <Stack.Navigator screenOptions={{ headerShown: false, animation: 'fade' }}>
-            {/* STRICT TOKEN CHECK REMOVED. Relying cleanly on isAuthenticated switch */}
-            {!isAuthenticated ? (
-                <Stack.Screen name="Auth" component={AuthStack} />
-            ) : (
-                renderRoleStack()
+        <View style={{ flex: 1 }}>
+            <Stack.Navigator screenOptions={{ headerShown: false, animation: 'fade' }}>
+                {/* STRICT TOKEN CHECK REMOVED. Relying cleanly on isAuthenticated switch */}
+                {!isAuthenticated ? (
+                    <Stack.Screen name="Auth" component={AuthStack} />
+                ) : (
+                    renderRoleStack()
+                )}
+            </Stack.Navigator>
+
+            {isLoading && (
+                <View style={styles.globalLoadingOverlay}>
+                    <ActivityIndicator size="large" color="#3b82f6" />
+                </View>
             )}
-        </Stack.Navigator>
+        </View>
     );
 };
 
 const styles = StyleSheet.create({
-    loadingContainer: {
-        flex: 1,
+    globalLoadingOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(255, 255, 255, 0.7)',
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: '#f1f5f9'
+        zIndex: 9999,
+        elevation: 10, // For Android
     }
 });
 

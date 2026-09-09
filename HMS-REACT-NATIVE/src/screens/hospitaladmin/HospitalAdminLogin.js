@@ -1,54 +1,83 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert } from 'react-native';
+import React, { useEffect } from 'react';
 import { useNavigation } from '@react-navigation/native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { authAPI } from '../../utils/api';
+import { useAppDispatch, useAuth } from '../../store/hooks';
+import { sendOtp, verifyOtp, resendOtp, forceLogin, clearError, resetOtpFlow } from '../../store/slices/authSlice';
+import NeuralAuthPortal from '../../components/auth/NeuralAuthPortal';
 
 const HospitalAdminLogin = () => {
     const navigation = useNavigation();
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [loading, setLoading] = useState(false);
+    const dispatch = useAppDispatch();
+    const { loading, error, isAuthenticated, user, otpStep, preAuthToken, otpEmail, activeSession, otpSuccessMsg } = useAuth();
 
-    const handleLogin = async () => {
-        if (!email || !password) { Alert.alert('Error', 'Please fill all fields'); return; }
-        setLoading(true);
-        try {
-            const res = await authAPI.login(email, password, null, null, 'hospitaladmin');
-            if (res.success) {
-                await AsyncStorage.setItem('token', res.token);
-                await AsyncStorage.setItem('user', JSON.stringify(res.user));
-                // Reload app state natively via Redux or navigation reset
-                navigation.replace('DashboardLayout');
+    useEffect(() => {
+        dispatch(clearError());
+        dispatch(resetOtpFlow());
+    }, [dispatch]);
+
+    useEffect(() => {
+        if (isAuthenticated && user) {
+            const role = user.role?.toLowerCase();
+            if (role === 'hospitaladmin') {
+                navigation.navigate('HospitalAdminDrawer');
+            } else if (role === 'centraladmin' || role === 'superadmin') {
+                navigation.navigate('CentralAdminDrawer');
             }
-        } catch (error) { Alert.alert('Error', error.response?.data?.message || 'Login failed'); }
-        finally { setLoading(false); }
+        }
+    }, [isAuthenticated, user, navigation]);
+
+    const handleLoginSubmit = ({ id, password }) => {
+        dispatch(clearError());
+        dispatch(sendOtp({
+            email: id,
+            password: password,
+            loginType: 'hospitaladmin',
+        }));
+    };
+
+    const handleVerifyOtp = async (otp) => {
+        await dispatch(verifyOtp({ preAuthToken, otp }));
+    };
+
+    const handleResendOtp = async () => {
+        await dispatch(resendOtp({ preAuthToken }));
+    };
+
+    const handleBackToLogin = () => {
+        dispatch(resetOtpFlow());
+    };
+
+    const handleForceLogin = async () => {
+        await dispatch(forceLogin({ preAuthToken }));
+    };
+
+    const handleCancelSession = () => {
+        dispatch(resetOtpFlow());
     };
 
     return (
-        <View style={styles.container}>
-            <Text style={styles.title}>Hospital Admin Portal</Text>
-            <View style={styles.card}>
-                <TextInput style={styles.input} placeholder="Admin Email" value={email} onChangeText={setEmail} keyboardType="email-address" />
-                <TextInput style={styles.input} placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry />
-                <TouchableOpacity style={styles.btn} onPress={handleLogin} disabled={loading}>
-                    <Text style={styles.btnText}>{loading ? 'Authenticating...' : 'Secure Login'}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => navigation.navigate('Login')} style={{ marginTop: 16, alignItems: 'center' }}>
-                    <Text style={{ color: '#3b82f6' }}>Go back to User Login</Text>
-                </TouchableOpacity>
-            </View>
-        </View>
+        <NeuralAuthPortal
+            portalType="hospital"
+            title="Hospital Portal"
+            subtitle="Access dedicated hospital administrator workspace."
+            idLabel="Hospital Admin Email"
+            idPlaceholder="admin@yourhospital.com"
+            idType="email-address"
+            passkeyLabel="Password"
+            passkeyPlaceholder="••••••••"
+            onLoginSubmit={handleLoginSubmit}
+            onVerifyOtp={handleVerifyOtp}
+            onResendOtp={handleResendOtp}
+            onAbortOtp={handleBackToLogin}
+            onForceLogin={handleForceLogin}
+            onCancelSession={handleCancelSession}
+            otpStep={otpStep}
+            otpEmail={otpEmail}
+            activeSession={activeSession}
+            loading={loading}
+            error={error}
+            successMsg={otpSuccessMsg}
+        />
     );
 };
-
-const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#f1f5f9', justifyContent: 'center', padding: 20 },
-    title: { fontSize: 24, fontWeight: 'bold', textAlign: 'center', marginBottom: 20 },
-    card: { backgroundColor: 'white', padding: 20, borderRadius: 12, elevation: 2 },
-    input: { borderWidth: 1, borderColor: '#cbd5e1', padding: 12, borderRadius: 8, marginBottom: 16 },
-    btn: { backgroundColor: '#0f172a', padding: 14, borderRadius: 8, alignItems: 'center' },
-    btnText: { color: 'white', fontWeight: 'bold', fontSize: 16 }
-});
 
 export default HospitalAdminLogin;

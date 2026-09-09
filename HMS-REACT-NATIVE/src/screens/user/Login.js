@@ -7,9 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { baseURL } from '../../utils/api';
 import { useBranding } from '../../context/BrandingContext';
 
-import PasswordInput from '../../components/PasswordInput';
-import OtpVerification from '../../components/OtpVerification';
-import ActiveSessionModal from '../../components/ActiveSessionModal';
+import NeuralAuthPortal from '../../components/auth/NeuralAuthPortal';
 
 const Login = () => {
     const navigation = useNavigation();
@@ -95,10 +93,10 @@ const Login = () => {
         setLocalError(null);
     };
 
-    const handleSubmit = async () => {
+    const handleSubmit = async (creds) => {
         dispatch(clearError());
         setLocalError(null);
-        if (!formData.email || !formData.password) return;
+        if (!creds.id || !creds.password) return;
 
         let slug = formData.hospitalSlug || searchParams.slug || searchParams.tenantId || await AsyncStorage.getItem('tenantSlug') || 'cityhospital';
         if (nativeSlug) {
@@ -107,8 +105,8 @@ const Login = () => {
 
         try {
             await dispatch(sendOtp({
-                email: formData.email,
-                password: formData.password,
+                email: creds.id,
+                password: creds.password,
                 hospitalSlug: slug,
                 loginType: 'staff',
             })).unwrap();
@@ -126,133 +124,32 @@ const Login = () => {
     const handleCancelSession = () => dispatch(resetOtpFlow());
 
     return (
-        <SafeAreaView style={styles.container}>
-            <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-                <ScrollView contentContainerStyle={styles.scrollContent}>
-                    <View style={styles.card}>
-                        <View style={styles.logoContainer}>
-                            <Image 
-                                source={branding?.logoUrl ? { uri: branding.logoUrl } : require('../../assets/medical365-logo.png')} 
-                                style={styles.logo} 
-                                resizeMode="contain" 
-                                defaultSource={null}
-                            />
-                        </View>
-
-                        <View style={styles.header}>
-                            <Text style={styles.title}>Sign In</Text>
-                            <Text style={styles.subtitle}>Enter your credentials to access your account.</Text>
-                        </View>
-
-                        {!otpStep && (
-                            <View style={styles.formContainer}>
-                                {(error || localError) ? (
-                                    <View style={styles.errorBox}>
-                                        <Text style={styles.errorText}>{error || localError}</Text>
-                                    </View>
-                                ) : null}
-
-                                <View style={styles.inputGroup}>
-                                    <Text style={styles.label}>Workspace ID / Clinic URL</Text>
-                                    <View style={styles.inputWrapper}>
-                                        <Text style={styles.inputIcon}>🏢</Text>
-                                        <TextInput
-                                            style={styles.input}
-                                            value={formData.hospitalSlug}
-                                            onChangeText={(v) => handleChange('hospitalSlug', v)}
-                                            placeholder="Enter workspace ID (e.g., cityhospital)"
-                                            autoCapitalize="none"
-                                            autoCorrect={false}
-                                        />
-                                    </View>
-                                </View>
-
-                                <View style={styles.inputGroup}>
-                                    <Text style={styles.label}>Email Address</Text>
-                                    <View style={styles.inputWrapper}>
-                                        <Text style={styles.inputIcon}>âœ‰ï¸</Text>
-                                        <TextInput
-                                            style={styles.input}
-                                            value={formData.email}
-                                            onChangeText={(v) => handleChange('email', v)}
-                                            placeholder="Enter your email"
-                                            autoCapitalize="none"
-                                            keyboardType="email-address"
-                                        />
-                                    </View>
-                                </View>
-
-                                <View style={styles.inputGroup}>
-                                    <Text style={styles.label}>Password</Text>
-                                    <View style={styles.inputWrapper}>
-                                        <Text style={styles.inputIcon}>ðŸ”’</Text>
-                                        <View style={{ flex: 1 }}>
-                                            <PasswordInput
-                                                value={formData.password}
-                                                onChangeText={(v) => handleChange('password', v)}
-                                                placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
-                                            />
-                                        </View>
-                                    </View>
-                                </View>
-
-                                <TouchableOpacity 
-                                    style={styles.submitBtn} 
-                                    onPress={handleSubmit} 
-                                    disabled={loading}
-                                >
-                                    {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>Sign In</Text>}
-                                </TouchableOpacity>
-                            </View>
-                        )}
-
-                        {otpStep === 'otp' && (
-                            <OtpVerification
-                                email={otpEmail}
-                                onVerify={handleVerifyOtp}
-                                onResend={handleResendOtp}
-                                onBack={handleBackToLogin}
-                                loading={loading}
-                                error={error}
-                                successMsg={otpSuccessMsg}
-                            />
-                        )}
-
-                        {otpStep === 'session_check' && activeSession && (
-                            <ActiveSessionModal
-                                activeSession={activeSession}
-                                onForceLogin={handleForceLogin}
-                                onCancel={handleCancelSession}
-                                loading={loading}
-                                visible={true}
-                            />
-                        )}
-                    </View>
-                </ScrollView>
-            </KeyboardAvoidingView>
-        </SafeAreaView>
+        <NeuralAuthPortal
+            portalType="staff"
+            title="Clinical Portal"
+            subtitle="Access your high-performance medical workspace."
+            idLabel="Email or Practitioner ID"
+            idPlaceholder="Enter your email or ID"
+            idType="email-address"
+            passkeyLabel="Password"
+            passkeyPlaceholder="••••••••"
+            branding={branding}
+            onLoginSubmit={(creds) => {
+                setFormData(prev => ({ ...prev, email: creds.id, password: creds.password }));
+                handleSubmit(creds);
+            }}
+            onVerifyOtp={handleVerifyOtp}
+            onResendOtp={handleResendOtp}
+            onAbortOtp={handleBackToLogin}
+            onForceLogin={handleForceLogin}
+            onCancelSession={handleCancelSession}
+            otpStep={otpStep}
+            otpEmail={otpEmail}
+            activeSession={otpStep === 'session_check' ? activeSession : null}
+            loading={loading}
+            error={error || localError}
+            successMsg={otpSuccessMsg}
+        />
     );
 };
-
-const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#f8fafc' },
-    scrollContent: { flexGrow: 1, justifyContent: 'center', padding: 16 },
-    card: { backgroundColor: '#fff', borderRadius: 16, padding: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 5 },
-    logoContainer: { alignItems: 'center', marginBottom: 24 },
-    logo: { width: 220, height: 80 },
-    header: { alignItems: 'center', marginBottom: 24 },
-    title: { fontSize: 24, fontWeight: 'bold', color: '#1e293b' },
-    subtitle: { fontSize: 14, color: '#64748b', marginTop: 4, textAlign: 'center' },
-    formContainer: { gap: 16 },
-    errorBox: { backgroundColor: '#fef2f2', borderColor: '#fecaca', borderWidth: 1, padding: 12, borderRadius: 8 },
-    errorText: { color: '#dc2626', fontSize: 14, fontWeight: '500' },
-    inputGroup: { gap: 4 },
-    label: { fontSize: 14, fontWeight: '600', color: '#334155' },
-    inputWrapper: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 12, backgroundColor: '#fff', paddingHorizontal: 12 },
-    inputIcon: { fontSize: 18, color: '#94a3b8', marginRight: 8 },
-    input: { flex: 1, paddingVertical: 12, fontSize: 15, color: '#1e293b' },
-    submitBtn: { backgroundColor: '#0d9488', paddingVertical: 14, borderRadius: 12, alignItems: 'center', marginTop: 8, shadowColor: '#0d9488', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 },
-    submitBtnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' }
-});
-
 export default Login;
