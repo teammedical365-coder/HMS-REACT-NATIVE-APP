@@ -1,4 +1,5 @@
 import React from 'react';
+import { useSelector } from 'react-redux';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 // Dashboard Layout
@@ -20,6 +21,7 @@ import AdminServices from '../screens/admin/AdminServices';
 // -- Hospital Admin Pages --
 import HospitalAdminDashboard from '../screens/hospitaladmin/HospitalAdminDashboard';
 import ClinicDashboard from '../screens/hospitaladmin/ClinicDashboard';
+import VialManagement from '../screens/hospitaladmin/VialManagement';
 import HospitalAdminQuestionLibrary from '../screens/hospitaladmin/HospitalAdminQuestionLibrary';
 import BedManagement from '../screens/hospitaladmin/BedManagement'; // Based on audit
 
@@ -95,19 +97,27 @@ export const CentralAdminApp = () => (
     </Stack.Navigator>
 );
 
-export const HospitalAdminApp = () => (
-    <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
-        <Stack.Screen name="HospitalAdminStack" component={withLayout(HospitalAdminDashboard)} />
-        <Stack.Screen name="HospitalAdminDashboard" component={withLayout(HospitalAdminDashboard)} />
-        <Stack.Screen name="ClinicDashboard" component={withLayout(ClinicDashboard)} />
-        <Stack.Screen name="HospitalAdminQuestionLibrary" component={withLayout(HospitalAdminQuestionLibrary)} />
-        <Stack.Screen name="BedManagement" component={withLayout(BedManagement)} />
-        <Stack.Screen name="OTDashboard" component={withLayout(OTDashboard)} />
-        <Stack.Screen name="Admin" component={withLayout(Admin)} />
-        <Stack.Screen name="AdminDoctors" component={withLayout(AdminDoctors)} />
-        <Stack.Screen name="PharmacyInventory" component={withLayout(PharmacyInventory)} />
-    </Stack.Navigator>
-);
+export const HospitalAdminApp = () => {
+    const { user } = useSelector(state => state.auth);
+    const isClinicHub = user?.clinicType === 'clinic' || user?.subscriptionPlan === 'starter';
+    const initialScreen = isClinicHub ? "ClinicDashboard" : "HospitalAdminDashboard";
+
+    return (
+        <Stack.Navigator initialRouteName={initialScreen} screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
+            <Stack.Screen name="HospitalAdminStack" component={withLayout(isClinicHub ? ClinicDashboard : HospitalAdminDashboard)} />
+            <Stack.Screen name="HospitalAdminDashboard" component={withLayout(HospitalAdminDashboard)} />
+            <Stack.Screen name="ClinicDashboard" component={withLayout(ClinicDashboard)} />
+            <Stack.Screen name="VialManagement" component={withLayout(VialManagement)} />
+            <Stack.Screen name="HospitalAdminQuestionLibrary" component={withLayout(HospitalAdminQuestionLibrary)} />
+            <Stack.Screen name="BedManagement" component={withLayout(BedManagement)} />
+            <Stack.Screen name="OTDashboard" component={withLayout(OTDashboard)} />
+            <Stack.Screen name="Admin" component={withLayout(Admin)} />
+            <Stack.Screen name="AdminDoctors" component={withLayout(AdminDoctors)} />
+            <Stack.Screen name="AdminRoles" component={withLayout(AdminRoles)} />
+            <Stack.Screen name="PharmacyInventory" component={withLayout(PharmacyInventory)} />
+        </Stack.Navigator>
+    );
+};
 
 export const DoctorApp = () => (
     <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>

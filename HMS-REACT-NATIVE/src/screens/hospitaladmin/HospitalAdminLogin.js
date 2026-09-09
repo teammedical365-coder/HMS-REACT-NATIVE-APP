@@ -16,14 +16,9 @@ const HospitalAdminLogin = () => {
 
     useEffect(() => {
         if (isAuthenticated && user) {
-            const role = user.role?.toLowerCase();
-            if (role === 'hospitaladmin') {
-                navigation.navigate('HospitalAdminDrawer');
-            } else if (role === 'centraladmin' || role === 'superadmin') {
-                navigation.navigate('CentralAdminDrawer');
-            }
+            // AppNavigator automatically swaps AuthStack with HospitalAdmin or CentralAdmin on isAuthenticated
         }
-    }, [isAuthenticated, user, navigation]);
+    }, [isAuthenticated, user]);
 
     const handleLoginSubmit = ({ id, password }) => {
         dispatch(clearError());

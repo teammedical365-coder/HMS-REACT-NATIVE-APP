@@ -899,5 +899,66 @@ export const consentAPI = {
     (await apiClient.delete('/api/consent/templates/' + id)).data,
 };
 
-export default apiClient;
+// ─── Vial Management API ──────────────────────────────────────────────────────
+export const vialAPI = {
+  getAll: async (params) => {
+    const response = await apiClient.get('/api/vials', { params });
+    return response.data;
+  },
+  getStats: async () => {
+    const response = await apiClient.get('/api/vials/stats');
+    return response.data;
+  },
+  getPatientVials: async (patientId) => {
+    const response = await apiClient.get(`/api/vials/patient/${patientId}`);
+    return response.data;
+  },
+  getById: async (id) => {
+    const response = await apiClient.get(`/api/vials/${id}`);
+    return response.data;
+  },
+  create: async (data) => {
+    const response = await apiClient.post('/api/vials', data);
+    return response.data;
+  },
+  update: async (id, data) => {
+    const response = await apiClient.put(`/api/vials/${id}`, data);
+    return response.data;
+  },
+  store: async (id, data) => {
+    const response = await apiClient.post(`/api/vials/${id}/store`, data);
+    return response.data;
+  },
+  move: async (id, data) => {
+    const response = await apiClient.post(`/api/vials/${id}/move`, data);
+    return response.data;
+  },
+  retrieve: async (id, data) => {
+    const response = await apiClient.post(`/api/vials/${id}/retrieve`, data);
+    return response.data;
+  },
+  returnToStorage: async (id, data) => {
+    const response = await apiClient.post(`/api/vials/${id}/return`, data);
+    return response.data;
+  },
+  discard: async (id, data) => {
+    const response = await apiClient.post(`/api/vials/${id}/discard`, data);
+    return response.data;
+  }
+};
 
+// ─── AI Wallet API ────────────────────────────────────────────────────────────
+export const aiWalletAPI = {
+  getWallet: async () => (await apiClient.get('/api/ai-wallet')).data,
+  getWalletStatus: async () => (await apiClient.get('/api/ai-wallet/status')).data,
+  getUsageHistory: async (limit = 30) =>
+    (await apiClient.get(`/api/ai-wallet/usage?limit=${limit}`)).data,
+  getTransactions: async (page = 1, limit = 30) =>
+    (await apiClient.get(`/api/ai-wallet/transactions?page=${page}&limit=${limit}`)).data,
+  getAllHospitalWallets: async () =>
+    (await apiClient.get('/api/ai-wallet/admin/hospitals')).data,
+  rechargeWallet: async (hospitalId, amount) =>
+    (await apiClient.post('/api/ai-wallet/admin/recharge', { hospitalId, amount })).data,
+};
+
+export default apiClient;

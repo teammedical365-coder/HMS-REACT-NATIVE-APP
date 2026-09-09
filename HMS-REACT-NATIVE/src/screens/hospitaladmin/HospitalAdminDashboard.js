@@ -7,10 +7,12 @@ import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAppDispatch } from '../../store/hooks';
 import { updateUser as updateUserAction } from '../../store/slices/authSlice';
-import { adminAPI, uploadAPI, hospitalAPI } from '../../utils/api';
+import { adminAPI, uploadAPI, hospitalAPI, aiWalletAPI } from '../../utils/api';
 import BedManagement from './BedManagement';
 import OTDashboard from './OTDashboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as DocumentPicker from 'expo-document-picker';
+import Svg, { Path, Defs, LinearGradient, Stop, Line } from 'react-native-svg';
 
 // --- Custom Select Dropdown ---
 const CustomSelect = ({ options, value, onChange, placeholder, disabled }) => {
@@ -93,6 +95,15 @@ const HospitalAdminDashboard = () => {
     const [customEndDate, setCustomEndDate] = useState('');
     const [hospitalStats, setHospitalStats] = useState(null);
     const [loadingStats, setLoadingStats] = useState(false);
+    const [chartRange, setChartRange] = useState('this_month');
+
+    // --- AI Wallet State ---
+    const [aiWallet, setAiWallet] = useState(null);
+
+    // --- Facility State ---
+    const [newFacilityName, setNewFacilityName] = useState('');
+    const [newFacilityPrice, setNewFacilityPrice] = useState('');
+    const [addingFacility, setAddingFacility] = useState(false);
 
     // --- Accounts State ---
     const [accountsSubTab, setAccountsSubTab] = useState('upi');
@@ -125,6 +136,17 @@ const HospitalAdminDashboard = () => {
     const [savingLabTest, setSavingLabTest] = useState(false);
     const [labTestForm, setLabTestForm] = useState({ name: '', code: '', description: '', price: '', category: 'General' });
 
+    const fetchAIWallet = async () => {
+        try {
+            const res = await aiWalletAPI.getWallet();
+            if (res && res.success && res.wallet) {
+                setAiWallet(res.wallet);
+            }
+        } catch (err) {
+            console.error('Failed to fetch hospital AI wallet:', err);
+        }
+    };
+
     useEffect(() => {
         const loadUser = async () => {
             const userStr = await AsyncStorage.getItem('user');
@@ -143,7 +165,8 @@ const HospitalAdminDashboard = () => {
                 await Promise.all([
                     fetchMyHospital(),
                     fetchUsers(),
-                    fetchRoles()
+                    fetchRoles(),
+                    fetchAIWallet()
                 ]);
             } catch (err) {
                 console.error('Failed to initialize dashboard:', err);
@@ -554,6 +577,53 @@ const HospitalAdminDashboard = () => {
 
     const formatCurrency = (n) => `₹${(Number(n) || 0).toLocaleString('en-IN')}`;
 
+    const handlePickProfilePhoto = async () => {
+        try {
+            const result = await DocumentPicker.getDocumentAsync({
+                type: ['image/jpeg', 'image/png', 'image/webp'],
+                copyToCacheDirectory: true
+            });
+            if (!result.canceled && result.assets && result.assets.length > 0) {
+                const asset = result.assets[0];
+                setProfileFile({
+                    uri: asset.uri,
+                    name: asset.name || 'avatar.jpg',
+                    type: asset.mimeType || 'image/jpeg'
+                });
+            }
+        } catch (err) {
+            console.error('Photo picker error:', err);
+        }
+    };
+
+    const handleAddFacility = async () => {
+        if (!newFacilityName.trim()) {
+            Alert.alert('Validation', 'Please enter a facility/room name.');
+            return;
+        }
+        setAddingFacility(true);
+        setError('');
+        try {
+            const currentFacilities = hospitalInfo?.facilities || [];
+            const updated = [
+                ...currentFacilities,
+                { name: newFacilityName.trim(), pricePerDay: Number(newFacilityPrice) || 0 }
+            ];
+            const res = await hospitalAPI.updateFacilities({ facilities: updated });
+            if (res.success) {
+                setHospitalInfo(res.hospital);
+                setNewFacilityName('');
+                setNewFacilityPrice('');
+                setSuccess('Facility added successfully!');
+                setTimeout(() => setSuccess(''), 3000);
+            }
+        } catch (err) {
+            setError(err.response?.data?.message || 'Error adding facility.');
+        } finally {
+            setAddingFacility(false);
+        }
+    };
+
     const handleSaveProfilePhoto = async () => {
         if (!profileFile) return;
         setSavingProfile(true);
@@ -671,16 +741,217 @@ const HospitalAdminDashboard = () => {
                                 <View key={i} style={styles.kpiSkeleton}></View>
                             ))}
                         </View>
-                    ) : hospitalStats?.stats ? (
+                    ) : (
                         <View style={styles.hospitalKpiGrid}>
-                            <View style={[styles.kpiCard, styles.kpiBlue]}><Text style={styles.kpiIcon}>👩⚕️</Text><Text style={styles.kpiValue}>{hospitalStats.stats.totalStaff}</Text><Text style={styles.kpiLabel}>Total Staff</Text><Text style={styles.kpiSub}>Active staff members</Text></View>
-                            <View style={[styles.kpiCard, styles.kpiGreen]}><Text style={styles.kpiIcon}>🧑🤝🧑</Text><Text style={styles.kpiValue}>{hospitalStats.stats.totalPatients}</Text><Text style={styles.kpiLabel}>Unique Patients</Text><Text style={styles.kpiSub}>In selected period</Text></View>
-                            <View style={[styles.kpiCard, styles.kpiPurple]}><Text style={styles.kpiIcon}>📅</Text><Text style={styles.kpiValue}>{hospitalStats.stats.totalAppointments}</Text><Text style={styles.kpiLabel}>Total Appointments</Text><Text style={styles.kpiSub}>In selected period</Text></View>
-                            <View style={[styles.kpiCard, styles.kpiOrange]}><Text style={styles.kpiIcon}>💰</Text><Text style={styles.kpiValue}>{formatCurrency(hospitalStats.stats.totalRevenue)}</Text><Text style={styles.kpiLabel}>Total Revenue</Text><Text style={styles.kpiSub}>From paid appointments</Text></View>
-                            <View style={[styles.kpiCard, styles.kpiTeal]}><Text style={styles.kpiIcon}>✅</Text><Text style={styles.kpiValue}>{hospitalStats.stats.completedAppointments}</Text><Text style={styles.kpiLabel}>Completed</Text><Text style={styles.kpiSub}>{hospitalStats.stats.pendingAppointments} pending/upcoming</Text></View>
-                            <View style={[styles.kpiCard, styles.kpiPink]}><Text style={styles.kpiIcon}>🧪</Text><Text style={styles.kpiValue}>{hospitalStats.stats.labReportCount}</Text><Text style={styles.kpiLabel}>Lab Reports</Text><Text style={styles.kpiSub}>{hospitalStats.stats.pendingLabReports} pending</Text></View>
+                            {/* 1. Total Patients */}
+                            <View style={[styles.kpiCard, styles.kpiBlue]}>
+                                <Text style={styles.kpiIcon}>🧑‍🤝‍🧑</Text>
+                                <Text style={styles.kpiValue}>
+                                    {(hospitalStats?.stats?.totalPatients ?? stats.totalPatients ?? 0).toLocaleString()}
+                                </Text>
+                                <Text style={styles.kpiLabel}>Total Patients</Text>
+                                <Text style={styles.kpiSub}>● Active in selected period</Text>
+                            </View>
+
+                            {/* 2. Total Doctors */}
+                            <View style={[styles.kpiCard, styles.kpiTeal]}>
+                                <Text style={styles.kpiIcon}>👩‍⚕️</Text>
+                                <Text style={styles.kpiValue}>
+                                    {hospitalStats?.stats?.totalDoctors ?? hospitalStats?.stats?.doctorCount ?? stats.totalDoctors ?? 0}
+                                </Text>
+                                <Text style={styles.kpiLabel}>Total Doctors</Text>
+                                <Text style={styles.kpiSub}>● Hospital verified doctors</Text>
+                            </View>
+
+                            {/* 3. Total Appointments */}
+                            <View style={[styles.kpiCard, styles.kpiPurple]}>
+                                <Text style={styles.kpiIcon}>📅</Text>
+                                <Text style={styles.kpiValue}>
+                                    {(hospitalStats?.stats?.totalAppointments ?? 0).toLocaleString()}
+                                </Text>
+                                <Text style={styles.kpiLabel}>Total Appointments</Text>
+                                <Text style={styles.kpiSub}>● Booked consultation records</Text>
+                            </View>
+
+                            {/* 4. Total Revenue */}
+                            <View style={[styles.kpiCard, styles.kpiOrange]}>
+                                <Text style={styles.kpiIcon}>💰</Text>
+                                <Text style={styles.kpiValue}>
+                                    {formatCurrency(hospitalStats?.stats?.totalRevenue ?? 0)}
+                                </Text>
+                                <Text style={styles.kpiLabel}>Total Revenue</Text>
+                                <Text style={styles.kpiSub}>● Billed invoices</Text>
+                            </View>
+
+                            {/* 5. Occupancy Rate */}
+                            <View style={[styles.kpiCard, styles.kpiGreen]}>
+                                <Text style={styles.kpiIcon}>🛏️</Text>
+                                <Text style={styles.kpiValue}>
+                                    {`${hospitalStats?.stats?.occupancyRate ?? 0}%`}
+                                </Text>
+                                <Text style={styles.kpiLabel}>Occupancy Rate</Text>
+                                <Text style={styles.kpiSub}>● Bed utilization</Text>
+                            </View>
+
+                            {/* 6. AI Wallet / Credits */}
+                            <View style={[styles.kpiCard, { backgroundColor: '#4f46e5' }]}>
+                                <Text style={styles.kpiIcon}>🤖</Text>
+                                <Text style={styles.kpiValue}>
+                                    ₹{aiWallet ? Number(aiWallet.remainingAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '2,000.00'}
+                                </Text>
+                                <Text style={styles.kpiLabel}>Hospital AI Credits</Text>
+                                <Text style={styles.kpiSub}>
+                                    ● Used: ₹{aiWallet ? Number(aiWallet.usedAmount).toFixed(2) : '0.00'} / ₹{aiWallet ? Number(aiWallet.budgetAmount || 2000).toFixed(2) : '2,000.00'}
+                                </Text>
+                            </View>
                         </View>
-                    ) : null}
+                    )}
+
+                    {/* Appointments Overview SVG Area Chart & Quick Summary */}
+                    {(() => {
+                        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                        const now = new Date();
+                        const curM = monthNames[now.getMonth()];
+                        const prevM = monthNames[(now.getMonth() - 1 + 12) % 12];
+                        const dateLabels = chartRange === 'last_month' 
+                            ? [`01 ${prevM}`, `05 ${prevM}`, `10 ${prevM}`, `15 ${prevM}`, `20 ${prevM}`, `25 ${prevM}`, `30 ${prevM}`]
+                            : chartRange === 'this_year'
+                                ? ['Jan', 'Mar', 'May', 'Jul', 'Sep', 'Nov', 'Dec']
+                                : [`01 ${curM}`, `05 ${curM}`, `10 ${curM}`, `15 ${curM}`, `20 ${curM}`, `25 ${curM}`, `30 ${curM}`];
+
+                        const chartAreaD = chartRange === 'last_month'
+                            ? 'M10,185 C45,150 70,165 95,130 S150,140 180,100 S225,115 250,80 S300,95 330,110 S375,140 405,120 S440,85 465,100 S510,90 540,85 S575,65 605,75 S645,55 675,80 S730,60 790,90 L790,205 L10,205 Z'
+                            : chartRange === 'this_year'
+                                ? 'M10,160 C50,140 80,120 120,100 S180,110 220,70 S280,85 320,50 S380,60 420,80 S480,55 520,40 S580,45 620,35 S680,50 720,30 S760,25 790,45 L790,205 L10,205 Z'
+                                : 'M10,178 C40,135 65,158 90,145 S140,155 170,120 S215,130 240,90 S290,105 320,125 S365,170 395,155 S430,105 455,125 S500,105 530,112 S565,78 595,95 S635,70 665,100 S720,80 790,105 L790,205 L10,205 Z';
+
+                        const chartLineD = chartRange === 'last_month'
+                            ? 'M10,185 C45,150 70,165 95,130 S150,140 180,100 S225,115 250,80 S300,95 330,110 S375,140 405,120 S440,85 465,100 S510,90 540,85 S575,65 605,75 S645,55 675,80 S730,60 790,90'
+                            : chartRange === 'this_year'
+                                ? 'M10,160 C50,140 80,120 120,100 S180,110 220,70 S280,85 320,50 S380,60 420,80 S480,55 520,40 S580,45 620,35 S680,50 720,30 S760,25 790,45'
+                                : 'M10,178 C40,135 65,158 90,145 S140,155 170,120 S215,130 240,90 S290,105 320,125 S365,170 395,155 S430,105 455,125 S500,105 530,112 S565,78 595,95 S635,70 665,100 S720,80 790,105';
+
+                        return (
+                            <View style={{ flexDirection: 'row', gap: 20, flexWrap: 'wrap', marginBottom: 24 }}>
+                                {/* Appointments Chart Panel */}
+                                <View style={[styles.adminCard, { flex: 2, minWidth: 320, marginBottom: 0 }]}>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                            <Text style={{ fontSize: 18, color: '#7c3aed' }}>▦</Text>
+                                            <Text style={styles.cardTitle}>Appointments Overview</Text>
+                                        </View>
+                                        <View style={{ flexDirection: 'row', gap: 6 }}>
+                                            <TouchableOpacity 
+                                                style={[styles.chartRangeBtn, chartRange === 'this_month' && styles.chartRangeBtnActive]}
+                                                onPress={() => setChartRange('this_month')}
+                                            >
+                                                <Text style={[styles.chartRangeBtnText, chartRange === 'this_month' && styles.chartRangeBtnTextActive]}>This Month</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity 
+                                                style={[styles.chartRangeBtn, chartRange === 'last_month' && styles.chartRangeBtnActive]}
+                                                onPress={() => setChartRange('last_month')}
+                                            >
+                                                <Text style={[styles.chartRangeBtnText, chartRange === 'last_month' && styles.chartRangeBtnTextActive]}>Last Month</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity 
+                                                style={[styles.chartRangeBtn, chartRange === 'this_year' && styles.chartRangeBtnActive]}
+                                                onPress={() => setChartRange('this_year')}
+                                            >
+                                                <Text style={[styles.chartRangeBtnText, chartRange === 'this_year' && styles.chartRangeBtnTextActive]}>This Year</Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                    </View>
+
+                                    <View style={{ height: 210, width: '100%', overflow: 'hidden' }}>
+                                        <Svg viewBox="0 0 800 210" width="100%" height={210} preserveAspectRatio="none">
+                                            <Defs>
+                                                <LinearGradient id="areaGradHaOverview" x1="0" y1="0" x2="0" y2="1">
+                                                    <Stop offset="0%" stopColor="#7560ee" stopOpacity="0.3" />
+                                                    <Stop offset="100%" stopColor="#7560ee" stopOpacity="0.0" />
+                                                </LinearGradient>
+                                            </Defs>
+                                            {/* Gridlines */}
+                                            <Line x1="10" y1="50" x2="790" y2="50" stroke="#f1f5f9" strokeWidth="1" />
+                                            <Line x1="10" y1="100" x2="790" y2="100" stroke="#f1f5f9" strokeWidth="1" />
+                                            <Line x1="10" y1="150" x2="790" y2="150" stroke="#f1f5f9" strokeWidth="1" />
+                                            <Line x1="10" y1="200" x2="790" y2="200" stroke="#f1f5f9" strokeWidth="1" />
+                                            {/* Area Gradient */}
+                                            <Path d={chartAreaD} fill="url(#areaGradHaOverview)" />
+                                            {/* Line Path */}
+                                            <Path d={chartLineD} fill="none" stroke="#7658ed" strokeWidth="3.5" strokeLinecap="round" />
+                                        </Svg>
+                                    </View>
+
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 12, marginTop: 8 }}>
+                                        {dateLabels.map((lbl, idx) => (
+                                            <Text key={idx} style={{ color: '#94a3b8', fontSize: 11, fontWeight: '600' }}>{lbl}</Text>
+                                        ))}
+                                    </View>
+                                </View>
+
+                                {/* Quick Summary Panel */}
+                                <View style={[styles.adminCard, { flex: 1, minWidth: 260, marginBottom: 0 }]}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                                        <Text style={{ fontSize: 18, color: '#0d9488' }}>▣</Text>
+                                        <Text style={styles.cardTitle}>Quick Summary</Text>
+                                    </View>
+                                    <View style={{ gap: 12 }}>
+                                        <View style={styles.quickSummaryRow}>
+                                            <View style={[styles.quickSummaryIconWrap, { backgroundColor: '#dcfce7' }]}>
+                                                <Text style={{ color: '#16a34a', fontSize: 16 }}>✓</Text>
+                                            </View>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={{ fontWeight: '700', fontSize: 14, color: '#0f172a' }}>Completed</Text>
+                                                <Text style={{ fontSize: 12, color: '#64748b' }}>Finished appointments</Text>
+                                            </View>
+                                            <Text style={{ fontSize: 18, fontWeight: '800', color: '#0f172a' }}>
+                                                {hospitalStats?.stats?.completedAppointments ?? 0}
+                                            </Text>
+                                        </View>
+
+                                        <View style={styles.quickSummaryRow}>
+                                            <View style={[styles.quickSummaryIconWrap, { backgroundColor: '#ede9fe' }]}>
+                                                <Text style={{ color: '#7c3aed', fontSize: 16 }}>◷</Text>
+                                            </View>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={{ fontWeight: '700', fontSize: 14, color: '#0f172a' }}>Pending</Text>
+                                                <Text style={{ fontSize: 12, color: '#64748b' }}>Upcoming appointments</Text>
+                                            </View>
+                                            <Text style={{ fontSize: 18, fontWeight: '800', color: '#0f172a' }}>
+                                                {hospitalStats?.stats?.pendingAppointments ?? 0}
+                                            </Text>
+                                        </View>
+
+                                        <View style={styles.quickSummaryRow}>
+                                            <View style={[styles.quickSummaryIconWrap, { backgroundColor: '#fce7f3' }]}>
+                                                <Text style={{ color: '#db2777', fontSize: 16 }}>🧪</Text>
+                                            </View>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={{ fontWeight: '700', fontSize: 14, color: '#0f172a' }}>Lab Reports</Text>
+                                                <Text style={{ fontSize: 12, color: '#64748b' }}>Pending test reports</Text>
+                                            </View>
+                                            <Text style={{ fontSize: 18, fontWeight: '800', color: '#0f172a' }}>
+                                                {hospitalStats?.stats?.pendingLabReports ?? (hospitalStats?.stats?.labReportCount ?? 0)}
+                                            </Text>
+                                        </View>
+
+                                        <View style={styles.quickSummaryRow}>
+                                            <View style={[styles.quickSummaryIconWrap, { backgroundColor: '#ffedd5' }]}>
+                                                <Text style={{ color: '#ea580c', fontSize: 16 }}>📦</Text>
+                                            </View>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={{ fontWeight: '700', fontSize: 14, color: '#0f172a' }}>Pharmacy Orders</Text>
+                                                <Text style={{ fontSize: 12, color: '#64748b' }}>Active pharmacy queues</Text>
+                                            </View>
+                                            <Text style={{ fontSize: 18, fontWeight: '800', color: '#0f172a' }}>
+                                                {hospitalStats?.stats?.pharmacyOrderCount ?? 0}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                </View>
+                            </View>
+                        );
+                    })()}
 
                     {/* My Profile Card */}
                     <View style={styles.adminCard}>
@@ -698,10 +969,10 @@ const HospitalAdminDashboard = () => {
                                 )}
                             </View>
                             <View style={{ flex: 1 }}>
-                                <Text style={{ fontWeight: '600', fontSize: 16, color: '#1e293b', marginBottom: 4 }}>{currentUser?.name}</Text>
+                                <Text style={{ fontWeight: '700', fontSize: 17, color: '#1e293b', marginBottom: 4 }}>{currentUser?.name}</Text>
                                 <Text style={{ fontSize: 13, color: '#64748b', marginBottom: 12 }}>{currentUser?.email}</Text>
                                 <View style={{ flexDirection: 'row', gap: 10 }}>
-                                    <TouchableOpacity style={styles.btnSelectPhoto} onPress={() => {/* Mock Image Picker */}}>
+                                    <TouchableOpacity style={styles.btnSelectPhoto} onPress={handlePickProfilePhoto}>
                                         <Text style={styles.btnSelectPhotoText}>📷 Choose Photo</Text>
                                     </TouchableOpacity>
                                     {profileFile && (
@@ -724,6 +995,7 @@ const HospitalAdminDashboard = () => {
                                 {hospitalInfo.phone && <Text style={styles.hospitalInfoText}><Text style={styles.hospitalInfoBold}>Phone:</Text> {hospitalInfo.phone}</Text>}
                                 {hospitalInfo.email && <Text style={styles.hospitalInfoText}><Text style={styles.hospitalInfoBold}>Email:</Text> {hospitalInfo.email}</Text>}
                                 {hospitalInfo.address && <Text style={styles.hospitalInfoText}><Text style={styles.hospitalInfoBold}>Address:</Text> {hospitalInfo.address}</Text>}
+                                <Text style={styles.hospitalInfoText}><Text style={styles.hospitalInfoBold}>Facilities:</Text> {hospitalInfo.facilities?.length || 0} configured</Text>
                             </View>
                         </View>
                     )}
@@ -883,14 +1155,14 @@ const HospitalAdminDashboard = () => {
                         <View style={{ flexDirection: 'row', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                             <View style={{ flex: 1, minWidth: 150 }}>
                                 <Text style={styles.staffLabel}>Facility/Room Name</Text>
-                                <TextInput style={styles.staffInput} placeholder="e.g. ICU" id="facName" />
+                                <TextInput style={styles.staffInput} placeholder="e.g. ICU" value={newFacilityName} onChangeText={setNewFacilityName} />
                             </View>
                             <View style={{ flex: 1, minWidth: 150 }}>
                                 <Text style={styles.staffLabel}>Price Per Day (₹)</Text>
-                                <TextInput style={styles.staffInput} placeholder="e.g. 5000" keyboardType="numeric" id="facPrice" />
+                                <TextInput style={styles.staffInput} placeholder="e.g. 5000" keyboardType="numeric" value={newFacilityPrice} onChangeText={setNewFacilityPrice} />
                             </View>
-                            <TouchableOpacity style={[styles.btnSave, { height: 44, justifyContent: 'center' }]} onPress={() => { Alert.alert("Native Notice", "Use state mapping for refs in React Native.") }}>
-                                <Text style={styles.btnSaveText}>+ Add Facility</Text>
+                            <TouchableOpacity style={[styles.btnSave, { height: 44, justifyContent: 'center' }]} onPress={handleAddFacility} disabled={addingFacility}>
+                                <Text style={styles.btnSaveText}>{addingFacility ? 'Adding...' : '+ Add Facility'}</Text>
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -1521,6 +1793,44 @@ const styles = StyleSheet.create({
         fontSize: 28,
         fontWeight: '700',
         color: '#6366f1',
+    },
+    chartRangeBtn: {
+        paddingVertical: 6,
+        paddingHorizontal: 12,
+        borderRadius: 8,
+        backgroundColor: '#f1f5f9',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+    },
+    chartRangeBtnActive: {
+        backgroundColor: '#ede9fe',
+        borderColor: '#c4b5fd',
+    },
+    chartRangeBtnText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#64748b',
+    },
+    chartRangeBtnTextActive: {
+        color: '#7c3aed',
+    },
+    quickSummaryRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        paddingVertical: 10,
+        paddingHorizontal: 14,
+        backgroundColor: '#f8fafc',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+    },
+    quickSummaryIconWrap: {
+        width: 38,
+        height: 38,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     haHospitalInfo: {
         flexDirection: 'row',

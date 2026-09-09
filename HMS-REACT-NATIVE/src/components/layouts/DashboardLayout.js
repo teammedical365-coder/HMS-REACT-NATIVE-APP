@@ -31,8 +31,27 @@ const DashboardSidebar = ({ isOpen, setOpen }) => {
                 { label: 'Manage All Staff', path: 'Admin', icon: <Feather name="users" size={18} /> },
             ];
         }
+
+        if (role === 'hospitaladmin') {
+            const isClinicHub = user?.clinicType === 'clinic' || user?.subscriptionPlan === 'starter';
+            if (isClinicHub) {
+                return [
+                    { label: 'Clinic Hub', path: 'ClinicDashboard', icon: <Feather name="home" size={18} /> },
+                    { label: 'Vial Management', path: 'VialManagement', icon: <Feather name="box" size={18} /> },
+                ];
+            }
+            return [
+                { label: 'Hospital Overview', path: 'HospitalAdminDashboard', icon: <Feather name="home" size={18} /> },
+                { label: 'Vial Management', path: 'VialManagement', icon: <Feather name="box" size={18} /> },
+                { label: 'Clinical Questions', path: 'HospitalAdminQuestionLibrary', icon: <Feather name="file-text" size={18} /> },
+                { label: 'Staff Management', path: 'Admin', icon: <Feather name="users" size={18} /> },
+                { label: 'Doctors Feed', path: 'AdminDoctors', icon: <Feather name="activity" size={18} /> },
+                { label: 'Pharma Inventory', path: 'PharmacyInventory', icon: <Feather name="package" size={18} /> },
+            ];
+        }
+
         return [
-            { label: 'Dashboard', path: 'Dashboard', icon: <Feather name="home" size={18} /> },
+            { label: 'Hospital Overview', path: 'HospitalAdminDashboard', icon: <Feather name="home" size={18} /> },
         ];
     };
 
@@ -113,7 +132,7 @@ const DashboardSidebar = ({ isOpen, setOpen }) => {
                     );
                 })}
 
-                {isCentralAdmin && isOpen && (
+                {(isCentralAdmin || role === 'hospitaladmin') && isOpen && (
                     <View style={styles.caSidebarHelpCard}>
                         <View style={styles.caSidebarHelpAvatarWrap}>
                             <MaterialCommunityIcons name="robot-outline" size={24} color="#059669" />
@@ -189,6 +208,19 @@ const TopBar = ({ toggleSidebar, sidebarOpen }) => {
         return (name || 'PH').split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
     };
 
+    const formatPageName = (name) => {
+        if (!name) return 'Dashboard';
+        if (name === 'HospitalAdminDashboard') return 'Hospital Overview';
+        if (name === 'ClinicDashboard') return 'Clinic Hub';
+        if (name === 'VialManagement') return 'Vial Management';
+        if (name === 'HospitalAdminQuestionLibrary') return 'Clinical Questions';
+        if (name === 'Admin') return 'Staff Management';
+        if (name === 'AdminDoctors') return 'Doctors Feed';
+        if (name === 'PharmacyInventory') return 'Pharma Inventory';
+        if (name === 'AdminRoles') return 'Roles & Permissions';
+        return name.replace(/([A-Z])/g, ' $1').trim();
+    };
+
     const getCentralAdminTag = () => {
         if (currentPath === 'CentralAdminDashboard') return 'CENTRAL ADMIN';
         if (currentPath.includes('QuestionLibrary')) return 'QUESTION LIBRARY';
@@ -218,7 +250,9 @@ const TopBar = ({ toggleSidebar, sidebarOpen }) => {
                     </View>
                 ) : (
                     <View style={styles.breadcrumbWrap}>
-                        <Text style={styles.currPageName} numberOfLines={1}>{currentPath}</Text>
+                        <Text style={styles.currPageName} numberOfLines={1}>{formatPageName(currentPath)}</Text>
+                        <Text style={styles.pathSlash}>/</Text>
+                        <Text style={styles.pathUserRole}>{user?.role || 'Hospital Admin'}</Text>
                     </View>
                 )}
             </View>
@@ -258,11 +292,11 @@ const TopBar = ({ toggleSidebar, sidebarOpen }) => {
                                     <Text style={styles.pAvatarLgText}>{getInitials(user?.name)}</Text>
                                 </View>
                                 <View style={styles.pNameEmail}>
-                                    <Text style={styles.pHeaderTitle}>{user?.name || 'Pawan Harish'}</Text>
-                                    <Text style={styles.pHeaderEmail}>{user?.email || 'pawanharish2@gmail.c...'}</Text>
+                                    <Text style={styles.pHeaderTitle}>{user?.name || 'Hospital Admin'}</Text>
+                                    <Text style={styles.pHeaderEmail}>{user?.email || 'admin@hospital.com'}</Text>
                                 </View>
                             </View>
-                            <Text style={styles.pRoleBadge}>{user?.role || 'CENTRALADMIN'}</Text>
+                            <Text style={styles.pRoleBadge}>{(user?.role || 'HOSPITALADMIN').toUpperCase()}</Text>
                         </View>
                         
                         <View style={styles.pBody}>
