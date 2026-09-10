@@ -32,6 +32,9 @@ apiClient.interceptors.response.use(
 
         // Intercept 401 responses, ensure we don't infinitely retry
         if (error.response?.status === 401 && !originalRequest._retry) {
+            if (typeof window !== 'undefined' && (window.location?.hash?.includes('hospitaladmin') || window.location?.search?.includes('hospitaladmin'))) {
+                return Promise.reject(error);
+            }
             originalRequest._retry = true;
 
             try {

@@ -4,7 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 // Auth Screens
 // We assume WorkspaceLoginScreen is created for the multi-tenant ID entry
 import WorkspaceLoginScreen from '../screens/Auth/WorkspaceLoginScreen';
-import LoginScreen from '../screens/Auth/LoginScreen';
+import Login from '../screens/user/Login';
 import SignupScreen from '../screens/Auth/SignupScreen';
 import OTPVerificationScreen from '../screens/Auth/OTPVerificationScreen';
 
@@ -39,7 +39,7 @@ const AuthStack = () => {
         >
             {/* Multi-Tenant Workflow */}
             <Stack.Screen name="WorkspaceLogin" component={WorkspaceLoginScreen} />
-            <Stack.Screen name="Login" component={LoginScreen} />
+            <Stack.Screen name="Login" component={Login} />
             <Stack.Screen name="Signup" component={SignupScreen} />
             <Stack.Screen name="OTP" component={OTPVerificationScreen} />
 

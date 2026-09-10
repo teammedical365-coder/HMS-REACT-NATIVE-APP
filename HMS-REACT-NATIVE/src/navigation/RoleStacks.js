@@ -97,14 +97,17 @@ export const CentralAdminApp = () => (
     </Stack.Navigator>
 );
 
+// -- Role Landing Screen --
+import RoleDashboard from '../screens/RoleDashboard';
+
 export const HospitalAdminApp = () => {
     const { user } = useSelector(state => state.auth);
     const isClinicHub = user?.clinicType === 'clinic' || user?.subscriptionPlan === 'starter';
-    const initialScreen = isClinicHub ? "ClinicDashboard" : "HospitalAdminDashboard";
+    const initialScreen = isClinicHub ? "ClinicDashboard" : "RoleDashboard";
 
     return (
         <Stack.Navigator initialRouteName={initialScreen} screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
-            <Stack.Screen name="HospitalAdminStack" component={withLayout(isClinicHub ? ClinicDashboard : HospitalAdminDashboard)} />
+            <Stack.Screen name="RoleDashboard" component={withLayout(RoleDashboard)} />
             <Stack.Screen name="HospitalAdminDashboard" component={withLayout(HospitalAdminDashboard)} />
             <Stack.Screen name="ClinicDashboard" component={withLayout(ClinicDashboard)} />
             <Stack.Screen name="VialManagement" component={withLayout(VialManagement)} />
@@ -114,6 +117,8 @@ export const HospitalAdminApp = () => {
             <Stack.Screen name="Admin" component={withLayout(Admin)} />
             <Stack.Screen name="AdminDoctors" component={withLayout(AdminDoctors)} />
             <Stack.Screen name="AdminRoles" component={withLayout(AdminRoles)} />
+            <Stack.Screen name="AdminLabTests" component={withLayout(AdminLabTests)} />
+            <Stack.Screen name="AdminServices" component={withLayout(AdminServices)} />
             <Stack.Screen name="PharmacyInventory" component={withLayout(PharmacyInventory)} />
         </Stack.Navigator>
     );

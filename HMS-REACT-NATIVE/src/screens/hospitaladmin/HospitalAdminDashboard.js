@@ -1,64 +1,34 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
     View, Text, TextInput, TouchableOpacity, ScrollView, Image, 
-    StyleSheet, ActivityIndicator, Alert, Modal, Platform, Dimensions 
+    StyleSheet, ActivityIndicator, Alert, Modal, Platform, Dimensions, useWindowDimensions,
+    Animated, Easing 
 } from 'react-native';
+import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
+import { Feather, MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useAppDispatch } from '../../store/hooks';
-import { updateUser as updateUserAction } from '../../store/slices/authSlice';
+import { useAppDispatch, useAuth } from '../../store/hooks';
+import { updateUser as updateUserAction, logout } from '../../store/slices/authSlice';
 import { adminAPI, uploadAPI, hospitalAPI, aiWalletAPI } from '../../utils/api';
 import BedManagement from './BedManagement';
 import OTDashboard from './OTDashboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Svg, { Path, Defs, LinearGradient, Stop, Line, Circle, Ellipse, G, Rect, Pattern } from 'react-native-svg';
+import DatePickerInput from '../../components/common/DatePickerInput';
 import * as DocumentPicker from 'expo-document-picker';
-import Svg, { Path, Defs, LinearGradient, Stop, Line } from 'react-native-svg';
 
-// --- Custom Select Dropdown ---
-const CustomSelect = ({ options, value, onChange, placeholder, disabled }) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const selectedObj = options.find(o => o.value === value);
-    const selectedName = selectedObj ? selectedObj.label : placeholder;
+import DropdownSelect from '../../components/common/DropdownSelect';
 
-    return (
-        <View style={{ position: 'relative', width: '100%', zIndex: isOpen ? 50 : 1 }}>
-            <TouchableOpacity 
-                style={[styles.staffInput, { display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, disabled && { opacity: 0.6 }]} 
-                onPress={() => !disabled && setIsOpen(!isOpen)}
-                activeOpacity={0.7}
-            >
-                <Text style={{ color: value ? '#000' : '#94a3b8' }} numberOfLines={1}>{selectedName}</Text>
-                <Text style={{ fontSize: 12, color: '#64748b' }}>▼</Text>
-            </TouchableOpacity>
+// --- Universal Dropdown Select Wrapper ---
+const CustomSelect = (props) => <DropdownSelect {...props} />;
 
-            {isOpen && (
-                <View style={styles.dropdownMenu}>
-                    <ScrollView nestedScrollEnabled={true} style={{ maxHeight: 160 }}>
-                        <TouchableOpacity 
-                            onPress={() => { onChange(''); setIsOpen(false); }}
-                            style={[styles.dropdownItem, value === '' && styles.dropdownItemActive]}
-                        >
-                            <Text style={[styles.dropdownItemText, value === '' && styles.dropdownItemTextActive]}>{placeholder}</Text>
-                        </TouchableOpacity>
-                        {options.map(opt => (
-                            <TouchableOpacity 
-                                key={opt.value}
-                                onPress={() => { onChange(opt.value); setIsOpen(false); }}
-                                style={[styles.dropdownItem, opt.value === value && styles.dropdownItemActive]}
-                            >
-                                <Text style={[styles.dropdownItemText, opt.value === value && styles.dropdownItemTextActive]}>{opt.label}</Text>
-                            </TouchableOpacity>
-                        ))}
-                    </ScrollView>
-                </View>
-            )}
-        </View>
-    );
-};
 
 const HospitalAdminDashboard = () => {
     const navigation = useNavigation();
     const dispatch = useAppDispatch();
+    const { width } = useWindowDimensions();
+    const isMobile = width < 768;
     const [activeTab, setActiveTab] = useState('overview');
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
@@ -89,16 +59,24 @@ const HospitalAdminDashboard = () => {
 
     const [stats, setStats] = useState({ totalUsers: 0, totalDoctors: 0, totalPatients: 0, totalRoles: 0 });
 
-    // --- Stats & Date Filtering State ---
+    const { user: authUser, isAuthenticated } = useAuth();
     const [datePreset, setDatePreset] = useState('all');
     const [customStartDate, setCustomStartDate] = useState('');
     const [customEndDate, setCustomEndDate] = useState('');
+    const [showCustomDateModal, setShowCustomDateModal] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
     const [hospitalStats, setHospitalStats] = useState(null);
     const [loadingStats, setLoadingStats] = useState(false);
     const [chartRange, setChartRange] = useState('this_month');
 
-    // --- AI Wallet State ---
+    // --- AI Intelligence & Wallet State ---
     const [aiWallet, setAiWallet] = useState(null);
+    const [aiTransactions, setAiTransactions] = useState([]);
+    const [aiDoctorBreakdown, setAiDoctorBreakdown] = useState([]);
+    const [loadingAIStats, setLoadingAIStats] = useState(false);
+    const [aiSearchQuery, setAiSearchQuery] = useState('');
+    const [visibleLogCount, setVisibleLogCount] = useState(10);
+    const [showAIDoctorModal, setShowAIDoctorModal] = useState(false);
 
     // --- Facility State ---
     const [newFacilityName, setNewFacilityName] = useState('');
@@ -136,28 +114,125 @@ const HospitalAdminDashboard = () => {
     const [savingLabTest, setSavingLabTest] = useState(false);
     const [labTestForm, setLabTestForm] = useState({ name: '', code: '', description: '', price: '', category: 'General' });
 
-    const fetchAIWallet = async () => {
-        try {
-            const res = await aiWalletAPI.getWallet();
-            if (res && res.success && res.wallet) {
-                setAiWallet(res.wallet);
-            }
-        } catch (err) {
-            console.error('Failed to fetch hospital AI wallet:', err);
+    // Animations
+    const spinAnim = useRef(new Animated.Value(0)).current;
+    const pulseAnim = useRef(new Animated.Value(1)).current;
+    const beamAnim = useRef(new Animated.Value(0)).current;
+    const floatAnim = useRef(new Animated.Value(0)).current;
+
+    useEffect(() => {
+        Animated.loop(
+            Animated.sequence([
+                Animated.timing(pulseAnim, { toValue: 0.35, duration: 900, useNativeDriver: Platform.OS !== 'web' }),
+                Animated.timing(pulseAnim, { toValue: 1, duration: 900, useNativeDriver: Platform.OS !== 'web' }),
+            ])
+        ).start();
+
+        Animated.loop(
+            Animated.timing(beamAnim, {
+                toValue: 1,
+                duration: 7000,
+                easing: Easing.linear,
+                useNativeDriver: Platform.OS !== 'web',
+            })
+        ).start();
+
+        Animated.loop(
+            Animated.sequence([
+                Animated.timing(floatAnim, { toValue: -3, duration: 1500, easing: Easing.inOut(Easing.ease), useNativeDriver: Platform.OS !== 'web' }),
+                Animated.timing(floatAnim, { toValue: 0, duration: 1500, easing: Easing.inOut(Easing.ease), useNativeDriver: Platform.OS !== 'web' }),
+            ])
+        ).start();
+    }, [pulseAnim, beamAnim, floatAnim]);
+
+    useEffect(() => {
+        if (loadingAIStats || isRefreshing) {
+            Animated.loop(
+                Animated.timing(spinAnim, {
+                    toValue: 1,
+                    duration: 1000,
+                    easing: Easing.linear,
+                    useNativeDriver: Platform.OS !== 'web',
+                })
+            ).start();
+        } else {
+            spinAnim.setValue(0);
+        }
+    }, [loadingAIStats, isRefreshing, spinAnim]);
+
+    const spinInterpolate = spinAnim.interpolate({
+        inputRange: [0, 1],
+        outputRange: ['0deg', '360deg'],
+    });
+
+    const beamInterpolate = beamAnim.interpolate({
+        inputRange: [0, 1],
+        outputRange: ['-35%', '110%'],
+    });
+
+    const getActiveTabGradient = (tabId) => {
+        switch (tabId) {
+            case 'overview': return ['#0284c7', '#2563eb'];
+            case 'staff': return ['#8b5cf6', '#6366f1'];
+            case 'departments': return ['#0d9488', '#10b981'];
+            case 'facilities': return ['#f59e0b', '#ea580c'];
+            case 'beds': return ['#06b6d4', '#0284c7'];
+            case 'inventory': return ['#059669', '#10b981'];
+            case 'labpricing': return ['#10b981', '#06b6d4'];
+            case 'aiwallet': return ['#6366f1', '#3b82f6'];
+            case 'accounts': return ['#eab308', '#d97706'];
+            case 'ot': return ['#8b5cf6', '#7c3aed'];
+            default: return ['#0284c7', '#2563eb'];
         }
     };
 
-    useEffect(() => {
-        const loadUser = async () => {
-            const userStr = await AsyncStorage.getItem('user');
-            const user = JSON.parse(userStr || '{}');
-            setCurrentUser(user);
-            if (user?.role !== 'hospitaladmin') {
-                navigation.navigate('HospitalAdminLogin');
+    const formatAICredits = (val) => {
+        if (val === undefined || val === null || isNaN(val)) return '0.00';
+        return Number(val).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    };
+
+    const fetchAIDoctorTracking = async () => {
+        try {
+            setLoadingAIStats(true);
+            const [walletRes, transRes] = await Promise.all([
+                aiWalletAPI.getWallet(),
+                aiWalletAPI.getTransactions(1, 50)
+            ]);
+            if (walletRes && walletRes.success && walletRes.wallet) {
+                setAiWallet(walletRes.wallet);
             }
-        };
-        loadUser();
-    }, [navigation]);
+            if (transRes && transRes.success) {
+                setAiTransactions(transRes.transactions || []);
+                setAiDoctorBreakdown(transRes.doctorBreakdown || []);
+                setVisibleLogCount(10);
+            }
+        } catch (err) {
+            console.error('Failed to fetch AI Doctor Tracking:', err);
+        } finally {
+            setLoadingAIStats(false);
+        }
+    };
+
+    const fetchAIWallet = fetchAIDoctorTracking;
+
+    useEffect(() => {
+        if (authUser) {
+            setCurrentUser(authUser);
+        }
+    }, [authUser]);
+
+    useEffect(() => {
+        if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location.hash.includes('hospitaladmin')) {
+            return;
+        }
+        // If authenticated user's role is not hospital admin or central admin, logout cleanly
+        if (authUser && authUser.role) {
+            const role = (authUser.role || '').toLowerCase();
+            if (role !== 'hospitaladmin' && role !== 'centraladmin' && role !== 'superadmin') {
+                dispatch(logout());
+            }
+        }
+    }, [authUser, dispatch]);
 
     useEffect(() => {
         const initDashboard = async () => {
@@ -179,6 +254,7 @@ const HospitalAdminDashboard = () => {
         if (activeTab === 'inventory' && inventory.length === 0) fetchInventory();
         if (activeTab === 'labpricing' && labTests.length === 0) fetchLabTests();
         if (activeTab === 'accounts' && deptUpis.length === 0) fetchDepartmentUpis();
+        if (activeTab === 'aiwallet') fetchAIDoctorTracking();
     }, [activeTab]);
 
     const fetchDepartmentUpis = async () => {
@@ -195,12 +271,18 @@ const HospitalAdminDashboard = () => {
     };
 
     const handleAddDeptUpi = async () => {
+        if (!newDeptUpi.staffUserId || !newDeptUpi.label?.trim() || !newDeptUpi.upiId?.trim()) {
+            Alert.alert('Validation Error', 'Please select a staff member and enter both Account Label and UPI ID.');
+            return;
+        }
         setSavingDeptUpi(true);
         try {
             const res = await hospitalAPI.createDepartmentUpi(newDeptUpi);
-            if (res.success) {
+            if (res && res.success) {
                 setNewDeptUpi({ staffUserId: '', upiId: '', label: '' });
                 fetchDepartmentUpis();
+            } else {
+                Alert.alert('Error', res?.message || 'Failed to add Department UPI');
             }
         } catch (err) {
             Alert.alert('Error', err.response?.data?.message || 'Failed to add Department UPI');
@@ -208,6 +290,7 @@ const HospitalAdminDashboard = () => {
             setSavingDeptUpi(false);
         }
     };
+
 
     const handleDeleteDeptUpi = async (id) => {
         Alert.alert('Confirm Delete', 'Are you sure you want to delete this UPI account?', [
@@ -292,9 +375,43 @@ const HospitalAdminDashboard = () => {
         }
     };
 
+    const isValidDateString = (str) => {
+        if (!str || typeof str !== 'string') return false;
+        const regex = /^\d{4}-\d{2}-\d{2}$/;
+        if (!regex.test(str.trim())) return false;
+        const d = new Date(str.trim());
+        return !isNaN(d.getTime());
+    };
+
     const handleApplyCustomDate = () => {
+        if (!isValidDateString(customStartDate) || !isValidDateString(customEndDate)) {
+            Alert.alert('Invalid Date Format', 'Please enter dates in YYYY-MM-DD format (e.g. 2026-01-15).');
+            return;
+        }
+        if (new Date(customStartDate) > new Date(customEndDate)) {
+            Alert.alert('Invalid Date Range', 'Start date must be earlier than or equal to End date.');
+            return;
+        }
+        setDatePreset('custom');
+        setShowCustomDateModal(false);
         if (hospitalInfo) {
             fetchHospitalStats(hospitalInfo._id, 'custom', customStartDate, customEndDate);
+        }
+    };
+
+    const handleRefreshData = async () => {
+        try {
+            setIsRefreshing(true);
+            await Promise.all([
+                fetchMyHospital(),
+                fetchUsers(),
+                fetchRoles(),
+                fetchAIWallet()
+            ]);
+        } catch (err) {
+            console.error('Failed to refresh data:', err);
+        } finally {
+            setIsRefreshing(false);
         }
     };
 
@@ -651,20 +768,358 @@ const HospitalAdminDashboard = () => {
         }
     };
 
+    const getTabIcon = (tabId, isActive) => {
+        const color = isActive ? '#ffffff' : '#64748b';
+        switch (tabId) {
+            case 'overview': return <Feather name="bar-chart-2" size={17} color={color} />;
+            case 'staff': return <Feather name="users" size={17} color={color} />;
+            case 'departments': return <Feather name="layers" size={17} color={color} />;
+            case 'facilities': return <Feather name="plus-square" size={17} color={color} />;
+            case 'beds': return <Ionicons name="bed-outline" size={17} color={color} />;
+            case 'ot': return <Feather name="activity" size={17} color={color} />;
+            case 'inventory': return <Feather name="package" size={17} color={color} />;
+            case 'labpricing': return <MaterialCommunityIcons name="flask-outline" size={17} color={color} />;
+            case 'aiwallet': return <Feather name="cpu" size={17} color={color} />;
+            case 'accounts': return <MaterialCommunityIcons name="bank-outline" size={17} color={color} />;
+            default: return <Feather name="grid" size={17} color={color} />;
+        }
+    };
+
     const tabs = [
-        { id: 'overview', label: '📊 Overview' },
-        { id: 'staff', label: '👥 Staff' },
-        { id: 'departments', label: '🏥 Departments' },
-        { id: 'facilities', label: '🏨 Facilities' },
-        { id: 'beds', label: '🛏️ Beds' },
-        { id: 'inventory', label: '📦 Inventory' },
-        { id: 'labpricing', label: '🧪 Lab Pricing' },
-        { id: 'accounts', label: '💰 Accounts' },
+        { id: 'overview', label: 'Overview' },
+        { id: 'staff', label: 'Staff' },
+        { id: 'departments', label: 'Departments' },
+        { id: 'facilities', label: 'Facilities' },
+        { id: 'beds', label: 'Beds' },
+        { id: 'labpricing', label: 'Lab Pricing' },
+        { id: 'aiwallet', label: 'AI Intelligence' },
+        { id: 'accounts', label: 'Accounts' },
     ];
-    
-    if (currentUser.subscriptionPlan !== 'starter') {
-        tabs.splice(5, 0, { id: 'ot', label: '🔪 Operation Theatre' });
-    }
+
+    const renderAIIntelligenceContent = (isModal = false) => {
+        const filteredBreakdown = (aiDoctorBreakdown || []).filter(d =>
+            (d.userName || '').toLowerCase().includes(aiSearchQuery.toLowerCase())
+        );
+        const visibleTransactions = aiTransactions.slice(0, visibleLogCount);
+
+        return (
+            <View style={[styles.haAiIntelligenceContainer, isModal && styles.haAiModalMode]}>
+                {/* 1. Header Card */}
+                <ExpoLinearGradient
+                    colors={['#ffffff', '#f8fafc']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.haAiHeaderCard}
+                >
+                    <View style={styles.haAiHeaderLeft}>
+                        <ExpoLinearGradient
+                            colors={['#eff6ff', '#dbeafe']}
+                            style={styles.haAiHeaderIconBox}
+                        >
+                            <Text style={{ fontSize: 26 }}>🤖</Text>
+                        </ExpoLinearGradient>
+                        <View style={{ flex: 1 }}>
+                            <View style={styles.haAiHeaderTitleRow}>
+                                <Text style={styles.haAiMainTitle}>AI Intelligence & Doctor Credit Tracking</Text>
+                                <View style={[styles.haAiStatusPill, (aiWallet?.status === 'ACTIVE' || aiWallet?.status === 'active') ? styles.haAiStatusPillActive : styles.haAiStatusPillInactive]}>
+                                    <Animated.View style={[styles.haAiStatusDot, { opacity: pulseAnim }]} />
+                                    <Text style={[styles.haAiStatusPillText, (aiWallet?.status === 'ACTIVE' || aiWallet?.status === 'active') ? styles.haAiStatusPillTextActive : styles.haAiStatusPillTextInactive]}>
+                                        {aiWallet?.status || 'ACTIVE'}
+                                    </Text>
+                                </View>
+                            </View>
+                            <Text style={styles.haAiHeaderDesc}>
+                                Live tracking of doctor-wise AI credit consumption, diagnostic analysis requests, and remaining hospital allocation.
+                            </Text>
+                        </View>
+                    </View>
+
+                    <View style={styles.haAiHeaderActions}>
+                        <TouchableOpacity
+                            onPress={fetchAIDoctorTracking}
+                            disabled={loadingAIStats}
+                            style={styles.haAiRefreshBtn}
+                            activeOpacity={0.7}
+                        >
+                            <Animated.View style={{ transform: [{ rotate: spinInterpolate }] }}>
+                                <Text style={{ fontSize: 13 }}>🔄</Text>
+                            </Animated.View>
+                            <Text style={styles.haAiRefreshBtnLabel}>
+                                {loadingAIStats ? 'Refreshing...' : 'Refresh Stats'}
+                            </Text>
+                        </TouchableOpacity>
+                        {isModal && (
+                            <TouchableOpacity
+                                onPress={() => setShowAIDoctorModal(false)}
+                                style={styles.haAiModalCloseBtn}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={styles.haAiModalCloseBtnText}>✕</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                </ExpoLinearGradient>
+
+                {/* 2. 4 Summary Metric Cards Grid */}
+                <View style={styles.haAiMetricsGrid}>
+                    {/* Card 1: Remaining AI Balance */}
+                    <View style={[styles.haAiMetricCard, styles.haAiCardRemaining]}>
+                        <ExpoLinearGradient colors={['#3b82f6', '#60a5fa']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.haAiMetricTopBar} />
+                        <View style={styles.haAiMetricHeader}>
+                            <Text style={styles.haAiMetricLabel}>Remaining AI Balance</Text>
+                            <View style={styles.haAiMetricBadge}><Text style={styles.haAiMetricBadgeText}>Available</Text></View>
+                        </View>
+                        <View style={styles.haAiMetricValRow}>
+                            <Text style={[styles.haAiMetricNumber, { color: '#1d4ed8' }]}>
+                                {formatAICredits(aiWallet?.remainingAmount !== undefined ? aiWallet.remainingAmount : 2000)}
+                            </Text>
+                            <Text style={styles.haAiMetricUnit}>Credits</Text>
+                        </View>
+                        <View style={styles.haAiMetricFooter}>
+                            <Text style={styles.haAiMetricPillGreen}>● Active & Ready</Text>
+                        </View>
+                    </View>
+
+                    {/* Card 2: Hospital AI Budget */}
+                    <View style={[styles.haAiMetricCard, styles.haAiCardBudget]}>
+                        <ExpoLinearGradient colors={['#6366f1', '#818cf8']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.haAiMetricTopBar} />
+                        <View style={styles.haAiMetricHeader}>
+                            <Text style={styles.haAiMetricLabel}>Hospital AI Budget</Text>
+                            <View style={styles.haAiMetricBadge}><Text style={styles.haAiMetricBadgeText}>Allocation</Text></View>
+                        </View>
+                        <View style={styles.haAiMetricValRow}>
+                            <Text style={[styles.haAiMetricNumber, { color: '#4338ca' }]}>
+                                {formatAICredits(aiWallet?.budgetAmount || 2000)}
+                            </Text>
+                            <Text style={styles.haAiMetricUnit}>Credits</Text>
+                        </View>
+                        <View style={styles.haAiMetricFooter}>
+                            <Text style={styles.haAiMetricSubtext}>Total Quota Allocated</Text>
+                        </View>
+                    </View>
+
+                    {/* Card 3: Total Credits Used */}
+                    <View style={[styles.haAiMetricCard, styles.haAiCardUsed]}>
+                        <ExpoLinearGradient colors={['#f97316', '#fb923c']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.haAiMetricTopBar} />
+                        <View style={styles.haAiMetricHeader}>
+                            <Text style={styles.haAiMetricLabel}>Total Credits Used</Text>
+                            <View style={styles.haAiMetricBadge}><Text style={styles.haAiMetricBadgeText}>Consumed</Text></View>
+                        </View>
+                        <View style={styles.haAiMetricValRow}>
+                            <Text style={[styles.haAiMetricNumber, { color: '#c2410c' }]}>
+                                {formatAICredits(aiWallet?.usedAmount || 0)}
+                            </Text>
+                            <Text style={styles.haAiMetricUnit}>Credits</Text>
+                        </View>
+                        <View style={styles.haAiMetricFooter}>
+                            <Text style={styles.haAiMetricPillOrange}>
+                                {aiWallet && aiWallet.budgetAmount ? `${((Number(aiWallet.usedAmount) / Number(aiWallet.budgetAmount)) * 100).toFixed(1)}% of Budget` : '0% used'}
+                            </Text>
+                        </View>
+                    </View>
+
+                    {/* Card 4: Total AI Requests */}
+                    <View style={[styles.haAiMetricCard, styles.haAiCardRequests]}>
+                        <ExpoLinearGradient colors={['#10b981', '#34d399']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.haAiMetricTopBar} />
+                        <View style={styles.haAiMetricHeader}>
+                            <Text style={styles.haAiMetricLabel}>Total AI Requests</Text>
+                            <View style={styles.haAiMetricBadge}><Text style={styles.haAiMetricBadgeText}>Activity</Text></View>
+                        </View>
+                        <View style={styles.haAiMetricValRow}>
+                            <Text style={[styles.haAiMetricNumber, { color: '#047857' }]}>
+                                {(aiWallet?.totalRequests ?? aiTransactions.length ?? 0).toLocaleString()}
+                            </Text>
+                            <Text style={styles.haAiMetricUnit}>Inferences</Text>
+                        </View>
+                        <View style={styles.haAiMetricFooter}>
+                            <Text style={styles.haAiMetricPillTeal}>Diagnostic AI Scans</Text>
+                        </View>
+                    </View>
+                </View>
+
+                {/* 3. Doctor-Wise AI Usage Breakdown */}
+                <View style={styles.haAiSectionCard}>
+                    <View style={styles.haAiSectionHeader}>
+                        <View style={{ flex: 1, minWidth: 220 }}>
+                            <Text style={styles.haAiSectionTitle}>👨‍⚕️ Doctor-Wise AI Usage Breakdown</Text>
+                            <Text style={styles.haAiSectionSubtitle}>Track which doctor is using how many AI credits and calls.</Text>
+                        </View>
+                        <View style={styles.haAiSearchWrap}>
+                            <Text style={styles.haAiSearchIcon}>🔍</Text>
+                            <TextInput
+                                placeholder="Search doctor by name..."
+                                value={aiSearchQuery}
+                                onChangeText={setAiSearchQuery}
+                                style={styles.haAiSearchInput}
+                                placeholderTextColor="#94a3b8"
+                            />
+                            {aiSearchQuery ? (
+                                <TouchableOpacity onPress={() => setAiSearchQuery('')} style={styles.haAiSearchClear}>
+                                    <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: '700' }}>✕</Text>
+                                </TouchableOpacity>
+                            ) : null}
+                        </View>
+                    </View>
+
+                    {loadingAIStats ? (
+                        <View style={styles.haAiLoadingBox}>
+                            <ActivityIndicator size="small" color="#2563eb" />
+                            <Text style={styles.haAiLoadingText}>Loading AI Doctor breakdown...</Text>
+                        </View>
+                    ) : filteredBreakdown.length === 0 ? (
+                        <View style={styles.haAiEmptyBox}>
+                            <Text style={{ fontSize: 36, marginBottom: 8 }}>🩺</Text>
+                            <Text style={styles.haAiEmptyTitle}>No Doctor AI Usage Recorded Yet</Text>
+                            <Text style={styles.haAiEmptyDesc}>When doctors use AI Assistant (summary, diagnosis, lab compare), their credit usage will appear here.</Text>
+                        </View>
+                    ) : (
+                        <ScrollView horizontal style={styles.haAiTableWrap} showsHorizontalScrollIndicator={false}>
+                            <View style={{ minWidth: 780 }}>
+                                <View style={styles.haAiTableHeader}>
+                                    <Text style={[styles.haAiTh, { width: 240 }]}>DOCTOR / STAFF</Text>
+                                    <Text style={[styles.haAiTh, { width: 140 }]}>CREDITS USED</Text>
+                                    <Text style={[styles.haAiTh, { width: 120 }]}>AI REQUESTS</Text>
+                                    <Text style={[styles.haAiTh, { width: 160 }]}>BUDGET SHARE</Text>
+                                    <Text style={[styles.haAiTh, { width: 120 }]}>LAST ACTIVE</Text>
+                                </View>
+                                {filteredBreakdown.map((doc, idx) => {
+                                    const totalBudget = Number(aiWallet?.budgetAmount || 2000);
+                                    const sharePercent = totalBudget > 0 ? ((doc.totalCreditsUsed / totalBudget) * 100).toFixed(1) : '0';
+                                    return (
+                                        <View key={doc.userId || idx} style={styles.haAiTableRow}>
+                                            <View style={[styles.haAiTd, { width: 240, flexDirection: 'row', alignItems: 'center', gap: 10 }]}>
+                                                <ExpoLinearGradient colors={['#3b82f6', '#1d4ed8']} style={styles.haAiDoctorAvatar}>
+                                                    <Text style={styles.haAiDoctorAvatarText}>{(doc.userName || 'D').charAt(0).toUpperCase()}</Text>
+                                                </ExpoLinearGradient>
+                                                <View>
+                                                    <Text style={styles.haAiDoctorName}>{doc.userName}</Text>
+                                                    <Text style={styles.haAiDoctorId}>Doctor ID: {String(doc.userId || '').slice(-6)}</Text>
+                                                </View>
+                                            </View>
+                                            <View style={[styles.haAiTd, { width: 140 }]}>
+                                                <View style={styles.haAiCreditChip}>
+                                                    <Text style={styles.haAiCreditVal}>{Number(doc.totalCreditsUsed || 0).toFixed(2)}</Text>
+                                                    <Text style={styles.haAiCreditTag}>Credits</Text>
+                                                </View>
+                                            </View>
+                                            <View style={[styles.haAiTd, { width: 120 }]}>
+                                                <View style={styles.haAiCallsBadge}>
+                                                    <Text style={styles.haAiCallsBadgeText}>{doc.requestCount} calls</Text>
+                                                </View>
+                                            </View>
+                                            <View style={[styles.haAiTd, { width: 160 }]}>
+                                                <View style={styles.haAiProgressWrap}>
+                                                    <View style={styles.haAiProgressBar}>
+                                                        <View style={[styles.haAiProgressFill, { width: `${Math.min(100, Number(sharePercent))}%` }]} />
+                                                    </View>
+                                                    <Text style={styles.haAiProgressPercent}>{sharePercent}%</Text>
+                                                </View>
+                                            </View>
+                                            <View style={[styles.haAiTd, { width: 120 }]}>
+                                                <Text style={styles.haAiDateText}>
+                                                    {doc.lastUsed ? new Date(doc.lastUsed).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                                                </Text>
+                                            </View>
+                                        </View>
+                                    );
+                                })}
+                            </View>
+                        </ScrollView>
+                    )}
+                </View>
+
+                {/* 4. Recent AI Usage Logs (10 Items Infinite Scroll) */}
+                <View style={styles.haAiSectionCard}>
+                    <View style={styles.haAiSectionHeader}>
+                        <View style={{ flex: 1, minWidth: 220 }}>
+                            <Text style={styles.haAiSectionTitle}>📜 Recent AI Usage Logs</Text>
+                            <Text style={styles.haAiSectionSubtitle}>Real-time inference logs with 10-item infinite scroll.</Text>
+                        </View>
+                        <View style={styles.haAiLogsCountBadge}>
+                            <Text style={styles.haAiLogsCountBadgeText}>
+                                Showing {Math.min(visibleLogCount, aiTransactions.length)} of {aiTransactions.length} logs
+                            </Text>
+                        </View>
+                    </View>
+
+                    {aiTransactions.length === 0 ? (
+                        <View style={styles.haAiEmptyBox}>
+                            <Text style={{ fontSize: 36, marginBottom: 8 }}>📊</Text>
+                            <Text style={styles.haAiEmptyTitle}>No Activity Logs Recorded</Text>
+                            <Text style={styles.haAiEmptyDesc}>AI inference transactions will appear here in real time as doctors query the system.</Text>
+                        </View>
+                    ) : (
+                        <View>
+                            <ScrollView horizontal style={styles.haAiTableWrap} showsHorizontalScrollIndicator={false}>
+                                <View style={{ minWidth: 780 }}>
+                                    <View style={styles.haAiTableHeader}>
+                                        <Text style={[styles.haAiTh, { width: 150 }]}>DATE & TIME</Text>
+                                        <Text style={[styles.haAiTh, { width: 160 }]}>USER / DOCTOR</Text>
+                                        <Text style={[styles.haAiTh, { width: 180 }]}>ACTION / FEATURE</Text>
+                                        <Text style={[styles.haAiTh, { width: 150 }]}>CREDITS CONSUMED</Text>
+                                        <Text style={[styles.haAiTh, { width: 140 }]}>STATUS</Text>
+                                    </View>
+                                    {visibleTransactions.map((log, i) => (
+                                        <View key={log._id || i} style={styles.haAiTableRow}>
+                                            <View style={[styles.haAiTd, { width: 150 }]}>
+                                                <Text style={styles.haAiDateText}>
+                                                    {log.createdAt ? new Date(log.createdAt).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                                                </Text>
+                                            </View>
+                                            <View style={[styles.haAiTd, { width: 160 }]}>
+                                                <Text style={styles.haAiLogUser}>{log.userName || 'Doctor'}</Text>
+                                            </View>
+                                            <View style={[styles.haAiTd, { width: 180 }]}>
+                                                <View style={styles.haAiFeaturePill}>
+                                                    <Text style={styles.haAiFeaturePillText}>
+                                                        {log.actionType || log.feature || 'AI Analysis'}
+                                                    </Text>
+                                                </View>
+                                            </View>
+                                            <View style={[styles.haAiTd, { width: 150 }]}>
+                                                <View style={[styles.haAiCreditChip, styles.haAiCreditChipConsumed]}>
+                                                    <Text style={[styles.haAiCreditVal, { color: '#c2410c' }]}>
+                                                        {Number(log.actualApiCost || 0).toFixed(2)}
+                                                    </Text>
+                                                    <Text style={[styles.haAiCreditTag, { color: '#ea580c' }]}>Credits</Text>
+                                                </View>
+                                            </View>
+                                            <View style={[styles.haAiTd, { width: 140 }]}>
+                                                <View style={[styles.haAiStatusPill, styles.haAiStatusPillActive]}>
+                                                    <View style={styles.haAiStatusDot} />
+                                                    <Text style={[styles.haAiStatusPillText, styles.haAiStatusPillTextActive]}>Success</Text>
+                                                </View>
+                                            </View>
+                                        </View>
+                                    ))}
+                                </View>
+                            </ScrollView>
+
+                            {/* Infinite scroll status / Load More button */}
+                            <View style={styles.haAiLogsFooter}>
+                                {visibleLogCount < aiTransactions.length ? (
+                                    <TouchableOpacity
+                                        onPress={() => setVisibleLogCount(prev => Math.min(prev + 10, aiTransactions.length))}
+                                        style={styles.haAiLoadMoreBtn}
+                                        activeOpacity={0.7}
+                                    >
+                                        <Text style={styles.haAiLoadMoreBtnText}>Scroll down or Click to Load More</Text>
+                                        <View style={styles.haAiLoadBadge}>
+                                            <Text style={styles.haAiLoadBadgeText}>+{Math.min(10, aiTransactions.length - visibleLogCount)} more</Text>
+                                        </View>
+                                    </TouchableOpacity>
+                                ) : (
+                                    <Text style={styles.haAiAllLoadedText}>
+                                        ✓ All {aiTransactions.length} AI usage logs displayed
+                                    </Text>
+                                )}
+                            </View>
+                        </View>
+                    )}
+                </View>
+            </View>
+        );
+    };
 
     const availableRoles = roles.map(role => ({
         label: `${role.name} ${role.description ? `— ${role.description}` : ''}`,
@@ -678,136 +1133,573 @@ const HospitalAdminDashboard = () => {
 
     return (
         <ScrollView style={styles.hospitaladminPage} contentContainerStyle={styles.hospitaladminContainer}>
-            <View style={{ marginBottom: 32 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                    <View style={styles.haHospitalBadge}>
-                        <Text style={styles.haHospitalBadgeText}>{hospitalInfo ? `🏥 ${hospitalInfo.name.toUpperCase()}` : 'HOSPITAL ADMIN'}</Text>
+            {/* 1. Modern Hero Header Banner (Matching Web ha-ai-hero-banner) */}
+            <View style={styles.haAiHeroBannerWrapper}>
+                <ExpoLinearGradient
+                    colors={['#f0fdfa', '#e0f2fe', '#f8fafc', '#f0fdf4']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    locations={[0, 0.32, 0.68, 1]}
+                    style={styles.haAiHeroBanner}
+                >
+                    {/* Circuit / Grid Background overlay */}
+                    <Svg style={styles.haAiCircuitBg} width="100%" height="100%">
+                        <Defs>
+                            <Pattern id="haAiCircuitDots" width={20} height={20} patternUnits="userSpaceOnUse">
+                                <Circle cx={2} cy={2} r={1.3} fill="#0ea5e9" opacity={0.32} />
+                            </Pattern>
+                        </Defs>
+                        <Rect width="100%" height="100%" fill="url(#haAiCircuitDots)" />
+                    </Svg>
+
+                    <View style={styles.haAiHeroLeft}>
+                        <Text style={[
+                            styles.haAiHeroTitle,
+                            Platform.OS === 'web' && {
+                                backgroundImage: 'linear-gradient(135deg, #0f172a 0%, #1e3a8a 25%, #4338ca 50%, #7c3aed 75%, #0284c7 100%)',
+                                WebkitBackgroundClip: 'text',
+                                WebkitTextFillColor: 'transparent',
+                            }
+                        ]}>
+                            Hospital Administration Dashboard
+                        </Text>
+                        <View style={styles.haAiSubtitleRow}>
+                            <Animated.View style={[styles.haSubtitlePulseDot, { transform: [{ scale: pulseAnim }] }]} />
+                            <Text style={styles.haAiHeroSubtitle}>
+                                Manage staff, departments, and hospital operations with AI intelligence.
+                            </Text>
+                        </View>
                     </View>
-                </View>
-                <Text style={styles.pageTitle}>Hospital Administration Dashboard</Text>
-                <Text style={styles.pageSubtitle}>Manage staff, departments, and hospital operations</Text>
+
+                    {/* Right: High-Definition Realistic Modern Hospital Campus Visual */}
+                    {!isMobile && (
+                        <View style={styles.haAiRightBuilding}>
+                            <Image 
+                                source={require('../../assets/realistic_hospital_banner_art.png')} 
+                                style={styles.haAiHospitalImg}
+                                resizeMode="cover" 
+                            />
+                            <ExpoLinearGradient
+                                colors={['#f0fdfa', 'rgba(240, 253, 250, 0.6)', 'transparent']}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 0 }}
+                                style={styles.haAiHospitalFadeOverlay}
+                            />
+                        </View>
+                    )}
+                </ExpoLinearGradient>
             </View>
 
             {error ? <View style={styles.errorMessage}><Text style={styles.errorMessageText}>⚠️ {error}</Text></View> : null}
             {success ? <View style={styles.successMessage}><Text style={styles.successMessageText}>✅ {success}</Text></View> : null}
 
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 28 }} contentContainerStyle={styles.haTabs}>
-                {tabs.filter(t => t.id !== 'accounts').map(tab => (
-                    <TouchableOpacity
-                        key={tab.id}
-                        style={[styles.haTab, activeTab === tab.id && styles.haTabActive]}
-                        onPress={() => setActiveTab(tab.id)}
-                    >
-                        <Text style={[styles.haTabText, activeTab === tab.id && styles.haTabTextActive]}>{tab.label}</Text>
-                    </TouchableOpacity>
-                ))}
-                <TouchableOpacity
-                    style={[styles.haTab, activeTab === 'accounts' && styles.haTabActive]}
-                    onPress={() => setActiveTab('accounts')}
+            {/* 2. Floating Modern Tab Navigation Bar (Matching Web ha-ai-tabs-card) */}
+            <View style={styles.haAiTabsCardWrapper}>
+                <ExpoLinearGradient
+                    colors={['#f5f3ff', '#ede9fe', '#f0f9ff', '#ecfdf5']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    locations={[0, 0.22, 0.6, 1]}
+                    style={styles.haAiTabsCard}
                 >
-                    <Text style={[styles.haTabText, activeTab === 'accounts' && styles.haTabTextActive]}>🏦 Accounts</Text>
-                </TouchableOpacity>
-            </ScrollView>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.haAiTabsScroll, isMobile && { justifyContent: 'flex-start', gap: 6, flexGrow: 0 }]}>
+                        {tabs.map(tab => {
+                            const isTabActive = activeTab === tab.id;
+                            return (
+                                <TouchableOpacity
+                                    key={tab.id}
+                                    style={[styles.haAiTabBtn, isMobile && { flex: 0, minWidth: 68, paddingHorizontal: 4 }, isTabActive && styles.haAiTabBtnActive]}
+                                    onPress={() => setActiveTab(tab.id)}
+                                    activeOpacity={0.78}
+                                >
+                                    {isTabActive ? (
+                                        <Animated.View style={{ transform: [{ translateY: floatAnim }] }}>
+                                            <ExpoLinearGradient
+                                                colors={getActiveTabGradient(tab.id)}
+                                                start={{ x: 0, y: 0 }}
+                                                end={{ x: 1, y: 1 }}
+                                                style={[styles.haAiTabIconWrap, styles.haAiTabIconWrapActive]}
+                                            >
+                                                {getTabIcon(tab.id, true)}
+                                            </ExpoLinearGradient>
+                                        </Animated.View>
+                                    ) : (
+                                        <View style={styles.haAiTabIconWrap}>
+                                            {getTabIcon(tab.id, false)}
+                                        </View>
+                                    )}
+                                    <Text style={[styles.haAiTabLabel, isTabActive && styles.haAiTabLabelActive]}>
+                                        {tab.label}
+                                    </Text>
+                                    {isTabActive && (
+                                        <View style={styles.haActiveNeonSlider}>
+                                            <ExpoLinearGradient
+                                                colors={['#8b5cf6', '#06b6d4', '#10b981']}
+                                                start={{ x: 0, y: 0 }}
+                                                end={{ x: 1, y: 0 }}
+                                                style={{ width: '100%', height: '100%' }}
+                                            />
+                                        </View>
+                                    )}
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </ScrollView>
+
+                    {/* Continuous travelling bottom neon beam (ha-patti-full-beam) */}
+                    <Animated.View
+                        style={[
+                            styles.haPattiFullBeam,
+                            { left: beamInterpolate }
+                        ]}
+                    >
+                        <ExpoLinearGradient
+                            colors={['transparent', '#8b5cf6', '#06b6d4', '#10b981', 'transparent']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 0 }}
+                            style={{ width: '100%', height: '100%' }}
+                        />
+                    </Animated.View>
+                </ExpoLinearGradient>
+            </View>
 
             {/* ===================== OVERVIEW TAB ===================== */}
             {activeTab === 'overview' && (
                 <View>
-                    {/* ---- DATE FILTER BAR ---- */}
-                    <View style={styles.adminCard}>
-                        <Text style={styles.cardTitle}>📅 Analytics Timeframe</Text>
-                        <View style={styles.dateFilterControls}>
-                            <View style={styles.presetButtons}>
-                                <TouchableOpacity style={[styles.presetBtn, datePreset === 'all' && styles.presetBtnActive]} onPress={() => handleDatePresetChange('all')}><Text style={[styles.presetBtnText, datePreset === 'all' && styles.presetBtnTextActive]}>All Time</Text></TouchableOpacity>
-                                <TouchableOpacity style={[styles.presetBtn, datePreset === 'today' && styles.presetBtnActive]} onPress={() => handleDatePresetChange('today')}><Text style={[styles.presetBtnText, datePreset === 'today' && styles.presetBtnTextActive]}>Today</Text></TouchableOpacity>
-                                <TouchableOpacity style={[styles.presetBtn, datePreset === '30' && styles.presetBtnActive]} onPress={() => handleDatePresetChange('30')}><Text style={[styles.presetBtnText, datePreset === '30' && styles.presetBtnTextActive]}>Last 30 Days</Text></TouchableOpacity>
-                                <TouchableOpacity style={[styles.presetBtn, datePreset === '60' && styles.presetBtnActive]} onPress={() => handleDatePresetChange('60')}><Text style={[styles.presetBtnText, datePreset === '60' && styles.presetBtnTextActive]}>Last 60 Days</Text></TouchableOpacity>
-                                <TouchableOpacity style={[styles.presetBtn, datePreset === '90' && styles.presetBtnActive]} onPress={() => handleDatePresetChange('90')}><Text style={[styles.presetBtnText, datePreset === '90' && styles.presetBtnTextActive]}>Last 90 Days</Text></TouchableOpacity>
-                            </View>
-                            <View style={styles.customDateInputs}>
-                                <TextInput style={styles.dateInput} placeholder="YYYY-MM-DD" value={customStartDate} onChangeText={(t) => { setDatePreset('custom'); setCustomStartDate(t); }} />
-                                <Text style={{ color: '#64748b' }}>to</Text>
-                                <TextInput style={styles.dateInput} placeholder="YYYY-MM-DD" value={customEndDate} onChangeText={(t) => { setDatePreset('custom'); setCustomEndDate(t); }} />
-                                <TouchableOpacity style={styles.btnSave} onPress={handleApplyCustomDate}>
-                                    <Text style={styles.btnSaveText}>Apply Custom</Text>
+                    {/* Analytics Timeframe Bar (Matching Web ha-ai-timeframe-bar) */}
+                    <View style={styles.haAiTimeframeBar}>
+                        <View style={styles.haAiTimeframeTitle}>
+                            <Text style={{ fontSize: 16 }}>📈</Text>
+                            <Text style={styles.haAiTimeframeTitleText}>Analytics Timeframe</Text>
+                        </View>
+
+                        <View style={styles.haAiTimeframeControls}>
+                            <View style={styles.haAiPresetPills}>
+                                <TouchableOpacity 
+                                    style={[styles.haAiPresetBtn, datePreset === 'all' && styles.haAiPresetBtnActive]} 
+                                    onPress={() => handleDatePresetChange('all')}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text style={[styles.haAiPresetBtnText, datePreset === 'all' && styles.haAiPresetBtnTextActive]}>All Time</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity 
+                                    style={[styles.haAiPresetBtn, datePreset === 'today' && styles.haAiPresetBtnActive]} 
+                                    onPress={() => handleDatePresetChange('today')}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text style={[styles.haAiPresetBtnText, datePreset === 'today' && styles.haAiPresetBtnTextActive]}>Today</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity 
+                                    style={[styles.haAiPresetBtn, datePreset === '30' && styles.haAiPresetBtnActive]} 
+                                    onPress={() => handleDatePresetChange('30')}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text style={[styles.haAiPresetBtnText, datePreset === '30' && styles.haAiPresetBtnTextActive]}>30 Days</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity 
+                                    style={[styles.haAiPresetBtn, styles.haAiApplyCustomBtn, datePreset === 'custom' && styles.haAiPresetBtnActive]} 
+                                    onPress={() => setShowCustomDateModal(true)}
+                                    activeOpacity={0.7}
+                                >
+                                    <Feather name="calendar" size={13} color={datePreset === 'custom' ? '#ffffff' : '#2563eb'} />
+                                    <Text style={[styles.haAiPresetBtnText, datePreset === 'custom' && styles.haAiPresetBtnTextActive, { marginLeft: 5 }]}>
+                                        {datePreset === 'custom' && customStartDate && customEndDate
+                                            ? `${customStartDate} → ${customEndDate}`
+                                            : 'Apply Custom'}
+                                    </Text>
+                                    {datePreset === 'custom' && <View style={styles.haAiCustomBadgeDot} />}
                                 </TouchableOpacity>
                             </View>
+
+                            {/* Refresh Button */}
+                            <TouchableOpacity 
+                                style={[styles.haAiRefreshBtn, isRefreshing && styles.haAiRefreshBtnActive]} 
+                                onPress={handleRefreshData}
+                                disabled={isRefreshing}
+                                activeOpacity={0.7}
+                            >
+                                <Animated.View style={{ transform: [{ rotate: spinInterpolate }] }}>
+                                    <Feather 
+                                        name="refresh-cw" 
+                                        size={13} 
+                                        color={isRefreshing ? '#94a3b8' : '#334155'} 
+                                    />
+                                </Animated.View>
+                                <Text style={styles.haAiRefreshBtnText}>
+                                    {isRefreshing ? 'Refreshing...' : 'Refresh'}
+                                </Text>
+                            </TouchableOpacity>
                         </View>
                     </View>
 
-                    {/* Stats Grid */}
+                    {/* Custom Date Range Filter Modal (Matching Web ha-custom-date-modal-card) */}
+                    <Modal
+                        visible={showCustomDateModal}
+                        transparent={true}
+                        animationType="fade"
+                        onRequestClose={() => setShowCustomDateModal(false)}
+                    >
+                        <TouchableOpacity 
+                            style={styles.haCustomDateModalBackdrop} 
+                            activeOpacity={1} 
+                            onPress={() => setShowCustomDateModal(false)}
+                        >
+                            <TouchableOpacity 
+                                style={styles.haCustomDateModalCard} 
+                                activeOpacity={1} 
+                                onPress={(e) => e.stopPropagation()}
+                            >
+                                <View style={styles.haCustomModalHeader}>
+                                    <View style={styles.haCustomModalTitle}>
+                                        <View style={styles.haModalTitleIconBox}>
+                                            <Feather name="calendar" size={18} color="#2563eb" />
+                                        </View>
+                                        <View>
+                                            <Text style={styles.haCustomModalTitleText}>Filter Custom Date Range</Text>
+                                            <Text style={styles.haCustomModalSubtitle}>Select start and end dates to filter hospital analytics</Text>
+                                        </View>
+                                    </View>
+                                    <TouchableOpacity 
+                                        onPress={() => setShowCustomDateModal(false)}
+                                        style={styles.haCustomModalClose}
+                                    >
+                                        <Text style={{ fontSize: 16, color: '#64748b', fontWeight: '700' }}>✕</Text>
+                                    </TouchableOpacity>
+                                </View>
+
+                                <View style={styles.haCustomModalBody}>
+                                    <View style={styles.haDateInputsRow}>
+                                        <View style={styles.haDateFieldGroup}>
+                                            <Text style={styles.haDateFieldLabel}>Start Date</Text>
+                                            <DatePickerInput
+                                                value={customStartDate}
+                                                onChange={(val) => {
+                                                    setDatePreset('custom');
+                                                    setCustomStartDate(val);
+                                                }}
+                                                placeholder="YYYY-MM-DD"
+                                                title="Select Start Date"
+                                            />
+                                        </View>
+                                        <View style={styles.haDateArrowSeparator}>
+                                            <Text style={{ color: '#64748b', fontSize: 12, fontWeight: '700' }}>to</Text>
+                                        </View>
+                                        <View style={styles.haDateFieldGroup}>
+                                            <Text style={styles.haDateFieldLabel}>End Date</Text>
+                                            <DatePickerInput
+                                                value={customEndDate}
+                                                onChange={(val) => {
+                                                    setDatePreset('custom');
+                                                    setCustomEndDate(val);
+                                                }}
+                                                placeholder="YYYY-MM-DD"
+                                                title="Select End Date"
+                                            />
+                                        </View>
+                                    </View>
+
+                                    {/* Quick Presets inside modal */}
+                                    <View style={styles.haModalQuickPresets}>
+                                        <Text style={styles.haQuickPresetsTitle}>Quick Presets</Text>
+                                        <View style={styles.haQuickPresetChips}>
+                                            {[
+                                                { label: 'Today', val: 'today' },
+                                                { label: '30 Days', val: '30' },
+                                                { label: '60 Days', val: '60' },
+                                                { label: '90 Days', val: '90' },
+                                                { label: 'All Time', val: 'all' },
+                                            ].map((presetItem) => (
+                                                <TouchableOpacity
+                                                    key={presetItem.val}
+                                                    style={[
+                                                        styles.haQuickChip,
+                                                        datePreset === presetItem.val && styles.haQuickChipActive
+                                                    ]}
+                                                    onPress={() => {
+                                                        handleDatePresetChange(presetItem.val);
+                                                        setShowCustomDateModal(false);
+                                                    }}
+                                                    activeOpacity={0.7}
+                                                >
+                                                    <Text style={[
+                                                        styles.haQuickChipText,
+                                                        datePreset === presetItem.val && styles.haQuickChipTextActive
+                                                    ]}>
+                                                        {presetItem.label}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            ))}
+                                        </View>
+                                    </View>
+                                </View>
+
+                                <View style={styles.haCustomModalFooter}>
+                                    <TouchableOpacity
+                                        style={styles.haBtnModalReset}
+                                        onPress={() => {
+                                            handleDatePresetChange('all');
+                                            setCustomStartDate('');
+                                            setCustomEndDate('');
+                                            setShowCustomDateModal(false);
+                                        }}
+                                        activeOpacity={0.7}
+                                    >
+                                        <Text style={styles.haBtnModalResetText}>Reset to All</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.haBtnModalApply,
+                                            (!customStartDate || !customEndDate) && { opacity: 0.5 }
+                                        ]}
+                                        disabled={!customStartDate || !customEndDate}
+                                        onPress={handleApplyCustomDate}
+                                        activeOpacity={0.7}
+                                    >
+                                        <Text style={styles.haBtnModalApplyText}>Apply Custom Filter</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </TouchableOpacity>
+                        </TouchableOpacity>
+                    </Modal>
+
+                    {/* 5 KPI Metric Cards + AI Wallet (Matching Web ha-ai-kpis-grid) */}
                     {loadingStats ? (
-                        <View style={styles.hospitalKpiGrid}>
+                        <View style={styles.haAiKpisGrid}>
                             {[1, 2, 3, 4, 5, 6].map((i) => (
                                 <View key={i} style={styles.kpiSkeleton}></View>
                             ))}
                         </View>
-                    ) : (
-                        <View style={styles.hospitalKpiGrid}>
+                    ) : (() => {
+                        const getKpiCardResponsiveStyle = (isOccupancy = false) => {
+                            if (width > 1300) return { width: '18.8%' };
+                            if (width > 900) return { width: '31.8%' };
+                            if (isOccupancy) return { width: '100%' };
+                            return { width: width <= 768 ? '48.2%' : '48.8%' };
+                        };
+                        return (
+                        <View style={[styles.haAiKpisGrid, { gap: width <= 768 ? 10 : 14 }]}>
                             {/* 1. Total Patients */}
-                            <View style={[styles.kpiCard, styles.kpiBlue]}>
-                                <Text style={styles.kpiIcon}>🧑‍🤝‍🧑</Text>
-                                <Text style={styles.kpiValue}>
-                                    {(hospitalStats?.stats?.totalPatients ?? stats.totalPatients ?? 0).toLocaleString()}
-                                </Text>
-                                <Text style={styles.kpiLabel}>Total Patients</Text>
-                                <Text style={styles.kpiSub}>● Active in selected period</Text>
-                            </View>
+                            <ExpoLinearGradient
+                                colors={['#eff6ff', '#e0e7ff', '#ffffff']}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 1 }}
+                                style={[styles.haAiKpiCard, { borderColor: '#bfdbfe', paddingVertical: width <= 768 ? 12 : 15, paddingHorizontal: width <= 768 ? 12 : 18 }, getKpiCardResponsiveStyle(false)]}
+                            >
+                                <View style={styles.haAiKpiHeader}>
+                                    <ExpoLinearGradient
+                                        colors={['#2563eb', '#1d4ed8']}
+                                        style={styles.haAiKpiIconBoxGrad}
+                                    >
+                                        <Feather name="users" size={18} color="#ffffff" />
+                                    </ExpoLinearGradient>
+                                    <View style={styles.haAiKpiMeta}>
+                                        <Text style={styles.haAiKpiLabel}>Total Patients</Text>
+                                        <Text style={[styles.haAiKpiVal, { color: '#1d4ed8' }]}>
+                                            {(hospitalStats?.stats?.totalPatients ?? stats.totalPatients ?? 0).toLocaleString()}
+                                        </Text>
+                                    </View>
+                                </View>
+                                <View style={styles.haAiKpiFooter}>
+                                    <View style={[styles.haAiKpiTrendBadge, { backgroundColor: 'rgba(37, 99, 235, 0.1)' }]}>
+                                        <Text style={[styles.haAiKpiTrend, { color: '#2563eb' }]}>● Active Patients</Text>
+                                    </View>
+                                    <Svg viewBox="0 0 80 25" width={76} height={24} fill="none">
+                                        <Path d="M 2 20 Q 20 15 40 18 T 78 5" stroke="#2563eb" strokeWidth={2.2} strokeLinecap="round" />
+                                    </Svg>
+                                </View>
+                            </ExpoLinearGradient>
 
                             {/* 2. Total Doctors */}
-                            <View style={[styles.kpiCard, styles.kpiTeal]}>
-                                <Text style={styles.kpiIcon}>👩‍⚕️</Text>
-                                <Text style={styles.kpiValue}>
-                                    {hospitalStats?.stats?.totalDoctors ?? hospitalStats?.stats?.doctorCount ?? stats.totalDoctors ?? 0}
-                                </Text>
-                                <Text style={styles.kpiLabel}>Total Doctors</Text>
-                                <Text style={styles.kpiSub}>● Hospital verified doctors</Text>
-                            </View>
+                            <ExpoLinearGradient
+                                colors={['#ecfdf5', '#d1fae5', '#ffffff']}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 1 }}
+                                style={[styles.haAiKpiCard, { borderColor: '#a7f3d0', paddingVertical: width <= 768 ? 12 : 15, paddingHorizontal: width <= 768 ? 12 : 18 }, getKpiCardResponsiveStyle(false)]}
+                            >
+                                <View style={styles.haAiKpiHeader}>
+                                    <ExpoLinearGradient
+                                        colors={['#10b981', '#059669']}
+                                        style={styles.haAiKpiIconBoxGrad}
+                                    >
+                                        <Feather name="user-check" size={18} color="#ffffff" />
+                                    </ExpoLinearGradient>
+                                    <View style={styles.haAiKpiMeta}>
+                                        <Text style={styles.haAiKpiLabel}>Total Doctors</Text>
+                                        <Text style={[styles.haAiKpiVal, { color: '#047857' }]}>
+                                            {hospitalStats?.stats?.totalDoctors ?? hospitalStats?.stats?.doctorCount ?? stats.totalDoctors ?? 0}
+                                        </Text>
+                                    </View>
+                                </View>
+                                <View style={styles.haAiKpiFooter}>
+                                    <View style={[styles.haAiKpiTrendBadge, { backgroundColor: 'rgba(16, 185, 129, 0.12)' }]}>
+                                        <Text style={[styles.haAiKpiTrend, { color: '#059669' }]}>● Hospital Doctors</Text>
+                                    </View>
+                                    <Svg viewBox="0 0 80 25" width={76} height={24} fill="none">
+                                        <Path d="M 2 22 Q 25 10 50 16 T 78 4" stroke="#059669" strokeWidth={2.2} strokeLinecap="round" />
+                                    </Svg>
+                                </View>
+                            </ExpoLinearGradient>
 
                             {/* 3. Total Appointments */}
-                            <View style={[styles.kpiCard, styles.kpiPurple]}>
-                                <Text style={styles.kpiIcon}>📅</Text>
-                                <Text style={styles.kpiValue}>
-                                    {(hospitalStats?.stats?.totalAppointments ?? 0).toLocaleString()}
-                                </Text>
-                                <Text style={styles.kpiLabel}>Total Appointments</Text>
-                                <Text style={styles.kpiSub}>● Booked consultation records</Text>
-                            </View>
+                            <ExpoLinearGradient
+                                colors={['#faf5ff', '#ede9fe', '#ffffff']}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 1 }}
+                                style={[styles.haAiKpiCard, { borderColor: '#ddd6fe', paddingVertical: width <= 768 ? 12 : 15, paddingHorizontal: width <= 768 ? 12 : 18 }, getKpiCardResponsiveStyle(false)]}
+                            >
+                                <View style={styles.haAiKpiHeader}>
+                                    <ExpoLinearGradient
+                                        colors={['#8b5cf6', '#7c3aed']}
+                                        style={styles.haAiKpiIconBoxGrad}
+                                    >
+                                        <Feather name="calendar" size={18} color="#ffffff" />
+                                    </ExpoLinearGradient>
+                                    <View style={styles.haAiKpiMeta}>
+                                        <Text style={styles.haAiKpiLabel}>Total Appointments</Text>
+                                        <Text style={[styles.haAiKpiVal, { color: '#6d28d9' }]}>
+                                            {(hospitalStats?.stats?.totalAppointments ?? 0).toLocaleString()}
+                                        </Text>
+                                    </View>
+                                </View>
+                                <View style={styles.haAiKpiFooter}>
+                                    <View style={[styles.haAiKpiTrendBadge, { backgroundColor: 'rgba(139, 92, 246, 0.12)' }]}>
+                                        <Text style={[styles.haAiKpiTrend, { color: '#7c3aed' }]}>● Booked Records</Text>
+                                    </View>
+                                    <Svg viewBox="0 0 80 25" width={76} height={24} fill="none">
+                                        <Path d="M 2 20 Q 20 18 45 8 T 78 4" stroke="#7c3aed" strokeWidth={2.2} strokeLinecap="round" />
+                                    </Svg>
+                                </View>
+                            </ExpoLinearGradient>
 
                             {/* 4. Total Revenue */}
-                            <View style={[styles.kpiCard, styles.kpiOrange]}>
-                                <Text style={styles.kpiIcon}>💰</Text>
-                                <Text style={styles.kpiValue}>
-                                    {formatCurrency(hospitalStats?.stats?.totalRevenue ?? 0)}
-                                </Text>
-                                <Text style={styles.kpiLabel}>Total Revenue</Text>
-                                <Text style={styles.kpiSub}>● Billed invoices</Text>
-                            </View>
+                            <ExpoLinearGradient
+                                colors={['#fffbeb', '#fef3c7', '#ffffff']}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 1 }}
+                                style={[styles.haAiKpiCard, { borderColor: '#fde68a', paddingVertical: width <= 768 ? 12 : 15, paddingHorizontal: width <= 768 ? 12 : 18 }, getKpiCardResponsiveStyle(false)]}
+                            >
+                                <View style={styles.haAiKpiHeader}>
+                                    <ExpoLinearGradient
+                                        colors={['#f59e0b', '#ea580c']}
+                                        style={styles.haAiKpiIconBoxGrad}
+                                    >
+                                        <Text style={{ fontSize: 18, fontWeight: '900', color: '#ffffff' }}>₹</Text>
+                                    </ExpoLinearGradient>
+                                    <View style={styles.haAiKpiMeta}>
+                                        <Text style={styles.haAiKpiLabel}>Total Revenue</Text>
+                                        <Text style={[styles.haAiKpiVal, { color: '#c2410c' }]}>
+                                            {formatCurrency(hospitalStats?.stats?.totalRevenue ?? 0)}
+                                        </Text>
+                                    </View>
+                                </View>
+                                <View style={styles.haAiKpiFooter}>
+                                    <View style={[styles.haAiKpiTrendBadge, { backgroundColor: 'rgba(234, 88, 12, 0.12)' }]}>
+                                        <Text style={[styles.haAiKpiTrend, { color: '#c2410c' }]}>● Billed Invoices</Text>
+                                    </View>
+                                    <Svg viewBox="0 0 80 25" width={76} height={24} fill="none">
+                                        <Path d="M 2 22 Q 22 18 45 12 T 78 3" stroke="#ea580c" strokeWidth={2.2} strokeLinecap="round" />
+                                    </Svg>
+                                </View>
+                            </ExpoLinearGradient>
 
                             {/* 5. Occupancy Rate */}
-                            <View style={[styles.kpiCard, styles.kpiGreen]}>
-                                <Text style={styles.kpiIcon}>🛏️</Text>
-                                <Text style={styles.kpiValue}>
-                                    {`${hospitalStats?.stats?.occupancyRate ?? 0}%`}
-                                </Text>
-                                <Text style={styles.kpiLabel}>Occupancy Rate</Text>
-                                <Text style={styles.kpiSub}>● Bed utilization</Text>
-                            </View>
+                            <ExpoLinearGradient
+                                colors={['#f0fdfa', '#ccfbf1', '#ffffff']}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 1 }}
+                                style={[styles.haAiKpiCard, { borderColor: '#99f6e4', paddingVertical: width <= 768 ? 12 : 15, paddingHorizontal: width <= 768 ? 12 : 18 }, getKpiCardResponsiveStyle(true)]}
+                            >
+                                <View style={styles.haAiKpiHeader}>
+                                    <ExpoLinearGradient
+                                        colors={['#0d9488', '#0f766e']}
+                                        style={styles.haAiKpiIconBoxGrad}
+                                    >
+                                        <Ionicons name="bed-outline" size={18} color="#ffffff" />
+                                    </ExpoLinearGradient>
+                                    <View style={styles.haAiKpiMeta}>
+                                        <Text style={styles.haAiKpiLabel}>Occupancy Rate</Text>
+                                        <Text style={[styles.haAiKpiVal, { color: '#0f766e' }]}>
+                                            {`${hospitalStats?.stats?.occupancyRate ?? 0}%`}
+                                        </Text>
+                                    </View>
+                                </View>
+                                <View style={styles.haAiKpiFooter}>
+                                    <View style={[styles.haAiKpiTrendBadge, { backgroundColor: 'rgba(13, 148, 136, 0.12)' }]}>
+                                        <Text style={[styles.haAiKpiTrend, { color: '#0d9488' }]}>● Bed Utilization</Text>
+                                    </View>
+                                    <Svg viewBox="0 0 80 25" width={76} height={24} fill="none">
+                                        <Path d="M 2 18 Q 25 22 50 10 T 78 6" stroke="#0d9488" strokeWidth={2.2} strokeLinecap="round" />
+                                    </Svg>
+                                </View>
+                            </ExpoLinearGradient>
 
-                            {/* 6. AI Wallet / Credits */}
-                            <View style={[styles.kpiCard, { backgroundColor: '#4f46e5' }]}>
-                                <Text style={styles.kpiIcon}>🤖</Text>
-                                <Text style={styles.kpiValue}>
-                                    ₹{aiWallet ? Number(aiWallet.remainingAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '2,000.00'}
-                                </Text>
-                                <Text style={styles.kpiLabel}>Hospital AI Credits</Text>
-                                <Text style={styles.kpiSub}>
-                                    ● Used: ₹{aiWallet ? Number(aiWallet.usedAmount).toFixed(2) : '0.00'} / ₹{aiWallet ? Number(aiWallet.budgetAmount || 2000).toFixed(2) : '2,000.00'}
-                                </Text>
-                            </View>
                         </View>
-                    )}
+                        );
+                    })()}
 
-                    {/* Appointments Overview SVG Area Chart & Quick Summary */}
+                    {/* Dedicated Hospital AI Credits Card (Matching Web ha-ai-metric-card card-remaining) */}
+                    <TouchableOpacity
+                        activeOpacity={0.88}
+                        onPress={() => setActiveTab('aiwallet')}
+                        style={styles.haAiCreditsBannerWrapper}
+                    >
+                        <ExpoLinearGradient
+                            colors={['#f8faff', '#ffffff']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 0, y: 1 }}
+                            style={styles.haAiCreditsBannerCard}
+                        >
+                            <ExpoLinearGradient
+                                colors={['#3b82f6', '#60a5fa']}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 0 }}
+                                style={styles.haAiCreditsTopBar}
+                            />
+                            
+                            <View style={styles.haAiCreditsContent}>
+                                <View style={styles.haAiCreditsLeft}>
+                                    <View style={styles.haAiCreditsHeader}>
+                                        <View style={styles.haAiCreditsIconBox}>
+                                            <MaterialCommunityIcons name="robot-outline" size={20} color="#2563eb" />
+                                        </View>
+                                        <View style={{ flex: 1 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                                <Text style={styles.haAiCreditsLabel}>REMAINING HOSPITAL AI BALANCE</Text>
+                                                <View style={styles.haAiCreditsBadge}>
+                                                    <Text style={styles.haAiCreditsBadgeText}>Allocated Quota</Text>
+                                                </View>
+                                            </View>
+                                            <Text style={styles.haAiCreditsSub}>Live cognitive diagnostic balance & allocation tracker</Text>
+                                        </View>
+                                    </View>
+
+                                    <View style={styles.haAiCreditsValRow}>
+                                        <Text style={styles.haAiCreditsVal}>
+                                            ₹{aiWallet ? Number(aiWallet.remainingAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '2,000.00'}
+                                        </Text>
+                                        <Text style={styles.haAiCreditsUnit}>Credits</Text>
+                                        <View style={styles.haAiCreditsPillGreen}>
+                                            <Text style={styles.haAiCreditsPillGreenText}>● Active & Ready</Text>
+                                        </View>
+                                        {aiWallet && (
+                                            <Text style={styles.haAiCreditsUsedText}>
+                                                Used: ₹{Number(aiWallet.usedAmount || 0).toFixed(2)} ({aiWallet.budgetAmount ? `${((Number(aiWallet.usedAmount) / Number(aiWallet.budgetAmount)) * 100).toFixed(1)}%` : '0%'})
+                                            </Text>
+                                        )}
+                                    </View>
+                                </View>
+
+                                <View style={styles.haAiCreditsRight}>
+                                    <View style={styles.haAiCreditsManageBtn}>
+                                        <Text style={styles.haAiCreditsManageBtnText}>Open AI Intelligence Portal</Text>
+                                        <Feather name="arrow-right" size={14} color="#ffffff" />
+                                    </View>
+                                </View>
+                            </View>
+                        </ExpoLinearGradient>
+                    </TouchableOpacity>
+
+                    {/* Bottom Panels (Appointments Overview & Quick Summary - Matching Web .bottom) */}
                     {(() => {
                         const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
                         const now = new Date();
@@ -832,118 +1724,126 @@ const HospitalAdminDashboard = () => {
                                 : 'M10,178 C40,135 65,158 90,145 S140,155 170,120 S215,130 240,90 S290,105 320,125 S365,170 395,155 S430,105 455,125 S500,105 530,112 S565,78 595,95 S635,70 665,100 S720,80 790,105';
 
                         return (
-                            <View style={{ flexDirection: 'row', gap: 20, flexWrap: 'wrap', marginBottom: 24 }}>
-                                {/* Appointments Chart Panel */}
-                                <View style={[styles.adminCard, { flex: 2, minWidth: 320, marginBottom: 0 }]}>
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                                            <Text style={{ fontSize: 18, color: '#7c3aed' }}>▦</Text>
-                                            <Text style={styles.cardTitle}>Appointments Overview</Text>
+                            <View style={[styles.haBottomGrid, width <= 768 && { flexDirection: 'column' }]}>
+                                {/* Left Panel: Appointments Overview (Matching Web .panel) */}
+                                <View style={[styles.haChartPanel, width <= 768 && { width: '100%', minWidth: '100%' }]}>
+                                    <View style={styles.haPanelHead}>
+                                        <View style={styles.haPanelTitle}>
+                                            <View style={styles.haMiniIconBox}>
+                                                <Text style={{ fontSize: 14, color: '#4c72ee' }}>▦</Text>
+                                            </View>
+                                            <Text style={styles.haPanelTitleText}>Appointments Overview</Text>
                                         </View>
-                                        <View style={{ flexDirection: 'row', gap: 6 }}>
-                                            <TouchableOpacity 
-                                                style={[styles.chartRangeBtn, chartRange === 'this_month' && styles.chartRangeBtnActive]}
-                                                onPress={() => setChartRange('this_month')}
-                                            >
-                                                <Text style={[styles.chartRangeBtnText, chartRange === 'this_month' && styles.chartRangeBtnTextActive]}>This Month</Text>
-                                            </TouchableOpacity>
-                                            <TouchableOpacity 
-                                                style={[styles.chartRangeBtn, chartRange === 'last_month' && styles.chartRangeBtnActive]}
-                                                onPress={() => setChartRange('last_month')}
-                                            >
-                                                <Text style={[styles.chartRangeBtnText, chartRange === 'last_month' && styles.chartRangeBtnTextActive]}>Last Month</Text>
-                                            </TouchableOpacity>
-                                            <TouchableOpacity 
-                                                style={[styles.chartRangeBtn, chartRange === 'this_year' && styles.chartRangeBtnActive]}
-                                                onPress={() => setChartRange('this_year')}
-                                            >
-                                                <Text style={[styles.chartRangeBtnText, chartRange === 'this_year' && styles.chartRangeBtnTextActive]}>This Year</Text>
-                                            </TouchableOpacity>
+                                        <View style={styles.haChartRangeRow}>
+                                            {[
+                                                { id: 'this_month', label: 'This Month' },
+                                                { id: 'last_month', label: 'Last Month' },
+                                                { id: 'this_year', label: 'This Year' },
+                                            ].map((r) => (
+                                                <TouchableOpacity 
+                                                    key={r.id}
+                                                    style={[styles.haRangePill, chartRange === r.id && styles.haRangePillActive]}
+                                                    onPress={() => setChartRange(r.id)}
+                                                    activeOpacity={0.7}
+                                                >
+                                                    <Text style={[styles.haRangePillText, chartRange === r.id && styles.haRangePillTextActive]}>
+                                                        {r.label}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            ))}
                                         </View>
                                     </View>
 
-                                    <View style={{ height: 210, width: '100%', overflow: 'hidden' }}>
-                                        <Svg viewBox="0 0 800 210" width="100%" height={210} preserveAspectRatio="none">
+                                    {/* Chart container with 4 exact Web gridlines */}
+                                    <View style={styles.haChartContainer}>
+                                        <View style={[styles.haGridline, { top: 20 }]} />
+                                        <View style={[styles.haGridline, { top: 72 }]} />
+                                        <View style={[styles.haGridline, { top: 124 }]} />
+                                        <View style={[styles.haGridline, { top: 176 }]} />
+
+                                        <Svg style={styles.haLineSvg} viewBox="0 0 800 210" preserveAspectRatio="none">
                                             <Defs>
                                                 <LinearGradient id="areaGradHaOverview" x1="0" y1="0" x2="0" y2="1">
-                                                    <Stop offset="0%" stopColor="#7560ee" stopOpacity="0.3" />
-                                                    <Stop offset="100%" stopColor="#7560ee" stopOpacity="0.0" />
+                                                    <Stop offset="0%" stopColor="#7560ee" stopOpacity={0.25} />
+                                                    <Stop offset="100%" stopColor="#7560ee" stopOpacity={0.0} />
                                                 </LinearGradient>
                                             </Defs>
-                                            {/* Gridlines */}
-                                            <Line x1="10" y1="50" x2="790" y2="50" stroke="#f1f5f9" strokeWidth="1" />
-                                            <Line x1="10" y1="100" x2="790" y2="100" stroke="#f1f5f9" strokeWidth="1" />
-                                            <Line x1="10" y1="150" x2="790" y2="150" stroke="#f1f5f9" strokeWidth="1" />
-                                            <Line x1="10" y1="200" x2="790" y2="200" stroke="#f1f5f9" strokeWidth="1" />
-                                            {/* Area Gradient */}
                                             <Path d={chartAreaD} fill="url(#areaGradHaOverview)" />
-                                            {/* Line Path */}
-                                            <Path d={chartLineD} fill="none" stroke="#7658ed" strokeWidth="3.5" strokeLinecap="round" />
+                                            <Path d={chartLineD} fill="none" stroke="#7658ed" strokeWidth={4} strokeLinecap="round" />
                                         </Svg>
                                     </View>
 
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 12, marginTop: 8 }}>
+                                    <View style={styles.haChartDatesRow}>
                                         {dateLabels.map((lbl, idx) => (
-                                            <Text key={idx} style={{ color: '#94a3b8', fontSize: 11, fontWeight: '600' }}>{lbl}</Text>
+                                            <Text key={idx} style={styles.haChartDateText}>{lbl}</Text>
                                         ))}
                                     </View>
                                 </View>
 
-                                {/* Quick Summary Panel */}
-                                <View style={[styles.adminCard, { flex: 1, minWidth: 260, marginBottom: 0 }]}>
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-                                        <Text style={{ fontSize: 18, color: '#0d9488' }}>▣</Text>
-                                        <Text style={styles.cardTitle}>Quick Summary</Text>
+                                {/* Right Panel: Quick Summary (Matching Web .panel .quick-list) */}
+                                <View style={[styles.haSummaryPanel, width <= 768 && { width: '100%', minWidth: '100%' }]}>
+                                    <View style={styles.haPanelHead}>
+                                        <View style={styles.haPanelTitle}>
+                                            <View style={styles.haMiniIconBox}>
+                                                <Text style={{ fontSize: 14, color: '#4c72ee' }}>▣</Text>
+                                            </View>
+                                            <Text style={styles.haPanelTitleText}>Quick Summary</Text>
+                                        </View>
                                     </View>
-                                    <View style={{ gap: 12 }}>
-                                        <View style={styles.quickSummaryRow}>
-                                            <View style={[styles.quickSummaryIconWrap, { backgroundColor: '#dcfce7' }]}>
-                                                <Text style={{ color: '#16a34a', fontSize: 16 }}>✓</Text>
+
+                                    <View style={styles.haQuickList}>
+                                        {/* Row 1: Completed */}
+                                        <View style={styles.haQuickRow}>
+                                            <View style={[styles.haQuickIconBox, { backgroundColor: '#e9faf6' }]}>
+                                                <Text style={{ color: '#09a997', fontSize: 14, fontWeight: '700' }}>✓</Text>
                                             </View>
-                                            <View style={{ flex: 1 }}>
-                                                <Text style={{ fontWeight: '700', fontSize: 14, color: '#0f172a' }}>Completed</Text>
-                                                <Text style={{ fontSize: 12, color: '#64748b' }}>Finished appointments</Text>
+                                            <View style={styles.haQuickText}>
+                                                <Text style={styles.haQuickTitle}>Completed</Text>
+                                                <Text style={styles.haQuickSubtitle}>Completed appointments</Text>
                                             </View>
-                                            <Text style={{ fontSize: 18, fontWeight: '800', color: '#0f172a' }}>
+                                            <Text style={styles.haQuickCount}>
                                                 {hospitalStats?.stats?.completedAppointments ?? 0}
                                             </Text>
                                         </View>
 
-                                        <View style={styles.quickSummaryRow}>
-                                            <View style={[styles.quickSummaryIconWrap, { backgroundColor: '#ede9fe' }]}>
-                                                <Text style={{ color: '#7c3aed', fontSize: 16 }}>◷</Text>
+                                        {/* Row 2: Pending / Upcoming */}
+                                        <View style={styles.haQuickRow}>
+                                            <View style={[styles.haQuickIconBox, { backgroundColor: '#fff1dc' }]}>
+                                                <Text style={{ color: '#ee9d27', fontSize: 14, fontWeight: '700' }}>◷</Text>
                                             </View>
-                                            <View style={{ flex: 1 }}>
-                                                <Text style={{ fontWeight: '700', fontSize: 14, color: '#0f172a' }}>Pending</Text>
-                                                <Text style={{ fontSize: 12, color: '#64748b' }}>Upcoming appointments</Text>
+                                            <View style={styles.haQuickText}>
+                                                <Text style={styles.haQuickTitle}>Pending / Upcoming</Text>
+                                                <Text style={styles.haQuickSubtitle}>Upcoming appointments</Text>
                                             </View>
-                                            <Text style={{ fontSize: 18, fontWeight: '800', color: '#0f172a' }}>
+                                            <Text style={styles.haQuickCount}>
                                                 {hospitalStats?.stats?.pendingAppointments ?? 0}
                                             </Text>
                                         </View>
 
-                                        <View style={styles.quickSummaryRow}>
-                                            <View style={[styles.quickSummaryIconWrap, { backgroundColor: '#fce7f3' }]}>
-                                                <Text style={{ color: '#db2777', fontSize: 16 }}>🧪</Text>
+                                        {/* Row 3: Lab Reports */}
+                                        <View style={styles.haQuickRow}>
+                                            <View style={[styles.haQuickIconBox, { backgroundColor: '#eaf1ff' }]}>
+                                                <Text style={{ color: '#4c75ed', fontSize: 14, fontWeight: '700' }}>♜</Text>
                                             </View>
-                                            <View style={{ flex: 1 }}>
-                                                <Text style={{ fontWeight: '700', fontSize: 14, color: '#0f172a' }}>Lab Reports</Text>
-                                                <Text style={{ fontSize: 12, color: '#64748b' }}>Pending test reports</Text>
+                                            <View style={styles.haQuickText}>
+                                                <Text style={styles.haQuickTitle}>Lab Reports</Text>
+                                                <Text style={styles.haQuickSubtitle}>Pending reports</Text>
                                             </View>
-                                            <Text style={{ fontSize: 18, fontWeight: '800', color: '#0f172a' }}>
+                                            <Text style={styles.haQuickCount}>
                                                 {hospitalStats?.stats?.pendingLabReports ?? (hospitalStats?.stats?.labReportCount ?? 0)}
                                             </Text>
                                         </View>
 
-                                        <View style={styles.quickSummaryRow}>
-                                            <View style={[styles.quickSummaryIconWrap, { backgroundColor: '#ffedd5' }]}>
-                                                <Text style={{ color: '#ea580c', fontSize: 16 }}>📦</Text>
+                                        {/* Row 4: Pharmacy Orders */}
+                                        <View style={[styles.haQuickRow, { borderBottomWidth: 0 }]}>
+                                            <View style={[styles.haQuickIconBox, { backgroundColor: '#f1ebff' }]}>
+                                                <Text style={{ color: '#7a53e8', fontSize: 14, fontWeight: '700' }}>▣</Text>
                                             </View>
-                                            <View style={{ flex: 1 }}>
-                                                <Text style={{ fontWeight: '700', fontSize: 14, color: '#0f172a' }}>Pharmacy Orders</Text>
-                                                <Text style={{ fontSize: 12, color: '#64748b' }}>Active pharmacy queues</Text>
+                                            <View style={styles.haQuickText}>
+                                                <Text style={styles.haQuickTitle}>Pharmacy Orders</Text>
+                                                <Text style={styles.haQuickSubtitle}>Pending pharmacy orders</Text>
                                             </View>
-                                            <Text style={{ fontSize: 18, fontWeight: '800', color: '#0f172a' }}>
+                                            <Text style={styles.haQuickCount}>
                                                 {hospitalStats?.stats?.pharmacyOrderCount ?? 0}
                                             </Text>
                                         </View>
@@ -953,49 +1853,175 @@ const HospitalAdminDashboard = () => {
                         );
                     })()}
 
-                    {/* My Profile Card */}
-                    <View style={styles.adminCard}>
-                        <Text style={styles.cardTitle}>👤 My Profile</Text>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+                    {/* 1. Modern Glassmorphic "My Profile" Card (Matching Web ha-profile-modern-card) */}
+                    <View style={styles.haProfileModernCard}>
+                        <View style={styles.haCardHeaderWrap}>
+                            <View style={styles.haCardTitleBadge}>
+                                <Feather name="user" size={18} color="#2563eb" />
+                            </View>
                             <View>
+                                <Text style={styles.haCardTitle}>My Profile</Text>
+                                <View style={styles.haTitleUnderline} />
+                            </View>
+                        </View>
+
+                        <View style={styles.haProfileBody}>
+                            {/* Left: Avatar with Double Glow Rings & Edit Pencil Badge */}
+                            <View style={styles.haAvatarContainer}>
                                 {profileFile ? (
-                                    <Image source={{ uri: profileFile.uri }} style={styles.profileImage} />
+                                    <Image source={{ uri: profileFile.uri }} style={styles.haAvatarImg} />
                                 ) : currentUser?.avatar ? (
-                                    <Image source={{ uri: currentUser.avatar }} style={styles.profileImage} />
+                                    <Image source={{ uri: currentUser.avatar }} style={styles.haAvatarImg} />
                                 ) : (
-                                    <View style={styles.profileAvatarFallback}>
-                                        <Text style={styles.profileAvatarFallbackText}>{(currentUser?.name || 'A').charAt(0).toUpperCase()}</Text>
+                                    <View style={styles.haAvatarInitials}>
+                                        <Text style={styles.haAvatarInitialsText}>{(currentUser?.name || 'A').charAt(0).toUpperCase()}</Text>
                                     </View>
                                 )}
+                                <TouchableOpacity 
+                                    style={styles.haAvatarEditBadge} 
+                                    onPress={handlePickProfilePhoto}
+                                    activeOpacity={0.8}
+                                >
+                                    <Feather name="edit-2" size={12} color="#0284c7" />
+                                </TouchableOpacity>
                             </View>
-                            <View style={{ flex: 1 }}>
-                                <Text style={{ fontWeight: '700', fontSize: 17, color: '#1e293b', marginBottom: 4 }}>{currentUser?.name}</Text>
-                                <Text style={{ fontSize: 13, color: '#64748b', marginBottom: 12 }}>{currentUser?.email}</Text>
-                                <View style={{ flexDirection: 'row', gap: 10 }}>
-                                    <TouchableOpacity style={styles.btnSelectPhoto} onPress={handlePickProfilePhoto}>
-                                        <Text style={styles.btnSelectPhotoText}>📷 Choose Photo</Text>
+
+                            {/* Middle: User Info & Actions */}
+                            <View style={styles.haProfileInfoBlock}>
+                                <Text style={styles.haProfileName}>{currentUser?.name || 'Hospital Admin'}</Text>
+                                <Text style={styles.haProfileEmail}>{currentUser?.email || ''}</Text>
+                                
+                                <View style={styles.haProfileActions}>
+                                    <TouchableOpacity style={styles.haChoosePhotoBtn} onPress={handlePickProfilePhoto}>
+                                        <Feather name="camera" size={14} color="#334155" />
+                                        <Text style={styles.haChoosePhotoBtnText}>Choose Photo</Text>
                                     </TouchableOpacity>
+                                    
                                     {profileFile && (
-                                        <TouchableOpacity onPress={handleSaveProfilePhoto} disabled={savingProfile} style={styles.btnSave}>
-                                            <Text style={styles.btnSaveText}>{savingProfile ? 'Saving...' : 'Save Photo'}</Text>
+                                        <TouchableOpacity 
+                                            onPress={handleSaveProfilePhoto} 
+                                            disabled={savingProfile} 
+                                            style={styles.haSavePhotoBtn}
+                                        >
+                                            <Text style={styles.haSavePhotoBtnText}>{savingProfile ? 'Saving...' : 'Save Photo'}</Text>
                                         </TouchableOpacity>
                                     )}
                                 </View>
                             </View>
+
+                            {/* Right: 3D Holographic AI Security Shield & Floating Orbs (Desktop Only) */}
+                            {!isMobile && (
+                                <View style={styles.haProfileSecurityShield}>
+                                    <Svg viewBox="0 0 280 180" width={220} height={140} fill="none">
+                                        <Defs>
+                                            <LinearGradient id="shieldGrad" x1="0" y1="0" x2="1" y2="1">
+                                                <Stop offset="0%" stopColor="#e0f2fe" stopOpacity="0.8" />
+                                                <Stop offset="100%" stopColor="#bae6fd" stopOpacity="0.2" />
+                                            </LinearGradient>
+                                            <LinearGradient id="userGlowGrad" x1="0" y1="0" x2="0" y2="1">
+                                                <Stop offset="0%" stopColor="#0ea5e9" />
+                                                <Stop offset="100%" stopColor="#3b82f6" />
+                                            </LinearGradient>
+                                        </Defs>
+
+                                        {/* Planetary Orbit Rings */}
+                                        <Ellipse cx="140" cy="90" rx="105" ry="42" stroke="#38bdf8" strokeWidth={1.2} strokeDasharray="3 4" transform="rotate(-15 140 90)" opacity={0.6} />
+                                        <Ellipse cx="140" cy="90" rx="95" ry="36" stroke="#60a5fa" strokeWidth={1.2} transform="rotate(25 140 90)" opacity={0.5} />
+                                        <Circle cx="140" cy="90" r="70" fill="none" stroke="#e0f2fe" strokeWidth={1} opacity={0.4} />
+
+                                        {/* Central Security Shield */}
+                                        <Path d="M 140 32 C 168 32 186 44 192 62 C 192 108 158 140 140 152 C 122 140 88 108 88 62 C 94 44 112 32 140 32 Z"
+                                            fill="url(#shieldGrad)" stroke="#38bdf8" strokeWidth={1.8} strokeLinejoin="round" />
+
+                                        {/* User Silhouette Inside Shield */}
+                                        <Circle cx="140" cy="74" r="16" stroke="url(#userGlowGrad)" strokeWidth={3} fill="none" />
+                                        <Path d="M 118 122 C 118 104 128 98 140 98 C 152 98 162 104 162 122" stroke="url(#userGlowGrad)" strokeWidth={3} strokeLinecap="round" fill="none" />
+
+                                        {/* Floating Micro Orbs */}
+                                        {/* Heartbeat Orb */}
+                                        <G transform="translate(68, 38)">
+                                            <Circle cx="14" cy="14" r="14" fill="#eff6ff" stroke="#93c5fd" strokeWidth={1.2} />
+                                            <Path d="M 8 15 L 11 15 L 13 11 L 15 18 L 17 13 L 19 15 L 21 15" stroke="#0284c7" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                                        </G>
+
+                                        {/* Users Group Orb */}
+                                        <G transform="translate(208, 118)">
+                                            <Circle cx="14" cy="14" r="14" fill="#ecfeff" stroke="#a5f3fc" strokeWidth={1.2} />
+                                            <Path d="M 11 12 A 3 3 0 1 0 11 6 A 3 3 0 1 0 11 12 Z M 17 11 A 2.5 2.5 0 1 0 17 6 M 6 20 C 6 17 8.5 15 11 15 C 13.5 15 16 17 16 20 M 16 15 C 18 15 21 16.5 21 19"
+                                                stroke="#0891b2" strokeWidth={1.6} strokeLinecap="round" fill="none" />
+                                        </G>
+
+                                        {/* Particle Sparkles */}
+                                        <Circle cx="64" cy="132" r="3" fill="#38bdf8" />
+                                        <Circle cx="218" cy="46" r="2.5" fill="#60a5fa" />
+                                        <Path d="M 52 74 L 56 74 M 54 72 L 54 76" stroke="#93c5fd" strokeWidth={1.5} strokeLinecap="round" />
+                                        <Path d="M 235 94 L 239 94 M 237 92 L 237 96" stroke="#93c5fd" strokeWidth={1.5} strokeLinecap="round" />
+                                    </Svg>
+                                </View>
+                            )}
                         </View>
                     </View>
 
-                    {/* Hospital Info */}
+                    {/* 2. Modern Glassmorphic "My Hospital" Card (Matching Web ha-hospital-modern-card) */}
                     {hospitalInfo && (
-                        <View style={styles.adminCard}>
-                            <Text style={styles.cardTitle}>🏥 My Hospital</Text>
-                            <View style={styles.haHospitalInfo}>
-                                <Text style={styles.hospitalInfoText}><Text style={styles.hospitalInfoBold}>Name:</Text> {hospitalInfo.name}</Text>
-                                {hospitalInfo.city && <Text style={styles.hospitalInfoText}><Text style={styles.hospitalInfoBold}>City:</Text> {hospitalInfo.city}{hospitalInfo.state ? `, ${hospitalInfo.state}` : ''}</Text>}
-                                {hospitalInfo.phone && <Text style={styles.hospitalInfoText}><Text style={styles.hospitalInfoBold}>Phone:</Text> {hospitalInfo.phone}</Text>}
-                                {hospitalInfo.email && <Text style={styles.hospitalInfoText}><Text style={styles.hospitalInfoBold}>Email:</Text> {hospitalInfo.email}</Text>}
-                                {hospitalInfo.address && <Text style={styles.hospitalInfoText}><Text style={styles.hospitalInfoBold}>Address:</Text> {hospitalInfo.address}</Text>}
-                                <Text style={styles.hospitalInfoText}><Text style={styles.hospitalInfoBold}>Facilities:</Text> {hospitalInfo.facilities?.length || 0} configured</Text>
+                        <View style={styles.haHospitalModernCard}>
+                            <View style={styles.haCardHeaderWrap}>
+                                <View style={styles.haCardTitleBadge}>
+                                    <Feather name="home" size={18} color="#2563eb" />
+                                </View>
+                                <View>
+                                    <Text style={styles.haCardTitle}>My Hospital</Text>
+                                    <View style={styles.haTitleUnderline} />
+                                </View>
+                            </View>
+
+                            {/* 4-Column Structured Glass Pill Bar */}
+                            <View style={styles.haHospitalPillGrid}>
+                                {/* Col 1: Name */}
+                                <View style={styles.haHospitalPillCol}>
+                                    <View style={[styles.haHospitalIconBadge, { backgroundColor: '#eff6ff' }]}>
+                                        <Feather name="activity" size={18} color="#0284c7" />
+                                    </View>
+                                    <View style={styles.haHospitalPillInfo}>
+                                        <Text style={styles.haHospitalPillLabel}>Name</Text>
+                                        <Text style={styles.haHospitalPillValue} numberOfLines={1}>{hospitalInfo.name || '—'}</Text>
+                                    </View>
+                                </View>
+
+                                {/* Col 2: City */}
+                                <View style={styles.haHospitalPillCol}>
+                                    <View style={[styles.haHospitalIconBadge, { backgroundColor: '#eff6ff' }]}>
+                                        <Feather name="map-pin" size={18} color="#3b82f6" />
+                                    </View>
+                                    <View style={styles.haHospitalPillInfo}>
+                                        <Text style={styles.haHospitalPillLabel}>City</Text>
+                                        <Text style={styles.haHospitalPillValue} numberOfLines={1}>
+                                            {hospitalInfo.city ? `${hospitalInfo.city}${hospitalInfo.state ? `, ${hospitalInfo.state}` : ''}` : (hospitalInfo.address || '—')}
+                                        </Text>
+                                    </View>
+                                </View>
+
+                                {/* Col 3: Phone */}
+                                <View style={styles.haHospitalPillCol}>
+                                    <View style={[styles.haHospitalIconBadge, { backgroundColor: '#f0fdf4' }]}>
+                                        <Feather name="phone" size={18} color="#0d9488" />
+                                    </View>
+                                    <View style={styles.haHospitalPillInfo}>
+                                        <Text style={styles.haHospitalPillLabel}>Phone</Text>
+                                        <Text style={styles.haHospitalPillValue} numberOfLines={1}>{hospitalInfo.phone || '—'}</Text>
+                                    </View>
+                                </View>
+
+                                {/* Col 4: Email */}
+                                <View style={styles.haHospitalPillCol}>
+                                    <View style={[styles.haHospitalIconBadge, { backgroundColor: '#eff6ff' }]}>
+                                        <Feather name="mail" size={18} color="#0284c7" />
+                                    </View>
+                                    <View style={styles.haHospitalPillInfo}>
+                                        <Text style={styles.haHospitalPillLabel}>Email</Text>
+                                        <Text style={styles.haHospitalPillValue} numberOfLines={1}>{hospitalInfo.email || '—'}</Text>
+                                    </View>
+                                </View>
                             </View>
                         </View>
                     )}
@@ -1251,7 +2277,12 @@ const HospitalAdminDashboard = () => {
                                         </View>
                                         <View style={styles.formGroup}>
                                             <Text style={styles.staffLabel}>Expiry Date *</Text>
-                                            <TextInput style={styles.staffInput} placeholder="YYYY-MM-DD" value={inventoryForm.expiryDate} onChangeText={t => setInventoryForm({ ...inventoryForm, expiryDate: t })} />
+                                            <DatePickerInput
+                                                value={inventoryForm.expiryDate}
+                                                onChange={t => setInventoryForm({ ...inventoryForm, expiryDate: t })}
+                                                placeholder="YYYY-MM-DD"
+                                                title="Select Expiry Date"
+                                            />
                                         </View>
                                         <View style={styles.formGroup}>
                                             <Text style={styles.staffLabel}>Vendor / Supplier</Text>
@@ -1471,6 +2502,13 @@ const HospitalAdminDashboard = () => {
                 </View>
             )}
 
+            {/* ===================== AI INTELLIGENCE TAB ===================== */}
+            {activeTab === 'aiwallet' && (
+                <View>
+                    {renderAIIntelligenceContent(false)}
+                </View>
+            )}
+
             {/* ===================== ACCOUNTS TAB ===================== */}
             {activeTab === 'accounts' && (
                 <View>
@@ -1532,9 +2570,26 @@ const HospitalAdminDashboard = () => {
                                 )}
                             </View>
                         )}
+
+                        {accountsSubTab === 'bank' && (
+                            <View style={{ padding: 40, alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 8, borderColor: '#e2e8f0', borderWidth: 1 }}>
+                                <Text style={{ fontSize: 44, marginBottom: 12 }}>🏦</Text>
+                                <Text style={{ fontSize: 18, fontWeight: '700', color: '#0f172a', marginBottom: 6 }}>Bank Transfers Integration</Text>
+                                <Text style={{ fontSize: 14, color: '#64748b' }}>This feature is coming soon.</Text>
+                            </View>
+                        )}
+
+                        {accountsSubTab === 'card' && (
+                            <View style={{ padding: 40, alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 8, borderColor: '#e2e8f0', borderWidth: 1 }}>
+                                <Text style={{ fontSize: 44, marginBottom: 12 }}>💳</Text>
+                                <Text style={{ fontSize: 18, fontWeight: '700', color: '#0f172a', marginBottom: 6 }}>Card Payment Gateways</Text>
+                                <Text style={{ fontSize: 14, color: '#64748b' }}>This feature is coming soon.</Text>
+                            </View>
+                        )}
                     </View>
                 </View>
             )}
+
 
             {/* EDIT USER MODAL */}
             <Modal visible={editModal} transparent={true} animationType="fade">
@@ -1583,12 +2638,1078 @@ const HospitalAdminDashboard = () => {
                 </View>
             </Modal>
 
+            {/* ===================== AI INTELLIGENCE & DOCTOR TRACKING MODAL ===================== */}
+            <Modal
+                visible={showAIDoctorModal}
+                transparent={true}
+                animationType="fade"
+                onRequestClose={() => setShowAIDoctorModal(false)}
+            >
+                <TouchableOpacity 
+                    style={styles.modalOverlay} 
+                    activeOpacity={1} 
+                    onPress={() => setShowAIDoctorModal(false)}
+                >
+                    <TouchableOpacity 
+                        activeOpacity={1} 
+                        onPress={e => e.stopPropagation()} 
+                        style={styles.haAiModalWrapper}
+                    >
+                        <ScrollView showsVerticalScrollIndicator={false}>
+                            {renderAIIntelligenceContent(true)}
+                        </ScrollView>
+                    </TouchableOpacity>
+                </TouchableOpacity>
+            </Modal>
+
             <View style={{ height: 100 }} />
         </ScrollView>
     );
 };
 
 const styles = StyleSheet.create({
+    // --- Web Parity Hero Banner (Matching Web ha-ai-hero-banner) ---
+    haAiHeroBannerWrapper: {
+        marginBottom: 20,
+        width: '100%',
+    },
+    haAiHeroBanner: {
+        borderRadius: 22,
+        borderWidth: 1.5,
+        borderColor: 'rgba(226, 232, 240, 0.8)',
+        paddingVertical: 26,
+        paddingHorizontal: 32,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        overflow: 'hidden',
+        shadowColor: '#0ea5e9',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.08,
+        shadowRadius: 30,
+        elevation: 4,
+        position: 'relative',
+    },
+    haAiCircuitBg: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        pointerEvents: 'none',
+    },
+    haAiHeroLeft: {
+        flex: 1,
+        zIndex: 3,
+        maxWidth: 620,
+    },
+    haAiHeroTitle: {
+        fontSize: 28,
+        fontWeight: '900',
+        color: '#0f172a',
+        marginBottom: 8,
+        letterSpacing: -0.5,
+        lineHeight: 34,
+    },
+    haAiSubtitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    haSubtitlePulseDot: {
+        width: 7,
+        height: 7,
+        borderRadius: 3.5,
+        backgroundColor: '#8b5cf6',
+        shadowColor: '#8b5cf6',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.9,
+        shadowRadius: 8,
+        elevation: 3,
+    },
+    haAiHeroSubtitle: {
+        fontSize: 14,
+        color: '#475569',
+        fontWeight: '600',
+        lineHeight: 20,
+    },
+    haAiRightBuilding: {
+        position: 'absolute',
+        right: 0,
+        top: 0,
+        bottom: 0,
+        width: 360,
+        height: '100%',
+        zIndex: 2,
+        pointerEvents: 'none',
+        justifyContent: 'flex-end',
+    },
+    haAiHospitalImg: {
+        width: '100%',
+        height: '100%',
+        borderBottomRightRadius: 22,
+    },
+    haAiHospitalFadeOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+    },
+
+    // --- Web Parity Floating Tabs Card (Matching Web ha-ai-tabs-card) ---
+    haAiTabsCardWrapper: {
+        marginBottom: 16,
+        width: '100%',
+    },
+    haAiTabsCard: {
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: '#c7d2fe',
+        paddingVertical: 6,
+        paddingHorizontal: 8,
+        shadowColor: '#6366f1',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.07,
+        shadowRadius: 20,
+        elevation: 3,
+        position: 'relative',
+        overflow: 'hidden',
+    },
+    haAiTabsScroll: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        width: '100%',
+    },
+    haAiTabBtn: {
+        flex: 1,
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 4,
+        paddingVertical: 6,
+        paddingHorizontal: 6,
+        paddingBottom: 8,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: 'transparent',
+        backgroundColor: 'transparent',
+        position: 'relative',
+    },
+    haAiTabBtnActive: {
+        backgroundColor: '#ffffff',
+        borderColor: '#38bdf8',
+        shadowColor: '#0ea5e9',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.22,
+        shadowRadius: 16,
+        elevation: 2,
+    },
+    haAiTabIconWrap: {
+        width: 32,
+        height: 32,
+        borderRadius: 8,
+        backgroundColor: '#f8fafc',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        alignItems: 'center',
+        justifyContent: 'center',
+        shadowColor: '#0f172a',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.04,
+        shadowRadius: 4,
+    },
+    haAiTabIconWrapActive: {
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#38bdf8',
+        shadowColor: '#2563eb',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.45,
+        shadowRadius: 12,
+        elevation: 4,
+    },
+    haAiTabLabel: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#64748b',
+        textAlign: 'center',
+    },
+    haAiTabLabelActive: {
+        color: '#0284c7',
+        fontWeight: '800',
+    },
+    haActiveNeonSlider: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        height: 2.5,
+        borderBottomLeftRadius: 10,
+        borderBottomRightRadius: 10,
+        overflow: 'hidden',
+        shadowColor: '#3b82f6',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.8,
+        shadowRadius: 8,
+    },
+    haPattiFullBeam: {
+        position: 'absolute',
+        bottom: 0,
+        height: 2,
+        width: 260,
+        shadowColor: '#8b5cf6',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.9,
+        shadowRadius: 8,
+    },
+
+    // --- Web Parity Analytics Timeframe Bar ---
+    haAiTimeframeBar: {
+        backgroundColor: '#ffffff',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        borderRadius: 14,
+        padding: 14,
+        marginBottom: 20,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: 14,
+        shadowColor: '#0f172a',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.03,
+        shadowRadius: 8,
+        elevation: 1,
+    },
+    haAiTimeframeTitle: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    haAiTimeframeTitleText: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: '#0f172a',
+    },
+    haAiTimeframeControls: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: 12,
+    },
+    haAiCustomDateInputs: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    haAiDatePicker: {
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        borderRadius: 8,
+        paddingVertical: 6,
+        paddingHorizontal: 10,
+        fontSize: 12,
+        color: '#1e293b',
+        backgroundColor: '#f8fafc',
+        width: 110,
+    },
+    haAiApplyBtn: {
+        backgroundColor: '#2563eb',
+        paddingVertical: 7,
+        paddingHorizontal: 14,
+        borderRadius: 8,
+    },
+    haAiApplyBtnText: {
+        color: '#ffffff',
+        fontSize: 12,
+        fontWeight: '700',
+    },
+    haAiPresetPills: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        flexWrap: 'wrap',
+    },
+    haAiPresetBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        backgroundColor: '#f8fafc',
+        paddingVertical: 7,
+        paddingHorizontal: 12,
+        borderRadius: 8,
+    },
+    haAiApplyCustomBtn: {
+        backgroundColor: '#eff6ff',
+        borderColor: '#bfdbfe',
+    },
+    haAiPresetBtnActive: {
+        backgroundColor: '#2563eb',
+        borderColor: '#2563eb',
+    },
+    haAiPresetBtnText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#475569',
+    },
+    haAiPresetBtnTextActive: {
+        color: '#ffffff',
+        fontWeight: '700',
+    },
+    haAiCustomBadgeDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: '#ffffff',
+        marginLeft: 6,
+    },
+    haAiRefreshBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        backgroundColor: '#ffffff',
+        paddingVertical: 7,
+        paddingHorizontal: 12,
+        borderRadius: 8,
+    },
+    haAiRefreshBtnActive: {
+        backgroundColor: '#f1f5f9',
+    },
+    haAiRefreshBtnText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#334155',
+    },
+
+    // Custom Date Range Modal
+    haCustomDateModalBackdrop: {
+        flex: 1,
+        backgroundColor: 'rgba(15, 23, 42, 0.45)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 16,
+    },
+    haCustomDateModalCard: {
+        width: '100%',
+        maxWidth: 440,
+        backgroundColor: '#ffffff',
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        shadowColor: '#0f172a',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.15,
+        shadowRadius: 20,
+        elevation: 8,
+        overflow: 'hidden',
+    },
+    haCustomModalHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: 18,
+        borderBottomWidth: 1,
+        borderBottomColor: '#f1f5f9',
+    },
+    haCustomModalTitle: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        flex: 1,
+    },
+    haModalTitleIconBox: {
+        width: 36,
+        height: 36,
+        borderRadius: 10,
+        backgroundColor: '#eff6ff',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    haCustomModalTitleText: {
+        fontSize: 15,
+        fontWeight: '800',
+        color: '#0f172a',
+    },
+    haCustomModalSubtitle: {
+        fontSize: 11,
+        color: '#64748b',
+        marginTop: 2,
+    },
+    haCustomModalClose: {
+        width: 30,
+        height: 30,
+        borderRadius: 15,
+        backgroundColor: '#f1f5f9',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    haCustomModalBody: {
+        padding: 18,
+    },
+    haDateInputsRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        marginBottom: 16,
+    },
+    haDateFieldGroup: {
+        flex: 1,
+    },
+    haDateFieldLabel: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#475569',
+        marginBottom: 6,
+    },
+    haDateInputField: {
+        borderWidth: 1,
+        borderColor: '#cbd5e1',
+        borderRadius: 8,
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        fontSize: 13,
+        color: '#0f172a',
+        backgroundColor: '#ffffff',
+    },
+    haDateArrowSeparator: {
+        paddingTop: 18,
+    },
+    haModalQuickPresets: {
+        borderTopWidth: 1,
+        borderTopColor: '#f1f5f9',
+        paddingTop: 14,
+    },
+    haQuickPresetsTitle: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#64748b',
+        marginBottom: 8,
+    },
+    haQuickPresetChips: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+    },
+    haQuickChip: {
+        paddingVertical: 5,
+        paddingHorizontal: 10,
+        borderRadius: 6,
+        backgroundColor: '#f1f5f9',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+    },
+    haQuickChipActive: {
+        backgroundColor: '#2563eb',
+        borderColor: '#2563eb',
+    },
+    haQuickChipText: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#475569',
+    },
+    haQuickChipTextActive: {
+        color: '#ffffff',
+        fontWeight: '700',
+    },
+    haCustomModalFooter: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+        gap: 10,
+        padding: 16,
+        backgroundColor: '#f8fafc',
+        borderTopWidth: 1,
+        borderTopColor: '#f1f5f9',
+    },
+    haBtnModalReset: {
+        paddingVertical: 8,
+        paddingHorizontal: 14,
+        borderRadius: 8,
+        backgroundColor: '#ffffff',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+    },
+    haBtnModalResetText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#64748b',
+    },
+    haBtnModalApply: {
+        paddingVertical: 8,
+        paddingHorizontal: 16,
+        borderRadius: 8,
+        backgroundColor: '#2563eb',
+    },
+    haBtnModalApplyText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#ffffff',
+    },
+
+    // --- Web Parity 5 KPI Metric Cards (Matching Web ha-ai-kpis-grid) ---
+    haAiKpisGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 14,
+        marginBottom: 18,
+        width: '100%',
+    },
+    haAiKpiCard: {
+        borderRadius: 16,
+        borderWidth: 1.5,
+        paddingVertical: 15,
+        paddingHorizontal: 18,
+        justifyContent: 'space-between',
+        gap: 12,
+        shadowColor: '#0f172a',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.05,
+        shadowRadius: 16,
+        elevation: 2,
+        overflow: 'hidden',
+    },
+    haAiKpiHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+    },
+    haAiKpiIconBoxGrad: {
+        width: 38,
+        height: 38,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+        shadowColor: '#0f172a',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.25,
+        shadowRadius: 8,
+        elevation: 3,
+    },
+    haAiKpiMeta: {
+        flex: 1,
+    },
+    haAiKpiLabel: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#475569',
+        textTransform: 'uppercase',
+        letterSpacing: 0.3,
+        marginBottom: 2,
+    },
+    haAiKpiVal: {
+        fontSize: 22,
+        fontWeight: '800',
+        letterSpacing: -0.4,
+        lineHeight: 26,
+    },
+    haAiKpiFooter: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 8,
+        paddingTop: 6,
+        borderTopWidth: 1,
+        borderTopColor: 'rgba(0, 0, 0, 0.05)',
+    },
+    haAiKpiTrendBadge: {
+        paddingVertical: 2,
+        paddingHorizontal: 8,
+        borderRadius: 20,
+    },
+    haAiKpiTrend: {
+        fontSize: 11,
+        fontWeight: '800',
+    },
+
+    // --- Dedicated Hospital AI Credits Banner Card (Matching Web ha-ai-metric-card card-remaining) ---
+    haAiCreditsBannerWrapper: {
+        marginBottom: 18,
+        width: '100%',
+    },
+    haAiCreditsBannerCard: {
+        borderRadius: 18,
+        borderWidth: 1.5,
+        borderColor: '#dbeafe',
+        backgroundColor: '#ffffff',
+        shadowColor: '#0f172a',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.04,
+        shadowRadius: 16,
+        elevation: 2,
+        overflow: 'hidden',
+    },
+    haAiCreditsTopBar: {
+        height: 4,
+        width: '100%',
+    },
+    haAiCreditsContent: {
+        padding: 18,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: 16,
+    },
+    haAiCreditsLeft: {
+        flex: 1,
+        minWidth: 260,
+    },
+    haAiCreditsHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        marginBottom: 10,
+    },
+    haAiCreditsIconBox: {
+        width: 38,
+        height: 38,
+        borderRadius: 10,
+        backgroundColor: '#eff6ff',
+        borderWidth: 1,
+        borderColor: '#bfdbfe',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    haAiCreditsLabel: {
+        fontSize: 12,
+        fontWeight: '800',
+        color: '#64748b',
+        letterSpacing: 0.5,
+    },
+    haAiCreditsBadge: {
+        paddingVertical: 2,
+        paddingHorizontal: 8,
+        borderRadius: 8,
+        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    },
+    haAiCreditsBadgeText: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#2563eb',
+    },
+    haAiCreditsSub: {
+        fontSize: 12,
+        color: '#64748b',
+        marginTop: 2,
+    },
+    haAiCreditsValRow: {
+        flexDirection: 'row',
+        alignItems: 'baseline',
+        flexWrap: 'wrap',
+        gap: 8,
+        marginTop: 4,
+    },
+    haAiCreditsVal: {
+        fontSize: 26,
+        fontWeight: '900',
+        color: '#1d4ed8',
+        letterSpacing: -0.5,
+    },
+    haAiCreditsUnit: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#64748b',
+    },
+    haAiCreditsPillGreen: {
+        paddingVertical: 3,
+        paddingHorizontal: 8,
+        borderRadius: 20,
+        backgroundColor: '#dcfce7',
+    },
+    haAiCreditsPillGreenText: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#16a34a',
+    },
+    haAiCreditsUsedText: {
+        fontSize: 12,
+        color: '#64748b',
+        fontWeight: '600',
+    },
+    haAiCreditsRight: {
+        alignSelf: 'auto',
+    },
+    haAiCreditsManageBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        backgroundColor: '#2563eb',
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        borderRadius: 10,
+        shadowColor: '#2563eb',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 6,
+        elevation: 2,
+    },
+    haAiCreditsManageBtnText: {
+        color: '#ffffff',
+        fontSize: 13,
+        fontWeight: '700',
+    },
+
+    // --- Web Parity Bottom Panels Grid (Matching Web .bottom) ---
+    haBottomGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 15,
+        marginTop: 16,
+        marginBottom: 24,
+    },
+    haChartPanel: {
+        flex: 1.55,
+        minWidth: 320,
+        minHeight: 300,
+        padding: 18,
+        borderWidth: 1,
+        borderColor: '#dfecec',
+        borderRadius: 19,
+        backgroundColor: '#ffffff',
+        shadowColor: '#235e64',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.06,
+        shadowRadius: 28,
+        elevation: 3,
+    },
+    haSummaryPanel: {
+        flex: 0.85,
+        minWidth: 260,
+        minHeight: 300,
+        padding: 18,
+        borderWidth: 1,
+        borderColor: '#dfecec',
+        borderRadius: 19,
+        backgroundColor: '#ffffff',
+        shadowColor: '#235e64',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.06,
+        shadowRadius: 28,
+        elevation: 3,
+    },
+    haPanelHead: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 12,
+    },
+    haPanelTitle: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 9,
+    },
+    haMiniIconBox: {
+        width: 31,
+        height: 31,
+        borderRadius: 9,
+        backgroundColor: '#edf2ff',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    haPanelTitleText: {
+        fontSize: 15,
+        fontWeight: '800',
+        color: '#17324d',
+    },
+    haChartRangeRow: {
+        flexDirection: 'row',
+        gap: 6,
+    },
+    haRangePill: {
+        paddingVertical: 6,
+        paddingHorizontal: 10,
+        borderWidth: 1,
+        borderColor: '#e0e8ed',
+        borderRadius: 9,
+        backgroundColor: '#ffffff',
+    },
+    haRangePillActive: {
+        backgroundColor: '#eff6ff',
+        borderColor: '#3b82f6',
+    },
+    haRangePillText: {
+        fontSize: 10,
+        fontWeight: '600',
+        color: '#536b7e',
+    },
+    haRangePillTextActive: {
+        color: '#1d4ed8',
+        fontWeight: '700',
+    },
+    haChartContainer: {
+        height: 215,
+        marginTop: 18,
+        position: 'relative',
+        paddingLeft: 35,
+        paddingRight: 8,
+    },
+    haGridline: {
+        position: 'absolute',
+        left: 35,
+        right: 8,
+        borderTopWidth: 1,
+        borderTopColor: '#edf1f4',
+    },
+    haLineSvg: {
+        width: '100%',
+        height: '100%',
+        zIndex: 2,
+    },
+    haChartDatesRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        paddingLeft: 35,
+        paddingRight: 10,
+        marginTop: 6,
+    },
+    haChartDateText: {
+        fontSize: 10,
+        fontWeight: '600',
+        color: '#91a0ad',
+    },
+    haQuickList: {
+        marginTop: 16,
+    },
+    haQuickRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 11,
+        paddingVertical: 12,
+        paddingHorizontal: 5,
+        borderBottomWidth: 1,
+        borderBottomColor: '#edf1f3',
+    },
+    haQuickIconBox: {
+        width: 35,
+        height: 35,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    haQuickText: {
+        flex: 1,
+    },
+    haQuickTitle: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#1e293b',
+    },
+    haQuickSubtitle: {
+        fontSize: 9,
+        color: '#8b9ba8',
+        marginTop: 3,
+    },
+    haQuickCount: {
+        fontSize: 13,
+        fontWeight: '800',
+        color: '#0f172a',
+    },
+
+    // --- Web Parity Profile & Hospital Cards ---
+    haProfileModernCard: {
+        backgroundColor: '#ffffff',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        borderRadius: 20,
+        padding: 24,
+        marginBottom: 20,
+        shadowColor: '#0f172a',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.03,
+        shadowRadius: 12,
+        elevation: 2,
+    },
+    haCardHeaderWrap: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        marginBottom: 20,
+    },
+    haCardTitleBadge: {
+        width: 36,
+        height: 36,
+        borderRadius: 10,
+        backgroundColor: '#eff6ff',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    haCardTitle: {
+        fontSize: 18,
+        fontWeight: '800',
+        color: '#0f172a',
+    },
+    haTitleUnderline: {
+        width: 28,
+        height: 3,
+        borderRadius: 2,
+        backgroundColor: '#3b82f6',
+        marginTop: 3,
+    },
+    haProfileBody: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: 20,
+    },
+    haAvatarContainer: {
+        position: 'relative',
+        width: 76,
+        height: 76,
+    },
+    haAvatarImg: {
+        width: 76,
+        height: 76,
+        borderRadius: 38,
+        borderWidth: 3,
+        borderColor: '#38bdf8',
+    },
+    haAvatarInitials: {
+        width: 76,
+        height: 76,
+        borderRadius: 38,
+        backgroundColor: '#eff6ff',
+        borderWidth: 3,
+        borderColor: '#93c5fd',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    haAvatarInitialsText: {
+        fontSize: 28,
+        fontWeight: '800',
+        color: '#0284c7',
+    },
+    haAvatarEditBadge: {
+        position: 'absolute',
+        bottom: 0,
+        right: 0,
+        width: 26,
+        height: 26,
+        borderRadius: 13,
+        backgroundColor: '#ffffff',
+        borderWidth: 1.5,
+        borderColor: '#bae6fd',
+        alignItems: 'center',
+        justifyContent: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 2,
+    },
+    haProfileInfoBlock: {
+        flex: 1,
+        minWidth: 200,
+    },
+    haProfileName: {
+        fontSize: 18,
+        fontWeight: '800',
+        color: '#0f172a',
+        marginBottom: 2,
+    },
+    haProfileEmail: {
+        fontSize: 13,
+        color: '#64748b',
+        marginBottom: 12,
+    },
+    haProfileActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        flexWrap: 'wrap',
+    },
+    haChoosePhotoBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        paddingVertical: 7,
+        paddingHorizontal: 14,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#cbd5e1',
+        backgroundColor: '#f8fafc',
+    },
+    haChoosePhotoBtnText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#334155',
+    },
+    haSavePhotoBtn: {
+        backgroundColor: '#0284c7',
+        paddingVertical: 7,
+        paddingHorizontal: 16,
+        borderRadius: 8,
+    },
+    haSavePhotoBtnText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#ffffff',
+    },
+    haProfileSecurityShield: {
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+
+    haHospitalModernCard: {
+        backgroundColor: '#ffffff',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        borderRadius: 20,
+        padding: 24,
+        marginBottom: 20,
+        shadowColor: '#0f172a',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.03,
+        shadowRadius: 12,
+        elevation: 2,
+    },
+    haHospitalPillGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 12,
+    },
+    haHospitalPillCol: {
+        flex: 1,
+        minWidth: 180,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        backgroundColor: '#f8fafc',
+        borderWidth: 1,
+        borderColor: '#f1f5f9',
+        borderRadius: 14,
+        paddingVertical: 12,
+        paddingHorizontal: 14,
+    },
+    haHospitalIconBadge: {
+        width: 38,
+        height: 38,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    haHospitalPillInfo: {
+        flex: 1,
+    },
+    haHospitalPillLabel: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#94a3b8',
+        textTransform: 'uppercase',
+        letterSpacing: 0.4,
+    },
+    haHospitalPillValue: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#0f172a',
+        marginTop: 1,
+    },
+
     hospitaladminPage: {
         flex: 1,
         backgroundColor: '#f8fafc',
@@ -1881,6 +4002,775 @@ const styles = StyleSheet.create({
         paddingHorizontal: 20,
         alignItems: 'center',
         backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    },
+    td: {
+        color: '#0f172a',
+        fontSize: 14,
+    },
+    btnSave: {
+        backgroundColor: '#0d9488',
+        paddingVertical: 10,
+        paddingHorizontal: 20,
+        borderRadius: 8,
+    },
+    btnSaveSmall: {
+        backgroundColor: '#0d9488',
+        paddingVertical: 6,
+        paddingHorizontal: 12,
+        borderRadius: 6,
+    },
+    btnSaveText: {
+        color: 'white',
+        fontWeight: '600',
+        fontSize: 14,
+    },
+    btnCancel: {
+        backgroundColor: 'white',
+        borderColor: '#cbd5e1',
+        borderWidth: 1,
+        paddingVertical: 10,
+        paddingHorizontal: 20,
+        borderRadius: 8,
+    },
+    btnCancelText: {
+        color: '#64748b',
+        fontWeight: '600',
+        fontSize: 14,
+    },
+    btnEditSmall: {
+        backgroundColor: '#eff6ff',
+        borderColor: '#dbeafe',
+        borderWidth: 1,
+        paddingVertical: 6,
+        paddingHorizontal: 12,
+        borderRadius: 6,
+    },
+    btnDeleteSmall: {
+        backgroundColor: '#fef2f2',
+        borderColor: '#fee2e2',
+        borderWidth: 1,
+        paddingVertical: 6,
+        paddingHorizontal: 12,
+        borderRadius: 6,
+    },
+    btnOutline: {
+        backgroundColor: '#f8fafc',
+        borderColor: '#cbd5e1',
+        borderWidth: 1,
+        paddingVertical: 10,
+        paddingHorizontal: 20,
+        borderRadius: 8,
+    },
+    errorMessage: {
+        backgroundColor: '#fef2f2',
+        padding: 16,
+        borderRadius: 12,
+        marginBottom: 24,
+        borderColor: '#fee2e2',
+        borderWidth: 1,
+    },
+    errorMessageText: { color: '#ef4444', fontWeight: '600' },
+    successMessage: {
+        backgroundColor: '#f0fdfa',
+        padding: 16,
+        borderRadius: 12,
+        marginBottom: 24,
+        borderColor: '#ccfbf1',
+        borderWidth: 1,
+    },
+    successMessageText: { color: '#0d9488', fontWeight: '600' },
+    inventorySection: {
+        backgroundColor: 'white',
+        padding: 20,
+        borderRadius: 12,
+        borderColor: '#e2e8f0',
+        borderWidth: 1,
+        marginBottom: 20,
+    },
+    sectionHeader: {
+        fontSize: 14,
+        color: '#475569',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+        marginBottom: 16,
+        fontWeight: '700',
+    },
+    formRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 16,
+        marginBottom: 16,
+    },
+    formGroup: {
+        flex: 1,
+        minWidth: 200,
+    },
+    staffLabel: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#64748b',
+        textTransform: 'uppercase',
+        marginBottom: 8,
+    },
+    staffInput: {
+        width: '100%',
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        borderRadius: 8,
+        borderColor: '#cbd5e1',
+        borderWidth: 1,
+        backgroundColor: 'white',
+        color: '#0f172a',
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(15, 23, 42, 0.6)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20,
+    },
+    modalContent: {
+        backgroundColor: 'white',
+        borderRadius: 24,
+        padding: 30,
+        width: '100%',
+        maxWidth: 600,
+    },
+    modalTitle: {
+        fontSize: 22,
+        fontWeight: '800',
+        color: '#0f172a',
+        marginBottom: 20,
+    },
+    modalButtons: {
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+        gap: 12,
+        marginTop: 20,
+    },
+    dropdownMenu: {
+        position: 'absolute',
+        top: 50,
+        left: 0,
+        right: 0,
+        backgroundColor: '#fff',
+        borderColor: '#cbd5e1',
+        borderWidth: 1,
+        borderRadius: 8,
+        zIndex: 100,
+        elevation: 5,
+        maxHeight: 200,
+    },
+    dropdownItem: {
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#f1f5f9',
+    },
+    dropdownItemActive: {
+        backgroundColor: '#0d9488',
+    },
+    dropdownItemText: {
+        color: '#334155',
+        fontSize: 14,
+    },
+    dropdownItemTextActive: {
+        color: '#fff',
+    },
+
+    // --- Web Parity AI Intelligence & Doctor Credit Tracking ---
+    haAiIntelligenceContainer: {
+        width: '100%',
+        gap: 20,
+        marginBottom: 24,
+    },
+    haAiModalMode: {
+        padding: 4,
+    },
+    haAiModalWrapper: {
+        width: '95%',
+        maxWidth: 1040,
+        maxHeight: '90%',
+        backgroundColor: '#ffffff',
+        borderRadius: 24,
+        padding: 24,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        shadowColor: '#0f172a',
+        shadowOffset: { width: 0, height: 25 },
+        shadowOpacity: 0.25,
+        shadowRadius: 60,
+        elevation: 20,
+    },
+    haAiHeaderCard: {
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        padding: 20,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: 16,
+        shadowColor: '#0f172a',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.04,
+        shadowRadius: 16,
+        elevation: 2,
+    },
+    haAiHeaderLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 16,
+        flex: 1,
+        minWidth: 280,
+    },
+    haAiHeaderIconBox: {
+        width: 52,
+        height: 52,
+        borderRadius: 16,
+        borderWidth: 1.5,
+        borderColor: '#bfdbfe',
+        alignItems: 'center',
+        justifyContent: 'center',
+        shadowColor: '#3b82f6',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.12,
+        shadowRadius: 12,
+        elevation: 3,
+    },
+    haAiHeaderTitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        flexWrap: 'wrap',
+    },
+    haAiMainTitle: {
+        fontSize: 18,
+        fontWeight: '800',
+        color: '#0f172a',
+        letterSpacing: -0.3,
+    },
+    haAiHeaderDesc: {
+        fontSize: 13,
+        color: '#64748b',
+        fontWeight: '500',
+        marginTop: 4,
+        lineHeight: 18,
+    },
+    haAiStatusPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        paddingVertical: 3,
+        paddingHorizontal: 10,
+        borderRadius: 20,
+    },
+    haAiStatusPillActive: {
+        backgroundColor: '#ecfdf5',
+        borderWidth: 1,
+        borderColor: '#a7f3d0',
+    },
+    haAiStatusPillInactive: {
+        backgroundColor: '#fef2f2',
+        borderWidth: 1,
+        borderColor: '#fecaca',
+    },
+    haAiStatusDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: '#10b981',
+    },
+    haAiStatusPillText: {
+        fontSize: 11,
+        fontWeight: '700',
+        letterSpacing: 0.4,
+    },
+    haAiStatusPillTextActive: {
+        color: '#065f46',
+    },
+    haAiStatusPillTextInactive: {
+        color: '#991b1b',
+    },
+    haAiHeaderActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
+    haAiRefreshBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingVertical: 9,
+        paddingHorizontal: 16,
+        backgroundColor: '#ffffff',
+        borderWidth: 1.5,
+        borderColor: '#cbd5e1',
+        borderRadius: 12,
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.03,
+        shadowRadius: 6,
+        elevation: 1,
+    },
+    haAiRefreshBtnLabel: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#0f172a',
+    },
+    haAiModalCloseBtn: {
+        width: 38,
+        height: 38,
+        borderRadius: 12,
+        backgroundColor: '#f1f5f9',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    haAiModalCloseBtnText: {
+        color: '#64748b',
+        fontSize: 16,
+        fontWeight: '800',
+    },
+
+    // 4 Summary Metric Cards
+    haAiMetricsGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 16,
+    },
+    haAiMetricCard: {
+        flex: 1,
+        minWidth: 200,
+        borderRadius: 18,
+        paddingVertical: 20,
+        paddingHorizontal: 22,
+        backgroundColor: '#ffffff',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        position: 'relative',
+        overflow: 'hidden',
+        shadowColor: '#0f172a',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.04,
+        shadowRadius: 16,
+        elevation: 2,
+    },
+    haAiMetricTopBar: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        height: 4,
+    },
+    haAiCardRemaining: {
+        borderColor: '#dbeafe',
+        backgroundColor: '#ffffff',
+    },
+    haAiCardBudget: {
+        borderColor: '#ede9fe',
+        backgroundColor: '#ffffff',
+    },
+    haAiCardUsed: {
+        borderColor: '#ffedd5',
+        backgroundColor: '#ffffff',
+    },
+    haAiCardRequests: {
+        borderColor: '#dcfce7',
+        backgroundColor: '#ffffff',
+    },
+    haAiMetricHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 12,
+    },
+    haAiMetricLabel: {
+        fontSize: 12,
+        fontWeight: '800',
+        color: '#64748b',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+    },
+    haAiMetricBadge: {
+        paddingVertical: 2,
+        paddingHorizontal: 8,
+        borderRadius: 8,
+        backgroundColor: 'rgba(148, 163, 184, 0.12)',
+    },
+    haAiMetricBadgeText: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#475569',
+    },
+    haAiMetricValRow: {
+        flexDirection: 'row',
+        alignItems: 'baseline',
+        gap: 6,
+        marginBottom: 10,
+    },
+    haAiMetricNumber: {
+        fontSize: 24,
+        fontWeight: '900',
+        letterSpacing: -0.5,
+    },
+    haAiMetricUnit: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#64748b',
+        textTransform: 'uppercase',
+        letterSpacing: 0.4,
+    },
+    haAiMetricFooter: {
+        marginTop: 6,
+    },
+    haAiMetricPillGreen: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#059669',
+    },
+    haAiMetricSubtext: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#64748b',
+    },
+    haAiMetricPillOrange: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#ea580c',
+    },
+    haAiMetricPillTeal: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#0d9488',
+    },
+
+    // Doctor & Logs Section Cards
+    haAiSectionCard: {
+        backgroundColor: '#ffffff',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        borderRadius: 20,
+        padding: 22,
+        shadowColor: '#0f172a',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.04,
+        shadowRadius: 16,
+        elevation: 2,
+    },
+    haAiSectionHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 18,
+        flexWrap: 'wrap',
+        gap: 12,
+    },
+    haAiSectionTitle: {
+        fontSize: 16,
+        fontWeight: '800',
+        color: '#0f172a',
+        letterSpacing: -0.2,
+    },
+    haAiSectionSubtitle: {
+        fontSize: 13,
+        color: '#64748b',
+        fontWeight: '500',
+        marginTop: 3,
+    },
+    haAiSearchWrap: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        minWidth: 260,
+        position: 'relative',
+    },
+    haAiSearchIcon: {
+        position: 'absolute',
+        left: 12,
+        fontSize: 13,
+        zIndex: 2,
+    },
+    haAiSearchInput: {
+        width: '100%',
+        paddingVertical: 8,
+        paddingLeft: 34,
+        paddingRight: 34,
+        borderRadius: 12,
+        borderWidth: 1.5,
+        borderColor: '#cbd5e1',
+        fontSize: 13,
+        backgroundColor: '#ffffff',
+        color: '#0f172a',
+    },
+    haAiSearchClear: {
+        position: 'absolute',
+        right: 10,
+        zIndex: 2,
+        padding: 4,
+    },
+    haAiLoadingBox: {
+        padding: 40,
+        alignItems: 'center',
+        gap: 12,
+    },
+    haAiLoadingText: {
+        color: '#64748b',
+        fontSize: 13,
+        fontWeight: '600',
+    },
+    haAiEmptyBox: {
+        padding: 40,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#f8fafc',
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        borderStyle: 'dashed',
+    },
+    haAiEmptyTitle: {
+        fontSize: 15,
+        fontWeight: '700',
+        color: '#0f172a',
+        marginBottom: 4,
+    },
+    haAiEmptyDesc: {
+        fontSize: 13,
+        color: '#64748b',
+        textAlign: 'center',
+        maxWidth: 440,
+        lineHeight: 18,
+    },
+    haAiTableWrap: {
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        backgroundColor: '#ffffff',
+    },
+    haAiTableHeader: {
+        flexDirection: 'row',
+        backgroundColor: '#f8fafc',
+        borderBottomWidth: 1.5,
+        borderBottomColor: '#e2e8f0',
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+    },
+    haAiTh: {
+        fontSize: 11,
+        fontWeight: '800',
+        color: '#475569',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+    },
+    haAiTableRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        borderBottomWidth: 1,
+        borderBottomColor: '#f1f5f9',
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+    },
+    haAiTd: {
+        justifyContent: 'center',
+    },
+    haAiDoctorAvatar: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        alignItems: 'center',
+        justifyContent: 'center',
+        shadowColor: '#2563eb',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 6,
+        elevation: 2,
+    },
+    haAiDoctorAvatarText: {
+        color: '#ffffff',
+        fontSize: 14,
+        fontWeight: '800',
+    },
+    haAiDoctorName: {
+        fontSize: 14,
+        fontWeight: '800',
+        color: '#0f172a',
+    },
+    haAiDoctorId: {
+        fontSize: 11,
+        color: '#64748b',
+        fontWeight: '600',
+        marginTop: 2,
+    },
+    haAiCreditChip: {
+        flexDirection: 'row',
+        alignItems: 'baseline',
+        gap: 5,
+        paddingVertical: 4,
+        paddingHorizontal: 10,
+        borderRadius: 10,
+        backgroundColor: '#f8fafc',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        alignSelf: 'flex-start',
+    },
+    haAiCreditChipConsumed: {
+        backgroundColor: '#fff7ed',
+        borderColor: '#fed7aa',
+    },
+    haAiCreditVal: {
+        fontWeight: '800',
+        color: '#0f172a',
+        fontSize: 14,
+    },
+    haAiCreditTag: {
+        fontSize: 10,
+        fontWeight: '700',
+        color: '#64748b',
+        textTransform: 'uppercase',
+        letterSpacing: 0.4,
+    },
+    haAiCallsBadge: {
+        paddingVertical: 3,
+        paddingHorizontal: 9,
+        borderRadius: 10,
+        backgroundColor: '#eff6ff',
+        borderWidth: 1,
+        borderColor: '#bfdbfe',
+        alignSelf: 'flex-start',
+    },
+    haAiCallsBadgeText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#1d4ed8',
+    },
+    haAiFeaturePill: {
+        paddingVertical: 3,
+        paddingHorizontal: 9,
+        borderRadius: 8,
+        backgroundColor: '#f1f5f9',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        alignSelf: 'flex-start',
+    },
+    haAiFeaturePillText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#334155',
+    },
+    haAiProgressWrap: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        width: 140,
+    },
+    haAiProgressBar: {
+        flex: 1,
+        height: 6,
+        backgroundColor: '#e2e8f0',
+        borderRadius: 4,
+        overflow: 'hidden',
+    },
+    haAiProgressFill: {
+        height: '100%',
+        backgroundColor: '#3b82f6',
+        borderRadius: 4,
+    },
+    haAiProgressPercent: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#64748b',
+        minWidth: 36,
+    },
+    haAiDateText: {
+        fontSize: 12,
+        color: '#64748b',
+        fontWeight: '600',
+    },
+    haAiLogUser: {
+        fontWeight: '700',
+        color: '#0f172a',
+        fontSize: 13,
+    },
+    haAiLogsCountBadge: {
+        paddingVertical: 4,
+        paddingHorizontal: 10,
+        backgroundColor: '#f1f5f9',
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+    },
+    haAiLogsCountBadgeText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#475569',
+    },
+    haAiLogsFooter: {
+        alignItems: 'center',
+        paddingTop: 14,
+        borderTopWidth: 1,
+        borderTopColor: '#e2e8f0',
+        borderStyle: 'dashed',
+        marginTop: 10,
+    },
+    haAiLoadMoreBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingVertical: 8,
+        paddingHorizontal: 18,
+        backgroundColor: '#f8fafc',
+        borderWidth: 1.5,
+        borderColor: '#cbd5e1',
+        borderRadius: 12,
+    },
+    haAiLoadMoreBtnText: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#334155',
+    },
+    haAiLoadBadge: {
+        paddingVertical: 2,
+        paddingHorizontal: 6,
+        backgroundColor: '#e2e8f0',
+        borderRadius: 6,
+    },
+    haAiLoadBadgeText: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#475569',
+    },
+    haAiAllLoadedText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#64748b',
+    },
+    haSubtitlePulseDot: {
+        width: 7,
+        height: 7,
+        borderRadius: 4,
+        backgroundColor: '#10b981',
+        shadowColor: '#10b981',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.8,
+        shadowRadius: 6,
+        elevation: 3,
+    },
+    haAiKpiIconBoxGrad: {
+        width: 44,
+        height: 44,
+        borderRadius: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    haAiKpiTrendBadge: {
+        paddingVertical: 3,
+        paddingHorizontal: 8,
+        borderRadius: 8,
+    },
+    userForm: {
+        width: '100%',
     },
     td: {
         color: '#0f172a',

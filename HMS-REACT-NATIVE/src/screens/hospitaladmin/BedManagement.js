@@ -6,47 +6,11 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { bedAPI } from '../../utils/api';
 
-// --- Custom Select Dropdown ---
-const CustomSelect = ({ options, value, onChange, placeholder, disabled }) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const selectedObj = options.find(o => o.value === value);
-    const selectedName = selectedObj ? selectedObj.label : placeholder;
+import DropdownSelect from '../../components/common/DropdownSelect';
 
-    return (
-        <View style={{ position: 'relative', width: '100%', zIndex: isOpen ? 50 : 1 }}>
-            <TouchableOpacity 
-                style={[styles.staffInput, { display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, disabled && { opacity: 0.6, backgroundColor: '#f1f5f9' }]} 
-                onPress={() => !disabled && setIsOpen(!isOpen)}
-                activeOpacity={0.7}
-            >
-                <Text style={{ color: value ? '#0f172a' : '#94a3b8', fontSize: 14 }}>{selectedName}</Text>
-                <Feather name="chevron-down" size={16} color="#64748b" />
-            </TouchableOpacity>
+// --- Universal Dropdown Select Wrapper ---
+const CustomSelect = (props) => <DropdownSelect {...props} />;
 
-            {isOpen && (
-                <View style={styles.dropdownMenu}>
-                    <ScrollView nestedScrollEnabled={true} style={{ maxHeight: 150 }}>
-                        <TouchableOpacity 
-                            onPress={() => { onChange(''); setIsOpen(false); }}
-                            style={[styles.dropdownItem, value === '' && styles.dropdownItemActive]}
-                        >
-                            <Text style={[styles.dropdownItemText, value === '' && styles.dropdownItemTextActive]}>{placeholder}</Text>
-                        </TouchableOpacity>
-                        {options.map(opt => (
-                            <TouchableOpacity 
-                                key={opt.value}
-                                onPress={() => { onChange(opt.value); setIsOpen(false); }}
-                                style={[styles.dropdownItem, opt.value === value && styles.dropdownItemActive]}
-                            >
-                                <Text style={[styles.dropdownItemText, opt.value === value && styles.dropdownItemTextActive]}>{opt.label}</Text>
-                            </TouchableOpacity>
-                        ))}
-                    </ScrollView>
-                </View>
-            )}
-        </View>
-    );
-};
 
 
 const BedManagement = () => {

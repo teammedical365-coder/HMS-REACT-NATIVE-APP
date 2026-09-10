@@ -5,6 +5,9 @@ import {
 } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { vialAPI, patientAPI } from '../../utils/api';
+import DatePickerInput from '../../components/common/DatePickerInput';
+import DropdownSelect from '../../components/common/DropdownSelect';
+
 
 const VIAL_TYPES = [
     'Biological Sample',
@@ -44,6 +47,8 @@ const VialManagement = () => {
     const [selectedStatus, setSelectedStatus] = useState('All');
     const [selectedType, setSelectedType] = useState('All');
     const [storageUnitFilter, setStorageUnitFilter] = useState('');
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
 
     // Modals State
     const [showStoreModal, setShowStoreModal] = useState(false);
@@ -148,6 +153,8 @@ const VialManagement = () => {
             if (selectedStatus !== 'All') params.status = selectedStatus;
             if (selectedType !== 'All') params.vialType = selectedType;
             if (storageUnitFilter.trim()) params.storageUnit = storageUnitFilter.trim();
+            if (startDate) params.startDate = startDate;
+            if (endDate) params.endDate = endDate;
 
             const res = await vialAPI.getAll(params);
             if (res && res.success) {
@@ -164,7 +171,7 @@ const VialManagement = () => {
         } finally {
             setLoading(false);
         }
-    }, [page, searchTerm, selectedStatus, selectedType, storageUnitFilter]);
+    }, [page, searchTerm, selectedStatus, selectedType, storageUnitFilter, startDate, endDate]);
 
     useEffect(() => {
         fetchStats();
@@ -216,6 +223,8 @@ const VialManagement = () => {
         setSelectedStatus('All');
         setSelectedType('All');
         setStorageUnitFilter('');
+        setStartDate('');
+        setEndDate('');
         setPage(1);
     };
 
@@ -554,19 +563,19 @@ const VialManagement = () => {
                 </View>
             </View>
 
-            {/* Filters Bar */}
+            {/* Filters Bar (Full Web Parity) */}
             <View style={styles.filterCard}>
                 <View style={styles.filterRow}>
                     <View style={styles.searchBox}>
                         <Feather name="search" size={16} color="#94a3b8" />
                         <TextInput
                             style={styles.searchInput}
-                            placeholder="Search by Vial ID, Patient, or Type..."
+                            placeholder="Search by Vial ID, Patient, MRN..."
                             value={searchTerm}
-                            onChangeText={setSearchTerm}
+                            onChangeText={(val) => { setSearchTerm(val); setPage(1); }}
                         />
                         {searchTerm ? (
-                            <TouchableOpacity onPress={() => setSearchTerm('')}>
+                            <TouchableOpacity onPress={() => { setSearchTerm(''); setPage(1); }}>
                                 <Feather name="x" size={16} color="#94a3b8" />
                             </TouchableOpacity>
                         ) : null}
@@ -576,31 +585,70 @@ const VialManagement = () => {
                         <Feather name="layers" size={16} color="#94a3b8" />
                         <TextInput
                             style={styles.searchInput}
-                            placeholder="Filter by Storage Unit..."
+                            placeholder="Storage Unit..."
                             value={storageUnitFilter}
-                            onChangeText={setStorageUnitFilter}
+                            onChangeText={(val) => { setStorageUnitFilter(val); setPage(1); }}
+                        />
+                        {storageUnitFilter ? (
+                            <TouchableOpacity onPress={() => { setStorageUnitFilter(''); setPage(1); }}>
+                                <Feather name="x" size={16} color="#94a3b8" />
+                            </TouchableOpacity>
+                        ) : null}
+                    </View>
+                </View>
+
+                {/* Dropdown Filters (Matching Web vm-select) */}
+                <View style={{ flexDirection: 'row', gap: 12, marginTop: 12, flexWrap: 'wrap' }}>
+                    <View style={{ flex: 1, minWidth: 180 }}>
+                        <Text style={{ fontSize: 11.5, fontWeight: '700', color: '#64748b', marginBottom: 6, textTransform: 'uppercase' }}>Vial Type</Text>
+                        <DropdownSelect 
+                            options={['All', ...VIAL_TYPES].map(t => ({ label: t === 'All' ? 'All Vial Types' : t, value: t }))}
+                            value={selectedType}
+                            onChange={v => { setSelectedType(v); setPage(1); }}
+                            placeholder="All Vial Types"
+                        />
+                    </View>
+                    <View style={{ flex: 1, minWidth: 180 }}>
+                        <Text style={{ fontSize: 11.5, fontWeight: '700', color: '#64748b', marginBottom: 6, textTransform: 'uppercase' }}>Status</Text>
+                        <DropdownSelect 
+                            options={STATUS_OPTIONS.map(s => ({ label: s === 'All' ? 'All Statuses' : s, value: s }))}
+                            value={selectedStatus}
+                            onChange={v => { setSelectedStatus(v); setPage(1); }}
+                            placeholder="All Statuses"
                         />
                     </View>
                 </View>
 
-                {/* Status Pills & Reset */}
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-                        {STATUS_OPTIONS.map(st => (
-                            <TouchableOpacity
-                                key={st}
-                                style={[styles.pillBtn, selectedStatus === st && styles.pillBtnActive]}
-                                onPress={() => { setSelectedStatus(st); setPage(1); }}
-                            >
-                                <Text style={[styles.pillBtnText, selectedStatus === st && styles.pillBtnTextActive]}>{st}</Text>
-                            </TouchableOpacity>
-                        ))}
-                    </ScrollView>
 
-                    <TouchableOpacity style={styles.resetBtn} onPress={handleResetFilters}>
-                        <Feather name="rotate-ccw" size={13} color="#64748b" />
-                        <Text style={styles.resetBtnText}>Reset Filters</Text>
-                    </TouchableOpacity>
+                {/* Date Filter & Clear Controls */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f1f5f9' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#475569' }}>From</Text>
+                        <View style={{ width: 140 }}>
+                            <DatePickerInput
+                                value={startDate}
+                                onChange={(d) => { setStartDate(d); setPage(1); }}
+                                placeholder="From Date"
+                                title="Received Date From"
+                            />
+                        </View>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#475569' }}>To</Text>
+                        <View style={{ width: 140 }}>
+                            <DatePickerInput
+                                value={endDate}
+                                onChange={(d) => { setEndDate(d); setPage(1); }}
+                                placeholder="To Date"
+                                title="Received Date To"
+                            />
+                        </View>
+                    </View>
+
+                    {(searchTerm || selectedStatus !== 'All' || selectedType !== 'All' || storageUnitFilter || startDate || endDate) && (
+                        <TouchableOpacity style={styles.resetBtn} onPress={handleResetFilters}>
+                            <Feather name="rotate-ccw" size={13} color="#64748b" />
+                            <Text style={styles.resetBtnText}>Clear Filters</Text>
+                        </TouchableOpacity>
+                    )}
                 </View>
             </View>
 
@@ -781,17 +829,25 @@ const VialManagement = () => {
 
                             {/* Vial Type */}
                             <Text style={[styles.inputLabel, { marginTop: 14 }]}>Vial Type *</Text>
-                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-                                {VIAL_TYPES.map(vt => (
-                                    <TouchableOpacity
-                                        key={vt}
-                                        style={[styles.typeOptionPill, storeForm.vialType === vt && styles.typeOptionPillActive]}
-                                        onPress={() => setStoreForm({ ...storeForm, vialType: vt })}
-                                    >
-                                        <Text style={[styles.typeOptionText, storeForm.vialType === vt && styles.typeOptionTextActive]}>{vt}</Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </View>
+                            <DropdownSelect 
+                                options={VIAL_TYPES.map(vt => ({ label: vt, value: vt }))}
+                                value={storeForm.vialType}
+                                onChange={vt => setStoreForm({ ...storeForm, vialType: vt })}
+                                placeholder="-- Select Vial Type * --"
+                            />
+
+                            {/* Initial Status */}
+                            <Text style={[styles.inputLabel, { marginTop: 14 }]}>Initial Status *</Text>
+                            <DropdownSelect 
+                                options={[
+                                    { label: 'Stored (Directly to Storage Unit)', value: 'Stored' },
+                                    { label: 'Received (Pending Storage)', value: 'Received' }
+                                ]}
+                                value={storeForm.initialStatus}
+                                onChange={st => setStoreForm({ ...storeForm, initialStatus: st })}
+                                placeholder="Select Initial Status"
+                            />
+
 
                             {/* Vial ID / Barcode */}
                             <Text style={styles.inputLabel}>Vial Barcode / Label ID (Optional)</Text>
@@ -800,6 +856,15 @@ const VialManagement = () => {
                                 placeholder="e.g. VIAL-2026-001 (Auto-generated if blank)"
                                 value={storeForm.vialId}
                                 onChangeText={t => setStoreForm({ ...storeForm, vialId: t })}
+                            />
+
+                            {/* Received Date */}
+                            <Text style={[styles.inputLabel, { marginTop: 14 }]}>Received Date *</Text>
+                            <DatePickerInput
+                                value={storeForm.receivedAt ? storeForm.receivedAt.slice(0, 10) : ''}
+                                onChange={d => setStoreForm({ ...storeForm, receivedAt: d })}
+                                placeholder="Select Received Date"
+                                title="Received Date"
                             />
 
                             {/* Storage Location Grid */}

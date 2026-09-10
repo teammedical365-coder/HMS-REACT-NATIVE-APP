@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, Image, Dimensions, Platform } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, TouchableOpacity, ScrollView, Image, Dimensions, Platform, useWindowDimensions, Animated } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSelector, useDispatch } from 'react-redux';
 import { logout } from '../../store/slices/authSlice';
@@ -7,9 +7,80 @@ import { useBranding } from '../../context/BrandingContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import GlobalSearch from '../GlobalSearch';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { styles, isMobile, SIDEBAR_WIDTH, SIDEBAR_COLLAPSED } from './DashboardLayoutStyles';
+import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
+import Svg, { Defs, RadialGradient, LinearGradient as SvgLinearGradient, Stop, Ellipse, Rect, Path, Line, Circle } from 'react-native-svg';
+import { styles, SIDEBAR_WIDTH, SIDEBAR_COLLAPSED } from './DashboardLayoutStyles';
 
-const DashboardSidebar = ({ isOpen, setOpen }) => {
+// Cute 3D AI Robot Illustration with glowing pedestal (Web ha-sidebar-ai-card parity)
+const HaSidebarAiCard = () => {
+    const floatAnim = useRef(new Animated.Value(0)).current;
+
+    useEffect(() => {
+        const loop = Animated.loop(
+            Animated.sequence([
+                Animated.timing(floatAnim, {
+                    toValue: -4,
+                    duration: 1750,
+                    useNativeDriver: Platform.OS !== 'web',
+                }),
+                Animated.timing(floatAnim, {
+                    toValue: 0,
+                    duration: 1750,
+                    useNativeDriver: Platform.OS !== 'web',
+                }),
+            ])
+        );
+        loop.start();
+        return () => loop.stop();
+    }, [floatAnim]);
+
+    return (
+        <ExpoLinearGradient
+            colors={['#f8fafc', '#f0fdfa', '#e0f2fe']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.haSidebarAiCard}
+        >
+            <Animated.View style={[styles.haSidebarAiBotWrap, { transform: [{ translateY: floatAnim }] }]}>
+                <Svg width={110} height={96} viewBox="0 0 160 140" fill="none">
+                    <Defs>
+                        <RadialGradient id="haBotGlow" cx="50%" cy="50%" rx="50%" ry="50%" fx="50%" fy="50%">
+                            <Stop offset="0%" stopColor="#38bdf8" stopOpacity="0.45" />
+                            <Stop offset="100%" stopColor="#38bdf8" stopOpacity="0" />
+                        </RadialGradient>
+                        <SvgLinearGradient id="haBotBody" x1="0" y1="0" x2="0" y2="1">
+                            <Stop offset="0%" stopColor="#ffffff" />
+                            <Stop offset="100%" stopColor="#e0f2fe" />
+                        </SvgLinearGradient>
+                        <SvgLinearGradient id="haBotVisor" x1="0" y1="0" x2="0" y2="1">
+                            <Stop offset="0%" stopColor="#0f172a" />
+                            <Stop offset="100%" stopColor="#1e293b" />
+                        </SvgLinearGradient>
+                    </Defs>
+                    <Ellipse cx="80" cy="125" rx="55" ry="12" fill="url(#haBotGlow)" />
+                    <Ellipse cx="80" cy="125" rx="42" ry="8" stroke="#38bdf8" strokeWidth="1.5" strokeDasharray="4, 3" />
+                    <Ellipse cx="80" cy="122" rx="30" ry="6" stroke="#0ea5e9" strokeWidth="1.8" />
+                    <Ellipse cx="80" cy="92" rx="26" ry="20" fill="url(#haBotBody)" stroke="#93c5fd" strokeWidth="1.2" />
+                    <Path d="M 68 86 Q 80 94 92 86" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" fill="none" />
+                    <Ellipse cx="44" cy="85" rx="7" ry="14" fill="#ffffff" stroke="#93c5fd" strokeWidth="1.2" />
+                    <Ellipse cx="116" cy="85" rx="7" ry="14" fill="#ffffff" stroke="#93c5fd" strokeWidth="1.2" />
+                    <Rect x="52" y="38" width="56" height="42" rx="18" fill="url(#haBotBody)" stroke="#93c5fd" strokeWidth="1.4" />
+                    <Rect x="58" y="44" width="44" height="26" rx="12" fill="url(#haBotVisor)" />
+                    <Ellipse cx="68" cy="56" rx="5" ry="6" fill="#38bdf8" />
+                    <Ellipse cx="92" cy="56" rx="5" ry="6" fill="#38bdf8" />
+                    <Ellipse cx="69" cy="54" rx="2" ry="2" fill="#ffffff" />
+                    <Ellipse cx="93" cy="54" rx="2" ry="2" fill="#ffffff" />
+                    <Line x1="80" y1="38" x2="80" y2="28" stroke="#93c5fd" strokeWidth="2.5" strokeLinecap="round" />
+                    <Circle cx="80" cy="26" r="4" fill="#0ea5e9" />
+                    <Circle cx="80" cy="26" r="2" fill="#ffffff" />
+                </Svg>
+            </Animated.View>
+            <Text style={styles.haSidebarAiTitle}>AI Assistant</Text>
+        </ExpoLinearGradient>
+    );
+};
+
+const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
     const { user } = useSelector(state => state.auth);
     const dispatch = useDispatch();
     const { branding } = useBranding();
@@ -70,7 +141,7 @@ const DashboardSidebar = ({ isOpen, setOpen }) => {
                         <View style={styles.brandDot} />
                     ) : (
                         <Image
-                            source={isCentralAdmin ? require('../../assets/medical365-logo.png') : (branding?.logoUrl ? { uri: branding.logoUrl } : require('../../assets/medical365-logo.png'))}
+                            source={(isCentralAdmin || user?.hospitalName?.includes('Metropolis') || !branding?.logoUrl || branding?.hospitalName === 'City Hospital') ? require('../../assets/medical365-logo.png') : (branding?.logoUrl ? { uri: branding.logoUrl } : require('../../assets/medical365-logo.png'))}
                             style={styles.brandLogo}
                             resizeMode="contain"
                         />
@@ -133,19 +204,7 @@ const DashboardSidebar = ({ isOpen, setOpen }) => {
                 })}
 
                 {(isCentralAdmin || role === 'hospitaladmin') && isOpen && (
-                    <View style={styles.caSidebarHelpCard}>
-                        <View style={styles.caSidebarHelpAvatarWrap}>
-                            <MaterialCommunityIcons name="robot-outline" size={24} color="#059669" />
-                        </View>
-                        <Text style={styles.caSidebarHelpTitle}>AI Assistant</Text>
-                        <Text style={styles.caSidebarHelpDesc}>
-                            Get automated insights and support from our AI bot.
-                        </Text>
-                        <TouchableOpacity style={styles.caSidebarHelpBtn} onPress={() => {}}>
-                            <Feather name="message-circle" size={14} color="#059669" />
-                            <Text style={styles.caSidebarHelpBtnText}>Ask AI</Text>
-                        </TouchableOpacity>
-                    </View>
+                    <HaSidebarAiCard />
                 )}
             </ScrollView>
 
@@ -184,7 +243,7 @@ const DashboardSidebar = ({ isOpen, setOpen }) => {
     );
 };
 
-const TopBar = ({ toggleSidebar, sidebarOpen }) => {
+const TopBar = ({ toggleSidebar, sidebarOpen, isMobile }) => {
     const { user } = useSelector(state => state.auth);
     const dispatch = useDispatch();
     const route = useRoute();
@@ -202,6 +261,17 @@ const TopBar = ({ toggleSidebar, sidebarOpen }) => {
             await AsyncStorage.removeItem('token');
             await AsyncStorage.removeItem('user');
         } catch (e) {}
+    };
+
+    const formatLastLogin = (dateVal) => {
+        if (!dateVal) return 'Active Session';
+        try {
+            const d = new Date(dateVal);
+            if (isNaN(d.getTime())) return 'Active Session';
+            return `LAST LOGIN: ${d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}, ${d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+        } catch {
+            return 'Active Session';
+        }
     };
 
     const getInitials = (name) => {
@@ -232,7 +302,7 @@ const TopBar = ({ toggleSidebar, sidebarOpen }) => {
     };
 
     return (
-        <View style={[styles.erpTopbar, isCentralAdmin && styles.caErpTopbar, isMobile && styles.mobileTopbarLeft]}>
+        <View style={[styles.erpTopbar, isCentralAdmin && styles.caErpTopbar]}>
             <View style={styles.topbarLeft}>
                 <TouchableOpacity style={styles.sidebarToggle} onPress={toggleSidebar} activeOpacity={0.6}>
                     <Feather name="menu" size={24} color="#1e293b" />
@@ -243,33 +313,31 @@ const TopBar = ({ toggleSidebar, sidebarOpen }) => {
                         {!isMobile && <Text style={styles.caBcUserType}>Superadmin</Text>}
                         {!isMobile && <Text style={styles.caBcDivider}>/</Text>}
                         <View style={styles.caBcTag}>
-                            <Text style={[{ color: '#2563eb', fontSize: 11.5, fontWeight: '800' }, isMobile && styles.mobileBcTag]}>
+                            <Text style={[{ color: '#2563eb', fontSize: 11.5, fontWeight: '800' }]}>
                                 {getCentralAdminTag()}
                             </Text>
                         </View>
                     </View>
                 ) : (
                     <View style={styles.breadcrumbWrap}>
-                        <Text style={styles.currPageName} numberOfLines={1}>{formatPageName(currentPath)}</Text>
-                        <Text style={styles.pathSlash}>/</Text>
-                        <Text style={styles.pathUserRole}>{user?.role || 'Hospital Admin'}</Text>
+                        {!isMobile && (
+                            <>
+                                <Text style={styles.currPageName} numberOfLines={1}>{formatPageName(currentPath)}</Text>
+                                <Text style={styles.pathSlash}>/</Text>
+                            </>
+                        )}
+                        <Text style={styles.pathUserRole}>{(user?.role || 'Hospital Admin').toUpperCase()}</Text>
                     </View>
                 )}
             </View>
 
-            {/* Global Search */}
-            {!isMobile && isCentralAdmin && (
-                <View style={styles.globalSearchPill}>
-                    <Feather name="search" size={16} color="#94a3b8" />
-                    <Text style={styles.globalSearchText}>Search patients, doctors, st...</Text>
-                </View>
-            )}
-            {!isCentralAdmin && !isMobile && <GlobalSearch />}
-
+            {/* TOPBAR RIGHT: GlobalSearch + Profile Avatar */}
             <View style={styles.topbarRight}>
+                <GlobalSearch />
+
                 {isCentralAdmin && (
                     <TouchableOpacity style={styles.bellIconBtn}>
-                        <Feather name="bell" size={20} color="#64748b" />
+                        <Feather name="bell" size={18} color="#64748b" />
                         <View style={styles.bellBadge}>
                             <Text style={styles.bellBadgeText}>3</Text>
                         </View>
@@ -277,40 +345,102 @@ const TopBar = ({ toggleSidebar, sidebarOpen }) => {
                 )}
 
                 <TouchableOpacity 
-                    style={styles.profileAvatarBtn}
+                    style={styles.caUserProfileCircleBtn}
                     onPress={() => setDropdownVisible(!dropdownVisible)}
+                    activeOpacity={0.8}
                 >
-                    <Text style={styles.profileAvatarBtnText}>{getInitials(user?.name)}</Text>
+                    <View style={styles.caAvatarWrapper}>
+                        <ExpoLinearGradient
+                            colors={['#2563eb', '#7c3aed']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={styles.caAvatarCircle}
+                        >
+                            <Text style={styles.caAvatarCircleText}>{getInitials(user?.name)}</Text>
+                        </ExpoLinearGradient>
+                        <View style={styles.caAvatarOnline} />
+                    </View>
                 </TouchableOpacity>
 
-                {/* Dropdown Profile Modal (Absolute Positioned) */}
+                {/* Dropdown Profile Modal Card (Matching Web ca-profile-dropdown-card) */}
                 {dropdownVisible && (
-                    <View style={styles.profileDropdownContent}>
-                        <View style={styles.pHeader}>
-                            <View style={styles.pHeaderTop}>
-                                <View style={styles.pAvatarLg}>
-                                    <Text style={styles.pAvatarLgText}>{getInitials(user?.name)}</Text>
+                    <View style={styles.caProfileDropdownCard}>
+                        {/* Speech Bubble Pointer Arrow */}
+                        <View style={styles.caDropdownPointer} />
+
+                        {/* Header Row with Cyber Avatar & Security Graphic */}
+                        <View style={styles.caDropHeader}>
+                            {/* Left Avatar with Orbital Ring and Shield */}
+                            <View style={styles.caDropAvatarWrap}>
+                                <View style={styles.caAvatarOrbitalRing}>
+                                    <View style={[styles.caOrbitalNode, styles.caOrbitalNode1]} />
+                                    <View style={[styles.caOrbitalNode, styles.caOrbitalNode2]} />
                                 </View>
-                                <View style={styles.pNameEmail}>
-                                    <Text style={styles.pHeaderTitle}>{user?.name || 'Hospital Admin'}</Text>
-                                    <Text style={styles.pHeaderEmail}>{user?.email || 'admin@hospital.com'}</Text>
+                                <ExpoLinearGradient
+                                    colors={['#0284c7', '#2563eb', '#7c3aed']}
+                                    start={{ x: 0, y: 0 }}
+                                    end={{ x: 1, y: 1 }}
+                                    style={styles.caDropAvatar}
+                                >
+                                    <Text style={styles.caDropAvatarText}>{getInitials(user?.name) || 'PH'}</Text>
+                                </ExpoLinearGradient>
+                                <View style={styles.caAvatarShieldBadge}>
+                                    <Svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                        <Path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                                        <Path d="M9 12l2 2 4-4"/>
+                                    </Svg>
                                 </View>
                             </View>
-                            <Text style={styles.pRoleBadge}>{(user?.role || 'HOSPITALADMIN').toUpperCase()}</Text>
-                        </View>
-                        
-                        <View style={styles.pBody}>
-                            <View style={styles.lastLoginRow}>
-                                <Feather name="clock" size={14} color="#64748b" style={{marginRight: 8}} />
-                                <Text style={styles.lastLoginText}>LAST LOGIN: Today, 09:42 AM</Text>
+
+                            {/* Center User Info */}
+                            <View style={styles.caDropUserInfo}>
+                                <Text style={styles.caDropName} numberOfLines={1}>{user?.name || 'Hospital Admin'}</Text>
+                                <Text style={styles.caDropEmail} numberOfLines={1}>{user?.email || 'admin@hospital.com'}</Text>
+                                <View style={styles.caDropBadgeTag}>
+                                    <Text style={styles.caCrownIcon}>👑</Text>
+                                    <Text style={styles.caBadgeText}>{(user?.role || 'HOSPITALADMIN').toUpperCase().replace(/\s+/g, '')}</Text>
+                                </View>
+                            </View>
+
+                            {/* Right 3D Security Shield Graphic */}
+                            <View style={styles.caDropShieldGraphic}>
+                                <View style={styles.caShieldOrbitRing}>
+                                    <View style={styles.caShieldParticle} />
+                                </View>
+                                <View style={styles.caShieldHexBox}>
+                                    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+                                        <Defs>
+                                            <SvgLinearGradient id="shieldCyberGrad" x1="3" y1="2" x2="21" y2="22">
+                                                <Stop stopColor="#38bdf8" />
+                                                <Stop offset="0.5" stopColor="#6366f1" />
+                                                <Stop offset="1" stopColor="#a855f7" />
+                                            </SvgLinearGradient>
+                                        </Defs>
+                                        <Path d="M12 2L3 6.5v6c0 5.55 3.84 10.74 9 12.5 5.16-1.76 9-6.95 9-12.5v-6L12 2z" fill="url(#shieldCyberGrad)" />
+                                        <Path d="M12 7.5a2 2 0 0 0-2 2v1.5h4V9.5a2 2 0 0 0-2-2z" stroke="#ffffff" strokeWidth="1.3" />
+                                        <Rect x="8.5" y="11" width="7" height="5" rx="1.2" fill="#ffffff" />
+                                        <Circle cx="12" cy="13.5" r="0.8" fill="#4338ca" />
+                                    </Svg>
+                                </View>
                             </View>
                         </View>
 
-                        <View style={styles.pFooter}>
-                            <TouchableOpacity onPress={handleLogout} style={styles.btnPLogout}>
-                                <Text style={styles.btnPLogoutText}>[→ Logout</Text>
-                            </TouchableOpacity>
+                        {/* Compact Last Login Card */}
+                        <View style={styles.caDropLoginCard}>
+                            <View style={styles.caLoginIconBox}>
+                                <Feather name="clock" size={14} color="#6d28d9" />
+                            </View>
+                            <View style={styles.caLoginTexts}>
+                                <Text style={styles.caLoginLabel}>LAST LOGIN</Text>
+                                <Text style={styles.caLoginValue}>{formatLastLogin(user?.lastLogin)}</Text>
+                            </View>
                         </View>
+
+                        {/* Logout Session Button */}
+                        <TouchableOpacity onPress={handleLogout} style={styles.caDropLogoutBtn} activeOpacity={0.8}>
+                            <Feather name="log-out" size={15} color="#dc2626" />
+                            <Text style={styles.caDropLogoutBtnText}>Logout</Text>
+                        </TouchableOpacity>
                     </View>
                 )}
             </View>
@@ -319,26 +449,21 @@ const TopBar = ({ toggleSidebar, sidebarOpen }) => {
 };
 
 const DashboardLayout = ({ children }) => {
-    const [windowWidth, setWindowWidth] = useState(Dimensions.get('window').width);
+    const { width: windowWidth } = useWindowDimensions();
+    const isMobileView = windowWidth <= 1024;
     const [sidebarOpen, setSidebarOpen] = useState(windowWidth > 1024);
 
     useEffect(() => {
-        const subscription = Dimensions.addEventListener('change', ({ window }) => {
-            setWindowWidth(window.width);
-            if (window.width <= 1024) {
-                setSidebarOpen(false);
-            } else {
-                setSidebarOpen(true);
-            }
-        });
-        return () => subscription?.remove && subscription.remove();
-    }, []);
+        if (windowWidth <= 1024) {
+            setSidebarOpen(false);
+        } else {
+            setSidebarOpen(true);
+        }
+    }, [windowWidth]);
 
-    const isMobileView = windowWidth <= 1024;
-    
     return (
         <View style={styles.erpLayout}>
-            <DashboardSidebar isOpen={sidebarOpen} setOpen={setSidebarOpen} />
+            <DashboardSidebar isOpen={sidebarOpen} setOpen={setSidebarOpen} isMobile={isMobileView} />
             
             {isMobileView && sidebarOpen && (
                 <TouchableOpacity 
@@ -349,7 +474,7 @@ const DashboardLayout = ({ children }) => {
             )}
 
             <View style={styles.erpMainArea}>
-                <TopBar sidebarOpen={sidebarOpen} toggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
+                <TopBar sidebarOpen={sidebarOpen} toggleSidebar={() => setSidebarOpen(!sidebarOpen)} isMobile={isMobileView} />
                 
                 <View style={styles.erpPageContent}>
                     {children}

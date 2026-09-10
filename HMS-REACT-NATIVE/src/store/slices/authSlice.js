@@ -1,6 +1,7 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
+import { REHYDRATE } from 'redux-persist';
 import { authAPI, adminAPI, hospitalAdminAPI, setAuthHeader } from '../../utils/api';
 import { STORAGE_KEYS } from '../../utils/Constants';
 
@@ -15,10 +16,14 @@ export const sendOtp = createAsyncThunk(
         setAuthHeader(response.token);
         if (Platform.OS === 'web') {
           localStorage.setItem(STORAGE_KEYS.TOKEN, response.token);
+          localStorage.setItem('token', response.token);
           localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(response.user));
+          localStorage.setItem('user', JSON.stringify(response.user));
         }
         await AsyncStorage.setItem(STORAGE_KEYS.TOKEN, response.token);
+        await AsyncStorage.setItem('token', response.token);
         await AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(response.user));
+        await AsyncStorage.setItem('user', JSON.stringify(response.user));
       }
       return response;
     } catch (error) {
@@ -48,10 +53,14 @@ export const verifyOtp = createAsyncThunk(
           setAuthHeader(extractedToken);
           if (Platform.OS === 'web') {
             localStorage.setItem(STORAGE_KEYS.TOKEN, extractedToken);
+            localStorage.setItem('token', extractedToken);
             localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(extractedUser));
+            localStorage.setItem('user', JSON.stringify(extractedUser));
           }
           await AsyncStorage.setItem(STORAGE_KEYS.TOKEN, extractedToken);
+          await AsyncStorage.setItem('token', extractedToken);
           await AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(extractedUser));
+          await AsyncStorage.setItem('user', JSON.stringify(extractedUser));
         }
         // Return original response + our safely extracted data
         return { ...response, extractedToken, extractedUser, activeSessionExists };
@@ -87,8 +96,17 @@ export const forceLogin = createAsyncThunk(
     try {
       const response = await authAPI.forceLogin(preAuthToken);
       if (response.success) {
+        setAuthHeader(response.token);
+        if (Platform.OS === 'web') {
+          localStorage.setItem(STORAGE_KEYS.TOKEN, response.token);
+          localStorage.setItem('token', response.token);
+          localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(response.user));
+          localStorage.setItem('user', JSON.stringify(response.user));
+        }
         await AsyncStorage.setItem(STORAGE_KEYS.TOKEN, response.token);
+        await AsyncStorage.setItem('token', response.token);
         await AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(response.user));
+        await AsyncStorage.setItem('user', JSON.stringify(response.user));
         return response;
       }
       return rejectWithValue(response.message || 'Failed to complete login');
@@ -213,6 +231,23 @@ const authSlice = createSlice({
       state.otpStep = null;
       state.preAuthToken = null;
       state.activeSession = null;
+      if (action.payload.token) {
+        setAuthHeader(action.payload.token);
+        if (Platform.OS === 'web') {
+          localStorage.setItem(STORAGE_KEYS.TOKEN, action.payload.token);
+          localStorage.setItem('token', action.payload.token);
+          if (action.payload.user) {
+            localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(action.payload.user));
+            localStorage.setItem('user', JSON.stringify(action.payload.user));
+          }
+        }
+        AsyncStorage.setItem(STORAGE_KEYS.TOKEN, action.payload.token);
+        AsyncStorage.setItem('token', action.payload.token);
+        if (action.payload.user) {
+          AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(action.payload.user));
+          AsyncStorage.setItem('user', JSON.stringify(action.payload.user));
+        }
+      }
     },
     logout: (state) => {
       state.user = null;
@@ -225,9 +260,15 @@ const authSlice = createSlice({
       state.activeSession = null;
       state.otpSuccessMsg = null;
       state.sessionExpiredMessage = null;
-      // AsyncStorage cleanup happens via redux-persist on next rehydrate.
-      // Manually clear as well for immediate effect:
-      AsyncStorage.multiRemove([STORAGE_KEYS.TOKEN, STORAGE_KEYS.USER, 'superadmin_token']);
+      setAuthHeader(null);
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        localStorage.removeItem(STORAGE_KEYS.TOKEN);
+        localStorage.removeItem('token');
+        localStorage.removeItem('superadmin_token');
+        localStorage.removeItem(STORAGE_KEYS.USER);
+        localStorage.removeItem('user');
+      }
+      AsyncStorage.multiRemove([STORAGE_KEYS.TOKEN, STORAGE_KEYS.USER, 'token', 'user', 'superadmin_token']);
     },
     clearError: (state) => {
       state.error = null;
@@ -253,6 +294,24 @@ const authSlice = createSlice({
     },
   },
   extraReducers: (builder) => {
+    // Redux-Persist REHYDRATE
+    builder.addCase(REHYDRATE, (state, action) => {
+      const rehydratedAuth = action.payload?.auth || action.payload;
+      const rehydratedToken = rehydratedAuth?.token;
+      const rehydratedUser = rehydratedAuth?.user;
+      if (rehydratedToken) {
+        setAuthHeader(rehydratedToken);
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+          localStorage.setItem(STORAGE_KEYS.TOKEN, rehydratedToken);
+          localStorage.setItem('token', rehydratedToken);
+          if (rehydratedUser) {
+            localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(rehydratedUser));
+            localStorage.setItem('user', JSON.stringify(rehydratedUser));
+          }
+        }
+      }
+    });
+
     // Send OTP
     builder
       .addCase(sendOtp.pending, (state) => {

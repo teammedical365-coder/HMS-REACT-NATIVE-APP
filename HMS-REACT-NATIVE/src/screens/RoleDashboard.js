@@ -1,8 +1,327 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Modal, Alert } from 'react-native';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Modal, Alert, Animated, Platform, useWindowDimensions, Easing } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { receptionAPI, publicAPI } from '../utils/api';
 import { useAuth } from '../store/hooks';
+import Svg, { Defs, RadialGradient, LinearGradient as SvgLinearGradient, Stop, Circle, Path, Rect, Line, G, Text as SvgText } from 'react-native-svg';
+import { Feather } from '@expo/vector-icons';
+import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
+
+// Hospital Admin 3D Hero Banner (Web ha-hero-header-card 1:1 Parity)
+const HospitalAdminHeroCard = ({ greeting, userName }) => {
+    const { width } = useWindowDimensions();
+    const isMobile = width < 768;
+
+    const spinAnim1 = useRef(new Animated.Value(0)).current;
+    const spinAnim2 = useRef(new Animated.Value(0)).current;
+    const nameAnim = useRef(new Animated.Value(0.9)).current;
+
+    useEffect(() => {
+        const loop1 = Animated.loop(
+            Animated.timing(spinAnim1, {
+                toValue: 1,
+                duration: 14000,
+                easing: Easing.linear,
+                useNativeDriver: Platform.OS !== 'web',
+            })
+        );
+        const loop2 = Animated.loop(
+            Animated.timing(spinAnim2, {
+                toValue: 1,
+                duration: 18000,
+                easing: Easing.linear,
+                useNativeDriver: Platform.OS !== 'web',
+            })
+        );
+        const loopName = Animated.loop(
+            Animated.sequence([
+                Animated.timing(nameAnim, { toValue: 1, duration: 1600, useNativeDriver: Platform.OS !== 'web' }),
+                Animated.timing(nameAnim, { toValue: 0.88, duration: 1600, useNativeDriver: Platform.OS !== 'web' }),
+            ])
+        );
+        loop1.start();
+        loop2.start();
+        loopName.start();
+        return () => {
+            loop1.stop();
+            loop2.stop();
+            loopName.stop();
+        };
+    }, [spinAnim1, spinAnim2, nameAnim]);
+
+    const spin1 = spinAnim1.interpolate({
+        inputRange: [0, 1],
+        outputRange: ['0deg', '360deg'],
+    });
+    const spin2 = spinAnim2.interpolate({
+        inputRange: [0, 1],
+        outputRange: ['360deg', '0deg'],
+    });
+
+    return (
+        <ExpoLinearGradient
+            colors={['#ffffff', '#f4f8ff', '#e8f2fe']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={haStyles.heroCard}
+        >
+            {/* Top-Left 5x5 Dot Matrix Pattern */}
+            <View style={haStyles.dotMatrix} pointerEvents="none">
+                {[...Array(25)].map((_, i) => (
+                    <View key={i} style={haStyles.dot} />
+                ))}
+            </View>
+
+            {/* Sparkles */}
+            <View style={haStyles.sparklesWrap} pointerEvents="none">
+                <Text style={[haStyles.sparkle, { top: 16, left: 35, fontSize: 18, color: '#38bdf8' }]}>+</Text>
+                <Text style={[haStyles.sparkle, { top: 10, left: 160, fontSize: 13, color: '#818cf8' }]}>✦</Text>
+                <Text style={[haStyles.sparkle, { top: 80, left: 90, fontSize: 10, color: '#38bdf8' }]}>•</Text>
+                <Text style={[haStyles.sparkle, { top: 18, right: 200, fontSize: 14, color: '#60a5fa' }]}>+</Text>
+            </View>
+
+            {/* Bottom-Left Smooth Organic Waves SVG */}
+            <View style={haStyles.waveContainer} pointerEvents="none">
+                <Svg width="100%" height="100%" viewBox="0 0 450 140" preserveAspectRatio="none">
+                    <Defs>
+                        <SvgLinearGradient id="haSoftWaveGrad1" x1="0%" y1="0%" x2="100%" y2="0%">
+                            <Stop offset="0%" stopColor="#bfdbfe" stopOpacity="0.45" />
+                            <Stop offset="60%" stopColor="#93c5fd" stopOpacity="0.25" />
+                            <Stop offset="100%" stopColor="#e0f2fe" stopOpacity="0.05" />
+                        </SvgLinearGradient>
+                        <SvgLinearGradient id="haSoftWaveGrad2" x1="0%" y1="0%" x2="100%" y2="0%">
+                            <Stop offset="0%" stopColor="#38bdf8" stopOpacity="0.5" />
+                            <Stop offset="50%" stopColor="#818cf8" stopOpacity="0.3" />
+                            <Stop offset="100%" stopColor="#c084fc" stopOpacity="0" />
+                        </SvgLinearGradient>
+                    </Defs>
+                    <Path d="M 0 60 C 90 20 180 90 290 50 C 370 20 410 70 450 60 L 450 140 L 0 140 Z" fill="url(#haSoftWaveGrad1)" />
+                    <Path d="M 0 60 C 90 20 180 90 290 50 C 370 20 410 70 450 60" fill="none" stroke="url(#haSoftWaveGrad2)" strokeWidth="2.5" />
+                    <Path d="M 0 95 C 110 65 200 125 320 85 C 380 65 420 100 450 95" fill="none" stroke="#60a5fa" strokeWidth="1.5" strokeDasharray="4 4" opacity="0.6" />
+                </Svg>
+            </View>
+
+            {/* Inner Content */}
+            <View style={[haStyles.heroInner, isMobile && haStyles.heroInnerMobile]}>
+                {/* Left: 3D Glowing Blue Cross in Crystal Orb with Orbital Swirls */}
+                <View style={haStyles.orbContainer}>
+                    <View style={haStyles.orbHaloGlow} />
+                    <Animated.View style={[haStyles.orbSwirlRing, haStyles.ring1, { transform: [{ rotate: spin1 }] }]} />
+                    <Animated.View style={[haStyles.orbSwirlRing, haStyles.ring2, { transform: [{ rotate: spin2 }] }]} />
+                    <View style={[haStyles.orbSwirlNode, haStyles.node1]} />
+                    <View style={[haStyles.orbSwirlNode, haStyles.node2]} />
+                    
+                    <View style={haStyles.crystalSphere}>
+                        <View style={haStyles.cross3d}>
+                            <View style={haStyles.crossArmH} />
+                            <View style={haStyles.crossArmV} />
+                            <View style={haStyles.crossCoreShine} />
+                        </View>
+                    </View>
+                </View>
+
+                {/* Center: Greeting & Username (Single Line) */}
+                <View style={haStyles.centerInfo}>
+                    <View style={haStyles.greetingWrap}>
+                        <Text style={haStyles.greetingText}>
+                            <Text style={haStyles.greetingPrefix}>{greeting}, </Text>
+                            <Animated.Text style={[haStyles.animatedUsername, { opacity: nameAnim }]}>
+                                <Text style={haStyles.guillemet}>»</Text> {userName || 'Dr. Katherine Vance'} <Text style={haStyles.guillemet}>«</Text>
+                            </Animated.Text>
+                        </Text>
+                    </View>
+                    <Text style={haStyles.subtitleText}>Here's your workspace. Pick any section to get started.</Text>
+                    <View style={haStyles.tealAccentBar} />
+                </View>
+
+                {/* Right: 3D Hospital Building Illustration */}
+                {!isMobile && (
+                    <View style={haStyles.buildingContainer} pointerEvents="none">
+                        <Svg width={250} height={150} viewBox="0 0 320 210" fill="none">
+                            <Defs>
+                                <RadialGradient id="haSunGlow_rd" cx="50%" cy="50%" rx="50%" ry="50%">
+                                    <Stop offset="0%" stopColor="#fef08a" stopOpacity="0.85" />
+                                    <Stop offset="60%" stopColor="#fef9c3" stopOpacity="0.35" />
+                                    <Stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+                                </RadialGradient>
+                                <SvgLinearGradient id="haBldgGlass_rd" x1="0" y1="0" x2="1" y2="1">
+                                    <Stop offset="0%" stopColor="#bae6fd" />
+                                    <Stop offset="100%" stopColor="#60a5fa" />
+                                </SvgLinearGradient>
+                                <SvgLinearGradient id="haBldgTower_rd" x1="0" y1="0" x2="0" y2="1">
+                                    <Stop offset="0%" stopColor="#3b82f6" />
+                                    <Stop offset="100%" stopColor="#1d4ed8" />
+                                </SvgLinearGradient>
+                            </Defs>
+                            <Circle cx="280" cy="42" r="28" fill="url(#haSunGlow_rd)" />
+                            <Circle cx="280" cy="42" r="12" fill="#ffffff" />
+                            <Path d="M190 48 Q194 44 198 48 Q202 44 206 48" stroke="#94a3b8" strokeWidth="1.4" fill="none" strokeLinecap="round" />
+                            <Path d="M214 56 Q217 53 220 56 Q223 53 226 56" stroke="#94a3b8" strokeWidth="1.1" fill="none" strokeLinecap="round" />
+                            <Path d="M25 180 V115 H50 V95 H72 V125 H95 V85 H118 V145 H145 V105 H168 V135 H192 V100 H215 V125 H238 V85 H265 V120 H295 V180 Z" fill="#e2e8f0" fillOpacity="0.45" />
+                            <Rect x="75" y="65" width="70" height="115" rx="4" fill="#ffffff" stroke="#cbd5e1" strokeWidth="1.2" />
+                            {[0, 1, 2, 3].map(row => (
+                                <G key={`hlw-${row}`}>
+                                    <Rect x="82" y={75 + row * 22} width="14" height="14" rx="2" fill="url(#haBldgGlass_rd)" />
+                                    <Rect x="102" y={75 + row * 22} width="14" height="14" rx="2" fill="url(#haBldgGlass_rd)" />
+                                    <Rect x="122" y={75 + row * 22} width="14" height="14" rx="2" fill="url(#haBldgGlass_rd)" />
+                                </G>
+                            ))}
+                            <Rect x="195" y="65" width="70" height="115" rx="4" fill="#ffffff" stroke="#cbd5e1" strokeWidth="1.2" />
+                            {[0, 1, 2, 3].map(row => (
+                                <G key={`hrw-${row}`}>
+                                    <Rect x="202" y={75 + row * 22} width="14" height="14" rx="2" fill="url(#haBldgGlass_rd)" />
+                                    <Rect x="222" y={75 + row * 22} width="14" height="14" rx="2" fill="url(#haBldgGlass_rd)" />
+                                    <Rect x="242" y={75 + row * 22} width="14" height="14" rx="2" fill="url(#haBldgGlass_rd)" />
+                                </G>
+                            ))}
+                            <Rect x="135" y="46" width="70" height="134" rx="6" fill="#f8fafc" stroke="#94a3b8" strokeWidth="1.2" />
+                            <Rect x="145" y="52" width="50" height="70" rx="3" fill="url(#haBldgTower_rd)" />
+                            <Path d="M170 68 v22 M159 79 h22" stroke="#ffffff" strokeWidth="4.5" strokeLinecap="round" />
+                            <Rect x="132" y="128" width="76" height="14" rx="3" fill="#ffffff" stroke="#94a3b8" strokeWidth="1.2" />
+                            <SvgText x="170" y="138" fontSize="7" fontWeight="900" fill="#1d4ed8" textAnchor="middle" letterSpacing={0.8}>HOSPITAL</SvgText>
+                            <Rect x="148" y="142" width="44" height="38" rx="2" fill="#bfdbfe" fillOpacity="0.7" stroke="#60a5fa" />
+                            <Line x1="170" y1="142" x2="170" y2="180" stroke="#2563eb" strokeWidth="1.5" />
+                            <Circle cx="58" cy="176" r="14" fill="#22c55e" />
+                            <Circle cx="70" cy="179" r="10" fill="#16a34a" />
+                            <Circle cx="140" cy="180" r="8" fill="#15803d" />
+                            <Circle cx="200" cy="180" r="8" fill="#15803d" />
+                            <Circle cx="270" cy="176" r="13" fill="#22c55e" />
+                            <Circle cx="282" cy="179" r="10" fill="#16a34a" />
+                        </Svg>
+                    </View>
+                )}
+            </View>
+        </ExpoLinearGradient>
+    );
+};
+
+// Hospital Admin 6 Quick Operations Cards (Web ha-quick-ops-card 1:1 Parity)
+const haOperationCards = [
+    {
+        key: 'doctors',
+        label: 'Doctors',
+        desc: 'Manage doctor profiles & schedules',
+        path: 'AdminDoctors',
+        cardBg: '#f0f7ff',
+        borderColor: '#dbeafe',
+        iconBg: '#dbeafe',
+        iconColor: '#2563eb',
+        textColor: '#2563eb',
+        chevronColor: '#3b82f6',
+        featherIcon: 'users',
+    },
+    {
+        key: 'labs',
+        label: 'Labs',
+        desc: 'Configure lab departments',
+        path: 'AdminLabTests',
+        cardBg: '#fbf5ff',
+        borderColor: '#f3e8ff',
+        iconBg: '#f3e8ff',
+        iconColor: '#9333ea',
+        textColor: '#9333ea',
+        chevronColor: '#a855f7',
+        featherIcon: 'activity',
+    },
+    {
+        key: 'pharmacy',
+        label: 'Pharmacy',
+        desc: 'Pharmacy inventory & orders',
+        path: 'PharmacyInventory',
+        cardBg: '#fff9f0',
+        borderColor: '#ffedd5',
+        iconBg: '#ffedd5',
+        iconColor: '#ea580c',
+        textColor: '#ea580c',
+        chevronColor: '#f97316',
+        featherIcon: 'package',
+    },
+    {
+        key: 'services',
+        label: 'Services',
+        desc: 'Hospital services & pricing',
+        path: 'AdminServices',
+        cardBg: '#f2fbf5',
+        borderColor: '#dcfce7',
+        iconBg: '#dcfce7',
+        iconColor: '#16a34a',
+        textColor: '#16a34a',
+        chevronColor: '#22c55e',
+        featherIcon: 'tool',
+    },
+    {
+        key: 'users',
+        label: 'Manage Users',
+        desc: 'View and manage all staff',
+        path: 'Admin',
+        cardBg: '#f0f9ff',
+        borderColor: '#e0f2fe',
+        iconBg: '#e0f2fe',
+        iconColor: '#0284c7',
+        textColor: '#0284c7',
+        chevronColor: '#0ea5e9',
+        featherIcon: 'user-check',
+    },
+    {
+        key: 'questions',
+        label: 'Question Library',
+        desc: 'Manage diagnostic questions',
+        path: 'HospitalAdminQuestionLibrary',
+        cardBg: '#fff1f5',
+        borderColor: '#ffe4e6',
+        iconBg: '#ffe4e6',
+        iconColor: '#e11d48',
+        textColor: '#e11d48',
+        chevronColor: '#f43f5e',
+        featherIcon: 'file-text',
+    },
+];
+
+const HospitalAdminQuickOps = ({ navigation }) => {
+    const { width } = useWindowDimensions();
+    const isMobile = width < 768;
+    const isTablet = width >= 768 && width < 1024;
+
+    return (
+        <View style={haStyles.quickOpsCard}>
+            <View style={haStyles.quickOpsHeader}>
+                <View style={haStyles.lightningIconBox}>
+                    <Feather name="zap" size={20} color="#06b6d4" />
+                </View>
+                <View>
+                    <Text style={haStyles.quickOpsTitle}>Quick Operations</Text>
+                </View>
+            </View>
+
+            <View style={[
+                haStyles.quickOpsGrid,
+                isMobile ? haStyles.gridCol1 : (isTablet ? haStyles.gridCol2 : haStyles.gridCol3)
+            ]}>
+                {haOperationCards.map((card) => (
+                    <TouchableOpacity
+                        key={card.key}
+                        activeOpacity={0.85}
+                        style={[
+                            haStyles.quickCard,
+                            { backgroundColor: card.cardBg, borderColor: card.borderColor },
+                            isMobile && { width: '100%' }
+                        ]}
+                        onPress={() => navigation.navigate(card.path)}
+                    >
+                        <View style={[haStyles.quickCardIconBox, { backgroundColor: card.iconBg }]}>
+                            <Feather name={card.featherIcon} size={24} color={card.iconColor} />
+                        </View>
+                        <View style={haStyles.quickCardInfo}>
+                            <Text style={[haStyles.quickCardName, { color: card.textColor }]}>{card.label}</Text>
+                            <Text style={haStyles.quickCardDesc} numberOfLines={2}>{card.desc}</Text>
+                        </View>
+                        <Text style={[haStyles.quickCardChevron, { color: card.chevronColor }]}>›</Text>
+                    </TouchableOpacity>
+                ))}
+            </View>
+        </View>
+    );
+};
 
 // Icon mapping — maps common path keywords to emojis
 const getIconForPath = (path, label) => {
@@ -452,70 +771,57 @@ const RoleDashboard = () => {
                 </View>
             ) : (
                 /* ────────────────────────────────────────────────────────
-                   STANDARD MENU VIEW FOR OTHER ROLES
+                   HOSPITAL ADMIN OR STANDARD MENU VIEW FOR OTHER ROLES
                    ──────────────────────────────────────────────────────── */
                 <View>
-                    {/* Welcome Hero */}
-                    <View style={styles.welcomeHero}>
-                        <Text style={{ fontSize: 40, marginBottom: 8 }}>👋</Text>
-                        <View style={styles.roleBadgeLarge}>
-                            <Text style={styles.roleBadgeLargeText}>{roleName}</Text>
-                        </View>
-                        <Text style={styles.welcomeHeroTitle}>{greeting}, <Text style={{ color: '#2563eb' }}>{userName}</Text></Text>
-                        <Text style={styles.welcomeHeroSubtitle}>Here's your workspace. Pick any section to get started.</Text>
-                    </View>
-
-                    {/* Quick Access Cards */}
-                    {navLinks.length > 0 ? (
+                    {(roleName || '').toLowerCase() === 'hospitaladmin' || (roleName || '').toLowerCase() === 'hospital admin' ? (
                         <>
-                            <Text style={styles.sectionTitle}>⚡ Quick Access</Text>
-                            <View style={styles.navCardsGrid}>
-                                {navLinks.map((link, index) => (
-                                    <TouchableOpacity
-                                        key={index}
-                                        style={styles.navCard}
-                                        onPress={() => navigation.navigate(mapPathToScreen(link.path))}
-                                    >
-                                        <View style={styles.navCardIconBox}>
-                                            <Text style={styles.navCardIcon}>{getIconForPath(link.path, link.label)}</Text>
-                                        </View>
-                                        <View style={styles.navCardContent}>
-                                            <Text style={styles.navCardTitle}>{link.label}</Text>
-                                            <Text style={styles.navCardDesc}>{getDescForLink(link.label)}</Text>
-                                        </View>
-                                        <Text style={styles.navCardArrow}>→</Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </View>
+                            <HospitalAdminHeroCard greeting={greeting} userName={userName} />
+                            <HospitalAdminQuickOps navigation={navigation} />
                         </>
-                    ) : (roleName || '').toLowerCase() === 'hospitaladmin' || (roleName || '').toLowerCase() === 'hospital admin' ? (
-                        <View style={[styles.adminCard, { marginTop: 24 }]}>
-                            <Text style={{ fontSize: 20, fontWeight: '800', marginBottom: 10, color: '#1e293b' }}>⚡ Quick Operations</Text>
-                            <Text style={{ color: '#64748b', fontSize: 14, marginBottom: 20 }}>
-                                Jump to the areas you manage most frequently. Contact your Central Admin to manage question libraries, test packages, or medicine catalogs.
-                            </Text>
-                            <View style={styles.haOpsGrid}>
-                                {operationLinks.map((item, i) => (
-                                    <TouchableOpacity
-                                        key={i}
-                                        style={[styles.haOpCard, { backgroundColor: item.bg, borderColor: item.color + '30' }]}
-                                        onPress={() => navigation.navigate(item.path)}
-                                    >
-                                        <Text style={{ fontSize: 28, color: item.color, marginRight: 16 }}>{item.icon}</Text>
-                                        <View style={{ flex: 1 }}>
-                                            <Text style={{ color: item.color, fontSize: 16, fontWeight: 'bold', marginBottom: 4 }}>{item.label}</Text>
-                                            <Text style={{ fontSize: 13, color: '#64748b' }}>{item.desc}</Text>
-                                        </View>
-                                    </TouchableOpacity>
-                                ))}
-                            </View>
-                        </View>
                     ) : (
-                        <View style={styles.emptyState}>
-                            <Text style={{ fontSize: 40, marginBottom: 16 }}>📭</Text>
-                            <Text style={styles.emptyStateTitle}>No pages assigned yet</Text>
-                            <Text style={styles.emptyStateDesc}>Contact your superadmin to set up navigation links for your role.</Text>
-                        </View>
+                        <>
+                            {/* Welcome Hero */}
+                            <View style={styles.welcomeHero}>
+                                <Text style={{ fontSize: 40, marginBottom: 8 }}>👋</Text>
+                                <View style={styles.roleBadgeLarge}>
+                                    <Text style={styles.roleBadgeLargeText}>{roleName}</Text>
+                                </View>
+                                <Text style={styles.welcomeHeroTitle}>{greeting}, <Text style={{ color: '#2563eb' }}>{userName}</Text></Text>
+                                <Text style={styles.welcomeHeroSubtitle}>Here's your workspace. Pick any section to get started.</Text>
+                            </View>
+
+                            {/* Quick Access Cards */}
+                            {navLinks.length > 0 ? (
+                                <>
+                                    <Text style={styles.sectionTitle}>⚡ Quick Access</Text>
+                                    <View style={styles.navCardsGrid}>
+                                        {navLinks.map((link, index) => (
+                                            <TouchableOpacity
+                                                key={index}
+                                                style={styles.navCard}
+                                                onPress={() => navigation.navigate(mapPathToScreen(link.path))}
+                                            >
+                                                <View style={styles.navCardIconBox}>
+                                                    <Text style={styles.navCardIcon}>{getIconForPath(link.path, link.label)}</Text>
+                                                </View>
+                                                <View style={styles.navCardContent}>
+                                                    <Text style={styles.navCardTitle}>{link.label}</Text>
+                                                    <Text style={styles.navCardDesc}>{getDescForLink(link.label)}</Text>
+                                                </View>
+                                                <Text style={styles.navCardArrow}>→</Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
+                                </>
+                            ) : (
+                                <View style={styles.emptyState}>
+                                    <Text style={{ fontSize: 40, marginBottom: 16 }}>📭</Text>
+                                    <Text style={styles.emptyStateTitle}>No pages assigned yet</Text>
+                                    <Text style={styles.emptyStateDesc}>Contact your superadmin to set up navigation links for your role.</Text>
+                                </View>
+                            )}
+                        </>
                     )}
                 </View>
             )}
@@ -711,6 +1017,309 @@ const styles = StyleSheet.create({
     permissionsSection: { marginTop: 40, padding: 24, backgroundColor: '#ffffff', borderRadius: 16, borderWidth: 1, borderColor: '#e2e8f0' },
     permTag: { backgroundColor: '#f1f5f9', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#e2e8f0' },
     permTagText: { fontSize: 13, color: '#475569', fontWeight: '600', textTransform: 'capitalize' },
+});
+
+const haStyles = StyleSheet.create({
+    heroCard: {
+        position: 'relative',
+        borderRadius: 22,
+        paddingHorizontal: 28,
+        paddingVertical: 24,
+        minHeight: 178,
+        borderWidth: 1.5,
+        borderColor: '#dbeafe',
+        marginBottom: 20,
+        overflow: 'hidden',
+        shadowColor: '#2563eb',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.06,
+        shadowRadius: 16,
+        elevation: 3,
+    },
+    dotMatrix: {
+        position: 'absolute',
+        top: 14,
+        left: 18,
+        width: 48,
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 6,
+        zIndex: 1,
+    },
+    dot: {
+        width: 3.5,
+        height: 3.5,
+        borderRadius: 2,
+        backgroundColor: '#93c5fd',
+        opacity: 0.65,
+    },
+    sparklesWrap: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        top: 0,
+        bottom: 0,
+        zIndex: 2,
+    },
+    sparkle: {
+        position: 'absolute',
+        fontWeight: '800',
+        opacity: 0.75,
+    },
+    waveContainer: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        width: 450,
+        height: 100,
+        zIndex: 1,
+    },
+    heroInner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        zIndex: 3,
+        flex: 1,
+        gap: 16,
+    },
+    heroInnerMobile: {
+        flexDirection: 'column',
+        alignItems: 'flex-start',
+    },
+    orbContainer: {
+        width: 110,
+        height: 110,
+        alignItems: 'center',
+        justifyContent: 'center',
+        position: 'relative',
+        flexShrink: 0,
+    },
+    orbHaloGlow: {
+        position: 'absolute',
+        width: 105,
+        height: 105,
+        borderRadius: 55,
+        backgroundColor: 'rgba(56, 189, 248, 0.22)',
+    },
+    orbSwirlRing: {
+        position: 'absolute',
+        borderRadius: 60,
+    },
+    ring1: {
+        width: 104,
+        height: 104,
+        borderWidth: 1.5,
+        borderColor: 'rgba(56, 189, 248, 0.55)',
+    },
+    ring2: {
+        width: 88,
+        height: 88,
+        borderWidth: 1.2,
+        borderColor: 'rgba(96, 165, 250, 0.45)',
+        borderStyle: 'dashed',
+    },
+    orbSwirlNode: {
+        position: 'absolute',
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: '#38bdf8',
+        shadowColor: '#38bdf8',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.9,
+        shadowRadius: 4,
+    },
+    node1: {
+        top: 8,
+        right: 10,
+    },
+    node2: {
+        bottom: 10,
+        left: 8,
+    },
+    crystalSphere: {
+        width: 76,
+        height: 76,
+        borderRadius: 38,
+        backgroundColor: 'rgba(224, 242, 254, 0.85)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1.5,
+        borderColor: '#bae6fd',
+        shadowColor: '#0284c7',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.18,
+        shadowRadius: 8,
+    },
+    cross3d: {
+        width: 36,
+        height: 36,
+        alignItems: 'center',
+        justifyContent: 'center',
+        position: 'relative',
+    },
+    crossArmH: {
+        position: 'absolute',
+        width: 34,
+        height: 11,
+        backgroundColor: '#0284c7',
+        borderRadius: 3,
+        shadowColor: '#0284c7',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.35,
+        shadowRadius: 3,
+    },
+    crossArmV: {
+        position: 'absolute',
+        width: 11,
+        height: 34,
+        backgroundColor: '#0284c7',
+        borderRadius: 3,
+        shadowColor: '#0284c7',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.35,
+        shadowRadius: 3,
+    },
+    crossCoreShine: {
+        position: 'absolute',
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: 'rgba(255,255,255,0.9)',
+        top: 9,
+        left: 9,
+    },
+    centerInfo: {
+        flex: 1,
+        marginLeft: 8,
+        minWidth: 200,
+    },
+    greetingWrap: {
+        flexDirection: 'row',
+        alignItems: 'baseline',
+        flexWrap: 'wrap',
+        marginBottom: 4,
+    },
+    greetingText: {
+        fontSize: 24,
+        fontWeight: '850',
+        color: '#0f172a',
+        letterSpacing: -0.3,
+    },
+    greetingPrefix: {
+        color: '#0f172a',
+        fontWeight: '800',
+    },
+    animatedUsername: {
+        color: '#2563eb',
+        fontWeight: '900',
+    },
+    guillemet: {
+        color: '#06b6d4',
+        fontWeight: '900',
+    },
+    subtitleText: {
+        color: '#64748b',
+        fontSize: 14,
+        fontWeight: '500',
+        marginTop: 2,
+    },
+    tealAccentBar: {
+        width: 44,
+        height: 3.5,
+        backgroundColor: '#06b6d4',
+        borderRadius: 2,
+        marginTop: 8,
+    },
+    buildingContainer: {
+        width: 250,
+        height: 150,
+        alignItems: 'flex-end',
+        justifyContent: 'flex-end',
+        flexShrink: 0,
+    },
+    quickOpsCard: {
+        backgroundColor: '#ffffff',
+        borderRadius: 20,
+        padding: 22,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        marginBottom: 20,
+        shadowColor: '#0f172a',
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.04,
+        shadowRadius: 10,
+        elevation: 2,
+    },
+    quickOpsHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        marginBottom: 18,
+    },
+    lightningIconBox: {
+        width: 38,
+        height: 38,
+        borderRadius: 10,
+        backgroundColor: '#ecfeff',
+        borderWidth: 1.5,
+        borderColor: '#a5f3fc',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    quickOpsTitle: {
+        fontSize: 19,
+        fontWeight: '800',
+        color: '#0f172a',
+    },
+    quickOpsGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 14,
+    },
+    gridCol1: {
+        width: '100%',
+    },
+    gridCol2: {
+        width: '100%',
+    },
+    gridCol3: {
+        width: '100%',
+    },
+    quickCard: {
+        flex: 1,
+        minWidth: 280,
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 14,
+        borderRadius: 14,
+        borderWidth: 1.5,
+        gap: 14,
+    },
+    quickCardIconBox: {
+        width: 46,
+        height: 46,
+        borderRadius: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    quickCardInfo: {
+        flex: 1,
+    },
+    quickCardName: {
+        fontSize: 15,
+        fontWeight: '800',
+        marginBottom: 2,
+    },
+    quickCardDesc: {
+        fontSize: 12,
+        color: '#64748b',
+        fontWeight: '500',
+    },
+    quickCardChevron: {
+        fontSize: 20,
+        fontWeight: '800',
+    },
 });
 
 export default RoleDashboard;

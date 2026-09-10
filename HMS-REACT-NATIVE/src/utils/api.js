@@ -2,6 +2,7 @@ import axios from 'axios';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL, STORAGE_KEYS } from './Constants';
+import { getStoreRef } from '../store/storeRef';
 
 export const baseURL = API_BASE_URL;
 
@@ -26,16 +27,39 @@ export const setAuthHeader = (token) => {
 
 apiClient.interceptors.request.use(async (config) => {
   let token = null;
-  if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    token = localStorage.getItem(STORAGE_KEYS.TOKEN) || localStorage.getItem('token');
+
+  // 1. Check existing common header
+  const existingAuth = apiClient.defaults.headers.common['Authorization'] || config.headers?.Authorization || config.headers?.authorization;
+  if (existingAuth && typeof existingAuth === 'string' && existingAuth.startsWith('Bearer ')) {
+    token = existingAuth.slice(7).trim();
   }
+
+  // 2. Check web localStorage
+  if (!token && Platform.OS === 'web' && typeof window !== 'undefined') {
+    token = localStorage.getItem('token') || localStorage.getItem('superadmin_token') || localStorage.getItem(STORAGE_KEYS.TOKEN);
+  }
+
+  // 3. Check AsyncStorage
   if (!token) {
     token = await AsyncStorage.getItem(STORAGE_KEYS.TOKEN) || await AsyncStorage.getItem('token');
+  }
+
+  // 4. Check Redux Store (in-memory)
+  if (!token) {
+    const store = getStoreRef();
+    token = store?.getState()?.auth?.token;
   }
   
   if (token) {
     const cleanToken = String(token).replace(/^"(.*)"$/, '$1').trim();
-    config.headers.Authorization = `Bearer ${cleanToken}`;
+    if (config.headers?.set) {
+      config.headers.set('Authorization', `Bearer ${cleanToken}`);
+    } else {
+      config.headers = config.headers || {};
+      config.headers['Authorization'] = `Bearer ${cleanToken}`;
+    }
+    // Synchronize default header for future requests
+    apiClient.defaults.headers.common['Authorization'] = `Bearer ${cleanToken}`;
   }
   return config;
 }, (error) => Promise.reject(error));
@@ -43,20 +67,29 @@ apiClient.interceptors.request.use(async (config) => {
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
-    const isOtpVerifyRoute = error.config?.url?.includes('/otp/verify');
-    const isOtpSendRoute = error.config?.url?.includes('/otp/send');
-    const isLoginRoute = error.config?.url?.includes('/login');
+    const url = error.config?.url || '';
+    const isOtpVerifyRoute = url.includes('/otp/verify');
+    const isOtpSendRoute = url.includes('/otp/send');
+    const isLoginRoute = url.includes('/login');
 
     if (error.response?.status === 401 && !isOtpVerifyRoute && !isOtpSendRoute && !isLoginRoute) {
+      if (Platform.OS === 'web' && typeof window !== 'undefined' && (window.location.hash.includes('hospitaladmin') || window.location.search.includes('hospitaladmin'))) {
+        return Promise.reject(error);
+      }
       const isSessionExpired = error.response?.data?.sessionExpired;
+      
+      // Clean up storage tokens
       await AsyncStorage.removeItem(STORAGE_KEYS.TOKEN);
       await AsyncStorage.removeItem(STORAGE_KEYS.USER);
       if (Platform.OS === 'web' && typeof window !== 'undefined') {
         localStorage.removeItem(STORAGE_KEYS.TOKEN);
         localStorage.removeItem('token');
+        localStorage.removeItem('superadmin_token');
         localStorage.removeItem(STORAGE_KEYS.USER);
         localStorage.removeItem('user');
       }
+
+      delete apiClient.defaults.headers.common['Authorization'];
       
       if (isSessionExpired) {
         await AsyncStorage.setItem(
@@ -64,6 +97,12 @@ apiClient.interceptors.response.use(
           error.response?.data?.message ||
             'Your account has been logged in from another device. Please login again.'
         );
+      }
+
+      // Synchronize Redux auth state so navigator transitions cleanly to AuthStack
+      const store = getStoreRef();
+      if (store) {
+        store.dispatch({ type: 'auth/logout' });
       }
     }
     
@@ -962,3 +1001,5 @@ export const aiWalletAPI = {
 };
 
 export default apiClient;
+
+

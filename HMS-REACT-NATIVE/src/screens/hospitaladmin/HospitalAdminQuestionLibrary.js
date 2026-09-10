@@ -928,6 +928,7 @@ const HospitalAdminQuestionLibrary = () => {
                         return (
                             <TouchableOpacity
                                 key={dept}
+                                accessibilityLabel={dept}
                                 style={[styles.deptTab, isActive && styles.deptTabActive]}
                                 onPress={() => {
                                     setDepartmentTab(dept);

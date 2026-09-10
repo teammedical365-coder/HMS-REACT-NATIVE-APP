@@ -8,6 +8,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
+import DatePickerInput from '../../components/common/DatePickerInput';
 
 const { width, height } = Dimensions.get('window');
 
@@ -591,7 +592,12 @@ const PatientsMode = ({ onBookToken, setPendingDownload }) => {
                             </View>
                             <View>
                                 <Text style={styles.label}>Date of Birth *</Text>
-                                <TextInput style={styles.input} placeholder="YYYY-MM-DD" value={form.dob} onChangeText={t => setForm({ ...form, dob: t })} />
+                                <DatePickerInput
+                                    value={form.dob}
+                                    onChange={t => setForm({ ...form, dob: t })}
+                                    placeholder="YYYY-MM-DD"
+                                    title="Date of Birth"
+                                />
                             </View>
                             <View>
                                 <Text style={styles.label}>Gender *</Text>
@@ -826,7 +832,12 @@ const BookTokenForm = ({ patient, onBook, onCancel, flash, mode = 'token', defau
 
                 <View>
                     <Text style={styles.label}>Date *</Text>
-                    <TextInput style={styles.input} placeholder="YYYY-MM-DD" value={form.appointmentDate} onChangeText={t => setForm({ ...form, appointmentDate: t, appointmentTime: '' })} />
+                    <DatePickerInput
+                        value={form.appointmentDate}
+                        onChange={t => setForm({ ...form, appointmentDate: t, appointmentTime: '' })}
+                        placeholder="YYYY-MM-DD"
+                        title="Appointment Date"
+                    />
                 </View>
 
                 {isSlotMode && (

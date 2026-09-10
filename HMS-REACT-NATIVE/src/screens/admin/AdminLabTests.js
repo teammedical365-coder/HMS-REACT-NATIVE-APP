@@ -7,47 +7,11 @@ import { labTestAPI, hospitalAPI } from '../../utils/api';
 import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Inline Custom Select for Hospital Filter
-const CustomSelect = ({ options, value, onChange, placeholder }) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const selectedObj = options.find(o => o.value === value);
-    const selectedName = selectedObj ? selectedObj.label : placeholder;
+import DropdownSelect from '../../components/common/DropdownSelect';
 
-    return (
-        <View style={{ position: 'relative', width: 220, zIndex: isOpen ? 50 : 1 }}>
-            <TouchableOpacity 
-                style={[styles.inputField, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff' }]} 
-                onPress={() => setIsOpen(!isOpen)}
-                activeOpacity={0.7}
-            >
-                <Text style={{ color: value || value === '' ? '#0f172a' : '#94a3b8', fontSize: 13 }} numberOfLines={1}>{selectedName}</Text>
-                <Feather name="chevron-down" size={16} color="#64748b" />
-            </TouchableOpacity>
+// --- Universal Dropdown Select Wrapper ---
+const CustomSelect = (props) => <DropdownSelect {...props} />;
 
-            {isOpen && (
-                <View style={styles.dropdownMenu}>
-                    <ScrollView nestedScrollEnabled={true} style={{ maxHeight: 150 }}>
-                        <TouchableOpacity 
-                            onPress={() => { onChange(''); setIsOpen(false); }}
-                            style={[styles.dropdownItem, value === '' && styles.dropdownItemActive]}
-                        >
-                            <Text style={[styles.dropdownItemText, value === '' && styles.dropdownItemTextActive]}>{placeholder}</Text>
-                        </TouchableOpacity>
-                        {options.map(opt => (
-                            <TouchableOpacity 
-                                key={opt.value}
-                                onPress={() => { onChange(opt.value); setIsOpen(false); }}
-                                style={[styles.dropdownItem, opt.value === value && styles.dropdownItemActive]}
-                            >
-                                <Text style={[styles.dropdownItemText, opt.value === value && styles.dropdownItemTextActive]} numberOfLines={1}>{opt.label}</Text>
-                            </TouchableOpacity>
-                        ))}
-                    </ScrollView>
-                </View>
-            )}
-        </View>
-    );
-};
 
 const AdminLabTests = () => {
     const [tests, setTests] = useState([]);
