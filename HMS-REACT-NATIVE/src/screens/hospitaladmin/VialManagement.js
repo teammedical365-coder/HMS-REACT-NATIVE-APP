@@ -497,17 +497,23 @@ const VialManagement = () => {
     };
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={{ padding: 20 }}>
-            {/* Header */}
+        <ScrollView style={styles.container} contentContainerStyle={{ padding: 24, maxWidth: 1440, alignSelf: 'center', width: '100%' }}>
+            {/* Header (Exact Web .vm-header) */}
             <View style={styles.headerRow}>
                 <View style={{ flex: 1, minWidth: 260 }}>
-                    <Text style={styles.title}>🧪 Vial & Specimen Workspace</Text>
-                    <Text style={styles.subtitle}>Track, store, move, retrieve, and audit biological patient vials.</Text>
+                    <Text style={styles.title}>🧪 Vial Management Workspace</Text>
+                    <Text style={styles.subtitle}>Track, store, move, retrieve, and audit laboratory and biological patient vials</Text>
                 </View>
-                <TouchableOpacity style={styles.storeBtn} onPress={handleOpenStoreModal} activeOpacity={0.8}>
-                    <Feather name="plus" size={16} color="#fff" />
-                    <Text style={styles.storeBtnText}>+ Store Vial</Text>
-                </TouchableOpacity>
+                <View style={styles.headerActions}>
+                    <TouchableOpacity style={styles.btnSecondary} onPress={() => { fetchVials(); fetchStats(); }} activeOpacity={0.7}>
+                        <Feather name="refresh-cw" size={14} color="#475569" style={{ marginRight: 6 }} />
+                        <Text style={styles.btnSecondaryText}>Refresh</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.btnPrimary} onPress={handleOpenStoreModal} activeOpacity={0.85}>
+                        <Feather name="plus" size={16} color="#ffffff" style={{ marginRight: 6 }} />
+                        <Text style={styles.btnPrimaryText}>Store Vial</Text>
+                    </TouchableOpacity>
+                </View>
             </View>
 
             {/* Success & Error alerts */}
@@ -524,46 +530,50 @@ const VialManagement = () => {
                 </View>
             )}
 
-            {/* 4 KPI Stat Cards */}
-            <View style={styles.statsRow}>
-                <View style={[styles.statCard, { borderLeftColor: '#3b82f6' }]}>
-                    <View style={styles.statHeader}>
+            {/* 4 Stats Cards (Exact Web .vm-stats-grid) */}
+            <View style={styles.statsGrid}>
+                <View style={styles.statCard}>
+                    <View style={[styles.statIconBox, { backgroundColor: '#e0f2fe' }]}>
+                        <Feather name="box" size={22} color="#0284c7" />
+                    </View>
+                    <View style={styles.statInfo}>
+                        <Text style={styles.statVal}>{statsLoading ? '...' : (stats.totalVials || 0)}</Text>
                         <Text style={styles.statLabel}>Total Vials</Text>
-                        <Feather name="box" size={18} color="#3b82f6" />
                     </View>
-                    <Text style={styles.statValue}>{stats.totalVials || 0}</Text>
-                    <Text style={styles.statSub}>● All registered specimens</Text>
                 </View>
 
-                <View style={[styles.statCard, { borderLeftColor: '#10b981' }]}>
-                    <View style={styles.statHeader}>
+                <View style={styles.statCard}>
+                    <View style={[styles.statIconBox, { backgroundColor: '#dcfce7' }]}>
+                        <Feather name="check-circle" size={22} color="#10b981" />
+                    </View>
+                    <View style={styles.statInfo}>
+                        <Text style={styles.statVal}>{statsLoading ? '...' : (stats.currentlyStored || 0)}</Text>
                         <Text style={styles.statLabel}>Currently Stored</Text>
-                        <Feather name="check-circle" size={18} color="#10b981" />
                     </View>
-                    <Text style={styles.statValue}>{stats.currentlyStored || 0}</Text>
-                    <Text style={styles.statSub}>● In freezers / racks</Text>
                 </View>
 
-                <View style={[styles.statCard, { borderLeftColor: '#f59e0b' }]}>
-                    <View style={styles.statHeader}>
+                <View style={styles.statCard}>
+                    <View style={[styles.statIconBox, { backgroundColor: '#fef3c7' }]}>
+                        <Feather name="truck" size={22} color="#f59e0b" />
+                    </View>
+                    <View style={styles.statInfo}>
+                        <Text style={styles.statVal}>{statsLoading ? '...' : (stats.retrievedCount || 0)}</Text>
                         <Text style={styles.statLabel}>Retrieved</Text>
-                        <Feather name="truck" size={18} color="#f59e0b" />
                     </View>
-                    <Text style={styles.statValue}>{stats.retrievedCount || 0}</Text>
-                    <Text style={styles.statSub}>● Out for analysis</Text>
                 </View>
 
-                <View style={[styles.statCard, { borderLeftColor: '#ef4444' }]}>
-                    <View style={styles.statHeader}>
-                        <Text style={styles.statLabel}>Discarded</Text>
-                        <Feather name="trash-2" size={18} color="#ef4444" />
+                <View style={styles.statCard}>
+                    <View style={[styles.statIconBox, { backgroundColor: '#ffe4e6' }]}>
+                        <Feather name="trash-2" size={22} color="#f43f5e" />
                     </View>
-                    <Text style={styles.statValue}>{stats.discardedCount || 0}</Text>
-                    <Text style={styles.statSub}>● Expired or disposed</Text>
+                    <View style={styles.statInfo}>
+                        <Text style={styles.statVal}>{statsLoading ? '...' : (stats.discardedCount || 0)}</Text>
+                        <Text style={styles.statLabel}>Discarded</Text>
+                    </View>
                 </View>
             </View>
 
-            {/* Filters Bar (Full Web Parity) */}
+            {/* Filters Bar (Exact Web .vm-filter-card) */}
             <View style={styles.filterCard}>
                 <View style={styles.filterRow}>
                     <View style={styles.searchBox}>
@@ -571,6 +581,7 @@ const VialManagement = () => {
                         <TextInput
                             style={styles.searchInput}
                             placeholder="Search by Vial ID, Patient, MRN..."
+                            placeholderTextColor="#94a3b8"
                             value={searchTerm}
                             onChangeText={(val) => { setSearchTerm(val); setPage(1); }}
                         />
@@ -581,11 +592,29 @@ const VialManagement = () => {
                         ) : null}
                     </View>
 
-                    <View style={styles.searchBox}>
-                        <Feather name="layers" size={16} color="#94a3b8" />
+                    <View style={{ width: 165 }}>
+                        <DropdownSelect 
+                            options={['All', ...VIAL_TYPES].map(t => ({ label: t === 'All' ? 'All Vial Types' : t, value: t }))}
+                            value={selectedType}
+                            onChange={v => { setSelectedType(v); setPage(1); }}
+                            placeholder="All Vial Types"
+                        />
+                    </View>
+
+                    <View style={{ width: 150 }}>
+                        <DropdownSelect 
+                            options={STATUS_OPTIONS.map(s => ({ label: s === 'All' ? 'All Statuses' : s, value: s }))}
+                            value={selectedStatus}
+                            onChange={v => { setSelectedStatus(v); setPage(1); }}
+                            placeholder="All Statuses"
+                        />
+                    </View>
+
+                    <View style={[styles.searchBox, { maxWidth: 160, flex: 0, minWidth: 130 }]}>
                         <TextInput
                             style={styles.searchInput}
                             placeholder="Storage Unit..."
+                            placeholderTextColor="#94a3b8"
                             value={storageUnitFilter}
                             onChangeText={(val) => { setStorageUnitFilter(val); setPage(1); }}
                         />
@@ -595,36 +624,11 @@ const VialManagement = () => {
                             </TouchableOpacity>
                         ) : null}
                     </View>
-                </View>
 
-                {/* Dropdown Filters (Matching Web vm-select) */}
-                <View style={{ flexDirection: 'row', gap: 12, marginTop: 12, flexWrap: 'wrap' }}>
-                    <View style={{ flex: 1, minWidth: 180 }}>
-                        <Text style={{ fontSize: 11.5, fontWeight: '700', color: '#64748b', marginBottom: 6, textTransform: 'uppercase' }}>Vial Type</Text>
-                        <DropdownSelect 
-                            options={['All', ...VIAL_TYPES].map(t => ({ label: t === 'All' ? 'All Vial Types' : t, value: t }))}
-                            value={selectedType}
-                            onChange={v => { setSelectedType(v); setPage(1); }}
-                            placeholder="All Vial Types"
-                        />
-                    </View>
-                    <View style={{ flex: 1, minWidth: 180 }}>
-                        <Text style={{ fontSize: 11.5, fontWeight: '700', color: '#64748b', marginBottom: 6, textTransform: 'uppercase' }}>Status</Text>
-                        <DropdownSelect 
-                            options={STATUS_OPTIONS.map(s => ({ label: s === 'All' ? 'All Statuses' : s, value: s }))}
-                            value={selectedStatus}
-                            onChange={v => { setSelectedStatus(v); setPage(1); }}
-                            placeholder="All Statuses"
-                        />
-                    </View>
-                </View>
-
-
-                {/* Date Filter & Clear Controls */}
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f1f5f9' }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#475569' }}>From</Text>
-                        <View style={{ width: 140 }}>
+                    {/* Date filter group */}
+                    <View style={styles.dateFilterGroup}>
+                        <Text style={styles.datePrefix}>From</Text>
+                        <View style={{ width: 130 }}>
                             <DatePickerInput
                                 value={startDate}
                                 onChange={(d) => { setStartDate(d); setPage(1); }}
@@ -632,8 +636,8 @@ const VialManagement = () => {
                                 title="Received Date From"
                             />
                         </View>
-                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#475569' }}>To</Text>
-                        <View style={{ width: 140 }}>
+                        <Text style={styles.datePrefix}>To</Text>
+                        <View style={{ width: 130 }}>
                             <DatePickerInput
                                 value={endDate}
                                 onChange={(d) => { setEndDate(d); setPage(1); }}
@@ -645,104 +649,119 @@ const VialManagement = () => {
 
                     {(searchTerm || selectedStatus !== 'All' || selectedType !== 'All' || storageUnitFilter || startDate || endDate) && (
                         <TouchableOpacity style={styles.resetBtn} onPress={handleResetFilters}>
-                            <Feather name="rotate-ccw" size={13} color="#64748b" />
                             <Text style={styles.resetBtnText}>Clear Filters</Text>
                         </TouchableOpacity>
                     )}
                 </View>
             </View>
 
-            {/* Vials Table / List */}
+            {/* Vials Table Card (Exact Web .vm-table-card) */}
             {loading ? (
-                <View style={{ padding: 40, alignItems: 'center' }}>
-                    <ActivityIndicator size="large" color="#2563eb" />
-                    <Text style={{ color: '#64748b', marginTop: 12, fontSize: 14 }}>Loading vial records...</Text>
+                <View style={styles.emptyCard}>
+                    <ActivityIndicator size="large" color="#0284c7" />
+                    <Text style={{ marginTop: 12, color: '#64748b', fontSize: 14 }}>Loading vial records...</Text>
                 </View>
             ) : vials.length === 0 ? (
                 <View style={styles.emptyCard}>
-                    <Feather name="inbox" size={44} color="#94a3b8" />
-                    <Text style={styles.emptyTitle}>No Vials Found</Text>
-                    <Text style={styles.emptyDesc}>No vials match your search filters or no vials have been stored yet.</Text>
-                    <TouchableOpacity style={[styles.storeBtn, { marginTop: 16 }]} onPress={handleOpenStoreModal}>
-                        <Text style={styles.storeBtnText}>+ Store New Vial</Text>
+                    <Feather name="box" size={42} color="#cbd5e1" />
+                    <Text style={styles.emptyTitle}>No vials have been registered yet.</Text>
+                    <Text style={styles.emptyDesc}>
+                        {searchTerm || selectedStatus !== 'All' || selectedType !== 'All' || storageUnitFilter
+                            ? 'No vials match your search filters. Try clearing your search parameters.'
+                            : 'Store your first biological or laboratory sample vial using the button above.'}
+                    </Text>
+                    <TouchableOpacity style={[styles.btnPrimary, { marginTop: 18 }]} onPress={handleOpenStoreModal}>
+                        <Feather name="plus" size={16} color="#ffffff" style={{ marginRight: 6 }} />
+                        <Text style={styles.btnPrimaryText}>Store Vial</Text>
                     </TouchableOpacity>
                 </View>
             ) : (
                 <View style={styles.tableCard}>
-                    <View style={styles.tableHeader}>
-                        <Text style={[styles.th, { width: 140 }]}>Vial ID</Text>
-                        <Text style={[styles.th, { width: 160 }]}>Patient</Text>
-                        <Text style={[styles.th, { width: 150 }]}>Type</Text>
-                        <Text style={[styles.th, { flex: 1, minWidth: 160 }]}>Current Location</Text>
-                        <Text style={[styles.th, { width: 110 }]}>Status</Text>
-                        <Text style={[styles.th, { width: 150, textAlign: 'right' }]}>Actions</Text>
-                    </View>
-
-                    {vials.map(vial => {
-                        const stStyle = getStatusStyle(vial.status);
-                        const patientName = vial.patientId?.name || (vial.patientSnapshot?.name) || 'Unknown';
-                        const patientUhid = vial.patientId?.uhid || (vial.patientSnapshot?.uhid) || '';
-
-                        return (
-                            <View key={vial._id} style={styles.tableRow}>
-                                <View style={{ width: 140 }}>
-                                    <Text style={styles.vialCode} numberOfLines={1}>{vial.vialId || vial._id.slice(-8)}</Text>
-                                    <Text style={styles.vialDate}>{formatDate(vial.receivedAt)}</Text>
-                                </View>
-
-                                <View style={{ width: 160 }}>
-                                    <Text style={styles.patientName} numberOfLines={1}>{patientName}</Text>
-                                    {patientUhid ? <Text style={styles.patientUhid}>UHID: {patientUhid}</Text> : null}
-                                </View>
-
-                                <View style={{ width: 150 }}>
-                                    <Text style={styles.vialType} numberOfLines={1}>{vial.vialType}</Text>
-                                </View>
-
-                                <View style={{ flex: 1, minWidth: 160 }}>
-                                    <Text style={styles.locationText} numberOfLines={1}>
-                                        {formatLocation(vial.currentLocation)}
-                                    </Text>
-                                </View>
-
-                                <View style={{ width: 110 }}>
-                                    <View style={[styles.statusBadge, { backgroundColor: stStyle.bg, borderColor: stStyle.border }]}>
-                                        <Text style={[styles.statusText, { color: stStyle.text }]}>{vial.status}</Text>
-                                    </View>
-                                </View>
-
-                                {/* Row Actions */}
-                                <View style={styles.rowActions}>
-                                    <TouchableOpacity style={styles.actionIconBtn} onPress={() => handleOpenDetails(vial)} title="Details">
-                                        <Feather name="eye" size={15} color="#2563eb" />
-                                    </TouchableOpacity>
-
-                                    {(vial.status === 'Stored' || vial.status === 'Moved') && (
-                                        <>
-                                            <TouchableOpacity style={styles.actionIconBtn} onPress={() => handleOpenMove(vial)} title="Move">
-                                                <Feather name="arrow-right" size={15} color="#7c3aed" />
-                                            </TouchableOpacity>
-                                            <TouchableOpacity style={styles.actionIconBtn} onPress={() => handleOpenRetrieve(vial)} title="Retrieve">
-                                                <Feather name="truck" size={15} color="#d97706" />
-                                            </TouchableOpacity>
-                                        </>
-                                    )}
-
-                                    {vial.status === 'Retrieved' && (
-                                        <TouchableOpacity style={styles.actionIconBtn} onPress={() => handleOpenReturn(vial)} title="Return">
-                                            <Feather name="rotate-ccw" size={15} color="#059669" />
-                                        </TouchableOpacity>
-                                    )}
-
-                                    {vial.status !== 'Discarded' && (
-                                        <TouchableOpacity style={styles.actionIconBtn} onPress={() => handleOpenDiscard(vial)} title="Discard">
-                                            <Feather name="trash-2" size={15} color="#dc2626" />
-                                        </TouchableOpacity>
-                                    )}
-                                </View>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={true}>
+                        <View style={{ minWidth: 960 }}>
+                            <View style={styles.tableHeader}>
+                                <Text style={[styles.th, { width: 140 }]}>Vial ID</Text>
+                                <Text style={[styles.th, { width: 170 }]}>Patient</Text>
+                                <Text style={[styles.th, { width: 140 }]}>Vial Type</Text>
+                                <Text style={[styles.th, { width: 120 }]}>Received Date</Text>
+                                <Text style={[styles.th, { flex: 1, minWidth: 160 }]}>Current Location</Text>
+                                <Text style={[styles.th, { width: 115 }]}>Status</Text>
+                                <Text style={[styles.th, { width: 160, textAlign: 'right' }]}>Actions</Text>
                             </View>
-                        );
-                    })}
+
+                            {vials.map(vial => {
+                                const stStyle = getStatusStyle(vial.status);
+                                const patientName = vial.patientId?.name || (vial.patientSnapshot?.name) || 'Unknown';
+                                const patientMrn = vial.patientId?.mrn || vial.patientId?.patientId || vial.patientId?.uhid || vial.patientSnapshot?.uhid || '—';
+
+                                return (
+                                    <View key={vial._id} style={styles.tableRow}>
+                                        <View style={{ width: 140 }}>
+                                            <View style={styles.vialIdBadge}>
+                                                <Feather name="tag" size={12} color="#0284c7" style={{ marginRight: 4 }} />
+                                                <Text style={styles.vialCode} numberOfLines={1}>{vial.vialId || vial._id.slice(-8)}</Text>
+                                            </View>
+                                        </View>
+
+                                        <View style={{ width: 170 }}>
+                                            <Text style={styles.patientName} numberOfLines={1}>{patientName}</Text>
+                                            <Text style={styles.patientMrn}>MRN: {patientMrn}</Text>
+                                        </View>
+
+                                        <View style={{ width: 140 }}>
+                                            <Text style={styles.vialType} numberOfLines={1}>{vial.vialType}</Text>
+                                        </View>
+
+                                        <View style={{ width: 120 }}>
+                                            <Text style={styles.dateText}>{formatDate(vial.receivedAt)}</Text>
+                                        </View>
+
+                                        <View style={{ flex: 1, minWidth: 160 }}>
+                                            <Text style={styles.locationText} numberOfLines={1}>
+                                                {formatLocation(vial.currentLocation) || '—'}
+                                            </Text>
+                                        </View>
+
+                                        <View style={{ width: 115 }}>
+                                            <View style={[styles.statusBadge, { backgroundColor: stStyle.bg, borderColor: stStyle.border }]}>
+                                                <Text style={[styles.statusText, { color: stStyle.text }]}>{vial.status}</Text>
+                                            </View>
+                                        </View>
+
+                                        {/* Row Actions */}
+                                        <View style={styles.rowActions}>
+                                            <TouchableOpacity style={styles.actionIconBtn} onPress={() => handleOpenDetails(vial)} title="Details">
+                                                <Feather name="eye" size={15} color="#0284c7" />
+                                            </TouchableOpacity>
+
+                                            {(vial.status === 'Stored' || vial.status === 'Moved') && (
+                                                <>
+                                                    <TouchableOpacity style={styles.actionIconBtn} onPress={() => handleOpenMove(vial)} title="Move">
+                                                        <Feather name="arrow-right" size={15} color="#7c3aed" />
+                                                    </TouchableOpacity>
+                                                    <TouchableOpacity style={styles.actionIconBtn} onPress={() => handleOpenRetrieve(vial)} title="Retrieve">
+                                                        <Feather name="truck" size={15} color="#d97706" />
+                                                    </TouchableOpacity>
+                                                </>
+                                            )}
+
+                                            {vial.status === 'Retrieved' && (
+                                                <TouchableOpacity style={styles.actionIconBtn} onPress={() => handleOpenReturn(vial)} title="Return">
+                                                    <Feather name="rotate-ccw" size={15} color="#059669" />
+                                                </TouchableOpacity>
+                                            )}
+
+                                            {vial.status !== 'Discarded' && (
+                                                <TouchableOpacity style={styles.actionIconBtn} onPress={() => handleOpenDiscard(vial)} title="Discard">
+                                                    <Feather name="trash-2" size={15} color="#dc2626" />
+                                                </TouchableOpacity>
+                                            )}
+                                        </View>
+                                    </View>
+                                );
+                            })}
+                        </View>
+                    </ScrollView>
 
                     {/* Server-Side Pagination Bar */}
                     <View style={styles.paginationBar}>
@@ -1243,76 +1262,81 @@ const VialManagement = () => {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#f8fafc' },
-    headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 },
-    title: { fontSize: 24, fontWeight: '800', color: '#0f172a' },
-    subtitle: { fontSize: 14, color: '#64748b', marginTop: 4 },
-    storeBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#2563eb', paddingVertical: 10, paddingHorizontal: 18, borderRadius: 8, elevation: 2 },
-    storeBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+    headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', gap: 16 },
+    title: { fontSize: 26, fontWeight: '800', color: '#0f172a', letterSpacing: -0.5 },
+    subtitle: { fontSize: 14, color: '#64748b', marginTop: 6 },
+    headerActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    btnPrimary: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0284c7', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10, shadowColor: '#0284c7', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 14, elevation: 4 },
+    btnPrimaryText: { color: '#ffffff', fontWeight: '600', fontSize: 14 },
+    btnSecondary: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', paddingVertical: 9, paddingHorizontal: 16, borderRadius: 10, borderWidth: 1, borderColor: '#cbd5e1' },
+    btnSecondaryText: { color: '#475569', fontWeight: '600', fontSize: 14 },
     alertBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 10, borderWidth: 1, marginBottom: 16 },
-    statsRow: { flexDirection: 'row', gap: 14, marginBottom: 20, flexWrap: 'wrap' },
-    statCard: { flex: 1, minWidth: 150, backgroundColor: '#fff', padding: 16, borderRadius: 12, borderLeftWidth: 4, elevation: 1, borderWidth: 1, borderColor: '#e2e8f0' },
-    statHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    statLabel: { fontSize: 13, color: '#64748b', fontWeight: '600' },
-    statValue: { fontSize: 24, fontWeight: '800', color: '#0f172a', marginTop: 6 },
-    statSub: { fontSize: 11, color: '#94a3b8', marginTop: 4 },
-    filterCard: { backgroundColor: '#fff', padding: 16, borderRadius: 12, marginBottom: 20, elevation: 1, borderWidth: 1, borderColor: '#e2e8f0' },
-    filterRow: { flexDirection: 'row', gap: 12, flexWrap: 'wrap' },
-    searchBox: { flex: 1, minWidth: 220, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#f1f5f9', paddingHorizontal: 12, borderRadius: 8, height: 42, borderWidth: 1, borderColor: '#e2e8f0' },
-    searchInput: { flex: 1, fontSize: 14, color: '#0f172a' },
-    pillBtn: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20, backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#e2e8f0' },
-    pillBtnActive: { backgroundColor: '#eff6ff', borderColor: '#3b82f6' },
-    pillBtnText: { fontSize: 12, color: '#64748b', fontWeight: '600' },
-    pillBtnTextActive: { color: '#2563eb', fontWeight: '700' },
-    resetBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0' },
-    resetBtnText: { fontSize: 12, color: '#64748b', fontWeight: '600' },
-    emptyCard: { backgroundColor: '#fff', padding: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#e2e8f0', marginTop: 16 },
-    emptyTitle: { fontSize: 18, fontWeight: '700', color: '#1e293b', marginTop: 12 },
-    emptyDesc: { fontSize: 13, color: '#64748b', marginTop: 4, textAlign: 'center', maxWidth: 400 },
-    tableCard: { backgroundColor: '#fff', borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: '#e2e8f0', elevation: 1 },
+    
+    /* Exact Web .vm-stats-grid */
+    statsGrid: { flexDirection: 'row', gap: 16, marginBottom: 24, flexWrap: 'wrap' },
+    statCard: { flex: 1, minWidth: 200, backgroundColor: '#ffffff', padding: 18, borderRadius: 14, borderWidth: 1, borderColor: '#e2e8f0', flexDirection: 'row', alignItems: 'center', gap: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.02, shadowRadius: 6, elevation: 1 },
+    statIconBox: { width: 48, height: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+    statInfo: { flexDirection: 'column' },
+    statVal: { fontSize: 24, fontWeight: '800', color: '#0f172a', lineHeight: 28 },
+    statLabel: { fontSize: 13, color: '#64748b', fontWeight: '500', marginTop: 2 },
+
+    /* Exact Web .vm-filter-card */
+    filterCard: { backgroundColor: '#ffffff', padding: 16, borderRadius: 14, marginBottom: 20, borderWidth: 1, borderColor: '#e2e8f0', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.02, shadowRadius: 6, elevation: 1 },
+    filterRow: { flexDirection: 'row', gap: 12, alignItems: 'center', flexWrap: 'wrap' },
+    searchBox: { flex: 1, minWidth: 200, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#f8fafc', paddingHorizontal: 14, borderRadius: 10, height: 42, borderWidth: 1, borderColor: '#cbd5e1' },
+    searchInput: { flex: 1, fontSize: 14, color: '#1e293b' },
+    dateFilterGroup: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
+    datePrefix: { fontSize: 12, fontWeight: '600', color: '#64748b', textTransform: 'uppercase' },
+    resetBtn: { paddingVertical: 9, paddingHorizontal: 14, borderRadius: 10, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0' },
+    resetBtnText: { fontSize: 13, color: '#64748b', fontWeight: '600' },
+
+    emptyCard: { backgroundColor: '#ffffff', padding: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#e2e8f0', marginVertical: 16 },
+    emptyTitle: { fontSize: 18, fontWeight: '700', color: '#1e293b', marginTop: 14 },
+    emptyDesc: { fontSize: 13, color: '#64748b', marginTop: 6, textAlign: 'center', maxWidth: 440 },
+    
+    /* Exact Web .vm-table-card */
+    tableCard: { backgroundColor: '#ffffff', borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: '#e2e8f0', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.02, shadowRadius: 8, elevation: 1, marginBottom: 20 },
     tableHeader: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderBottomWidth: 1, borderBottomColor: '#e2e8f0', paddingVertical: 12, paddingHorizontal: 16 },
     th: { fontSize: 12, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' },
     tableRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-    vialCode: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
-    vialDate: { fontSize: 11, color: '#94a3b8', marginTop: 2 },
-    patientName: { fontSize: 14, fontWeight: '600', color: '#1e293b' },
-    patientUhid: { fontSize: 11, color: '#64748b', marginTop: 1 },
-    vialType: { fontSize: 13, color: '#475569' },
+    vialIdBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#eff6ff', borderWidth: 1, borderColor: '#bfdbfe', borderRadius: 6, paddingVertical: 4, paddingHorizontal: 8, alignSelf: 'flex-start' },
+    vialCode: { fontSize: 13, fontWeight: '700', color: '#0284c7' },
+    patientName: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
+    patientMrn: { fontSize: 12, color: '#64748b', marginTop: 2 },
+    vialType: { fontSize: 13.5, fontWeight: '600', color: '#334155' },
+    dateText: { fontSize: 13, color: '#475569' },
     locationText: { fontSize: 13, color: '#334155' },
     statusBadge: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12, borderWidth: 1, alignSelf: 'flex-start' },
-    statusText: { fontSize: 11, fontWeight: '700' },
-    rowActions: { width: 150, flexDirection: 'row', justifyContent: 'flex-end', gap: 6 },
+    statusText: { fontSize: 11.5, fontWeight: '700' },
+    rowActions: { width: 160, flexDirection: 'row', justifyContent: 'flex-end', gap: 6 },
     actionIconBtn: { width: 32, height: 32, borderRadius: 6, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', alignItems: 'center', justifyContent: 'center' },
     paginationBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, backgroundColor: '#f8fafc', borderTopWidth: 1, borderTopColor: '#e2e8f0', flexWrap: 'wrap', gap: 10 },
     pageInfo: { fontSize: 13, color: '#64748b', fontWeight: '500' },
-    pageBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6, backgroundColor: '#fff', borderWidth: 1, borderColor: '#cbd5e1' },
+    pageBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#cbd5e1' },
     pageBtnDisabled: { opacity: 0.5 },
     pageBtnText: { fontSize: 13, fontWeight: '600', color: '#1e293b' },
     modalBackdrop: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.6)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-    modalCard: { backgroundColor: '#fff', borderRadius: 16, padding: 24, width: '100%', maxWidth: 540, maxHeight: '90%', elevation: 10 },
+    modalCard: { backgroundColor: '#ffffff', borderRadius: 16, padding: 24, width: '100%', maxWidth: 540, maxHeight: '90%', elevation: 10 },
     modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', paddingBottom: 12 },
     modalTitle: { fontSize: 18, fontWeight: '800', color: '#0f172a' },
     inputLabel: { fontSize: 13, fontWeight: '700', color: '#334155', marginBottom: 6 },
     subInputLabel: { fontSize: 12, fontWeight: '600', color: '#64748b', marginBottom: 4 },
-    modalInput: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, fontSize: 14, color: '#0f172a' },
+    modalInput: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, fontSize: 14, color: '#0f172a' },
     selectedPatientPill: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#eff6ff', borderWidth: 1, borderColor: '#bfdbfe', padding: 12, borderRadius: 8, marginBottom: 10 },
-    patientSearchResults: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, marginTop: 4, maxHeight: 150, overflow: 'hidden' },
+    patientSearchResults: { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, marginTop: 4, maxHeight: 150, overflow: 'hidden' },
     patientSearchItem: { padding: 10, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-    typeOptionPill: { paddingVertical: 6, paddingHorizontal: 10, borderRadius: 16, backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#e2e8f0' },
-    typeOptionPillActive: { backgroundColor: '#eff6ff', borderColor: '#3b82f6' },
-    typeOptionText: { fontSize: 12, color: '#64748b', fontWeight: '500' },
-    typeOptionTextActive: { color: '#2563eb', fontWeight: '700' },
     modalActions: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, marginTop: 20, borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 14 },
     modalCancelBtn: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8, borderWidth: 1, borderColor: '#cbd5e1' },
     modalCancelText: { color: '#64748b', fontWeight: '600', fontSize: 14 },
-    modalSubmitBtn: { backgroundColor: '#2563eb', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8 },
-    modalSubmitText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+    modalSubmitBtn: { backgroundColor: '#0284c7', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8 },
+    modalSubmitText: { color: '#ffffff', fontWeight: '700', fontSize: 14 },
     detailGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, backgroundColor: '#f8fafc', padding: 14, borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0' },
     detailItem: { width: '48%' },
     detailItemFull: { width: '100%', marginTop: 4 },
     detailLabel: { fontSize: 11, color: '#64748b', fontWeight: '600', textTransform: 'uppercase' },
     detailVal: { fontSize: 14, color: '#0f172a', fontWeight: '700', marginTop: 2 },
     auditRow: { flexDirection: 'row', gap: 12, paddingVertical: 8, borderLeftWidth: 2, borderLeftColor: '#e2e8f0', paddingLeft: 12, marginLeft: 6, marginBottom: 8 },
-    auditDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#2563eb', position: 'absolute', left: -5, top: 12 },
+    auditDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#0284c7', position: 'absolute', left: -5, top: 12 },
     auditAction: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
     auditMeta: { fontSize: 11, color: '#64748b', marginTop: 1 },
     auditReason: { fontSize: 12, color: '#475569', fontStyle: 'italic', marginTop: 2 }

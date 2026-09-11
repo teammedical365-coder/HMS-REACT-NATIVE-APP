@@ -6,6 +6,7 @@ import {
 import { useNavigation, useRoute } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Feather } from '@expo/vector-icons';
+import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import { adminAPI, uploadAPI, hospitalAPI } from '../../utils/api';
 import { getSubscriptionLimits } from '../../utils/subscriptionPlans';
 
@@ -14,6 +15,35 @@ import DropdownSelect from '../../components/common/DropdownSelect';
 // --- Universal Dropdown Select Wrapper ---
 const CustomSelect = (props) => <DropdownSelect {...props} />;
 
+// --- Staff Input with Web focus state & outline removal ---
+const StaffInput = ({ style, onFocus, onBlur, ...props }) => {
+    const [focused, setFocused] = useState(false);
+    return (
+        <TextInput
+            {...props}
+            placeholderTextColor="#94a3b8"
+            onFocus={(e) => {
+                setFocused(true);
+                if (onFocus) onFocus(e);
+            }}
+            onBlur={(e) => {
+                setFocused(false);
+                if (onBlur) onBlur(e);
+            }}
+            style={[
+                styles.staffInput,
+                Platform.select({
+                    web: {
+                        outlineStyle: 'none',
+                        outlineWidth: 0,
+                    }
+                }),
+                focused && styles.staffInputFocused,
+                style
+            ]}
+        />
+    );
+};
 
 const Admin = () => {
     const navigation = useNavigation();
@@ -48,6 +78,7 @@ const Admin = () => {
     const [staffHospitalFilter, setStaffHospitalFilter] = useState('');
     const [staffPlanFilter, setStaffPlanFilter] = useState('');
     const [staffSearchQuery, setStaffSearchQuery] = useState('');
+    const [searchFocused, setSearchFocused] = useState(false);
 
     const loadUser = async () => {
         const u = await AsyncStorage.getItem('user');
@@ -434,37 +465,145 @@ const Admin = () => {
         );
     });
 
+    const RAINBOW_THEMES = [
+        { 
+            border: '#10b981', 
+            bg: '#f0fdf4', 
+            borderBottom: '#dcfce7',
+            avatarBg: '#059669', 
+            avatarBorder: '#86efac', 
+            avatarColor: '#ffffff',
+            hospBg: '#ecfdf5',
+            hospBorder: '#a7f3d0',
+            hospColor: '#047857',
+            planBg: '#d1fae5',
+            planBorder: '#6ee7b7',
+            planColor: '#065f46',
+            roleBg: '#dcfce7',
+            roleBorder: '#bbf7d0',
+            roleColor: '#065f46'
+        },
+        { 
+            border: '#8b5cf6', 
+            bg: '#faf5ff', 
+            borderBottom: '#f3e8ff',
+            avatarBg: '#7c3aed', 
+            avatarBorder: '#d8b4fe', 
+            avatarColor: '#ffffff',
+            hospBg: '#f5f3ff',
+            hospBorder: '#ddd6fe',
+            hospColor: '#6d28d9',
+            planBg: '#ede9fe',
+            planBorder: '#c4b5fd',
+            planColor: '#5b21b6',
+            roleBg: '#f3e8ff',
+            roleBorder: '#e9d5ff',
+            roleColor: '#581c87'
+        },
+        { 
+            border: '#ec4899', 
+            bg: '#fdf2f8', 
+            borderBottom: '#fce7f3',
+            avatarBg: '#db2777', 
+            avatarBorder: '#fbcfe8', 
+            avatarColor: '#ffffff',
+            hospBg: '#fdf2f8',
+            hospBorder: '#f9a8d4',
+            hospColor: '#be185d',
+            planBg: '#fce7f3',
+            planBorder: '#f472b6',
+            planColor: '#9d174d',
+            roleBg: '#fce7f3',
+            roleBorder: '#fbcfe8',
+            roleColor: '#831843'
+        },
+        { 
+            border: '#0284c7', 
+            bg: '#f0f9ff', 
+            borderBottom: '#e0f2fe',
+            avatarBg: '#0284c7', 
+            avatarBorder: '#7dd3fc', 
+            avatarColor: '#ffffff',
+            hospBg: '#f0f9ff',
+            hospBorder: '#7dd3fc',
+            hospColor: '#0369a1',
+            planBg: '#e0f2fe',
+            planBorder: '#7dd3fc',
+            planColor: '#0369a1',
+            roleBg: '#e0f2fe',
+            roleBorder: '#bae6fd',
+            roleColor: '#075985'
+        },
+        { 
+            border: '#ef4444', 
+            bg: '#fef2f2', 
+            borderBottom: '#fee2e2',
+            avatarBg: '#dc2626', 
+            avatarBorder: '#fca5a5', 
+            avatarColor: '#ffffff',
+            hospBg: '#fef2f2',
+            hospBorder: '#f87171',
+            hospColor: '#b91c1c',
+            planBg: '#fee2e2',
+            planBorder: '#fca5a5',
+            planColor: '#991b1b',
+            roleBg: '#fee2e2',
+            roleBorder: '#fca5a5',
+            roleColor: '#991b1b'
+        }
+    ];
+
+    const getPlanBadge = (userItem) => {
+        const rawPlan = (userItem.hospitalId ? (hospitals.find(h => h._id === String(userItem.hospitalId))?.plan || userItem.planName) : userItem.planName) || hospital?.subscriptionPlan || 'enterprise';
+        const p = String(rawPlan).toLowerCase();
+        if (p.includes('starter')) return { label: 'Simple Clinics (Starter)', key: 'starter', bg: '#f0fdf4', border: '#bbf7d0', color: '#16a34a' };
+        if (p.includes('clinic_basic') || p.includes('clinic basic')) return { label: 'Clinic Basic', key: 'clinic_basic', bg: '#eff6ff', border: '#bfdbfe', color: '#2563eb' };
+        if (p.includes('multi_speciality') || p.includes('speciality')) return { label: 'Multi-Speciality Starter', key: 'multi_speciality_starter', bg: '#faf5ff', border: '#e9d5ff', color: '#9333ea' };
+        return { label: 'Enterprise', key: 'enterprise', bg: '#fff1f2', border: '#fecdd3', color: '#e11d48' };
+    };
+
     return (
         <ScrollView style={styles.superadminPage} contentContainerStyle={{ paddingBottom: 40 }}>
             <View style={styles.superadminContainer}>
                 {error ? <View style={styles.errorMessage}><Text style={styles.errorMessageText}>{error}</Text></View> : null}
                 {success ? <View style={styles.successMessage}><Text style={styles.successMessageText}>{success}</Text></View> : null}
 
-                {/* Create Staff Account */}
-                <View style={[styles.adminCard, { marginBottom: 20 }]}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: showCreateForm ? 20 : 0, flexWrap: 'wrap', gap: 10 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                            <Text style={styles.cardTitle}>Create Staff Account</Text>
+                {/* ANIMATED TOP CARD: Create Staff Account */}
+                <View style={[styles.staffCreateCard, { marginBottom: 16 }]}>
+                    <ExpoLinearGradient
+                        colors={['#10b981', '#8b5cf6', '#ec4899', '#0284c7', '#ef4444']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.topGradientBar}
+                    />
+                    <View style={styles.staffCreateHeader}>
+                        <View style={styles.staffCreateTitleWrap}>
+                            <View style={styles.staffCreateIconBadge}>
+                                <Text style={{ fontSize: 18 }}>👥</Text>
+                            </View>
+                            <Text style={styles.staffCreateTitle}>Create Staff Account</Text>
                             {remainingStaff > 0 && (
-                                <View style={{ backgroundColor: '#dcfce7', paddingVertical: 4, paddingHorizontal: 10, borderRadius: 20 }}>
-                                    <Text style={{ color: '#16a34a', fontSize: 12, fontWeight: '600' }}>{remainingStaff} left</Text>
+                                <View style={styles.staffQuotaPill}>
+                                    <View style={styles.staffQuotaDot} />
+                                    <Text style={styles.staffQuotaText}>{remainingStaff} left</Text>
                                 </View>
                             )}
                         </View>
+
                         {!isStaffQuotaFull && (
                             <TouchableOpacity 
                                 onPress={handleToggleCreateForm} 
-                                style={[styles.btnEdit, { backgroundColor: showCreateForm ? '#f1f5f9' : '#eef2ff', borderWidth: 0 }]}
+                                style={[styles.btnAddStaffAnimated, showCreateForm && styles.btnAddStaffClose]}
                             >
-                                <Text style={{ color: showCreateForm ? '#64748b' : '#4f46e5', fontWeight: '600' }}>
-                                    {showCreateForm ? '✕ Close' : '+ Add Staff'}
+                                <Text style={[styles.btnAddStaffText, showCreateForm && { color: '#475569' }]}>
+                                    {showCreateForm ? '✕ Close Form' : '+ Add Staff'}
                                 </Text>
                             </TouchableOpacity>
                         )}
                     </View>
 
                     {showCreateForm && (
-                        <View style={styles.userForm}>
+                        <View style={styles.staffFormExpandable}>
                             {hospital?.clinicType === 'clinic' && clinicDoctorExists && (
                                 <View style={{ backgroundColor: '#fef2f2', padding: 12, borderRadius: 8, marginBottom: 20, borderWidth: 1, borderColor: '#fecaca' }}>
                                     <Text style={{ color: '#dc2626', fontSize: 14 }}>⚠️ This clinic already has an assigned Clinic Doctor. Only 1 Doctor account is permitted under this plan.</Text>
@@ -473,8 +612,7 @@ const Admin = () => {
                             <View style={styles.formRow}>
                                 <View style={styles.formGroup}>
                                     <Text style={styles.staffLabel}>Full Name *</Text>
-                                    <TextInput 
-                                        style={styles.staffInput} 
+                                    <StaffInput 
                                         placeholder="e.g. Dr. Sharma" 
                                         value={createForm.name} 
                                         onChangeText={t => setCreateForm({ ...createForm, name: t })} 
@@ -482,8 +620,7 @@ const Admin = () => {
                                 </View>
                                 <View style={styles.formGroup}>
                                     <Text style={styles.staffLabel}>Email Address *</Text>
-                                    <TextInput 
-                                        style={styles.staffInput} 
+                                    <StaffInput 
                                         placeholder="staff@hospital.com" 
                                         keyboardType="email-address"
                                         autoCapitalize="none"
@@ -495,8 +632,7 @@ const Admin = () => {
                             <View style={styles.formRow}>
                                 <View style={styles.formGroup}>
                                     <Text style={styles.staffLabel}>Password *</Text>
-                                    <TextInput 
-                                        style={styles.staffInput} 
+                                    <StaffInput 
                                         placeholder="Temporary password" 
                                         secureTextEntry
                                         value={createForm.password} 
@@ -505,8 +641,7 @@ const Admin = () => {
                                 </View>
                                 <View style={styles.formGroup}>
                                     <Text style={styles.staffLabel}>Phone *</Text>
-                                    <TextInput 
-                                        style={styles.staffInput} 
+                                    <StaffInput 
                                         placeholder="e.g. 9876543210" 
                                         keyboardType="numeric"
                                         maxLength={10}
@@ -522,9 +657,8 @@ const Admin = () => {
                             <View style={styles.formRow}>
                                 <View style={styles.formGroup}>
                                     <Text style={styles.staffLabel}>Profile Image</Text>
-                                    {/* Mocking file input for RN */}
                                     <TouchableOpacity style={[styles.staffInput, { justifyContent: 'center', backgroundColor: '#f8fafc' }]}>
-                                        <Text style={{ color: '#64748b' }}>Upload Image...</Text>
+                                        <Text style={{ color: '#64748b', fontSize: 13 }}>Upload Image (Mock)...</Text>
                                     </TouchableOpacity>
                                 </View>
                                 <View style={[styles.formGroup, { zIndex: 10 }]}>
@@ -557,7 +691,7 @@ const Admin = () => {
                                     <Text style={{ color: '#64748b', fontWeight: '600' }}>Cancel</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity onPress={handleCreateStaff} disabled={creating} style={[styles.primaryBtn, { backgroundColor: '#0f766e', opacity: creating ? 0.7 : 1 }]}>
-                                    <Text style={{ color: 'white', fontWeight: '500' }}>{creating ? 'Creating...' : 'Create Staff Account'}</Text>
+                                    <Text style={{ color: 'white', fontWeight: '600' }}>{creating ? 'Creating...' : 'Create Staff Account'}</Text>
                                 </TouchableOpacity>
                             </View>
                         </View>
@@ -566,50 +700,60 @@ const Admin = () => {
 
                 {/* Quota Card */}
                 {hospital && (hospital.subscriptionPlan === 'clinic_basic' || hospital.subscriptionPlan === 'multi_speciality_starter') && (
-                    <View style={[styles.adminCard, { marginBottom: 20, backgroundColor: '#f8fafc', borderColor: '#e2e8f0' }]}>
-                        <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 12}}>
-                            <Feather name="pie-chart" size={16} color="#0f172a" style={{marginRight: 8}} />
-                            <Text style={[styles.cardTitle, { fontSize: 15, marginBottom: 0 }]}>Subscription Quota (Staff)</Text>
+                    <View style={styles.quotaCard}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                            <Text style={{ fontSize: 16 }}>📊</Text>
+                            <Text style={{ fontSize: 15, fontWeight: '700', color: '#0f172a' }}>Subscription Quota (Staff)</Text>
                         </View>
-                        <View style={{ flexDirection: 'row', gap: 20, flexWrap: 'wrap' }}>
-                            <View style={{ backgroundColor: '#fff', padding: 16, borderRadius: 8, borderColor: '#cbd5e1', borderWidth: 1, flex: 1, minWidth: 150 }}>
-                                <Text style={{ color: '#64748b', fontSize: 12, fontWeight: '600' }}>Staff Accounts</Text>
-                                <Text style={{ fontSize: 20, fontWeight: '700', color: '#334155' }}>{currentStaffCount} / {maxStaffCount} Used</Text>
+                        <View style={{ flexDirection: 'row', gap: 16, flexWrap: 'wrap' }}>
+                            <View style={styles.quotaBox}>
+                                <Text style={styles.quotaBoxLabel}>Staff Accounts</Text>
+                                <Text style={styles.quotaBoxVal}>{currentStaffCount} / {maxStaffCount} Used</Text>
                             </View>
-                            <View style={{ backgroundColor: remainingStaff === 0 ? '#fee2e2' : '#f0fdf4', padding: 16, borderRadius: 8, borderWidth: 1, borderColor: remainingStaff === 0 ? '#fecaca' : '#bbf7d0', flex: 1, minWidth: 150 }}>
-                                <Text style={{ color: remainingStaff === 0 ? '#dc2626' : '#16a34a', fontSize: 12, fontWeight: '600' }}>Remaining</Text>
-                                <Text style={{ fontSize: 20, fontWeight: '700', color: remainingStaff === 0 ? '#dc2626' : '#16a34a' }}>{remainingStaff}</Text>
+                            <View style={[styles.quotaBox, { backgroundColor: remainingStaff === 0 ? '#fee2e2' : '#f0fdf4', borderColor: remainingStaff === 0 ? '#fecaca' : '#bbf7d0' }]}>
+                                <Text style={[styles.quotaBoxLabel, { color: remainingStaff === 0 ? '#dc2626' : '#16a34a' }]}>Remaining</Text>
+                                <Text style={[styles.quotaBoxVal, { color: remainingStaff === 0 ? '#dc2626' : '#16a34a' }]}>{remainingStaff}</Text>
                             </View>
                         </View>
                         {remainingStaff === 0 && (
-                            <View style={{ backgroundColor: '#fee2e2', padding: 16, borderRadius: 8, borderColor: '#fecaca', borderWidth: 1, marginTop: 16, flexDirection: 'row', alignItems: 'center' }}>
-                                <Feather name="alert-triangle" size={16} color="#dc2626" style={{marginRight: 8}} />
-                                <Text style={{ color: '#dc2626', fontSize: 13, fontWeight: '600', flex: 1 }}>Staff quota has been fully utilized. Upgrade your plan to add more staff.</Text>
+                            <View style={styles.quotaWarning}>
+                                <Text style={styles.quotaWarningText}>⚠️ Staff quota has been fully utilized. Upgrade your plan to add more staff.</Text>
                             </View>
                         )}
                     </View>
                 )}
 
-                {/* All Staff */}
-                <View style={styles.adminCard}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
-                        <Text style={styles.cardTitle}>All Staff ({users.length})</Text>
-                        
-                        <View style={{ flex: 1, minWidth: 200, maxWidth: 300 }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderColor: '#cbd5e1', borderWidth: 1, borderRadius: 4, paddingHorizontal: 10, height: 38 }}>
-                                <Feather name="search" size={14} color="#94a3b8" />
-                                <TextInput
-                                    style={{ flex: 1, paddingHorizontal: 8, height: '100%', outlineStyle: 'none' }}
-                                    placeholder="Search by name, email..."
-                                    value={staffSearchQuery}
-                                    onChangeText={setStaffSearchQuery}
-                                />
+                {/* ALL STAFF SECTION (With 5 Rainbow Themes) */}
+                <View style={styles.staffMainCard}>
+                    <View style={styles.staffMainHeader}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                            <Text style={styles.staffTitleText}>All Staff</Text>
+                            <View style={styles.staffCountBadge}>
+                                <Text style={styles.staffCountBadgeText}>{filteredUsers.length}</Text>
                             </View>
+                        </View>
+                        
+                        <View style={[styles.staffSearchContainer, searchFocused && styles.staffSearchContainerFocused]}>
+                            <Feather name="search" size={15} color={searchFocused ? '#3b82f6' : '#64748b'} style={{ marginRight: 8 }} />
+                            <TextInput
+                                style={styles.staffSearchInput}
+                                placeholder="Search name, email, phone..."
+                                placeholderTextColor="#94a3b8"
+                                value={staffSearchQuery}
+                                onChangeText={setStaffSearchQuery}
+                                onFocus={() => setSearchFocused(true)}
+                                onBlur={() => setSearchFocused(false)}
+                            />
+                            {staffSearchQuery ? (
+                                <TouchableOpacity onPress={() => setStaffSearchQuery('')}>
+                                    <Text style={{ color: '#94a3b8', fontSize: 14, paddingHorizontal: 4 }}>✕</Text>
+                                </TouchableOpacity>
+                            ) : null}
                         </View>
 
                         {['superadmin', 'centraladmin'].includes(currentUser.role) && (
-                            <View style={{ flexDirection: 'row', gap: 10, zIndex: 10 }}>
-                                <View style={{ width: 200, zIndex: 11 }}>
+                            <View style={{ flexDirection: 'row', gap: 10, zIndex: 10, flexWrap: 'wrap' }}>
+                                <View style={{ width: 180, zIndex: 11 }}>
                                     <CustomSelect 
                                         options={planOptions}
                                         value={staffPlanFilter}
@@ -622,7 +766,7 @@ const Admin = () => {
                                         placeholder="All Plans"
                                     />
                                 </View>
-                                <View style={{ width: 200, zIndex: 10 }}>
+                                <View style={{ width: 180, zIndex: 10 }}>
                                     <CustomSelect 
                                         options={hospitalOptions}
                                         value={staffHospitalFilter}
@@ -638,29 +782,40 @@ const Admin = () => {
                     </View>
 
                     {loadingUsers ? (
-                        <View style={{ padding: 20, alignItems: 'center' }}><ActivityIndicator size="large" color="#0d9488" /></View>
-                    ) : users.length === 0 ? (
-                        <View style={{ padding: 20, alignItems: 'center' }}><Text style={{ color: '#64748b' }}>No users found for this selection</Text></View>
+                        <View style={{ padding: 30, alignItems: 'center' }}><ActivityIndicator size="large" color="#0d9488" /></View>
+                    ) : filteredUsers.length === 0 ? (
+                        <View style={styles.staffEmptyState}>
+                            <Text style={{ fontSize: 32, marginBottom: 8 }}>👥</Text>
+                            <Text style={{ fontSize: 16, fontWeight: '700', color: '#1e293b' }}>No staff found</Text>
+                            <Text style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>No staff members match your current search or filters.</Text>
+                            {staffSearchQuery ? (
+                                <TouchableOpacity onPress={() => setStaffSearchQuery('')} style={{ marginTop: 12, backgroundColor: '#f1f5f9', paddingVertical: 6, paddingHorizontal: 14, borderRadius: 8 }}>
+                                    <Text style={{ color: '#475569', fontSize: 12, fontWeight: '600' }}>Clear Search</Text>
+                                </TouchableOpacity>
+                            ) : null}
+                        </View>
                     ) : (
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.usersTableWrapper}>
-                            <View style={styles.usersTable}>
+                            <View style={{ minWidth: 1090 }}>
                                 <View style={styles.tableHeaderRow}>
                                     <Text style={[styles.th, { width: 60 }]}>Avatar</Text>
-                                    <Text style={[styles.th, { width: 150 }]}>Name</Text>
+                                    <Text style={[styles.th, { width: 160 }]}>Name</Text>
                                     <Text style={[styles.th, { width: 150 }]}>Hospital</Text>
-                                    <Text style={[styles.th, { width: 150 }]}>Plan</Text>
-                                    <Text style={[styles.th, { width: 120 }]}>Role</Text>
+                                    <Text style={[styles.th, { width: 160 }]}>Plan Name</Text>
+                                    <Text style={[styles.th, { width: 130 }]}>Role</Text>
                                     <Text style={[styles.th, { width: 200 }]}>Email</Text>
                                     <Text style={[styles.th, { width: 120 }]}>Phone</Text>
-                                    <Text style={[styles.th, { width: 150 }]}>Actions</Text>
+                                    <Text style={[styles.th, { width: 130 }]}>Actions</Text>
                                 </View>
                                 
-                                {filteredUsers.map((userItem) => {
+                                {filteredUsers.map((userItem, index) => {
                                     const isCurrentUser = (userItem.id || userItem._id) === currentUser.id;
                                     const canModify = !isCurrentUser;
                                     const roleStr = (userItem.role || '').toLowerCase();
+                                    const theme = RAINBOW_THEMES[index % RAINBOW_THEMES.length];
+                                    const planInfo = getPlanBadge(userItem);
                                     
-                                    let roleBg = '#f1f5f9', roleColor = '#64748b', roleBorder = '#e2e8f0';
+                                    let roleBg = theme.roleBg, roleColor = theme.roleColor, roleBorder = theme.roleBorder;
                                     if (roleStr.includes('admin')) { roleBg = '#fee2e2'; roleColor = '#dc2626'; roleBorder = '#fecaca'; }
                                     else if (roleStr.includes('doctor')) { roleBg = '#dbeafe'; roleColor = '#2563eb'; roleBorder = '#bfdbfe'; }
                                     else if (roleStr.includes('lab')) { roleBg = '#f3e8ff'; roleColor = '#9333ea'; roleBorder = '#e9d5ff'; }
@@ -668,39 +823,50 @@ const Admin = () => {
                                     else if (roleStr.includes('reception')) { roleBg = '#dcfce7'; roleColor = '#166534'; roleBorder = '#bbf7d0'; }
 
                                     return (
-                                        <View key={userItem.id || userItem._id} style={styles.tableRow}>
-                                            <View style={[styles.td, { width: 60 }]}>
+                                        <View 
+                                            key={userItem.id || userItem._id} 
+                                            style={[
+                                                styles.tableRow, 
+                                                { 
+                                                    borderLeftWidth: 3, 
+                                                    borderLeftColor: theme.border, 
+                                                    backgroundColor: theme.bg,
+                                                    borderBottomColor: theme.borderBottom,
+                                                }
+                                            ]}
+                                        >
+                                            <View style={{ width: 60, alignItems: 'center' }}>
                                                 {userItem.avatar ? (
                                                     <Image source={{ uri: userItem.avatar }} style={{ width: 36, height: 36, borderRadius: 18 }} />
                                                 ) : (
-                                                    <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#e0e7ff', alignItems: 'center', justifyContent: 'center' }}>
-                                                        <Text style={{ fontWeight: '700', color: '#6366f1', fontSize: 14 }}>{userItem.name?.charAt(0).toUpperCase()}</Text>
+                                                    <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.avatarBg, borderWidth: 2, borderColor: theme.avatarBorder, alignItems: 'center', justifyContent: 'center' }}>
+                                                        <Text style={{ fontWeight: '700', color: theme.avatarColor, fontSize: 14 }}>{userItem.name?.charAt(0).toUpperCase() || 'S'}</Text>
                                                     </View>
                                                 )}
                                             </View>
-                                            <Text style={[styles.td, { width: 150, fontWeight: '500' }]}>{userItem.name}</Text>
-                                            <View style={[styles.td, { width: 150 }]}>
-                                                <View style={{ backgroundColor: '#f0f9ff', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 4, alignSelf: 'flex-start', borderWidth: 1, borderColor: '#bae6fd' }}>
-                                                    <Text style={{ color: '#0284c7', fontSize: 11, fontWeight: '700' }}>
-                                                        {userItem.hospitalId ? (hospitals.find(h => h._id === String(userItem.hospitalId))?.name || hospital?.name || 'Unknown') : 'No hospital'}
+                                            <Text style={[styles.td, { width: 160, fontWeight: '700', color: '#0f172a' }]}>{userItem.name}</Text>
+                                            <View style={{ width: 150 }}>
+                                                <View style={[styles.staffHospTag, { backgroundColor: theme.hospBg, borderColor: theme.hospBorder }]}>
+                                                    <Text style={[styles.staffHospTagText, { color: theme.hospColor }]} numberOfLines={1}>
+                                                        {userItem.hospitalId ? (hospitals.find(h => h._id === String(userItem.hospitalId))?.name || hospital?.name || 'Unknown') : '⚠️ No hospital'}
                                                     </Text>
                                                 </View>
                                             </View>
-                                            <View style={[styles.td, { width: 150 }]}>
-                                                <View style={{ backgroundColor: '#fdf4ff', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 4, alignSelf: 'flex-start', borderWidth: 1, borderColor: '#fbcfe8' }}>
-                                                    <Text style={{ color: '#d946ef', fontSize: 11, fontWeight: '700' }}>
-                                                        {userItem.hospitalId ? (hospitals.find(h => h._id === String(userItem.hospitalId))?.plan || 'Enterprise') : 'Enterprise'}
+                                            <View style={{ width: 160 }}>
+                                                <View style={[styles.staffPlanTag, { backgroundColor: theme.planBg, borderColor: theme.planBorder }]}>
+                                                    <Text style={[styles.staffPlanTagText, { color: theme.planColor }]} numberOfLines={1}>
+                                                        {planInfo.label}
                                                     </Text>
                                                 </View>
                                             </View>
-                                            <View style={[styles.td, { width: 120 }]}>
-                                                <View style={{ backgroundColor: roleBg, borderColor: roleBorder, borderWidth: 1, paddingVertical: 4, paddingHorizontal: 10, borderRadius: 20, alignSelf: 'flex-start' }}>
-                                                    <Text style={{ color: roleColor, fontSize: 10, fontWeight: '700', textTransform: 'uppercase' }}>{(userItem.role || 'No Role').toUpperCase()}</Text>
+                                            <View style={{ width: 130 }}>
+                                                <View style={[styles.staffRoleTag, { backgroundColor: roleBg, borderColor: roleBorder }]}>
+                                                    <Text style={[styles.staffRoleTagText, { color: roleColor }]}>{(userItem.role || 'No Role').toUpperCase()}</Text>
                                                 </View>
                                             </View>
-                                            <Text style={[styles.td, { width: 200 }]} numberOfLines={1}>{userItem.email}</Text>
-                                            <Text style={[styles.td, { width: 120 }]}>{userItem.phone || '—'}</Text>
-                                            <View style={[styles.td, { width: 150, flexDirection: 'row', gap: 10, alignItems: 'center' }]}>
+                                            <Text style={[styles.td, { width: 200, color: '#334155', fontWeight: '500' }]} numberOfLines={1}>{userItem.email}</Text>
+                                            <Text style={[styles.td, { width: 120, color: '#334155', fontWeight: '500' }]}>{userItem.phone || '—'}</Text>
+                                            <View style={{ width: 130, flexDirection: 'row', gap: 8, alignItems: 'center' }}>
                                                 {canModify && (
                                                     <>
                                                         <TouchableOpacity onPress={() => openEditModal(userItem)} style={styles.btnEdit}>
@@ -748,19 +914,18 @@ const Admin = () => {
                             <View style={styles.formRow}>
                                 <View style={styles.formGroup}>
                                     <Text style={styles.staffLabel}>Name</Text>
-                                    <TextInput style={styles.staffInput} value={editForm.name} onChangeText={t => setEditForm({ ...editForm, name: t })} />
+                                    <StaffInput value={editForm.name} onChangeText={t => setEditForm({ ...editForm, name: t })} />
                                 </View>
                                 <View style={styles.formGroup}>
                                     <Text style={styles.staffLabel}>Email</Text>
-                                    <TextInput style={styles.staffInput} value={editForm.email} onChangeText={t => setEditForm({ ...editForm, email: t })} />
+                                    <StaffInput value={editForm.email} onChangeText={t => setEditForm({ ...editForm, email: t })} />
                                 </View>
                             </View>
 
                             <View style={styles.formRow}>
                                 <View style={styles.formGroup}>
                                     <Text style={styles.staffLabel}>Phone</Text>
-                                    <TextInput
-                                        style={styles.staffInput}
+                                    <StaffInput
                                         placeholder="e.g. 9876543210"
                                         keyboardType="numeric"
                                         maxLength={10}
@@ -834,8 +999,8 @@ const Admin = () => {
 const styles = StyleSheet.create({
     superadminPage: {
         flex: 1,
-        backgroundColor: '#edf2f7',
-        padding: 20,
+        backgroundColor: '#f8fafc',
+        padding: 16,
     },
     superadminContainer: {
         maxWidth: 1400,
@@ -906,9 +1071,30 @@ const styles = StyleSheet.create({
         borderRadius: 12,
         borderColor: 'rgba(203, 213, 225, 0.8)',
         borderWidth: 1,
-        backgroundColor: 'white',
+        backgroundColor: '#ffffff',
         color: '#0f172a',
         fontSize: 14,
+        ...Platform.select({
+            web: {
+                outlineStyle: 'none',
+                outlineWidth: 0,
+            }
+        })
+    },
+    staffInputFocused: {
+        borderColor: '#0d9488',
+        ...Platform.select({
+            web: {
+                boxShadow: '0 0 0 4px rgba(13, 148, 136, 0.1)',
+                outlineStyle: 'none',
+                outlineWidth: 0,
+            }
+        }),
+        shadowColor: '#0d9488',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 2,
     },
     staffLabel: {
         marginBottom: 8,
@@ -965,28 +1151,29 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     usersTableWrapper: {
-        borderRadius: 16,
-        borderColor: 'rgba(226, 232, 240, 0.6)',
+        borderRadius: 14,
+        borderColor: '#e2e8f0',
         borderWidth: 1,
         overflow: 'hidden',
+        backgroundColor: '#ffffff',
     },
     usersTable: {
         minWidth: 800,
     },
     tableHeaderRow: {
         flexDirection: 'row',
-        backgroundColor: 'rgba(241, 245, 249, 0.5)',
+        backgroundColor: '#f8fafc',
         borderBottomWidth: 1,
         borderBottomColor: '#e2e8f0',
-        paddingVertical: 12,
+        paddingVertical: 13,
         paddingHorizontal: 16,
     },
     th: {
-        fontWeight: '700',
+        fontWeight: '800',
         color: '#64748b',
         textTransform: 'uppercase',
         fontSize: 11,
-        letterSpacing: 0.5,
+        letterSpacing: 0.6,
     },
     tableRow: {
         flexDirection: 'row',
@@ -995,7 +1182,7 @@ const styles = StyleSheet.create({
         paddingVertical: 12,
         paddingHorizontal: 16,
         alignItems: 'center',
-        backgroundColor: 'rgba(255, 255, 255, 0.4)',
+        backgroundColor: '#ffffff',
     },
     td: {
         color: '#0f172a',
@@ -1003,19 +1190,19 @@ const styles = StyleSheet.create({
     },
     btnEdit: {
         backgroundColor: '#eff6ff',
-        borderColor: '#dbeafe',
+        borderColor: '#bfdbfe',
         borderWidth: 1,
-        paddingVertical: 6,
+        paddingVertical: 5,
         paddingHorizontal: 12,
-        borderRadius: 8,
+        borderRadius: 6,
     },
     btnDelete: {
         backgroundColor: '#fef2f2',
-        borderColor: '#fee2e2',
+        borderColor: '#fecaca',
         borderWidth: 1,
-        paddingVertical: 6,
+        paddingVertical: 5,
         paddingHorizontal: 12,
-        borderRadius: 8,
+        borderRadius: 6,
     },
     btnSave: {
         backgroundColor: '#0d9488',
@@ -1097,6 +1284,277 @@ const styles = StyleSheet.create({
     },
     dropdownItemTextActive: {
         color: '#fff',
+    },
+    staffCreateCard: {
+        backgroundColor: '#ffffff',
+        borderRadius: 18,
+        padding: 22,
+        borderColor: '#e2e8f0',
+        borderWidth: 1,
+        position: 'relative',
+        overflow: 'hidden',
+        shadowColor: '#0f172a',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.04,
+        shadowRadius: 12,
+        elevation: 2,
+    },
+    topGradientBar: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        height: 4,
+    },
+    staffCreateHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: 12,
+    },
+    staffCreateTitleWrap: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+    },
+    staffCreateIconBadge: {
+        width: 40,
+        height: 40,
+        borderRadius: 12,
+        backgroundColor: '#0d9488',
+        alignItems: 'center',
+        justifyContent: 'center',
+        shadowColor: '#0d9488',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 3,
+    },
+    staffCreateTitle: {
+        fontSize: 20,
+        fontWeight: '800',
+        color: '#0f172a',
+        letterSpacing: -0.3,
+    },
+    staffQuotaPill: {
+        backgroundColor: '#ecfdf5',
+        borderColor: '#a7f3d0',
+        borderWidth: 1,
+        paddingVertical: 4,
+        paddingHorizontal: 12,
+        borderRadius: 20,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    staffQuotaDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: '#10b981',
+    },
+    staffQuotaText: {
+        color: '#059669',
+        fontSize: 12,
+        fontWeight: '750',
+    },
+    btnAddStaffAnimated: {
+        backgroundColor: '#0d9488',
+        paddingVertical: 9,
+        paddingHorizontal: 20,
+        borderRadius: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+        shadowColor: '#0d9488',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.25,
+        shadowRadius: 10,
+        elevation: 3,
+    },
+    btnAddStaffClose: {
+        backgroundColor: '#f1f5f9',
+        borderWidth: 1.5,
+        borderColor: '#cbd5e1',
+        shadowOpacity: 0,
+        elevation: 0,
+    },
+    btnAddStaffText: {
+        color: '#ffffff',
+        fontWeight: '750',
+        fontSize: 14,
+    },
+    staffFormExpandable: {
+        marginTop: 20,
+        paddingTop: 20,
+        borderTopWidth: 1,
+        borderTopColor: '#f1f5f9',
+    },
+    quotaCard: {
+        backgroundColor: '#f8fafc',
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        padding: 20,
+        marginBottom: 16,
+    },
+    quotaBox: {
+        flex: 1,
+        minWidth: 160,
+        backgroundColor: '#ffffff',
+        padding: 14,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: '#cbd5e1',
+    },
+    quotaBoxLabel: {
+        color: '#64748b',
+        fontSize: 12,
+        fontWeight: '600',
+        marginBottom: 4,
+    },
+    quotaBoxVal: {
+        fontSize: 20,
+        fontWeight: '800',
+        color: '#334155',
+    },
+    quotaWarning: {
+        marginTop: 14,
+        backgroundColor: '#fee2e2',
+        borderWidth: 1,
+        borderColor: '#fecaca',
+        borderRadius: 8,
+        padding: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    quotaWarningText: {
+        color: '#dc2626',
+        fontSize: 13,
+        fontWeight: '600',
+    },
+    staffMainCard: {
+        backgroundColor: '#ffffff',
+        borderRadius: 18,
+        padding: 22,
+        borderColor: '#e2e8f0',
+        borderWidth: 1,
+        shadowColor: '#0f172a',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.04,
+        shadowRadius: 12,
+        elevation: 1,
+    },
+    staffMainHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 16,
+        flexWrap: 'wrap',
+        gap: 12,
+    },
+    staffTitleText: {
+        fontSize: 20,
+        fontWeight: '800',
+        color: '#0f172a',
+        letterSpacing: -0.2,
+    },
+    staffCountBadge: {
+        backgroundColor: '#f1f5f9',
+        paddingVertical: 3,
+        paddingHorizontal: 9,
+        borderRadius: 20,
+    },
+    staffCountBadgeText: {
+        color: '#475569',
+        fontSize: 12,
+        fontWeight: '750',
+    },
+    staffSearchContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#ffffff',
+        borderColor: '#cbd5e1',
+        borderWidth: 1,
+        borderRadius: 10,
+        paddingHorizontal: 12,
+        height: 38,
+        minWidth: 220,
+        maxWidth: 320,
+        flex: 1,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.04,
+        shadowRadius: 3,
+    },
+    staffSearchContainerFocused: {
+        borderColor: '#3b82f6',
+        ...Platform.select({
+            web: {
+                boxShadow: '0 3px 12px rgba(59, 130, 246, 0.15)',
+            }
+        }),
+        shadowColor: '#3b82f6',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.15,
+        shadowRadius: 6,
+        elevation: 2,
+    },
+    staffSearchInput: {
+        flex: 1,
+        fontSize: 13,
+        fontWeight: '500',
+        color: '#0f172a',
+        borderWidth: 0,
+        backgroundColor: 'transparent',
+        ...Platform.select({
+            web: {
+                outlineStyle: 'none',
+                outlineWidth: 0,
+            }
+        })
+    },
+    staffEmptyState: {
+        padding: 40,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    staffHospTag: {
+        paddingVertical: 4,
+        paddingHorizontal: 8,
+        borderRadius: 6,
+        alignSelf: 'flex-start',
+        borderWidth: 1,
+        maxWidth: 140,
+    },
+    staffHospTagText: {
+        fontSize: 11,
+        fontWeight: '700',
+    },
+    staffPlanTag: {
+        paddingVertical: 4,
+        paddingHorizontal: 8,
+        borderRadius: 6,
+        alignSelf: 'flex-start',
+        borderWidth: 1,
+        maxWidth: 150,
+    },
+    staffPlanTagText: {
+        fontSize: 11,
+        fontWeight: '700',
+    },
+    staffRoleTag: {
+        paddingVertical: 4,
+        paddingHorizontal: 10,
+        borderRadius: 20,
+        alignSelf: 'flex-start',
+        borderWidth: 1,
+    },
+    staffRoleTagText: {
+        fontSize: 10,
+        fontWeight: '800',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
     }
 });
 
