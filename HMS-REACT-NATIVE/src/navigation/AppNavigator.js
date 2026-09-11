@@ -33,6 +33,17 @@ const defaultHospitalAdminUser = {
     subscriptionPlan: "pro"
 };
 
+const defaultReceptionUser = {
+    _id: "6758493021abcdef12345699",
+    name: "Aman Sharma",
+    email: "reception@metropolisgeneral.org",
+    role: "receptionist",
+    hospitalId: "6758493021abcdef12345679",
+    hospitalName: "Metropolis General Hospital",
+    permissions: ["reception_manage", "patient_register", "billing_access"],
+    subscriptionPlan: "pro"
+};
+
 const FallbackStack = () => (
     <DashboardLayout>
         <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
@@ -46,7 +57,15 @@ const AppNavigator = () => {
     const { loading: isLoading, isAuthenticated, user } = useAuth();
 
     const isWeb = Platform.OS === 'web' && typeof window !== 'undefined';
-    const isHospitalAdminDev = isWeb && (
+    const isReceptionDev = isWeb && (
+        window.location.hash.includes('reception') ||
+        window.location.search.includes('reception') ||
+        window.location.pathname.includes('reception') ||
+        localStorage.getItem('role') === 'reception' ||
+        localStorage.getItem('role') === 'receptionist' ||
+        (!window.location.hash.includes('hospitaladmin') && !window.location.search.includes('hospitaladmin') && localStorage.getItem('role') !== 'hospitaladmin')
+    );
+    const isHospitalAdminDev = !isReceptionDev && isWeb && (
         window.location.hash.includes('hospitaladmin') ||
         window.location.search.includes('hospitaladmin') ||
         window.location.pathname.includes('hospitaladmin') ||
@@ -54,16 +73,21 @@ const AppNavigator = () => {
     );
 
     React.useEffect(() => {
-        if (isHospitalAdminDev && !isAuthenticated) {
+        if (isReceptionDev && !isAuthenticated) {
+            dispatch(setCredentials({
+                user: defaultReceptionUser,
+                token: "mock_jwt_token_for_reception_parity"
+            }));
+        } else if (isHospitalAdminDev && !isAuthenticated) {
             dispatch(setCredentials({
                 user: defaultHospitalAdminUser,
                 token: "mock_jwt_token_for_hospital_admin_parity"
             }));
         }
-    }, [isHospitalAdminDev, isAuthenticated, dispatch]);
+    }, [isReceptionDev, isHospitalAdminDev, isAuthenticated, dispatch]);
 
-    const activeUser = user || (isHospitalAdminDev ? defaultHospitalAdminUser : null);
-    const isEffectiveAuth = isAuthenticated || isHospitalAdminDev;
+    const activeUser = user || (isReceptionDev ? defaultReceptionUser : (isHospitalAdminDev ? defaultHospitalAdminUser : null));
+    const isEffectiveAuth = isAuthenticated || isReceptionDev || isHospitalAdminDev;
 
     const renderRoleStack = () => {
         const currentUserObj = activeUser || user;

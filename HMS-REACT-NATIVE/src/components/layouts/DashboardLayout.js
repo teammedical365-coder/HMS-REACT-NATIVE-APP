@@ -121,6 +121,15 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
             ];
         }
 
+        if (role === 'reception' || role === 'receptionist') {
+            return [
+                { label: 'Reception Dashboard', path: 'ReceptionDashboard', params: { view: 'welcome' }, icon: <Feather name="home" size={18} /> },
+                { label: 'Patient Registration', path: 'ReceptionDashboard', params: { view: 'intake' }, icon: <Feather name="user-plus" size={18} /> },
+                { label: 'Patient Search', path: 'ReceptionPatients', icon: <Feather name="users" size={18} /> },
+                { label: 'Patient Billing', path: 'PatientBillingProfile', icon: <Feather name="file-text" size={18} /> },
+            ];
+        }
+
         return [
             { label: 'Hospital Overview', path: 'HospitalAdminDashboard', icon: <Feather name="home" size={18} /> },
         ];
@@ -180,7 +189,7 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
                                 isActive && isCentralAdmin && themeObj.bg
                             ]}
                             onPress={() => {
-                                navigation.navigate(item.path);
+                                navigation.navigate(item.path, item.params);
                                 if (isMobile) setOpen(false);
                             }}
                             activeOpacity={0.7}

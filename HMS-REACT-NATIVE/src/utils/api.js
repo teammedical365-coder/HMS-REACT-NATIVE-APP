@@ -209,6 +209,7 @@ export const doctorAPI = {
 
 // ─── Reception API ──────────────────────────────────────────────────────────
 export const receptionAPI = {
+  getStats: async () => (await apiClient.get('/api/reception/stats')).data,
   getAllAppointments: async (params = {}) =>
     (await apiClient.get('/api/reception/appointments', { params })).data,
   getAllPatients: async () => (await apiClient.get('/api/reception/patients')).data,
@@ -936,6 +937,17 @@ export const consentAPI = {
     })).data,
   deleteTemplate: async (id) =>
     (await apiClient.delete('/api/consent/templates/' + id)).data,
+  // Patient-level consent methods
+  getPatientConsent: async (patientId) =>
+    (await apiClient.get(`/api/patients/${patientId}/consent`)).data,
+  uploadPatientConsent: async (patientId, formData) =>
+    (await apiClient.post(`/api/patients/${patientId}/consent`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })).data,
+  recordConsent: async (patientId, data) =>
+    (await apiClient.post(`/api/patients/${patientId}/consent`, data)).data,
+  deletePatientConsent: async (patientId, index) =>
+    (await apiClient.delete(`/api/patients/${patientId}/consent/${index}`)).data,
 };
 
 // ─── Vial Management API ──────────────────────────────────────────────────────
@@ -1001,5 +1013,4 @@ export const aiWalletAPI = {
 };
 
 export default apiClient;
-
 

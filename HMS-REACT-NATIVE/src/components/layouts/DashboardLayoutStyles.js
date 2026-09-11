@@ -782,6 +782,8 @@ export const styles = StyleSheet.create({
     erpPageContent: {
         flex: 1,
         padding: isMobile ? 16 : 24,
+        minHeight: 0,
+        overflow: 'hidden',
     },
 
     /* Mobile Overlay */
