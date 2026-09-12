@@ -121,6 +121,18 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
             ];
         }
 
+        if (role === 'pharmacist' || role === 'pharmacy' || role.includes('pharmac')) {
+            return [
+                { label: 'Inventory', path: 'PharmacyInventory', icon: <Feather name="package" size={18} /> },
+                { label: 'Orders', path: 'PharmacyOrders', icon: <Feather name="clipboard" size={18} /> },
+                { label: 'Purchase Invoices', path: 'PurchaseInvoiceHistory', icon: <Feather name="file-text" size={18} /> },
+                { label: 'Returns', path: 'PharmacyReturns', icon: <Feather name="activity" size={18} /> },
+                { label: 'Vendor Returns', path: 'VendorReturns', icon: <Feather name="activity" size={18} /> },
+                { label: 'Collections', path: 'PharmacyCollections', icon: <Feather name="pie-chart" size={18} /> },
+                { label: 'Departments', path: 'PharmacyDepartments', icon: <Feather name="grid" size={18} /> },
+            ];
+        }
+
         if (role === 'reception' || role === 'receptionist') {
             return [
                 { label: 'Reception Dashboard', path: 'ReceptionDashboard', params: { view: 'welcome' }, icon: <Feather name="home" size={18} /> },
@@ -222,9 +234,16 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
                     style={[styles.sidebarLink, !isOpen && styles.sidebarLinkCollapsed]} 
                     onPress={async () => {
                         try {
+                            if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                                localStorage.setItem('isLoggedOut', 'true');
+                                sessionStorage.setItem('isLoggedOut', 'true');
+                                localStorage.removeItem('role');
+                                sessionStorage.removeItem('role');
+                            }
                             dispatch(logout());
                             await AsyncStorage.removeItem('token');
                             await AsyncStorage.removeItem('user');
+                            await AsyncStorage.removeItem('role');
                         } catch (err) {
                             console.error('Logout failed:', err);
                         }
@@ -295,7 +314,13 @@ const TopBar = ({ toggleSidebar, sidebarOpen, isMobile }) => {
         if (name === 'HospitalAdminQuestionLibrary') return 'Clinical Questions';
         if (name === 'Admin') return 'Staff Management';
         if (name === 'AdminDoctors') return 'Doctors Feed';
-        if (name === 'PharmacyInventory') return 'Pharma Inventory';
+        if (name === 'PharmacyInventory') return (role === 'pharmacist' || role === 'pharmacy' || role.includes('pharmac')) ? 'Inventory' : 'Pharma Inventory';
+        if (name === 'PharmacyOrders') return 'Orders';
+        if (name === 'PurchaseInvoiceHistory') return 'Purchase Invoices';
+        if (name === 'PharmacyReturns') return 'Returns';
+        if (name === 'VendorReturns') return 'Vendor Returns';
+        if (name === 'PharmacyCollections') return 'Collections';
+        if (name === 'PharmacyDepartments') return 'Departments';
         if (name === 'AdminRoles') return 'Roles & Permissions';
         return name.replace(/([A-Z])/g, ' $1').trim();
     };

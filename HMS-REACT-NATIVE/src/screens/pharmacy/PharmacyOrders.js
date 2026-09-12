@@ -4,14 +4,24 @@ import {
     StyleSheet, ActivityIndicator, Alert, Dimensions, Modal, Platform 
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
-import { pharmacyOrderAPI, hospitalAPI } from '../../utils/api';
+import { pharmacyOrderAPI, pharmacyAPI, hospitalAPI, apiClient } from '../../utils/api';
+import { API_BASE_URL, STORAGE_KEYS } from '../../utils/Constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Native PDF and printing normally requires expo-print and expo-sharing. 
-// We will stub the generateReceipt print logic as requested, keeping the data calculations intact.
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 
 const { width } = Dimensions.get('window');
-const backendUrl = 'https://hms-7ojp.onrender.com'; // Using the production fallback for RN since localhost differs on emulator
+const backendUrl = API_BASE_URL;
+
+const getAuthToken = async () => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        const t = localStorage.getItem('token') || localStorage.getItem('superadmin_token') || localStorage.getItem(STORAGE_KEYS.TOKEN);
+        if (t) return String(t).replace(/^"(.*)"$/, '$1').trim();
+    }
+    const asyncT = (await AsyncStorage.getItem(STORAGE_KEYS.TOKEN)) || (await AsyncStorage.getItem('token')) || '';
+    return String(asyncT).replace(/^"(.*)"$/, '$1').trim();
+};
 
 const PharmacyOrders = () => {
     const [orders, setOrders] = useState([]);
@@ -71,14 +81,9 @@ const PharmacyOrders = () => {
 
     const fetchInventory = async () => {
         try {
-            const token = await AsyncStorage.getItem('token');
-            const res = await fetch(`${backendUrl}/api/pharmacy/inventory`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (!res.ok) throw new Error(`API returned status: ${res.status}`);
-            const data = await res.json();
-            if (data.success) {
-                const inventoryData = data.medicines || data.inventory || data.items || data.data || data || [];
+            const data = await pharmacyAPI.getInventory();
+            if (data && (data.success || Array.isArray(data) || data.medicines || data.inventory)) {
+                const inventoryData = data.medicines || data.inventory || data.items || data.data || (Array.isArray(data) ? data : []);
                 setInventory(Array.isArray(inventoryData) ? inventoryData : []);
             }
         } catch (error) {
@@ -88,12 +93,8 @@ const PharmacyOrders = () => {
 
     const fetchDoctors = async () => {
         try {
-            const token = await AsyncStorage.getItem('token');
-            const res = await fetch(`${backendUrl}/api/doctor`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (!res.ok) throw new Error(`API returned status: ${res.status}`);
-            const data = await res.json();
+            const res = await apiClient.get('/api/doctor');
+            const data = res.data;
             if (data.success) setDoctors(data.doctors || data.data || []);
         } catch (error) {
             console.error("Failed to load doctors", error);
@@ -102,12 +103,7 @@ const PharmacyOrders = () => {
 
     const fetchDashboardStats = async () => {
         try {
-            const token = await AsyncStorage.getItem('token');
-            const res = await fetch(`${backendUrl}/api/pharmacy/orders/dashboard-summary`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (!res.ok) throw new Error(`API returned status: ${res.status}`);
-            const data = await res.json();
+            const data = await pharmacyAPI.getDashboardSummary();
             if (data.success) setDashboardStats(data.data);
         } catch (error) {
             console.error("Failed to load dashboard stats", error);
@@ -140,7 +136,7 @@ const PharmacyOrders = () => {
 
     const handleUpdateBillingSettings = async () => {
         try {
-            const token = await AsyncStorage.getItem('token');
+            const token = await getAuthToken();
             const res = await fetch(`${backendUrl}/api/pharmacy/hospital-billing`, {
                 method: 'PUT',
                 headers: { 
@@ -177,38 +173,48 @@ const PharmacyOrders = () => {
     const handleWalkInSubmit = async () => {
         if (walkInForm.items.length === 0) return Alert.alert("Error", "Add at least one item.");
         setWalkInSaving(true);
+
+        // Compute totals exactly as Web does (inline IIFE on submit)
+        let total = 0;
+        walkInForm.items.forEach(it => { total += (it.quantity * it.unitRate); });
+        const discAmt = total * ((Number(walkInForm.discountPercent) || 0) / 100);
+        const grand = total - discAmt;
+
+        const payload = {
+            patientName: walkInForm.patientName,
+            patientPhone: walkInForm.patientPhone,
+            doctorName: walkInForm.doctorName,
+            items: walkInForm.items,
+            discountPercent: Number(walkInForm.discountPercent) || 0,
+            subtotal: total,
+            cgstAmount: 0,
+            sgstAmount: 0,
+            totalAmount: total,
+            discountAmount: discAmt,
+            grandTotal: grand,
+            paymentMode: walkInForm.paymentMode
+        };
+
         try {
-            const token = await AsyncStorage.getItem('token');
-            const res = await fetch(`${backendUrl}/api/pharmacy/orders/outside-patient-bill`, {
+            const token = await getAuthToken();
+            // Web endpoint: POST /api/pharmacy-orders/walk-in
+            const res = await fetch(`${backendUrl}/api/pharmacy-orders/walk-in`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({
-                    patientName: walkInForm.patientName,
-                    patientPhone: walkInForm.patientPhone,
-                    doctorName: walkInForm.doctorName,
-                    items: walkInForm.items,
-                    totalAmount: walkInForm.subtotal,
-                    taxableAmount: walkInForm.subtotal,
-                    cgstAmount: walkInForm.cgstAmount,
-                    sgstAmount: walkInForm.sgstAmount,
-                    discountAmount: walkInForm.discountAmount,
-                    paymentMode: walkInForm.paymentMode
-                })
+                body: JSON.stringify(payload)
             });
             const data = await res.json();
             if (data.success) {
                 setShowWalkInModal(false);
                 fetchOrders();
-                fetchInventory();
                 setWalkInForm({
                     patientName: '', patientPhone: '', doctorName: '', items: [], discountPercent: '0',
                     subtotal: 0, cgstAmount: 0, sgstAmount: 0, totalAmount: 0, discountAmount: 0, grandTotal: 0, paymentMode: 'CASH'
                 });
                 Alert.alert('Success', 'Walk-in Bill generated successfully!');
-                
                 setSelectedOrder(data.order);
                 setShowBillModal(true);
             } else {
@@ -511,7 +517,7 @@ const PharmacyOrders = () => {
             const purchasedIndices = Array.from({ length: totalItems }, (_, i) => i);
             const payload = payloadObj || { purchasedIndices };
 
-            const token = await AsyncStorage.getItem('token');
+            const token = await getAuthToken();
             const res = await fetch(`${backendUrl}/api/pharmacy/orders/${orderId}/complete`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -529,6 +535,144 @@ const PharmacyOrders = () => {
         } catch (err) {
             Alert.alert("Error", "Failed to update order.");
         }
+    };
+
+    // ─── Receipt HTML builder — mirrors Web's jsPDF generateReceipt exactly ───
+    const buildReceiptHTML = (order, invoiceData, hospital, appliedDiscount) => {
+        const hospitalName = hospital?.name || 'Aryan Hospital';
+        const hospitalAddress = hospital?.address || 'Hospital Address';
+        const hospitalPhone = hospital?.phone || '9000000000';
+        const gstin = hospital?.gstin || '';
+        const dlNumber = hospital?.dlNumber || '';
+
+        const invoiceNo = order?._id?.slice(-8).toUpperCase() || 'N/A';
+        const invoiceDate = new Date().toLocaleDateString();
+        const patientName = order?.userId?.name || order?.patientName || 'N/A';
+        const doctorName = order?.doctorId?.name || order?.doctorName || 'N/A';
+
+        // Build auth line (GSTIN | DL No) exactly as Web does
+        const authParts = [];
+        if (gstin) authParts.push(`GSTIN: ${gstin}`);
+        if (dlNumber) authParts.push(`DL No: ${dlNumber}`);
+        const authLine = authParts.length > 0
+            ? `<p style="font-size:9px;color:#666;margin:2px 0 0 0;text-align:center;">${authParts.join('  |  ')}</p>`
+            : '';
+
+        // Build table rows from invoiceData.processedItems — same columns as Web
+        const orderItems = order?.items || order?.prescribedItems || [];
+        let subtotal = 0;
+        let totalCgst = 0;
+        let totalSgst = 0;
+
+        const tableRows = (invoiceData?.processedItems || []).map((item, idx) => {
+            // Use the same calculation approach as Web's generateReceipt
+            const billedQty = item.packagingBreakdown
+                ? item.packagingBreakdown.replace(/[^0-9.]/g, '').trim() || item.finalQty
+                : item.finalQty;
+            const unitRate = Number(item.unitRate || 0);
+            const gstPercent = Number(item.gstPercent || 0);
+            const itemTaxable = Number(item.itemBase || (billedQty * unitRate));
+            const cgstPct = gstPercent / 2;
+            const sgstPct = gstPercent / 2;
+            const itemCgst = (itemTaxable * cgstPct) / 100;
+            const itemSgst = (itemTaxable * sgstPct) / 100;
+            const itemTotal = itemTaxable + itemCgst + itemSgst;
+
+            subtotal += itemTaxable;
+            totalCgst += itemCgst;
+            totalSgst += itemSgst;
+
+            return `<tr>
+                <td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">${idx + 1}</td>
+                <td style="padding:6px 8px;border:1px solid #ddd;">${item.medicineName || item.name || ''}</td>
+                <td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">${billedQty}</td>
+                <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;">${unitRate.toFixed(2)}</td>
+                <td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">${gstPercent}%</td>
+                <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;">${itemTotal.toFixed(2)}</td>
+            </tr>`;
+        }).join('');
+
+        // Discount — exactly as Web
+        const pct = Number(appliedDiscount || order?.discountPercent || 0);
+        let discountAmt = 0;
+        if (pct > 0) {
+            discountAmt = (subtotal * pct) / 100;
+        } else {
+            discountAmt = Number(order?.discountAmount || 0);
+        }
+        const grandTotal = Math.max(0, subtotal + totalCgst + totalSgst - discountAmt);
+
+        const discountLine = discountAmt > 0
+            ? `<p style="text-align:right;font-size:10px;color:#dc2626;margin:2px 0;">
+                ${pct > 0 ? `Discount (${pct}%):` : 'Discount:'} -Rs. ${discountAmt.toFixed(2)}
+               </p>`
+            : '';
+
+        // Doctor-authorization status — exactly as Web
+        let authStatusLine = '';
+        if (order?.paymentStatus === 'PAID_BY_DOCTOR' || order?.paymentMode === 'DOCTOR_AUTHORIZATION') {
+            const authDoc = order?.authorizedDoctorName || order?.doctorName || 'Unknown Doctor';
+            authStatusLine = `<p style="font-size:10px;font-style:italic;color:#d97706;margin-top:8px;">
+                Status: Pending by Doctor - ${authDoc}
+            </p>`;
+        }
+
+        return `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                @page { size: A4; margin: 15mm; }
+                body { font-family: Helvetica, Arial, sans-serif; margin: 0; padding: 20px; color: #000; }
+                table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+                th { background-color: #003366; color: #fff; padding: 8px; font-size: 9px; text-align: left; }
+                td { font-size: 9px; }
+            </style>
+        </head>
+        <body>
+            <div style="text-align:center;">
+                <h1 style="font-size:22px;color:#003366;margin:0;">${hospitalName}</h1>
+                <p style="font-size:10px;color:#666;margin:2px 0;">${hospitalAddress}</p>
+                <p style="font-size:10px;color:#666;margin:2px 0;">Phone: ${hospitalPhone}</p>
+                ${authLine}
+            </div>
+            <hr style="border:none;border-top:1px solid #ccc;margin:8px 0;">
+            <h2 style="text-align:center;font-size:16px;color:#000;margin:10px 0;">Pharmacy Invoice</h2>
+            <div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:6px;">
+                <span>Invoice No: ${invoiceNo}</span>
+                <span>Date: ${invoiceDate}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:12px;">
+                <span>Patient: ${patientName}</span>
+                <span>Doctor: Dr. ${doctorName}</span>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width:30px;">#</th>
+                        <th>Medicine Name</th>
+                        <th style="width:70px;text-align:center;">Billed Qty</th>
+                        <th style="width:70px;text-align:right;">Unit Rate</th>
+                        <th style="width:50px;text-align:center;">GST %</th>
+                        <th style="width:80px;text-align:right;">Total Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${tableRows}
+                </tbody>
+            </table>
+            <div style="text-align:right;margin-top:14px;font-size:10px;">
+                <p style="margin:2px 0;">Subtotal: Rs. ${subtotal.toFixed(2)}</p>
+                <p style="margin:2px 0;">CGST: Rs. ${totalCgst.toFixed(2)}</p>
+                <p style="margin:2px 0;">SGST: Rs. ${totalSgst.toFixed(2)}</p>
+                ${discountLine}
+                <p style="margin:8px 0 0 0;font-size:12px;font-weight:bold;">Grand Total: Rs. ${grandTotal.toFixed(2)}</p>
+            </div>
+            ${authStatusLine}
+        </body>
+        </html>`;
     };
 
     const isLargeScreen = width > 768;
@@ -899,10 +1043,36 @@ const PharmacyOrders = () => {
                                             
                                         </View>
                                     </ScrollView>
-                                    <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: '#e2e8f0', flexDirection: 'row', justifyContent: 'space-between' }}>
-                                        <TouchableOpacity style={[styles.btnAction, { backgroundColor: '#2563eb' }]} onPress={() => Alert.alert('Print', 'Printing requires expo-print package.')}>
-                                            <Text style={{ color: 'white', fontWeight: 'bold' }}>🖨️ Print Receipt</Text>
-                                        </TouchableOpacity>
+                                    <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: '#e2e8f0', flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                                            <TouchableOpacity style={[styles.btnAction, { backgroundColor: '#2563eb' }]} onPress={async () => {
+                                                try {
+                                                    const html = buildReceiptHTML(selectedOrder, invoiceData, hospitalInfo, discountPercent);
+                                                    await Print.printAsync({ html });
+                                                } catch (e) {
+                                                    console.error('Print error:', e);
+                                                    Alert.alert('Print Error', 'Could not print receipt. ' + (e.message || ''));
+                                                }
+                                            }}>
+                                                <Text style={{ color: 'white', fontWeight: 'bold' }}>🖨️ Print Receipt</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity style={[styles.btnAction, { backgroundColor: '#7c3aed' }]} onPress={async () => {
+                                                try {
+                                                    const html = buildReceiptHTML(selectedOrder, invoiceData, hospitalInfo, discountPercent);
+                                                    const { uri } = await Print.printToFileAsync({ html, base64: false });
+                                                    if (await Sharing.isAvailableAsync()) {
+                                                        await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+                                                    } else {
+                                                        Alert.alert('PDF Saved', `Invoice saved to: ${uri}`);
+                                                    }
+                                                } catch (e) {
+                                                    console.error('Share error:', e);
+                                                    Alert.alert('Share Error', 'Could not share receipt. ' + (e.message || ''));
+                                                }
+                                            }}>
+                                                <Text style={{ color: 'white', fontWeight: 'bold' }}>📄 Share PDF</Text>
+                                            </TouchableOpacity>
+                                        </View>
                                         <TouchableOpacity style={[styles.btnAction, { backgroundColor: '#f1f5f9' }]} onPress={() => setShowBillModal(false)}>
                                             <Text style={{ color: '#334155', fontWeight: 'bold' }}>Close</Text>
                                         </TouchableOpacity>
@@ -1026,6 +1196,240 @@ const PharmacyOrders = () => {
                     </View>
                 </View>
             </Modal>
+            {/* Walk-in / Outside Patient Billing Modal */}
+            <Modal visible={showWalkInModal} transparent={true} animationType="slide">
+                <View style={styles.modalOverlay}>
+                    <View style={[styles.modalContent, { width: '95%', maxWidth: 900, maxHeight: '95%' }]}>
+                        <View style={styles.modalHeader}>
+                            <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#0f172a' }}>🛒 Walk-in / Outside Patient Billing</Text>
+                            <TouchableOpacity onPress={() => setShowWalkInModal(false)}>
+                                <Text style={{ fontSize: 24, color: '#94a3b8' }}>✕</Text>
+                            </TouchableOpacity>
+                        </View>
+                        <ScrollView style={{ flex: 1, padding: 20 }}>
+                            {/* Patient Info */}
+                            <View style={[styles.filterGrid, { marginBottom: 20, flexDirection: isLargeScreen ? 'row' : 'column' }]}>
+                                <View style={styles.formGroup}>
+                                    <Text style={styles.label}>Patient Name *</Text>
+                                    <TextInput
+                                        style={styles.input}
+                                        value={walkInForm.patientName}
+                                        onChangeText={(t) => setWalkInForm({ ...walkInForm, patientName: t })}
+                                        placeholder="Patient Name"
+                                    />
+                                </View>
+                                <View style={styles.formGroup}>
+                                    <Text style={styles.label}>Phone Number</Text>
+                                    <TextInput
+                                        style={styles.input}
+                                        value={walkInForm.patientPhone}
+                                        onChangeText={(t) => setWalkInForm({ ...walkInForm, patientPhone: t })}
+                                        placeholder="Phone"
+                                        keyboardType="phone-pad"
+                                    />
+                                </View>
+                                <View style={styles.formGroup}>
+                                    <Text style={styles.label}>Doctor Name (Optional)</Text>
+                                    <View style={styles.pickerWrapper}>
+                                        <Picker
+                                            selectedValue={walkInForm.doctorName}
+                                            onValueChange={(v) => setWalkInForm({ ...walkInForm, doctorName: v })}
+                                            style={styles.picker}
+                                        >
+                                            <Picker.Item label="-- Select Doctor --" value="" />
+                                            {(doctors || []).map((doc, idx) => (
+                                                <Picker.Item key={doc._id || idx} label={`Dr. ${doc.name}${doc.department ? ` (${doc.department})` : ''}`} value={doc.name} />
+                                            ))}
+                                        </Picker>
+                                    </View>
+                                </View>
+                            </View>
+
+                            {/* Medicine Search & Add */}
+                            <View style={{ borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, padding: 12, marginBottom: 20 }}>
+                                <Text style={[styles.label, { fontWeight: 'bold', marginBottom: 8 }]}>Add Medicines from Inventory</Text>
+                                <View style={styles.pickerWrapper}>
+                                    <Picker
+                                        selectedValue={walkInSearch}
+                                        onValueChange={(invId) => {
+                                            if (!invId) return;
+                                            const item = (inventory || []).find(i => i._id === invId);
+                                            if (item) {
+                                                setWalkInForm(prev => {
+                                                    const exists = (prev.items || []).find(i => i.inventoryId === invId);
+                                                    if (exists) return prev;
+                                                    const unitPrice = item.sellingPrice || item.price || 15;
+                                                    const gst = (item.cgstPercent || 0) + (item.sgstPercent || 0) || 12;
+                                                    return {
+                                                        ...prev,
+                                                        items: [...(prev.items || []), {
+                                                            inventoryId: item._id,
+                                                            medicineName: item.name || item.medicineName || 'Medicine',
+                                                            batch: item.batchNumber || 'N/A',
+                                                            exp: item.expiryDate ? new Date(item.expiryDate).toLocaleDateString() : 'N/A',
+                                                            quantity: 1,
+                                                            dosage: '',
+                                                            unitRate: unitPrice,
+                                                            gstPercent: gst,
+                                                            stock: item.stock,
+                                                            unit: item.unit || 'units'
+                                                        }]
+                                                    };
+                                                });
+                                            }
+                                            setWalkInSearch('');
+                                        }}
+                                        style={styles.picker}
+                                    >
+                                        <Picker.Item label="-- Search & Select Medicine --" value="" />
+                                        {(inventory || []).filter(i => (i.stock || i.quantity || 0) > 0).map((item, idx) => {
+                                            const itemName = item.name || item.medicineName || 'Unknown Medicine';
+                                            const itemStock = item.stock || item.quantity || 0;
+                                            const itemPrice = item.sellingPrice || item.price || 0;
+                                            return (
+                                                <Picker.Item
+                                                    key={item._id || idx}
+                                                    value={item._id}
+                                                    label={`${itemName} (Batch: ${item.batchNumber || 'N/A'} | Stock: ${itemStock} | ₹${itemPrice})`}
+                                                />
+                                            );
+                                        })}
+                                    </Picker>
+                                </View>
+
+                                {/* Items Table */}
+                                {walkInForm.items.length > 0 && (
+                                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
+                                        <View style={{ minWidth: 600 }}>
+                                            <View style={{ flexDirection: 'row', backgroundColor: '#f1f5f9', paddingVertical: 8, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: '#cbd5e1' }}>
+                                                {['Medicine', 'Qty', 'Dosage', 'Rate (₹)', 'Total (₹)', 'Remove'].map(h => (
+                                                    <Text key={h} style={{ width: h === 'Medicine' ? 160 : 80, fontSize: 11, fontWeight: 'bold', color: '#475569', paddingHorizontal: 4 }}>{h}</Text>
+                                                ))}
+                                            </View>
+                                            {walkInForm.items.map((item, idx) => {
+                                                const total = item.quantity * item.unitRate;
+                                                return (
+                                                    <View key={idx} style={{ flexDirection: 'row', paddingVertical: 8, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', alignItems: 'center' }}>
+                                                        <View style={{ width: 160, paddingHorizontal: 4 }}>
+                                                            <Text style={{ fontSize: 12, fontWeight: 'bold' }}>{item.medicineName}</Text>
+                                                            <Text style={{ fontSize: 10, color: '#64748b' }}>Stk: {item.stock}</Text>
+                                                        </View>
+                                                        <TextInput
+                                                            style={[styles.input, { width: 60, height: 32, textAlign: 'center', paddingHorizontal: 4, marginHorizontal: 4 }]}
+                                                            value={String(item.quantity)}
+                                                            keyboardType="numeric"
+                                                            onChangeText={(val) => {
+                                                                const newItems = [...walkInForm.items];
+                                                                newItems[idx] = { ...newItems[idx], quantity: Number(val) || 1 };
+                                                                setWalkInForm({ ...walkInForm, items: newItems });
+                                                            }}
+                                                        />
+                                                        <TextInput
+                                                            style={[styles.input, { width: 80, height: 32, paddingHorizontal: 4, marginHorizontal: 4 }]}
+                                                            value={item.dosage || ''}
+                                                            onChangeText={(val) => {
+                                                                const newItems = [...walkInForm.items];
+                                                                newItems[idx] = { ...newItems[idx], dosage: val };
+                                                                setWalkInForm({ ...walkInForm, items: newItems });
+                                                            }}
+                                                            placeholder="BD, TDS..."
+                                                        />
+                                                        <Text style={{ width: 80, fontSize: 12, paddingHorizontal: 4 }}>₹{item.unitRate}</Text>
+                                                        <Text style={{ width: 80, fontSize: 12, fontWeight: 'bold', paddingHorizontal: 4 }}>₹{total.toFixed(2)}</Text>
+                                                        <TouchableOpacity
+                                                            style={{ width: 60, alignItems: 'center' }}
+                                                            onPress={() => {
+                                                                const newItems = walkInForm.items.filter((_, i) => i !== idx);
+                                                                setWalkInForm({ ...walkInForm, items: newItems });
+                                                            }}
+                                                        >
+                                                            <Text style={{ color: '#ef4444', fontWeight: 'bold', fontSize: 16 }}>✕</Text>
+                                                        </TouchableOpacity>
+                                                    </View>
+                                                );
+                                            })}
+                                        </View>
+                                    </ScrollView>
+                                )}
+                            </View>
+
+                            {/* Totals Summary — computed exactly as Web does */}
+                            {(() => {
+                                let subTotal = 0;
+                                walkInForm.items.forEach(it => { subTotal += (it.quantity * it.unitRate); });
+                                const discAmt = subTotal * ((Number(walkInForm.discountPercent) || 0) / 100);
+                                const grand = subTotal - discAmt;
+                                return (
+                                    <View style={{ alignItems: 'flex-end', marginBottom: 16 }}>
+                                        <View style={{ width: 250, backgroundColor: '#f8fafc', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' }}>
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                                                <Text style={{ fontSize: 12 }}>Subtotal:</Text>
+                                                <Text style={{ fontSize: 12, fontWeight: 'bold' }}>₹{subTotal.toFixed(2)}</Text>
+                                            </View>
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4, alignItems: 'center' }}>
+                                                <Text style={{ fontSize: 12 }}>Discount (%):</Text>
+                                                <TextInput
+                                                    style={[styles.input, { width: 60, height: 32, textAlign: 'right', paddingHorizontal: 4 }]}
+                                                    value={String(walkInForm.discountPercent)}
+                                                    keyboardType="numeric"
+                                                    onChangeText={(v) => setWalkInForm({ ...walkInForm, discountPercent: v })}
+                                                />
+                                            </View>
+                                            {discAmt > 0 && (
+                                                <Text style={{ fontSize: 11, color: '#dc2626', textAlign: 'right', marginBottom: 4 }}>(-₹{discAmt.toFixed(2)})</Text>
+                                            )}
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingTop: 8, borderTopWidth: 1, borderTopColor: '#cbd5e1' }}>
+                                                <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#0f766e' }}>Grand Total:</Text>
+                                                <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#0f766e' }}>₹{grand.toFixed(2)}</Text>
+                                            </View>
+                                        </View>
+                                    </View>
+                                );
+                            })()}
+
+                            {/* Payment Mode */}
+                            <View style={{ marginBottom: 16 }}>
+                                <Text style={[styles.label, { fontWeight: 'bold', marginBottom: 8 }]}>Payment Mode:</Text>
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                                    {['CASH', 'UPI', 'CARD', 'ONLINE'].map(mode => (
+                                        <TouchableOpacity
+                                            key={mode}
+                                            style={[
+                                                styles.paymentModeBtn,
+                                                walkInForm.paymentMode === mode && styles.paymentModeBtnSelected
+                                            ]}
+                                            onPress={() => setWalkInForm({ ...walkInForm, paymentMode: mode })}
+                                        >
+                                            <Text style={[
+                                                styles.paymentModeBtnText,
+                                                walkInForm.paymentMode === mode && styles.paymentModeBtnTextSelected
+                                            ]}>{mode}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                            </View>
+                        </ScrollView>
+                        <View style={styles.modalFooter}>
+                            <TouchableOpacity
+                                style={[styles.btnAction, { backgroundColor: '#f1f5f9', paddingHorizontal: 20 }]}
+                                onPress={() => setShowWalkInModal(false)}
+                            >
+                                <Text style={{ color: '#334155', fontWeight: 'bold' }}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.btnAction, { backgroundColor: '#10b981', paddingHorizontal: 20, opacity: (walkInSaving || walkInForm.items.length === 0) ? 0.5 : 1 }]}
+                                onPress={handleWalkInSubmit}
+                                disabled={walkInSaving || walkInForm.items.length === 0}
+                            >
+                                <Text style={{ color: 'white', fontWeight: 'bold' }}>
+                                    {walkInSaving ? 'Saving...' : 'Generate Bill & Pay'}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
         </ScrollView>
     );
 };

@@ -231,6 +231,10 @@ const authSlice = createSlice({
       state.otpStep = null;
       state.preAuthToken = null;
       state.activeSession = null;
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        localStorage.removeItem('isLoggedOut');
+        sessionStorage.removeItem('isLoggedOut');
+      }
       if (action.payload.token) {
         setAuthHeader(action.payload.token);
         if (Platform.OS === 'web') {
@@ -267,8 +271,15 @@ const authSlice = createSlice({
         localStorage.removeItem('superadmin_token');
         localStorage.removeItem(STORAGE_KEYS.USER);
         localStorage.removeItem('user');
+        localStorage.removeItem('role');
+        sessionStorage.removeItem('role');
+        localStorage.setItem('isLoggedOut', 'true');
+        sessionStorage.setItem('isLoggedOut', 'true');
+        try {
+          if (window.location.hash) window.location.hash = '';
+        } catch (e) {}
       }
-      AsyncStorage.multiRemove([STORAGE_KEYS.TOKEN, STORAGE_KEYS.USER, 'token', 'user', 'superadmin_token']);
+      AsyncStorage.multiRemove([STORAGE_KEYS.TOKEN, STORAGE_KEYS.USER, 'token', 'user', 'superadmin_token', 'role']);
     },
     clearError: (state) => {
       state.error = null;

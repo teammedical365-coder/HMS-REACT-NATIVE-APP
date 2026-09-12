@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Modal, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Modal, Dimensions, Alert } from 'react-native';
 import { pharmacyAPI, billingAPI } from '../../utils/api';
 import { Picker } from '@react-native-picker/picker'; // Using Picker for dropdowns
 
@@ -53,12 +53,15 @@ const PharmacyDepartments = () => {
         try {
             const res = await pharmacyAPI.createDepartment(deptForm);
             if (res.success) {
+                Alert.alert('Success', 'Department created successfully!');
                 setShowDeptModal(false);
                 setDeptForm({ name: '', description: '' });
                 fetchData();
             }
         } catch (error) {
             console.error(error);
+            const msg = error?.response?.data?.message || 'Error creating department';
+            Alert.alert('Error', msg);
         }
     };
 
@@ -69,13 +72,16 @@ const PharmacyDepartments = () => {
                 quantity: Number(transferForm.quantity)
             });
             if (res.success) {
+                Alert.alert('Success', 'Stock transferred successfully!');
                 setShowTransferModal(false);
                 setTransferForm({ departmentId: '', medicineId: '', quantity: '' });
                 fetchData();
-                fetchInventory();
+                fetchInventory(); // refresh main stock
             }
         } catch (error) {
             console.error(error);
+            const msg = error?.response?.data?.message || 'Error transferring stock';
+            Alert.alert('Error', msg);
         }
     };
 
@@ -106,6 +112,7 @@ const PharmacyDepartments = () => {
                 unitPrice: Number(usageForm.unitPrice)
             });
             if (res.success) {
+                Alert.alert('Success', 'Usage recorded and patient billed successfully!');
                 setShowUsageModal(false);
                 setUsageForm({ departmentId: '', medicineId: '', patientId: '', quantity: '', unitPrice: '' });
                 setPatientSearch('');
@@ -113,6 +120,8 @@ const PharmacyDepartments = () => {
             }
         } catch (error) {
             console.error(error);
+            const msg = error?.response?.data?.message || 'Error recording usage';
+            Alert.alert('Error', msg);
         }
     };
 

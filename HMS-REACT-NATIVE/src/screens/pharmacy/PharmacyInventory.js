@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Modal, Dimensions, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Modal, Dimensions, ActivityIndicator, Alert, Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { pharmacyAPI } from '../../utils/api';
 import PurchaseInvoiceHistory from './PurchaseInvoiceHistory';
 import DropdownSelect from '../../components/common/DropdownSelect';
@@ -29,7 +30,7 @@ const REASON_OPTIONS = [
 
 const DISCOUNT_OPTIONS = [
     { label: 'Percentage (%)', value: 'Percentage' },
-    { label: 'Fixed Amount (₹)', value: 'Fixed' }
+    { label: 'Flat Amount (₹)', value: 'Flat Amount' }
 ];
 
 const PharmacyInventory = () => {
@@ -91,63 +92,19 @@ const PharmacyInventory = () => {
         checkPendingInvoice();
     }, []);
 
-    const defaultMedicines = [
-        {
-            _id: 'med-001',
-            name: 'Paracetamol 650mg',
-            category: 'Analgesic / Antipyretic',
-            stock: 450,
-            unit: 'Tablets',
-            unitsPerStrip: 10,
-            buyingPrice: 18,
-            sellingPrice: 35,
-            vendor: 'Cipla Healthcare Distribution',
-            batchNumber: 'BT-8841',
-            expiryDate: '2027-08-30',
-            minStockAlertLevel: 50
-        },
-        {
-            _id: 'med-002',
-            name: 'Amoxicillin 500mg',
-            category: 'Antibiotics',
-            stock: 280,
-            unit: 'Capsules',
-            unitsPerStrip: 10,
-            buyingPrice: 65,
-            sellingPrice: 110,
-            vendor: 'Apollo MedSolutions Ltd',
-            batchNumber: 'BT-9102',
-            expiryDate: '2027-05-15',
-            minStockAlertLevel: 40
-        },
-        {
-            _id: 'med-003',
-            name: 'Cefixime 200mg',
-            category: 'Antibiotics',
-            stock: 120,
-            unit: 'Tablets',
-            unitsPerStrip: 10,
-            buyingPrice: 95,
-            sellingPrice: 160,
-            vendor: 'Sun Pharma Logistics',
-            batchNumber: 'BT-7721',
-            expiryDate: '2027-11-20',
-            minStockAlertLevel: 30
-        }
-    ];
-
     const fetchInventory = async () => {
         try {
             setLoading(true);
             const response = await pharmacyAPI.getInventory();
-            if (response.success && response.data && response.data.length > 0) {
-                setMedicines(response.data);
+            if (response && (response.success || Array.isArray(response))) {
+                const data = response.data || (Array.isArray(response) ? response : []);
+                setMedicines(Array.isArray(data) ? data : []);
             } else {
-                setMedicines(defaultMedicines);
+                setMedicines([]);
             }
         } catch (error) {
             console.error("Fetch Error:", error);
-            setMedicines(defaultMedicines);
+            setMedicines([]);
         } finally { setLoading(false); }
     };
 
@@ -158,6 +115,31 @@ const PharmacyInventory = () => {
         } catch (error) { console.error("Error fetching vendors", error); }
     };
 
+    const STORAGE_KEY = (invoiceId) => 'pendingInvoiceMedicines_' + invoiceId;
+
+    const storageGet = async (key) => {
+        if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+            return localStorage.getItem(key);
+        }
+        return AsyncStorage.getItem(key);
+    };
+
+    const storageSet = async (key, value) => {
+        if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+            localStorage.setItem(key, value);
+        } else {
+            await AsyncStorage.setItem(key, value);
+        }
+    };
+
+    const storageRemove = async (key) => {
+        if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+            localStorage.removeItem(key);
+        } else {
+            await AsyncStorage.removeItem(key);
+        }
+    };
+
     const checkPendingInvoice = async () => {
         try {
             const res = await pharmacyAPI.getPurchaseInvoices();
@@ -165,21 +147,134 @@ const PharmacyInventory = () => {
                 const pending = res.data.find(inv => inv.status === 'Pending');
                 if (pending) {
                     setPendingInvoice(pending);
-                    // AsyncStorage replacement for localStorage ignored for now for simplicity, keeping logic identical conceptually
-                    setInvoiceStats({
-                        total: pending.totalMedicines || 0,
-                        imported: pending.importedMedicines || 0,
-                        remaining: (pending.totalMedicines || 0) - (pending.importedMedicines || 0)
-                    });
+                    // Restore extracted medicines from storage (Web: localStorage, Native: AsyncStorage)
+                    const savedMeds = await storageGet(STORAGE_KEY(pending._id));
+                    if (savedMeds) {
+                        const parsed = JSON.parse(savedMeds);
+                        setExtractedMedicines(parsed);
+                        setInvoiceStats({
+                            total: pending.totalMedicines || parsed.length,
+                            imported: pending.importedMedicines || 0,
+                            remaining: parsed.length
+                        });
+                    } else {
+                        setInvoiceStats({
+                            total: pending.totalMedicines || 0,
+                            imported: pending.importedMedicines || 0,
+                            remaining: (pending.totalMedicines || 0) - (pending.importedMedicines || 0)
+                        });
+                    }
                 }
             }
         } catch (err) { console.error('Error checking pending invoice', err); }
     };
 
-    const handleClearInvoice = () => {
+    const handleClearInvoice = async () => {
+        if (pendingInvoice) {
+            await storageRemove(STORAGE_KEY(pendingInvoice._id));
+        }
         setPendingInvoice(null);
         setExtractedMedicines([]);
         setInvoiceStats({ total: 0, imported: 0, remaining: 0 });
+    };
+
+    const handleSelectPdf = () => {
+        if (Platform.OS === 'web' && typeof document !== 'undefined') {
+            const input = document.createElement('input');
+            input.type = 'file';
+            // Accept PDF, DOC, DOCX, JPG, JPEG, PNG, WEBP formats
+            input.accept = 'application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/jpeg,image/png,image/webp,.pdf,.doc,.docx,.jpg,.jpeg,.png,.webp';
+            input.onchange = async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const ext = file.name.split('.').pop().toLowerCase();
+                const allowedExts = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png', 'webp'];
+                if (!allowedExts.includes(ext)) {
+                    setPdfError('Please upload a valid invoice file (PDF/DOC/DOCX/JPG/PNG/WEBP).');
+                    Alert.alert('Invalid File', 'Please upload a PDF, DOC, DOCX, JPG, JPEG, PNG, or WEBP file.');
+                    return;
+                }
+                if (file.size > 10 * 1024 * 1024) {
+                    setPdfError('File size must be less than 10MB.');
+                    Alert.alert('File Too Large', 'File size must be less than 10MB.');
+                    return;
+                }
+                await processPdfUpload(file);
+            };
+            input.click();
+        } else {
+            Alert.alert('Info', 'Document picker is available on web runtime.');
+        }
+    };
+
+    const processPdfUpload = async (file) => {
+        setPdfError('');
+        setImportLoadingState('Uploading PDF...');
+        setUploadingPdf(true);
+        try {
+            const formData = new FormData();
+            formData.append('invoice', file);
+
+            const uploadRes = await pharmacyAPI.uploadPurchaseInvoice(formData);
+
+            if (uploadRes.success && uploadRes.invoice && uploadRes.medicines?.length > 0) {
+                setImportLoadingState('Preparing Medicines...');
+                const meds = uploadRes.medicines;
+                const newInvoiceId = uploadRes.invoice._id;
+
+                setExtractedMedicines(meds);
+
+                // Persist to storage (cross-platform: localStorage on web, AsyncStorage on native)
+                await storageSet(STORAGE_KEY(newInvoiceId), JSON.stringify(meds));
+
+                setPendingInvoice(uploadRes.invoice);
+                setInvoiceStats({
+                    total: uploadRes.invoice.totalMedicines || meds.length,
+                    imported: 0,
+                    remaining: meds.length
+                });
+
+                showSuccessMsg('Invoice Uploaded Successfully');
+            } else {
+                const msg = uploadRes?.message || 'No medicines found in the uploaded invoice.';
+                setPdfError(msg);
+                Alert.alert('Upload Error', msg);
+            }
+        } catch (error) {
+            const msg = error.response?.data?.message || error.message || 'Unable to read this invoice.';
+            setPdfError(msg);
+            Alert.alert('Upload Failed', msg);
+        } finally {
+            setUploadingPdf(false);
+            setImportLoadingState('');
+        }
+    };
+
+    const handleSelectExtracted = (medName, list = extractedMedicines) => {
+        const med = list.find(m => m.medicineName === medName);
+        if (!med) {
+            setNewMedicine(prev => ({ ...prev, name: medName }));
+            return;
+        }
+        setNewMedicine(prev => ({
+            ...prev,
+            name: med.medicineName,
+            batchNumber: med.batch || '',
+            stock: (Number(med.purchaseQty) || 0) + (Number(med.freeQty) || 0) || '',
+            purchaseQty: med.purchaseQty || '',
+            freeQty: med.freeQty || '',
+            discountType: 'Percentage',
+            discountValue: med.discount || '',
+            unit: med.unit || 'Tablets',
+            buyingPrice: med.purchaseRate || '',
+            sellingPrice: med.mrp || '',
+            cgstPercent: med.gst ? (parseFloat(med.gst) / 2) : '',
+            sgstPercent: med.gst ? (parseFloat(med.gst) / 2) : '',
+            cgst: med.gst ? (parseFloat(med.gst) / 2) : '',
+            sgst: med.gst ? (parseFloat(med.gst) / 2) : '',
+            expiryDate: med.expiry ? new Date(med.expiry).toISOString().split('T')[0] : prev.expiryDate,
+            purchaseDate: new Date().toISOString().split('T')[0]
+        }));
     };
 
     const showSuccessMsg = (msg) => {
@@ -234,6 +329,8 @@ const PharmacyInventory = () => {
         let disc = 0;
         if (newMedicine.discountType === 'Percentage') {
             disc = baseTotal * ((Number(newMedicine.discountValue) || 0) / 100);
+        } else if (newMedicine.discountType === 'Flat Amount') {
+            disc = Number(newMedicine.discountValue) || 0;
         } else {
             disc = Number(newMedicine.discountValue) || 0;
         }
@@ -281,7 +378,25 @@ const PharmacyInventory = () => {
             }
 
             if (response && (response.success || response.data)) {
-                showSuccessMsg(isEditing ? 'Medicine updated successfully!' : 'Medicine saved to inventory!');
+                // If this medicine was from a pending invoice, remove it from the extracted list and update storage
+                // Matches Web handleAddMedicine logic exactly
+                if (pendingInvoice && extractedMedicines.some(m => m.medicineName === newMedicine.name)) {
+                    showSuccessMsg('Medicine Imported Successfully');
+                    const updatedMeds = extractedMedicines.filter(m => m.medicineName !== newMedicine.name);
+                    setExtractedMedicines(updatedMeds);
+                    await storageSet(STORAGE_KEY(pendingInvoice._id), JSON.stringify(updatedMeds));
+
+                    const newImported = invoiceStats.imported + 1;
+                    const newRemaining = updatedMeds.length;
+                    setInvoiceStats({ ...invoiceStats, imported: newImported, remaining: newRemaining });
+
+                    if (newRemaining === 0) {
+                        showSuccessMsg('Invoice Completed Successfully');
+                    }
+                } else {
+                    showSuccessMsg(isEditing ? 'Medicine updated successfully!' : 'Medicine saved to inventory!');
+                }
+
                 setShowAddModal(false);
                 setIsEditing(false);
                 setEditId(null);
@@ -449,10 +564,28 @@ const PharmacyInventory = () => {
                             </View>
                         ) : null}
 
+                        {pdfError ? (
+                            <View style={{ marginBottom: 12, padding: 10, backgroundColor: '#fef2f2', borderRadius: 8, borderWidth: 1, borderColor: '#fecaca' }}>
+                                <Text style={{ color: '#dc2626', fontSize: 13, fontWeight: '500' }}>⚠️ {pdfError}</Text>
+                            </View>
+                        ) : null}
+
                         {(!pendingInvoice || invoiceStats.remaining === 0) ? (
                             <View style={styles.uploadRow}>
-                                <TouchableOpacity style={styles.uploadInputBox}>
-                                    <Text style={styles.uploadInputText}>Select PDF File...</Text>
+                                <TouchableOpacity 
+                                    style={[styles.uploadInputBox, uploadingPdf && { opacity: 0.7 }]}
+                                    onPress={handleSelectPdf}
+                                    disabled={uploadingPdf}
+                                    activeOpacity={0.7}
+                                >
+                                    {uploadingPdf ? (
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                            <ActivityIndicator size="small" color="#2563eb" />
+                                            <Text style={styles.uploadInputText}>{importLoadingState || 'Uploading PDF...'}</Text>
+                                        </View>
+                                    ) : (
+                                        <Text style={styles.uploadInputText}>Select PDF File...</Text>
+                                    )}
                                 </TouchableOpacity>
                             </View>
                         ) : (
@@ -490,12 +623,55 @@ const PharmacyInventory = () => {
                                             placeholder="-- Select Medicine from Invoice --"
                                         />
                                     ) : (
-                                        <TextInput 
-                                            style={styles.formInput}
-                                            value={newMedicine.name}
-                                            onChangeText={(val) => setNewMedicine({...newMedicine, name: val})}
-                                            placeholder="e.g. Gonal-F 900 IU Pen / Menopur 75 IU"
-                                        />
+                                        <View>
+                                            <TextInput 
+                                                style={styles.formInput}
+                                                value={newMedicine.name}
+                                                onChangeText={(val) => {
+                                                    setNewMedicine({...newMedicine, name: val});
+                                                    if (val.length >= 3) {
+                                                        const matches = medicines.filter(m =>
+                                                            (m.name || '').toLowerCase().includes(val.toLowerCase())
+                                                        ).slice(0, 10);
+                                                        setNameSuggestions(matches);
+                                                        setShowNameSuggestions(true);
+                                                    } else {
+                                                        setShowNameSuggestions(false);
+                                                    }
+                                                }}
+                                                onFocus={() => {
+                                                    if (newMedicine.name && newMedicine.name.length >= 3) setShowNameSuggestions(true);
+                                                }}
+                                                onBlur={() => setTimeout(() => setShowNameSuggestions(false), 200)}
+                                                placeholder="e.g. Gonal-F 900 IU Pen / Menopur 75 IU"
+                                            />
+                                            {showNameSuggestions && nameSuggestions.length > 0 && (
+                                                <View style={styles.suggestionList}>
+                                                    {nameSuggestions.map((m, idx) => (
+                                                        <TouchableOpacity
+                                                            key={idx}
+                                                            style={[
+                                                                styles.suggestionItem,
+                                                                idx < nameSuggestions.length - 1 && styles.suggestionItemBorder
+                                                            ]}
+                                                            onPress={() => {
+                                                                setNewMedicine(prev => ({
+                                                                    ...prev,
+                                                                    name: m.name,
+                                                                    salt: m.salt || prev.salt,
+                                                                    category: m.category || prev.category,
+                                                                    unit: m.unit || prev.unit
+                                                                }));
+                                                                setShowNameSuggestions(false);
+                                                            }}
+                                                        >
+                                                            <Text style={styles.suggestionName}>{m.name}</Text>
+                                                            <Text style={styles.suggestionMeta}>{m.salt || 'No Salt'} • {m.category || 'General'}</Text>
+                                                        </TouchableOpacity>
+                                                    ))}
+                                                </View>
+                                            )}
+                                        </View>
                                     )}
                                 </View>
                                 <View style={styles.formGroup}>
@@ -1460,7 +1636,41 @@ const styles = StyleSheet.create({
     detailsValue: {
         fontSize: 15,
         color: '#0f172a',
-    }
+    },
+
+    /* Medicine Name Autocomplete */
+    suggestionList: {
+        backgroundColor: 'white',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        borderRadius: 8,
+        marginTop: 4,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 6,
+        elevation: 5,
+        maxHeight: 220,
+        overflow: 'hidden',
+    },
+    suggestionItem: {
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+    },
+    suggestionItemBorder: {
+        borderBottomWidth: 1,
+        borderBottomColor: '#f1f5f9',
+    },
+    suggestionName: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#1e293b',
+    },
+    suggestionMeta: {
+        fontSize: 11,
+        color: '#64748b',
+        marginTop: 1,
+    },
 });
 
 export default PharmacyInventory;

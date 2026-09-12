@@ -1,13 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { 
     View, Text, TextInput, TouchableOpacity, ScrollView, 
-    StyleSheet, ActivityIndicator, Alert, Dimensions, Modal 
+    StyleSheet, ActivityIndicator, Alert, Dimensions, Modal, Linking 
 } from 'react-native';
 import DropdownSelect from '../../components/common/DropdownSelect';
-import { pharmacyAPI } from '../../utils/api';
-
-// Assuming a custom hook or Redux auth slice is available natively. Using placeholder for useAuth.
-// import { useAuth } from '../../store/hooks'; 
+import { pharmacyAPI, baseURL } from '../../utils/api';
+import { useAuth } from '../../store/hooks'; 
 import { useNavigation } from '@react-navigation/native';
 
 const { width } = Dimensions.get('window');
@@ -18,8 +16,7 @@ const PurchaseInvoiceHistory = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [sortOrder, setSortOrder] = useState('newest'); // 'newest' or 'oldest'
     
-    // Mock user for now, replace with actual auth logic if needed
-    const user = { role: 'admin' }; 
+    const { user } = useAuth(); 
     const navigation = useNavigation();
 
     const [showModal, setShowModal] = useState(false);
@@ -29,54 +26,19 @@ const PurchaseInvoiceHistory = () => {
         fetchInvoices();
     }, []);
 
-    const defaultInvoices = [
-        {
-            _id: 'inv-001',
-            invoiceNumber: 'INV-2026-0881',
-            vendorName: 'Apollo MedSolutions Ltd',
-            vendor: 'Apollo MedSolutions Ltd',
-            totalAmount: 48500,
-            status: 'Completed',
-            importedMedicines: 18,
-            totalMedicines: 18,
-            createdAt: '2026-09-08T10:30:00.000Z'
-        },
-        {
-            _id: 'inv-002',
-            invoiceNumber: 'INV-2026-0882',
-            vendorName: 'Cipla Healthcare Distribution',
-            vendor: 'Cipla Healthcare Distribution',
-            totalAmount: 32400,
-            status: 'Completed',
-            importedMedicines: 12,
-            totalMedicines: 12,
-            createdAt: '2026-09-06T14:15:00.000Z'
-        },
-        {
-            _id: 'inv-003',
-            invoiceNumber: 'INV-2026-0883',
-            vendorName: 'Sun Pharma Logistics',
-            vendor: 'Sun Pharma Logistics',
-            totalAmount: 18200,
-            status: 'Pending',
-            importedMedicines: 5,
-            totalMedicines: 10,
-            createdAt: '2026-09-09T09:00:00.000Z'
-        }
-    ];
-
     const fetchInvoices = async () => {
         setLoading(true);
         try {
             const res = await pharmacyAPI.getPurchaseInvoices();
-            if (res.success && res.data && res.data.length > 0) {
-                setInvoices(res.data);
+            if (res && (res.success || Array.isArray(res))) {
+                const data = res.data || (Array.isArray(res) ? res : []);
+                setInvoices(Array.isArray(data) ? data : []);
             } else {
-                setInvoices(defaultInvoices);
+                setInvoices([]);
             }
         } catch (error) {
             console.error("Error fetching invoices:", error);
-            setInvoices(defaultInvoices);
+            setInvoices([]);
         } finally {
             setLoading(false);
         }
@@ -262,7 +224,14 @@ const PurchaseInvoiceHistory = () => {
                                             </TouchableOpacity>
                                         )}
                                         {inv.uploadedPDF?.generatedName && (
-                                            <TouchableOpacity style={styles.actionBtn} onPress={() => Alert.alert('Download', 'PDF download not supported natively without extra package')}>
+                                            <TouchableOpacity 
+                                                style={styles.actionBtn} 
+                                                onPress={() => {
+                                                    const pdfUrl = `${(baseURL || '').replace(/\/$/, '')}/uploads/invoices/${inv.uploadedPDF.generatedName}`;
+                                                    Linking.openURL(pdfUrl).catch(() => Alert.alert('Error', 'Unable to open invoice PDF'));
+                                                }}
+                                                title="Open PDF"
+                                            >
                                                 <Text>⬇️</Text>
                                             </TouchableOpacity>
                                         )}

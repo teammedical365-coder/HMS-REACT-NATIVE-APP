@@ -5,8 +5,8 @@ import {
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { pharmacyOrderAPI, pharmacyAPI } from '../../utils/api';
-// jsPDF and jsPDF-autotable removed as native PDF generation typically requires specific native libraries (e.g., expo-print). 
-// Native PDF logic is stubbed.
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 
 const { width } = Dimensions.get('window');
 
@@ -204,10 +204,139 @@ const PharmacyReturns = () => {
         }
     };
 
-    const generatePDF = (returnData, orderInfo) => {
-        // PDF logic adapted for RN environment. Use expo-print or similar if actual file generation is needed.
-        console.log("PDF Generation triggered for:", returnData._id);
-        Alert.alert('PDF Receipt', 'Receipt generated successfully. (Print logic requires expo-print)');
+    const generatePDF = async (returnData, orderInfo) => {
+        try {
+            const html = buildCreditNoteHTML(returnData, orderInfo);
+            await Print.printAsync({ html });
+        } catch (pdfError) {
+            console.error('❌ [PDF GENERATION FAILED]:', pdfError);
+            // Fallback: try to share as PDF file
+            try {
+                const html = buildCreditNoteHTML(returnData, orderInfo);
+                const { uri } = await Print.printToFileAsync({ html, base64: false });
+                if (await Sharing.isAvailableAsync()) {
+                    await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+                } else {
+                    Alert.alert('PDF Saved', `Credit note saved to: ${uri}`);
+                }
+            } catch (shareError) {
+                console.error('❌ [PDF SHARE FAILED]:', shareError);
+                Alert.alert('Notice', 'Return processed successfully, but failed to generate the PDF receipt.');
+            }
+        }
+    };
+
+    const buildCreditNoteHTML = (returnData, orderInfo) => {
+        // ─── Returned Items Table ───
+        let returnedItemsHTML = '';
+        if (returnData.returnedItems && returnData.returnedItems.length > 0) {
+            const returnRows = returnData.returnedItems.map(item =>
+                `<tr>
+                    <td style="padding:6px 8px;border:1px solid #ddd;">${item.medicineName}</td>
+                    <td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">${item.quantity}</td>
+                    <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;">Rs. ${item.pricePerUnit}</td>
+                    <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;">Rs. ${item.refundAmount}</td>
+                </tr>`
+            ).join('');
+            returnedItemsHTML = `
+                <h3 style="font-size:14px;margin:10px 0 5px 0;">Returned Items</h3>
+                <table style="width:100%;border-collapse:collapse;">
+                    <thead>
+                        <tr style="background-color:#f1f3f5;">
+                            <th style="padding:8px;border:1px solid #ddd;text-align:left;">Medicine</th>
+                            <th style="padding:8px;border:1px solid #ddd;text-align:center;">Qty</th>
+                            <th style="padding:8px;border:1px solid #ddd;text-align:right;">Unit Price</th>
+                            <th style="padding:8px;border:1px solid #ddd;text-align:right;">Refund</th>
+                        </tr>
+                    </thead>
+                    <tbody>${returnRows}</tbody>
+                </table>`;
+        }
+
+        // ─── Exchanged Items Table ───
+        let exchangedItemsHTML = '';
+        if (returnData.exchangedItems && returnData.exchangedItems.length > 0) {
+            const exchangeRows = returnData.exchangedItems.map(item =>
+                `<tr>
+                    <td style="padding:6px 8px;border:1px solid #ddd;">${item.medicineName}</td>
+                    <td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">${item.quantity}</td>
+                    <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;">Rs. ${item.pricePerUnit}</td>
+                    <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;">Rs. ${item.totalCost}</td>
+                </tr>`
+            ).join('');
+            exchangedItemsHTML = `
+                <h3 style="font-size:14px;margin:20px 0 5px 0;">Exchanged Items</h3>
+                <table style="width:100%;border-collapse:collapse;">
+                    <thead>
+                        <tr style="background-color:#f1f3f5;">
+                            <th style="padding:8px;border:1px solid #ddd;text-align:left;">Medicine</th>
+                            <th style="padding:8px;border:1px solid #ddd;text-align:center;">Qty</th>
+                            <th style="padding:8px;border:1px solid #ddd;text-align:right;">Unit Price</th>
+                            <th style="padding:8px;border:1px solid #ddd;text-align:right;">Cost</th>
+                        </tr>
+                    </thead>
+                    <tbody>${exchangeRows}</tbody>
+                </table>`;
+        }
+
+        // ─── Net Amount + Refund/Collect line ───
+        let netLine = `<p style="font-size:12px;margin-top:10px;"><strong>Net Amount: Rs. ${returnData.netAmount}</strong></p>`;
+        let refundOrCollect = '';
+        let taxReversalHTML = '';
+
+        if (returnData.netAmount < 0) {
+            refundOrCollect = `<p style="font-size:12px;">Refunded to Patient: Rs. ${Math.abs(returnData.netAmount)}</p>`;
+
+            // ─── GST Reversal Breakdown — exactly as Web ───
+            if (orderInfo && orderInfo.totalAmount > 0) {
+                const refundAmount = Math.abs(returnData.netAmount);
+                const cgstRatio = (orderInfo.cgstAmount || 0) / orderInfo.totalAmount;
+                const sgstRatio = (orderInfo.sgstAmount || 0) / orderInfo.totalAmount;
+                const cgstReversed = refundAmount * cgstRatio;
+                const sgstReversed = refundAmount * sgstRatio;
+                const taxableReversed = refundAmount - cgstReversed - sgstReversed;
+
+                taxReversalHTML = `
+                    <div style="margin-top:10px;font-size:10px;">
+                        <p>--- Tax Reversal Breakdown (Proportional) ---</p>
+                        <p>Taxable Value Reversed: Rs. ${taxableReversed.toFixed(2)}</p>
+                        <p>CGST Reversed: Rs. ${cgstReversed.toFixed(2)}</p>
+                        <p>SGST Reversed: Rs. ${sgstReversed.toFixed(2)}</p>
+                    </div>`;
+            }
+        } else {
+            refundOrCollect = `<p style="font-size:12px;">Collected from Patient: Rs. ${returnData.netAmount}</p>`;
+        }
+
+        return `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                @page { size: A4; margin: 15mm; }
+                body { font-family: Helvetica, Arial, sans-serif; margin: 0; padding: 20px; color: #000; }
+                table { width: 100%; border-collapse: collapse; }
+                th { font-size: 11px; }
+                td { font-size: 11px; }
+            </style>
+        </head>
+        <body>
+            <h1 style="font-size:20px;margin-bottom:15px;">Pharmacy Return/Exchange Invoice</h1>
+            <p style="font-size:11px;margin:2px 0;">Return ID: ${returnData._id}</p>
+            <p style="font-size:11px;margin:2px 0;">Original Order: ${returnData.originalOrderId}</p>
+            <p style="font-size:11px;margin:2px 0;">Date: ${new Date(returnData.createdAt).toLocaleString()}</p>
+            <p style="font-size:11px;margin:2px 0;">Type: ${returnData.returnType}</p>
+            ${returnedItemsHTML}
+            ${exchangedItemsHTML}
+            <div style="margin-top:15px;">
+                ${netLine}
+                ${refundOrCollect}
+                ${taxReversalHTML}
+            </div>
+        </body>
+        </html>`;
     };
 
     return (
