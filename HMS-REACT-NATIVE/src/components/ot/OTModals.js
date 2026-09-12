@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
     View, Text, TouchableOpacity, ScrollView, Modal, 
-    StyleSheet, TextInput, Alert 
+    StyleSheet, TextInput, Alert, Dimensions 
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { otAPI, admissionAPI } from '../../utils/api'; // Assume API bindings support React Native
@@ -595,22 +595,35 @@ export const WorkflowBedModal = ({ open, actionType, patientId, surgeryId, onClo
     const handleSubmit = async () => {
         if (!selectedBedId) return Alert.alert('Error', 'Please select a bed');
         try {
+            const targetBed = beds.find(b => b._id === selectedBedId);
             if (actionType === 'ADMIT') {
-                await admissionAPI.admitPatient({
+                await admissionAPI.createAdmission({
                     patientId,
                     bedId: selectedBedId,
-                    admissionDate: new Date(),
-                    admissionType: 'Planned',
-                    diagnosis: 'Pre-Op Admission for Surgery'
+                    ward: targetBed?.ward,
+                    admissionDate: new Date().toISOString().split('T')[0],
+                    admissionTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+                    notes: 'Pre-Op Admission for Surgery'
                 });
                 await otAPI.updateSurgeryWorkflow(surgeryId, { status: 'ADMITTED' });
+                Alert.alert('Success', 'Patient admitted for surgery');
             } else if (actionType === 'TRANSFER') {
-                await admissionAPI.transferBed({
-                    patientId,
-                    newBedId: selectedBedId,
-                    reason: 'Post-Op Ward Transfer'
-                });
-                await otAPI.updateSurgeryWorkflow(surgeryId, { status: 'POST_OP' });
+                const actAdmRes = await admissionAPI.getPatientAdmissions(patientId);
+                const activeAdm = actAdmRes.admissions?.find(a => a.status === 'Admitted');
+                if (activeAdm) {
+                    await admissionAPI.transferBed(activeAdm._id, {
+                        newWard: targetBed?.ward,
+                        newBedId: selectedBedId,
+                        transferDate: new Date().toISOString().split('T')[0],
+                        transferTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+                        notes: 'Post-Op Ward Transfer'
+                    });
+                    await otAPI.updateSurgeryWorkflow(surgeryId, { status: 'POST_OP' });
+                    Alert.alert('Success', 'Patient transferred to Post-Op');
+                } else {
+                    Alert.alert('Error', 'No active admission found for this patient to transfer');
+                    return;
+                }
             }
             onClose();
             if (onSuccess) onSuccess();

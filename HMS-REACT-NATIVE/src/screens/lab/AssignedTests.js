@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Dimensions, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Dimensions, Alert, Platform } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
 import { labAPI } from '../../utils/api';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -28,29 +29,38 @@ const AssignedTests = () => {
         }
     };
 
-    const handleFileUploadMock = async (reportId) => {
+    const submitReport = (reportId, fileData, fileName) => {
+        const ext = fileName.split('.').pop().toLowerCase();
+        const allowedExts = ['pdf', 'jpg', 'jpeg', 'png'];
+        if (!allowedExts.includes(ext)) {
+            Alert.alert('Invalid File', 'Only JPEG, PNG and PDF allowed');
+            return;
+        }
+
         Alert.alert(
-            "Upload Report",
-            "Are you sure you want to mock upload a report for this patient?",
+            "Upload Lab Report",
+            `Upload ${fileName} for this patient?`,
             [
                 { text: "Cancel", style: "cancel" },
                 { 
-                    text: "Upload", 
+                    text: "Upload File", 
                     onPress: async () => {
                         setUploadingId(reportId);
                         try {
-                            // Mocking FormData for React Native (typically requires expo-document-picker)
                             const formData = new FormData();
-                            formData.append('notes', 'Uploaded via Lab Dashboard Mobile');
-                            // Mock file blob missing here, backend might fail if file is strictly required
-                            // For UI fidelity, we will just simulate the call.
+                            formData.append('reportFile', fileData);
+                            formData.append('notes', 'Uploaded via Lab Dashboard');
+
                             const res = await labAPI.uploadReport(reportId, formData);
-                            if (res.success || true) { // Force true for demo if backend rejects missing file
-                                Alert.alert("Success", "Report Uploaded & Sent to Doctor!");
+                            if (res.success) {
+                                Alert.alert("Success", "Report uploaded & sent to doctor!");
                                 loadRequests();
+                            } else {
+                                Alert.alert("Upload Failed", res.message || "Upload failed");
                             }
                         } catch (err) {
-                            Alert.alert("Upload Failed", err.message);
+                            const errMsg = err.response?.data?.message || err.message || "Upload Failed";
+                            Alert.alert("Upload Failed", errMsg);
                         } finally {
                             setUploadingId(null);
                         }
@@ -58,6 +68,41 @@ const AssignedTests = () => {
                 }
             ]
         );
+    };
+
+    const handleFileUpload = async (reportId) => {
+        if (uploadingId) return;
+
+        if (Platform.OS === 'web' && typeof document !== 'undefined') {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.pdf,.jpg,.jpeg,.png';
+            input.onchange = async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                submitReport(reportId, file, file.name);
+            };
+            input.click();
+        } else {
+            try {
+                const result = await DocumentPicker.getDocumentAsync({
+                    type: ['application/pdf', 'image/jpeg', 'image/png'],
+                    copyToCacheDirectory: true
+                });
+                if (!result.canceled && result.assets && result.assets.length > 0) {
+                    const asset = result.assets[0];
+                    const fileData = {
+                        uri: asset.uri,
+                        name: asset.name,
+                        type: asset.mimeType || (asset.name.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg')
+                    };
+                    submitReport(reportId, fileData, asset.name);
+                }
+            } catch (err) {
+                console.error("Document picking error:", err);
+                Alert.alert("Error", "Could not open file picker");
+            }
+        }
     };
 
     if (loading) {
@@ -77,11 +122,6 @@ const AssignedTests = () => {
                 <View>
                     <Text style={styles.headerTitle}>📋 Pending Lab Requests</Text>
                     <Text style={styles.headerSubtitle}>View and process requested tests</Text>
-                </View>
-                {/* Search box mocked in UI for visual parity */}
-                <View style={styles.searchBox}>
-                    <Text style={styles.searchIcon}>🔍</Text>
-                    <Text style={{ color: '#94a3b8', marginLeft: 10 }}>Search requests...</Text>
                 </View>
             </View>
 
@@ -124,7 +164,7 @@ const AssignedTests = () => {
                                 <TouchableOpacity 
                                     style={[styles.btnUpload, uploadingId === req._id && { opacity: 0.7 }]}
                                     disabled={uploadingId === req._id}
-                                    onPress={() => handleFileUploadMock(req._id)}
+                                    onPress={() => handleFileUpload(req._id)}
                                 >
                                     <LinearGradient
                                         colors={['#0ea5e9', '#0284c7']}

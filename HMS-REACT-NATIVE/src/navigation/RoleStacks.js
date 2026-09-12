@@ -60,6 +60,16 @@ import PharmacyDepartments from '../screens/pharmacy/PharmacyDepartments';
 import ReceptionDashboard from '../screens/reception/ReceptionDashboard';
 import ReceptionPatients from '../screens/reception/ReceptionPatients';
 
+// -- Nurse Pages --
+import NurseDashboard from '../screens/nurse/NurseDashboard';
+import NurseOPDQueue from '../screens/nurse/NurseOPDQueue';
+import NurseAppointments from '../screens/nurse/NurseAppointments';
+import NursePatientWorkspace from '../screens/nurse/NursePatientWorkspace';
+import IPDCommandCenter from '../screens/nurse/IPDCommandCenter';
+
+// -- Accountant Pages --
+import AccountantDashboard from '../screens/accountant/AccountantDashboard';
+
 // -- Cashier & Billing Pages --
 import CashierDashboard from '../screens/cashier/CashierDashboard';
 import PatientBillingProfile from '../screens/billing/PatientBillingProfile';
@@ -176,10 +186,27 @@ export const ReceptionApp = () => (
     </Stack.Navigator>
 );
 
+export const AccountantApp = () => (
+    <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
+        <Stack.Screen name="AccountantDashboard" component={withLayout(AccountantDashboard)} />
+        <Stack.Screen name="PatientBillingProfile" component={withLayout(PatientBillingProfile)} />
+    </Stack.Navigator>
+);
+
 export const CashierApp = () => (
     <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
         <Stack.Screen name="CashierDashboard" component={withLayout(CashierDashboard)} />
         <Stack.Screen name="PatientBillingProfile" component={withLayout(PatientBillingProfile)} />
+    </Stack.Navigator>
+);
+
+export const NurseApp = () => (
+    <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
+        <Stack.Screen name="NurseDashboard" component={withLayout(NurseDashboard)} />
+        <Stack.Screen name="NurseOPDQueue" component={withLayout(NurseOPDQueue)} />
+        <Stack.Screen name="NurseAppointments" component={withLayout(NurseAppointments)} />
+        <Stack.Screen name="NursePatientWorkspace" component={withLayout(NursePatientWorkspace)} />
+        <Stack.Screen name="IPDCommandCenter" component={withLayout(IPDCommandCenter)} />
     </Stack.Navigator>
 );
 

@@ -14,7 +14,7 @@ import {
     SurgeryDetailsModal, 
     ScheduleSurgeryModal, 
     WorkflowBedModal 
-} from './OTModals';
+} from '../../components/ot/OTModals';
 
 const OTDashboard = () => {
     const navigation = useNavigation();
@@ -156,7 +156,7 @@ const OTDashboard = () => {
             <View style={styles.kpiGrid}>
                 {/* 1. Today's Surgeries */}
                 <TouchableOpacity 
-                    onPress={() => navigation.navigate('OTSchedule')}
+                    onPress={() => navigation.navigate('OTSchedulePage')}
                     style={[styles.kpiCard, { borderColor: '#e2e8f0' }]}
                 >
                     <View style={[styles.kpiIndicator, { backgroundColor: '#3b82f6' }]} />
@@ -173,7 +173,7 @@ const OTDashboard = () => {
 
                 {/* 2. In OT */}
                 <TouchableOpacity 
-                    onPress={() => navigation.navigate('OTInProgress')}
+                    onPress={() => navigation.navigate('OTInProgressPage')}
                     style={[styles.kpiCard, { borderColor: '#fee2e2' }]}
                 >
                     <View style={[styles.kpiIndicator, { backgroundColor: '#ef4444' }]} />
@@ -190,7 +190,7 @@ const OTDashboard = () => {
 
                 {/* 3. Available OT Rooms */}
                 <TouchableOpacity 
-                    onPress={() => navigation.navigate('OTRooms')}
+                    onPress={() => navigation.navigate('OTRoomsPage')}
                     style={[styles.kpiCard, { borderColor: '#dcfce7' }]}
                 >
                     <View style={[styles.kpiIndicator, { backgroundColor: '#22c55e' }]} />
@@ -207,7 +207,7 @@ const OTDashboard = () => {
 
                 {/* 4. Occupied OT Rooms */}
                 <TouchableOpacity 
-                    onPress={() => navigation.navigate('OTRooms')}
+                    onPress={() => navigation.navigate('OTRoomsPage')}
                     style={[styles.kpiCard, { borderColor: '#fed7aa' }]}
                 >
                     <View style={[styles.kpiIndicator, { backgroundColor: '#f97316' }]} />
@@ -224,7 +224,7 @@ const OTDashboard = () => {
 
                 {/* 5. Pre-Op Patients */}
                 <TouchableOpacity 
-                    onPress={() => navigation.navigate('OTPreOp')}
+                    onPress={() => navigation.navigate('OTPreOpPage')}
                     style={[styles.kpiCard, { borderColor: '#fef08a' }]}
                 >
                     <View style={[styles.kpiIndicator, { backgroundColor: '#eab308' }]} />
@@ -241,7 +241,7 @@ const OTDashboard = () => {
 
                 {/* 6. Completed Today */}
                 <TouchableOpacity 
-                    onPress={() => navigation.navigate('OTCompleted')}
+                    onPress={() => navigation.navigate('OTCompletedPage')}
                     style={[styles.kpiCard, { borderColor: '#c7d2fe' }]}
                 >
                     <View style={[styles.kpiIndicator, { backgroundColor: '#6366f1' }]} />
@@ -258,7 +258,7 @@ const OTDashboard = () => {
 
                 {/* 7. Planned Surgeries */}
                 <TouchableOpacity 
-                    onPress={() => navigation.navigate('OTPlanned')}
+                    onPress={() => navigation.navigate('OTPlannedSurgeries')}
                     style={[styles.kpiCard, { borderColor: '#e9d5ff' }]}
                 >
                     <View style={[styles.kpiIndicator, { backgroundColor: '#a855f7' }]} />
@@ -330,7 +330,7 @@ const OTDashboard = () => {
                             <Text style={styles.previewSubtitle}>Showing {previewSchedule.length} of {todaySchedule.length} surgeries scheduled today</Text>
                         </View>
                         <TouchableOpacity 
-                            onPress={() => navigation.navigate('OTSchedule')}
+                            onPress={() => navigation.navigate('OTSchedulePage')}
                             style={styles.previewLink}
                         >
                             <Text style={styles.previewLinkText}>View Full Schedule</Text>
@@ -400,7 +400,7 @@ const OTDashboard = () => {
                             <Text style={styles.previewSubtitle}>Showing {previewRooms.length} of {rooms.length} OT suites</Text>
                         </View>
                         <TouchableOpacity 
-                            onPress={() => navigation.navigate('OTRooms')}
+                            onPress={() => navigation.navigate('OTRoomsPage')}
                             style={styles.previewLink}
                         >
                             <Text style={styles.previewLinkText}>View All OT Rooms</Text>
@@ -482,7 +482,7 @@ const OTDashboard = () => {
                         <Text style={styles.previewSubtitle}>Showing {previewPlanned.length} of {plannedSurgeries.length} doctor-created surgery plans</Text>
                     </View>
                     <TouchableOpacity 
-                        onPress={() => navigation.navigate('OTPlanned')}
+                        onPress={() => navigation.navigate('OTPlannedSurgeries')}
                         style={[styles.previewLink, { backgroundColor: '#f5f3ff' }]}
                     >
                         <Text style={[styles.previewLinkText, { color: '#7c3aed' }]}>View All Planned Surgeries</Text>

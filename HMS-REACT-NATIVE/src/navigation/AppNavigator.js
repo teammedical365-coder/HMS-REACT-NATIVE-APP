@@ -14,7 +14,9 @@ import {
     LabApp,
     PharmacyApp,
     ReceptionApp,
+    AccountantApp,
     CashierApp,
+    NurseApp,
     PatientApp
 } from './RoleStacks';
 import DashboardScreen from '../screens/DashboardScreen';
@@ -44,6 +46,17 @@ const defaultReceptionUser = {
     subscriptionPlan: "pro"
 };
 
+const defaultLabUser = {
+    _id: "6758493021abcdef12345677",
+    name: "Vikram Sen",
+    email: "lab@metropolisgeneral.org",
+    role: "lab",
+    hospitalId: "6758493021abcdef12345679",
+    hospitalName: "Metropolis General Hospital",
+    permissions: ["lab_manage", "report_upload", "tests_view"],
+    subscriptionPlan: "pro"
+};
+
 const defaultPharmacyUser = {
     _id: "6758493021abcdef12345688",
     name: "Rajesh Patel",
@@ -69,22 +82,30 @@ const AppNavigator = () => {
 
     const isWeb = Platform.OS === 'web' && typeof window !== 'undefined';
     const isLoggedOut = isWeb && (localStorage.getItem('isLoggedOut') === 'true' || sessionStorage.getItem('isLoggedOut') === 'true');
-    const isPharmacyDev = !isLoggedOut && isWeb && (
+    const isLabDev = !isLoggedOut && isWeb && (
+        window.location.hash.includes('lab') ||
+        window.location.search.includes('lab') ||
+        window.location.pathname.includes('lab') ||
+        localStorage.getItem('role') === 'lab' ||
+        localStorage.getItem('role') === 'pathologist' ||
+        localStorage.getItem('role') === 'labtechnician'
+    );
+    const isPharmacyDev = !isLoggedOut && !isLabDev && isWeb && (
         window.location.hash.includes('pharmacy') ||
         window.location.search.includes('pharmacy') ||
         window.location.pathname.includes('pharmacy') ||
         localStorage.getItem('role') === 'pharmacy' ||
         localStorage.getItem('role') === 'pharmacist'
     );
-    const isReceptionDev = !isLoggedOut && !isPharmacyDev && isWeb && (
+    const isReceptionDev = !isLoggedOut && !isLabDev && !isPharmacyDev && isWeb && (
         window.location.hash.includes('reception') ||
         window.location.search.includes('reception') ||
         window.location.pathname.includes('reception') ||
         localStorage.getItem('role') === 'reception' ||
         localStorage.getItem('role') === 'receptionist' ||
-        (!window.location.hash.includes('hospitaladmin') && !window.location.search.includes('hospitaladmin') && localStorage.getItem('role') !== 'hospitaladmin')
+        (!window.location.hash.includes('hospitaladmin') && !window.location.search.includes('hospitaladmin') && !window.location.hash.includes('lab') && !window.location.search.includes('lab') && localStorage.getItem('role') !== 'hospitaladmin' && localStorage.getItem('role') !== 'lab')
     );
-    const isHospitalAdminDev = !isLoggedOut && !isPharmacyDev && !isReceptionDev && isWeb && (
+    const isHospitalAdminDev = !isLoggedOut && !isLabDev && !isPharmacyDev && !isReceptionDev && isWeb && (
         window.location.hash.includes('hospitaladmin') ||
         window.location.search.includes('hospitaladmin') ||
         window.location.pathname.includes('hospitaladmin') ||
@@ -92,7 +113,12 @@ const AppNavigator = () => {
     );
 
     React.useEffect(() => {
-        if (isPharmacyDev && !isAuthenticated) {
+        if (isLabDev && !isAuthenticated) {
+            dispatch(setCredentials({
+                user: defaultLabUser,
+                token: "mock_jwt_token_for_lab_parity"
+            }));
+        } else if (isPharmacyDev && !isAuthenticated) {
             dispatch(setCredentials({
                 user: defaultPharmacyUser,
                 token: "mock_jwt_token_for_pharmacy_parity"
@@ -108,10 +134,10 @@ const AppNavigator = () => {
                 token: "mock_jwt_token_for_hospital_admin_parity"
             }));
         }
-    }, [isPharmacyDev, isReceptionDev, isHospitalAdminDev, isAuthenticated, dispatch]);
+    }, [isLabDev, isPharmacyDev, isReceptionDev, isHospitalAdminDev, isAuthenticated, dispatch]);
 
-    const activeUser = user || (isPharmacyDev ? defaultPharmacyUser : (isReceptionDev ? defaultReceptionUser : (isHospitalAdminDev ? defaultHospitalAdminUser : null)));
-    const isEffectiveAuth = isAuthenticated || isPharmacyDev || isReceptionDev || isHospitalAdminDev;
+    const activeUser = user || (isLabDev ? defaultLabUser : (isPharmacyDev ? defaultPharmacyUser : (isReceptionDev ? defaultReceptionUser : (isHospitalAdminDev ? defaultHospitalAdminUser : null))));
+    const isEffectiveAuth = isAuthenticated || isLabDev || isPharmacyDev || isReceptionDev || isHospitalAdminDev;
 
     const renderRoleStack = () => {
         const currentUserObj = activeUser || user;
@@ -135,6 +161,7 @@ const AppNavigator = () => {
             case 'receptionist':
                 return <Stack.Screen name="Reception" component={ReceptionApp} />;
             case 'accountant':
+                return <Stack.Screen name="Accountant" component={AccountantApp} />;
             case 'billing':
             case 'cashier':
                 return <Stack.Screen name="Cashier" component={CashierApp} />;
@@ -144,6 +171,10 @@ const AppNavigator = () => {
             case 'pharmacy':
             case 'pharmacist':
                 return <Stack.Screen name="Pharmacy" component={PharmacyApp} />;
+            case 'nurse':
+            case 'staffnurse':
+            case 'headnurse':
+                return <Stack.Screen name="Nurse" component={NurseApp} />;
             case 'patient':
                 return <Stack.Screen name="Patient" component={PatientApp} />;
             default:

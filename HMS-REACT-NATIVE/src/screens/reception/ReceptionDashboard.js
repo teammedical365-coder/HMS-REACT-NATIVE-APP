@@ -141,10 +141,12 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         setLoading(true);
         try {
             const sub = getSubdomain();
-            const res = await hospitalAPI.resolveHospital(sub);
-            if (res?.success) {
-                setHospitalContext(res.hospital);
-                fetchDoctors(res.hospital._id);
+            if (sub && sub !== 'null') {
+                const res = await hospitalAPI.resolveHospital(sub);
+                if (res?.success) {
+                    setHospitalContext(res.hospital);
+                    fetchDoctors(res.hospital._id);
+                }
             }
         } catch (err) {
             console.warn('Failed to resolve hospital:', err);

@@ -4,7 +4,7 @@ import { Feather } from '@expo/vector-icons';
 import { otAPI } from '../../utils/api';
 import socket from '../../utils/socket';
 import OTHeader from './OTHeader';
-import { getStatusStyle, SurgeryDetailsModal } from './OTModals';
+import { getStatusStyle, SurgeryDetailsModal } from '../../components/ot/OTModals';
 
 const { width } = Dimensions.get('window');
 const isTablet = width > 768;

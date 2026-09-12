@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Dimensions, TextInput, Linking, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Dimensions, TextInput, Linking, Alert, Platform } from 'react-native';
+import * as Print from 'expo-print';
 import { labAPI } from '../../utils/api';
 
 const { width } = Dimensions.get('window');
@@ -39,9 +40,46 @@ const CompletedReports = () => {
         Linking.openURL(url).catch(() => Alert.alert("Error", "Cannot download file"));
     };
 
-    const handlePrint = (url) => {
+    const handlePrint = async (url) => {
         if (!url) return;
-        Alert.alert("Print", "Printing requires expo-print package setup for React Native.");
+
+        if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof document !== 'undefined') {
+            try {
+                // Fetch file as blob to handle CORS for printing, matching Web CompletedReports
+                const response = await fetch(url);
+                const blob = await response.blob();
+                const blobUrl = URL.createObjectURL(blob);
+
+                // Create a hidden iframe for print dialog
+                const iframe = document.createElement('iframe');
+                iframe.style.display = 'none';
+                iframe.src = blobUrl;
+
+                const cleanup = () => {
+                    if (document.body.contains(iframe)) {
+                        document.body.removeChild(iframe);
+                    }
+                    URL.revokeObjectURL(blobUrl);
+                };
+
+                document.body.appendChild(iframe);
+                iframe.onload = () => {
+                    iframe.contentWindow.focus();
+                    iframe.contentWindow.onafterprint = cleanup;
+                    iframe.contentWindow.print();
+                };
+            } catch (error) {
+                console.error("Print failed, falling back to new tab:", error);
+                window.open(url, '_blank');
+            }
+        } else {
+            try {
+                await Print.printAsync({ uri: url });
+            } catch (error) {
+                console.error("Native print failed, falling back to open URL:", error);
+                Linking.openURL(url).catch(() => Alert.alert("Error", "Unable to open or print document"));
+            }
+        }
     };
 
     const filteredReports = requests.filter(report => {

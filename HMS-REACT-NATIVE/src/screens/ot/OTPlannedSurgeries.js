@@ -8,7 +8,7 @@ import {
     getStatusStyle, 
     SurgeryDetailsModal, 
     ScheduleSurgeryModal 
-} from './OTModals';
+} from '../../components/ot/OTModals';
 
 const { width } = Dimensions.get('window');
 const isTablet = width > 768;

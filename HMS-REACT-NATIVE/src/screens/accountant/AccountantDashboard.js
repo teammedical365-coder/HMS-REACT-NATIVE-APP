@@ -14,6 +14,8 @@ const AccountantDashboard = () => {
     const [billingSearching, setBillingSearching] = useState(false);
     
     const [datePreset, setDatePreset] = useState('all');
+    const [customStartDate, setCustomStartDate] = useState('');
+    const [customEndDate, setCustomEndDate] = useState('');
 
     useEffect(() => {
         const checkAuth = async () => {
@@ -33,12 +35,12 @@ const AccountantDashboard = () => {
         checkAuth();
     }, []);
 
-    const fetchStats = async (preset) => {
+    const fetchStats = async (preset = datePreset, start = customStartDate, end = customEndDate) => {
         setLoading(true);
         try {
             let queryStart = '';
             let queryEnd = '';
-            if (preset !== 'all') {
+            if (preset !== 'all' && preset !== 'custom') {
                 const now = new Date();
                 const endD = new Date(now);
                 const startD = new Date(now);
@@ -48,6 +50,9 @@ const AccountantDashboard = () => {
                 else if (preset === '90') { startD.setDate(startD.getDate() - 90); }
                 queryStart = startD.toISOString();
                 queryEnd = endD.toISOString();
+            } else if (preset === 'custom') {
+                if (start) queryStart = new Date(start).toISOString();
+                if (end) queryEnd = new Date(end).toISOString();
             }
             const res = await financeAPI.getDashboardStats(queryStart, queryEnd);
             if (res.success) setStats(res.data);
@@ -61,7 +66,7 @@ const AccountantDashboard = () => {
         try {
             const res = await billingAPI.getPatientBills(billingSearch.trim());
             if (res.success) {
-                // Navigate to billing profile (which we will create next)
+                // Navigate to billing profile
                 navigation.navigate('PatientBillingProfile', { q: billingSearch.trim() });
             }
         } catch (err) { Alert.alert('Error', err.response?.data?.message || 'Patient not found'); }
@@ -89,17 +94,54 @@ const AccountantDashboard = () => {
                     <TouchableOpacity style={styles.btnPrimary} onPress={handleBillingSearch} disabled={billingSearching}>
                         <Text style={styles.btnText}>{billingSearching ? '...' : 'Search'}</Text>
                     </TouchableOpacity>
+                    <TouchableOpacity 
+                        style={styles.btnOpenBilling} 
+                        onPress={() => navigation.navigate('PatientBillingProfile')}
+                    >
+                        <Text style={styles.btnOpenBillingText}>Open Billing</Text>
+                    </TouchableOpacity>
                 </View>
             </View>
 
             <View style={styles.card}>
-                <Text style={styles.cardTitle}>📅 Timeframe</Text>
+                <Text style={styles.cardTitle}>📅 Analytics Timeframe</Text>
                 <View style={styles.filterRow}>
-                    {['all', 'today', '30', '60'].map(p => (
-                        <TouchableOpacity key={p} style={[styles.filterBtn, datePreset === p && styles.filterBtnActive]} onPress={() => { setDatePreset(p); fetchStats(p); }}>
-                            <Text style={datePreset === p ? styles.filterBtnTextActive : styles.filterBtnText}>{p === 'all' ? 'All' : p === 'today' ? 'Today' : `${p} Days`}</Text>
+                    {['all', 'today', '30', '60', '90'].map(p => (
+                        <TouchableOpacity 
+                            key={p} 
+                            style={[styles.filterBtn, datePreset === p && styles.filterBtnActive]} 
+                            onPress={() => { setDatePreset(p); fetchStats(p); }}
+                        >
+                            <Text style={datePreset === p ? styles.filterBtnTextActive : styles.filterBtnText}>
+                                {p === 'all' ? 'All Time' : p === 'today' ? 'Today' : `${p} Days`}
+                            </Text>
                         </TouchableOpacity>
                     ))}
+                </View>
+
+                {/* Custom Date Range Controls */}
+                <View style={styles.customDateRow}>
+                    <TextInput
+                        style={styles.dateInput}
+                        placeholder="YYYY-MM-DD"
+                        placeholderTextColor="#94a3b8"
+                        value={customStartDate}
+                        onChangeText={(val) => { setDatePreset('custom'); setCustomStartDate(val); }}
+                    />
+                    <Text style={styles.dateToText}>to</Text>
+                    <TextInput
+                        style={styles.dateInput}
+                        placeholder="YYYY-MM-DD"
+                        placeholderTextColor="#94a3b8"
+                        value={customEndDate}
+                        onChangeText={(val) => { setDatePreset('custom'); setCustomEndDate(val); }}
+                    />
+                    <TouchableOpacity 
+                        style={styles.btnApplyCustom} 
+                        onPress={() => fetchStats('custom', customStartDate, customEndDate)}
+                    >
+                        <Text style={styles.btnApplyCustomText}>Apply Custom</Text>
+                    </TouchableOpacity>
                 </View>
             </View>
 
@@ -159,11 +201,18 @@ const styles = StyleSheet.create({
     input: { flex: 1, borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, padding: 10 },
     btnPrimary: { backgroundColor: '#3b82f6', paddingHorizontal: 20, justifyContent: 'center', borderRadius: 8 },
     btnText: { color: 'white', fontWeight: 'bold' },
-    filterRow: { flexDirection: 'row', gap: 10 },
+    filterRow: { flexDirection: 'row', gap: 6 },
     filterBtn: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 6, backgroundColor: '#f1f5f9' },
     filterBtnActive: { backgroundColor: '#3b82f6' },
-    filterBtnText: { color: '#475569', fontWeight: '600', fontSize: 12 },
-    filterBtnTextActive: { color: 'white', fontWeight: 'bold', fontSize: 12 },
+    filterBtnText: { color: '#475569', fontWeight: '600', fontSize: 11 },
+    filterBtnTextActive: { color: 'white', fontWeight: 'bold', fontSize: 11 },
+    btnOpenBilling: { backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#86efac', paddingHorizontal: 14, justifyContent: 'center', borderRadius: 8 },
+    btnOpenBillingText: { color: '#15803d', fontWeight: '700', fontSize: 13 },
+    customDateRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
+    dateInput: { flex: 1, height: 38, borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 6, paddingHorizontal: 10, backgroundColor: '#ffffff', fontSize: 13, color: '#1e293b' },
+    dateToText: { fontSize: 13, color: '#64748b', fontWeight: '600' },
+    btnApplyCustom: { backgroundColor: '#2563eb', paddingHorizontal: 14, height: 38, justifyContent: 'center', alignItems: 'center', borderRadius: 6 },
+    btnApplyCustomText: { color: '#ffffff', fontWeight: '700', fontSize: 12 },
     sectionTitle: { fontSize: 18, fontWeight: 'bold', marginVertical: 12, color: '#334155' },
     grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
     statBox: { backgroundColor: 'white', width: '48%', padding: 16, borderRadius: 12, elevation: 1, borderLeftWidth: 4, marginBottom: 10 },

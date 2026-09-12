@@ -11,7 +11,7 @@ import {
     SurgeryDetailsModal, 
     ScheduleSurgeryModal, 
     WorkflowBedModal 
-} from './OTModals';
+} from '../../components/ot/OTModals';
 
 const { width } = Dimensions.get('window');
 const isTablet = width > 768;
