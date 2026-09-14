@@ -42,8 +42,15 @@ export default function CentralAdminDashboard() {
     brandingSchema: { appName: '', logoUrl: '', customDomain: '', themeColors: { primary: '#14b8a6', secondary: '#0a2647', background: '#ffffff' } } 
   });
 
-  // Derived state or dummy data for available departments
-  const availableDepartments = ['Cardiology', 'Neurology', 'Pediatrics', 'Orthopedics', 'General Surgery'];
+  // Dynamic departments derived from system hospitals, defaults, and user additions
+  const [customDepartments, setCustomDepartments] = useState([]);
+  const availableDepartments = Array.from(new Set([
+    'Cardiology', 'Neurology', 'Pediatrics', 'Orthopedics', 'General Surgery',
+    'General Medicine', 'Gynecology', 'Dermatology', 'ENT', 'Ophthalmology',
+    'Dental', 'Emergency', 'ICU', 'Radiology', 'Pathology', 'Psychiatry',
+    ...(hospitals || []).flatMap(h => Array.isArray(h?.departments) ? h.departments : []),
+    ...customDepartments
+  ])).filter(Boolean);
 
   const configurationItems = [
     { title: 'Roles & Permissions', sub: 'Create and manage user roles', icon: <Feather name="key" size={20} color="#3b82f6" />, bg: '#eff6ff', color: '#3b82f6', route: 'AdminRoles' },
@@ -271,6 +278,7 @@ export default function CentralAdminDashboard() {
           savingHospital={savingHospital}
           onClose={() => { setShowHospitalForm(false); setShowHospitalAdminForm(false); setEditHospital(null); }}
           availableDepartments={availableDepartments}
+          onAddCustomDept={(newDept) => setCustomDepartments(prev => [...prev, newDept])}
           onCreateAdmin={handleCreateHospitalAdmin}
           hospitals={hospitals}
         />

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, Modal, Dimensions, Alert, Image, ActivityIndicator, Platform, Linking } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { Ionicons } from '@expo/vector-icons';
-import { clinicAPI, uploadAPI, medicineAPI } from '../../utils/api';
+import { clinicAPI, uploadAPI, medicineAPI, baseURL } from '../../utils/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
@@ -12,13 +12,130 @@ import DatePickerInput from '../../components/common/DatePickerInput';
 
 const { width, height } = Dimensions.get('window');
 
-// ─── PDF HELPERS ──────────────────────────────────────────────────────────────
+// ─── PDF & REPORT HELPERS ──────────────────────────────────────────────────────────────
+const reportURL = (filename) => (filename || '').startsWith('http://') || (filename || '').startsWith('https://')
+    ? filename
+    : `${baseURL}/api/patients/reports/${encodeURIComponent(filename)}`;
+
 const getClinicInfo = async () => {
     try {
         const h = JSON.parse(await AsyncStorage.getItem('hospitalContext') || 'null');
         const u = JSON.parse(await AsyncStorage.getItem('user') || '{}');
         return { hName: h?.name || u?.hospitalName || 'Clinic', hAddr: [h?.address, h?.city, h?.state].filter(Boolean).join(', '), hPhone: h?.phone || '', issuedBy: u?.name || 'Staff' };
     } catch { return { hName: 'Clinic', hAddr: '', hPhone: '', issuedBy: 'Staff' }; }
+};
+
+export const printRegistrationSlip = async (patient) => {
+    try {
+        const { hName, hAddr, hPhone, issuedBy } = await getClinicInfo();
+        const html = `
+            <html>
+                <body style="font-family: Arial, sans-serif; padding: 24px; color: #1e293b; text-align: center;">
+                    <h2>${hName}</h2>
+                    <p style="color: #64748b; font-size: 12px; margin: 2px 0;">${hAddr || ''} ${hPhone ? `| Ph: ${hPhone}` : ''}</p>
+                    <hr style="border: none; border-top: 2px solid #16a34a; margin: 12px 0;" />
+                    <h3 style="color: #16a34a; margin: 8px 0;">PATIENT REGISTRATION SLIP</h3>
+                    <div style="text-align: left; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 16px 0;">
+                        <p style="margin: 6px 0;"><strong>Patient Name:</strong> ${patient?.name || '-'}</p>
+                        <p style="margin: 6px 0;"><strong>Patient ID / MRN:</strong> ${patient?.patientUid || patient?._id || 'N/A'}</p>
+                        <p style="margin: 6px 0;"><strong>Phone:</strong> ${patient?.phone || '-'}</p>
+                        <p style="margin: 6px 0;"><strong>Gender / Age:</strong> ${patient?.gender || '-'} / ${patient?.age || '-'} yrs</p>
+                        <p style="margin: 6px 0;"><strong>Blood Group:</strong> ${patient?.bloodGroup || '-'}</p>
+                        <p style="margin: 6px 0;"><strong>Address:</strong> ${patient?.address || '-'}</p>
+                        <p style="margin: 6px 0;"><strong>Registered Date:</strong> ${new Date().toLocaleString('en-IN')}</p>
+                    </div>
+                    <p style="font-size: 11px; color: #94a3b8;">Issued by: ${issuedBy} | Welcome to ${hName}</p>
+                </body>
+            </html>
+        `;
+        await Print.printAsync({ html });
+    } catch (e) {
+        console.warn('Registration print error:', e);
+    }
+};
+
+export const printTokenReceipt = async (patient, appointment) => {
+    try {
+        const { hName, hAddr, hPhone, issuedBy } = await getClinicInfo();
+        const html = `
+            <html>
+                <body style="font-family: Arial, sans-serif; padding: 24px; color: #1e293b; text-align: center;">
+                    <h2>${hName}</h2>
+                    <p style="color: #64748b; font-size: 12px; margin: 2px 0;">${hAddr || ''} ${hPhone ? `| Ph: ${hPhone}` : ''}</p>
+                    <hr style="border: none; border-top: 2px solid #2563eb; margin: 12px 0;" />
+                    <h3 style="color: #2563eb; margin: 8px 0;">CONSULTATION TOKEN RECEIPT</h3>
+                    <div style="margin: 16px auto; padding: 12px; border: 2px dashed #2563eb; border-radius: 8px; width: 140px;">
+                        <span style="font-size: 12px; color: #2563eb; font-weight: bold;">TOKEN</span>
+                        <h1 style="margin: 4px 0; color: #1d4ed8;">#${appointment?.tokenNumber || '-'}</h1>
+                    </div>
+                    <div style="text-align: left; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 16px 0;">
+                        <p style="margin: 6px 0;"><strong>Patient:</strong> ${patient?.name || '-'} (${patient?.patientUid || '-'})</p>
+                        <p style="margin: 6px 0;"><strong>Phone:</strong> ${patient?.phone || '-'}</p>
+                        <p style="margin: 6px 0;"><strong>Service:</strong> ${appointment?.serviceName || 'General Consultation'}</p>
+                        <p style="margin: 6px 0;"><strong>Date:</strong> ${new Date(appointment?.appointmentDate || Date.now()).toLocaleDateString('en-IN')}</p>
+                        <p style="margin: 6px 0;"><strong>Consultation Fee:</strong> ₹${Number(appointment?.amount || 0).toLocaleString('en-IN')} (PAID)</p>
+                    </div>
+                    <p style="font-size: 11px; color: #94a3b8;">Issued by: ${issuedBy} | Thank you for choosing ${hName}</p>
+                </body>
+            </html>
+        `;
+        await Print.printAsync({ html });
+    } catch (e) {
+        console.warn('Token print error:', e);
+    }
+};
+
+export const printPrescriptionSlip = async (consulting, rx, vitalsData) => {
+    try {
+        const { hName, hAddr, hPhone, issuedBy } = await getClinicInfo();
+        const pt = consulting?.clinicPatientId || {};
+        const medicinesHtml = (rx?.medicines || []).map((m, i) => `
+            <tr>
+                <td style="border: 1px solid #e2e8f0; padding: 6px;">${i + 1}</td>
+                <td style="border: 1px solid #e2e8f0; padding: 6px;"><strong>${m.name || m.medicineName || '-'}</strong></td>
+                <td style="border: 1px solid #e2e8f0; padding: 6px;">${m.dose || m.dosage || m.frequency || '-'}</td>
+                <td style="border: 1px solid #e2e8f0; padding: 6px;">${m.days || m.duration || '-'}</td>
+            </tr>
+        `).join('');
+
+        const html = `
+            <html>
+                <body style="font-family: Arial, sans-serif; padding: 24px; color: #1e293b;">
+                    <div style="text-align: center;">
+                        <h2>${hName}</h2>
+                        <p style="color: #64748b; font-size: 12px; margin: 2px 0;">${hAddr || ''} ${hPhone ? `| Ph: ${hPhone}` : ''}</p>
+                        <hr style="border: none; border-top: 2px solid #10b981; margin: 12px 0;" />
+                        <h3 style="color: #059669; margin: 8px 0;">PRESCRIPTION SLIP</h3>
+                    </div>
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+                        <p style="margin: 4px 0;"><strong>Patient:</strong> ${pt.name || '-'} | <strong>ID:</strong> ${pt.patientUid || pt._id || '-'}</p>
+                        <p style="margin: 4px 0;"><strong>Gender:</strong> ${pt.gender || '-'} | <strong>Token:</strong> #${consulting?.tokenNumber || '-'} | <strong>Date:</strong> ${new Date().toLocaleDateString('en-IN')}</p>
+                        ${rx?.diagnosis ? `<p style="margin: 4px 0;"><strong>Diagnosis:</strong> ${rx.diagnosis}</p>` : ''}
+                    </div>
+                    ${medicinesHtml ? `
+                        <h4 style="margin: 10px 0 6px;">Medicines Prescribed:</h4>
+                        <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
+                            <thead>
+                                <tr style="background: #e2e8f0;">
+                                    <th style="border: 1px solid #cbd5e1; padding: 6px;">#</th>
+                                    <th style="border: 1px solid #cbd5e1; padding: 6px;">Medicine</th>
+                                    <th style="border: 1px solid #cbd5e1; padding: 6px;">Dose</th>
+                                    <th style="border: 1px solid #cbd5e1; padding: 6px;">Duration</th>
+                                </tr>
+                            </thead>
+                            <tbody>${medicinesHtml}</tbody>
+                        </table>
+                    ` : ''}
+                    ${rx?.notes ? `<p style="margin-top: 14px;"><strong>Doctor Notes:</strong> ${rx.notes}</p>` : ''}
+                    <hr style="border: none; border-top: 1px solid #cbd5e1; margin: 20px 0 10px;" />
+                    <p style="text-align: right; font-size: 12px; margin: 4px 0;"><strong>Doctor:</strong> Dr. ${issuedBy}</p>
+                </body>
+            </html>
+        `;
+        await Print.printAsync({ html });
+    } catch (e) {
+        console.warn('Prescription print error:', e);
+    }
 };
 
 // ─────────────────────────────────────────────
@@ -529,6 +646,7 @@ const PatientsMode = ({ onBookToken, setPendingDownload }) => {
             const r = await clinicAPI.registerPatient(form);
             if (r.success) {
                 setJustRegistered(r.patient);
+                printRegistrationSlip(r.patient);
                 setForm({
                     name: '', phone: '', age: '', aadhaarNumber: '', email: '',
                     dob: '', gender: '', bloodGroup: '', address: '', city: '', state: '', pincode: '',
@@ -557,6 +675,9 @@ const PatientsMode = ({ onBookToken, setPendingDownload }) => {
                         <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
                             <TouchableOpacity style={styles.btnPrimary} onPress={() => onBookToken(justRegistered)}>
                                 <Text style={styles.btnPrimaryText}>🎟️ Book Token Now</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.btnSecondary, { borderColor: '#16a34a' }]} onPress={() => printRegistrationSlip(justRegistered)}>
+                                <Text style={[styles.btnSecondaryText, { color: '#16a34a' }]}>🖨️ Print Slip</Text>
                             </TouchableOpacity>
                             <TouchableOpacity style={styles.btnSecondary} onPress={() => setJustRegistered(null)}>
                                 <Text style={styles.btnSecondaryText}>+ Register Another</Text>
@@ -793,6 +914,7 @@ const BookTokenForm = ({ patient, onBook, onCancel, flash, mode = 'token', defau
                 } else {
                     flash('success', `✅ Token #${r.appointment.tokenNumber} assigned to ${patient.name}`);
                 }
+                printTokenReceipt(patient, r.appointment);
                 onBook();
             } else flash('error', r.message);
         } catch (e) { flash('error', e.response?.data?.message || e.message); }
@@ -1364,10 +1486,9 @@ const DoctorMode = ({ setPendingDownload }) => {
 
             if (r.success) {
                 flash('success', isEditing ? 'Consultation updated successfully.' : 'Consultation saved. Prescription generated.');
+                printPrescriptionSlip(consulting, rx, vitalsData);
                 setConsulting(null);
                 loadToday();
-                // PDF generation handled via web side or mobile share in actual app
-                flash('success', 'Saved successfully!');
             } else flash('error', r.message);
         } catch (e) { flash('error', e.response?.data?.message || e.message); }
         finally { setSaving(false); }
@@ -2365,11 +2486,219 @@ const PayBadge = ({ status }) => {
     return <Text style={{ color, fontWeight: 'bold', fontSize: 12 }}>{status}</Text>;
 };
 
-const PatientReportPanel = ({ patientId, patientName }) => {
+const ReportViewerModal = ({ report, onClose }) => {
+    if (!report) return null;
+    const url = reportURL(report.filename);
+    const isPDF = report.mimetype === 'application/pdf' || 
+                  (report.filename || '').toLowerCase().endsWith('.pdf') || 
+                  (report.name || '').toLowerCase().endsWith('.pdf');
+
     return (
-        <View style={{ padding: 12, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8 }}>
-            <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#1e293b' }}>📄 Patient Reports</Text>
-            <Text style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>Reports for {patientName} would load here.</Text>
+        <Modal visible={true} transparent animationType="fade" onRequestClose={onClose}>
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', padding: 16 }}>
+                <View style={{ width: '100%', maxWidth: 500, backgroundColor: '#1e293b', borderRadius: 12, overflow: 'hidden' }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderColor: '#334155' }}>
+                        <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14, flex: 1 }} numberOfLines={1}>
+                            📄 {report.name || 'Report'}
+                        </Text>
+                        <TouchableOpacity onPress={onClose} style={{ padding: 4 }}>
+                            <Ionicons name="close" size={20} color="#94a3b8" />
+                        </TouchableOpacity>
+                    </View>
+
+                    <View style={{ height: 350, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center', padding: 10 }}>
+                        {isPDF ? (
+                            <View style={{ alignItems: 'center', padding: 20 }}>
+                                <Ionicons name="document-text" size={64} color="#38bdf8" />
+                                <Text style={{ color: '#94a3b8', fontSize: 13, marginTop: 10, textAlign: 'center' }}>PDF Document</Text>
+                                <TouchableOpacity 
+                                    style={{ backgroundColor: '#0284c7', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, marginTop: 16 }}
+                                    onPress={() => Linking.openURL(url)}
+                                >
+                                    <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 13 }}>Open PDF in Browser ↗</Text>
+                                </TouchableOpacity>
+                            </View>
+                        ) : (
+                            <Image 
+                                source={{ uri: url }} 
+                                style={{ width: '100%', height: '100%', resizeMode: 'contain' }} 
+                            />
+                        )}
+                    </View>
+
+                    <View style={{ flexDirection: 'row', justifyContent: 'flex-end', padding: 12, gap: 10, backgroundColor: '#1e293b' }}>
+                        <TouchableOpacity 
+                            style={{ paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#334155', borderRadius: 6 }} 
+                            onPress={() => Linking.openURL(url)}
+                        >
+                            <Text style={{ color: '#38bdf8', fontSize: 12, fontWeight: '600' }}>Open External ↗</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                            style={{ paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#475569', borderRadius: 6 }} 
+                            onPress={onClose}
+                        >
+                            <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>Close</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </View>
+        </Modal>
+    );
+};
+
+const PatientReportPanel = ({ patientId, patientName }) => {
+    const [reports, setReports] = useState([]);
+    const [viewReport, setViewReport] = useState(null);
+    const [open, setOpen] = useState(false);
+    const [uploading, setUploading] = useState(false);
+    const [reportName, setReportName] = useState('');
+
+    const loadReports = useCallback(async () => {
+        if (!patientId) return;
+        try {
+            const r = await clinicAPI.getPatientHistory(patientId);
+            if (r.success) setReports(r.patient?.reports || []);
+        } catch (e) {
+            console.log('Error loading patient reports:', e);
+        }
+    }, [patientId]);
+
+    useEffect(() => {
+        loadReports();
+    }, [loadReports]);
+
+    const handlePickAndUpload = async () => {
+        if (!patientId) return;
+        try {
+            const res = await DocumentPicker.getDocumentAsync({
+                type: ['image/*', 'application/pdf'],
+                copyToCacheDirectory: true
+            });
+
+            if (res.canceled || !res.assets || !res.assets[0]) return;
+
+            const file = res.assets[0];
+            const name = reportName.trim() || file.name || 'Report';
+
+            setUploading(true);
+            const formData = new FormData();
+            formData.append('report', {
+                uri: file.uri,
+                name: file.name || 'report.pdf',
+                type: file.mimeType || 'application/pdf'
+            });
+            formData.append('name', name);
+
+            const r = await clinicAPI.uploadPatientReport(patientId, formData);
+            if (r.success) {
+                Alert.alert('Success', 'Report uploaded successfully');
+                setReportName('');
+                loadReports();
+            } else {
+                Alert.alert('Upload Failed', r.message || 'Could not upload report');
+            }
+        } catch (err) {
+            Alert.alert('Error', err.response?.data?.message || err.message || 'File upload failed');
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    const handleDelete = (reportId) => {
+        Alert.alert(
+            'Delete Report',
+            'Are you sure you want to delete this report?',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            const r = await clinicAPI.deletePatientReport(patientId, reportId);
+                            if (r.success) {
+                                setReports(prev => prev.filter(rp => (rp._id || rp.id) !== reportId));
+                            } else {
+                                Alert.alert('Error', r.message || 'Failed to delete');
+                            }
+                        } catch (e) {
+                            Alert.alert('Error', e.response?.data?.message || 'Failed to delete');
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
+    if (!patientId) return null;
+
+    return (
+        <View style={{ marginVertical: 10, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, overflow: 'hidden', backgroundColor: '#fff' }}>
+            {viewReport && <ReportViewerModal report={viewReport} onClose={() => setViewReport(null)} />}
+            <TouchableOpacity 
+                onPress={() => setOpen(o => !o)}
+                style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: 12, borderBottomWidth: open ? 1 : 0, borderColor: '#e2e8f0' }}
+            >
+                <Text style={{ fontWeight: 'bold', fontSize: 13, color: '#1e293b' }}>
+                    📄 Patient Reports ({reports.length})
+                </Text>
+                <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color="#64748b" />
+            </TouchableOpacity>
+
+            {open && (
+                <View style={{ padding: 12 }}>
+                    {/* Upload Section */}
+                    <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12, alignItems: 'center' }}>
+                        <TextInput
+                            style={{ flex: 1, height: 38, borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 6, paddingHorizontal: 10, fontSize: 13, backgroundColor: '#f8fafc' }}
+                            placeholder="Report title (optional)..."
+                            value={reportName}
+                            onChangeText={setReportName}
+                        />
+                        <TouchableOpacity
+                            style={{ backgroundColor: uploading ? '#94a3b8' : '#6366f1', paddingHorizontal: 14, height: 38, justifyContent: 'center', borderRadius: 6 }}
+                            disabled={uploading}
+                            onPress={handlePickAndUpload}
+                        >
+                            <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 12 }}>
+                                {uploading ? 'Uploading...' : '⬆ Upload'}
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Reports List */}
+                    {reports.length === 0 ? (
+                        <Text style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic', textAlign: 'center', paddingVertical: 10 }}>
+                            No reports uploaded yet.
+                        </Text>
+                    ) : (
+                        <View style={{ gap: 8 }}>
+                            {reports.map((r, i) => (
+                                <View key={r._id || i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 10, backgroundColor: '#f8fafc', borderRadius: 6, borderWidth: 1, borderColor: '#e2e8f0' }}>
+                                    <View style={{ flex: 1, marginRight: 8 }}>
+                                        <Text style={{ fontWeight: '600', fontSize: 13, color: '#1e293b' }} numberOfLines={1}>{r.name || 'Report'}</Text>
+                                        <Text style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{r.createdAt ? new Date(r.createdAt).toLocaleDateString('en-IN') : 'Uploaded'}</Text>
+                                    </View>
+                                    <View style={{ flexDirection: 'row', gap: 6 }}>
+                                        <TouchableOpacity 
+                                            style={{ backgroundColor: '#e0f2fe', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 4 }}
+                                            onPress={() => setViewReport(r)}
+                                        >
+                                            <Text style={{ color: '#0284c7', fontSize: 11, fontWeight: '700' }}>View</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity 
+                                            style={{ backgroundColor: '#fee2e2', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 4 }}
+                                            onPress={() => handleDelete(r._id || r.id)}
+                                        >
+                                            <Ionicons name="trash-outline" size={14} color="#dc2626" />
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                            ))}
+                        </View>
+                    )}
+                </View>
+            )}
         </View>
     );
 };

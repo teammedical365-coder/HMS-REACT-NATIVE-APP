@@ -427,7 +427,7 @@ const Patient = () => {
                                                     <TouchableOpacity
                                                         onPress={() => {
                                                             const pid = ref.patientId?.patientId || ref.patientId?.mrn || ref.patientId?._id || ref.patientId;
-                                                            navigation.navigate('DoctorPatientDetails', { patientId: pid || ref._id });
+                                                            navigation.navigate('DoctorPatientDetails', { id: pid || ref._id, patientId: pid || ref._id });
                                                         }}
                                                         style={styles.actionBtnOrange}
                                                     >
@@ -526,7 +526,7 @@ const Patient = () => {
                                                 </View>
                                                 <View style={[styles.td, { flex: 1, alignItems: 'center' }]}>
                                                     <TouchableOpacity
-                                                        onPress={() => navigation.navigate('DoctorPatientDetails', { patientId: pId })}
+                                                        onPress={() => navigation.navigate('DoctorPatientDetails', { id: pId, patientId: pId })}
                                                         style={styles.actionBtnBlue}
                                                     >
                                                         <Text style={styles.actionBtnBlueText}>View Profile</Text>
@@ -635,7 +635,7 @@ const Patient = () => {
                                                         onPress={() => {
                                                             const ptName = (apt.userId?.name || apt.clinicPatientId?.name || 'Walk-in').replace(/\s+/g, '-');
                                                             const patientMRN = apt.userId?.patientId || apt.clinicPatientId?.patientUid || apt.patientId || ptName;
-                                                            navigation.navigate('DoctorPatientDetails', { patientId: patientMRN, appointmentId: apt._id });
+                                                            navigation.navigate('DoctorPatientDetails', { id: patientMRN, patientId: patientMRN, appointmentId: apt._id });
                                                         }}
                                                     >
                                                         <Text style={styles.smallBtnText}>📝 Session</Text>

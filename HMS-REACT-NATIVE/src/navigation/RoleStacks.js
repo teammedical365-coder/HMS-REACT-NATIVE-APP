@@ -113,6 +113,9 @@ export const CentralAdminApp = () => (
         <Stack.Screen name="AdminLabs" component={withLayout(AdminLabs)} />
         <Stack.Screen name="AdminPharmacy" component={withLayout(AdminPharmacy)} />
         <Stack.Screen name="AdminReception" component={withLayout(AdminReception)} />
+        <Stack.Screen name="RoleDashboard" component={withLayout(RoleDashboard)} />
+        <Stack.Screen name="HospitalAdminDashboard" component={withLayout(HospitalAdminDashboard)} />
+        <Stack.Screen name="ClinicDashboard" component={withLayout(ClinicDashboard)} />
     </Stack.Navigator>
 );
 
@@ -139,6 +142,11 @@ export const HospitalAdminApp = () => {
             <Stack.Screen name="AdminLabTests" component={withLayout(AdminLabTests)} />
             <Stack.Screen name="AdminServices" component={withLayout(AdminServices)} />
             <Stack.Screen name="PharmacyInventory" component={withLayout(PharmacyInventory)} />
+            <Stack.Screen name="ConsentManagement" component={withLayout(ConsentManagement)} />
+            <Stack.Screen name="PatientBillingProfile" component={withLayout(PatientBillingProfile)} />
+            <Stack.Screen name="IPDCommandCenter" component={withLayout(IPDCommandCenter)} />
+            <Stack.Screen name="UnifiedPatientProfile" component={withLayout(UnifiedPatientProfile)} />
+            <Stack.Screen name="DoctorPatientDetails" component={withLayout(DoctorPatientDetails)} />
         </Stack.Navigator>
     );
 };
@@ -154,6 +162,9 @@ export const DoctorApp = () => (
         <Stack.Screen name="NurseDashboard" component={withLayout(NurseDashboard)} />
         <Stack.Screen name="LabReports" component={withLayout(LabReports)} />
         <Stack.Screen name="UnifiedPatientProfile" component={withLayout(UnifiedPatientProfile)} />
+        <Stack.Screen name="PatientBillingProfile" component={withLayout(PatientBillingProfile)} />
+        <Stack.Screen name="OTDashboard" component={withLayout(OTDashboard)} />
+        <Stack.Screen name="OTSchedulePage" component={withLayout(OTSchedulePage)} />
     </Stack.Navigator>
 );
 
@@ -197,6 +208,8 @@ export const ReceptionApp = () => (
         <Stack.Screen name="ReceptionDashboard" component={withLayout(ReceptionDashboard)} />
         <Stack.Screen name="ReceptionPatients" component={withLayout(ReceptionPatients)} />
         <Stack.Screen name="PatientBillingProfile" component={withLayout(PatientBillingProfile)} />
+        <Stack.Screen name="UnifiedPatientProfile" component={withLayout(UnifiedPatientProfile)} />
+        <Stack.Screen name="DoctorPatientDetails" component={withLayout(DoctorPatientDetails)} />
     </Stack.Navigator>
 );
 
@@ -204,6 +217,7 @@ export const AccountantApp = () => (
     <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
         <Stack.Screen name="AccountantDashboard" component={withLayout(AccountantDashboard)} />
         <Stack.Screen name="PatientBillingProfile" component={withLayout(PatientBillingProfile)} />
+        <Stack.Screen name="CashierDashboard" component={withLayout(CashierDashboard)} />
     </Stack.Navigator>
 );
 
@@ -211,6 +225,7 @@ export const CashierApp = () => (
     <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
         <Stack.Screen name="CashierDashboard" component={withLayout(CashierDashboard)} />
         <Stack.Screen name="PatientBillingProfile" component={withLayout(PatientBillingProfile)} />
+        <Stack.Screen name="AccountantDashboard" component={withLayout(AccountantDashboard)} />
     </Stack.Navigator>
 );
 
@@ -221,6 +236,8 @@ export const NurseApp = () => (
         <Stack.Screen name="NurseAppointments" component={withLayout(NurseAppointments)} />
         <Stack.Screen name="NursePatientWorkspace" component={withLayout(NursePatientWorkspace)} />
         <Stack.Screen name="IPDCommandCenter" component={withLayout(IPDCommandCenter)} />
+        <Stack.Screen name="DoctorPatientDetails" component={withLayout(DoctorPatientDetails)} />
+        <Stack.Screen name="UnifiedPatientProfile" component={withLayout(UnifiedPatientProfile)} />
     </Stack.Navigator>
 );
 

@@ -9,6 +9,8 @@ import { Feather, FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/v
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import Svg, { Path, Rect, Circle, Line, Defs, LinearGradient, Stop, G } from 'react-native-svg';
 import * as DocumentPicker from 'expo-document-picker';
+import * as Print from 'expo-print';
+import socket from '../../utils/socket';
 import { receptionAPI, hospitalAPI, publicAPI, bedAPI, admissionAPI, uploadAPI } from '../../utils/api';
 import { getSubdomain } from '../../utils/subdomain';
 
@@ -48,6 +50,9 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
     const [saving, setSaving] = useState(false);
     const [pendingDownload, setPendingDownload] = useState(null);
     const [nextToken, setNextToken] = useState(null);
+    const [upiOptions, setUpiOptions] = useState([]);
+    const [selectedUpiId, setSelectedUpiId] = useState('');
+    const [intakePaymentData, setIntakePaymentData] = useState({ upiId: '', transactionId: '', cardDetails: '', bankReference: '' });
 
     // Live search states
     const [searchQuery, setSearchQuery] = useState('');
@@ -180,6 +185,28 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         }
 
         try {
+            const upiRes = await hospitalAPI.getUpiIds();
+            if (upiRes?.success) {
+                try {
+                    const deptUpiRes = await hospitalAPI.getDepartmentUpiByRole('Reception');
+                    if (deptUpiRes?.success && deptUpiRes.departmentUpi) {
+                        const du = deptUpiRes.departmentUpi;
+                        setUpiOptions([{ label: du.label, upiId: du.upiId }]);
+                        setSelectedUpiId(du.upiId);
+                    } else {
+                        setUpiOptions(upiRes.upiIds || []);
+                        if (upiRes.upiIds?.length) setSelectedUpiId(upiRes.upiIds[0].upiId);
+                    }
+                } catch {
+                    setUpiOptions(upiRes.upiIds || []);
+                    if (upiRes.upiIds?.length) setSelectedUpiId(upiRes.upiIds[0].upiId);
+                }
+            }
+        } catch (err) {
+            console.warn('Failed to fetch UPI config:', err);
+        }
+
+        try {
             const statsRes = await receptionAPI.getStats();
             if (statsRes?.success) {
                 setStats(statsRes.stats || statsRes);
@@ -193,6 +220,38 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
     useEffect(() => {
         fetchData();
     }, [fetchData]);
+
+    // Real-time socket sync for admissions, beds, queue, and orders
+    useEffect(() => {
+        if (!socket) return;
+        if (!socket.connected) socket.connect();
+        if (hospitalContext?._id) {
+            socket.emit('joinHospitalRoom', hospitalContext._id);
+        }
+        const handleRealtimeRefresh = () => {
+            fetchData();
+        };
+
+        socket.on('admission_created', handleRealtimeRefresh);
+        socket.on('bed_status_changed', handleRealtimeRefresh);
+        socket.on('bed_transferred', handleRealtimeRefresh);
+        socket.on('patient_discharged', handleRealtimeRefresh);
+        socket.on('inpatient_order_created', handleRealtimeRefresh);
+        socket.on('inpatient_order_updated', handleRealtimeRefresh);
+        socket.on('appointment_booked', handleRealtimeRefresh);
+        socket.on('appointment_cancelled', handleRealtimeRefresh);
+
+        return () => {
+            socket.off('admission_created', handleRealtimeRefresh);
+            socket.off('bed_status_changed', handleRealtimeRefresh);
+            socket.off('bed_transferred', handleRealtimeRefresh);
+            socket.off('patient_discharged', handleRealtimeRefresh);
+            socket.off('inpatient_order_created', handleRealtimeRefresh);
+            socket.off('inpatient_order_updated', handleRealtimeRefresh);
+            socket.off('appointment_booked', handleRealtimeRefresh);
+            socket.off('appointment_cancelled', handleRealtimeRefresh);
+        };
+    }, [hospitalContext?._id, fetchData]);
 
     const fetchDoctors = async (hospitalId) => {
         try {
@@ -520,10 +579,40 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                 filename: `OPD_${pName.replace(/\s+/g, '_')}_${todayStr}.pdf`
             });
 
+            const docName = doctorsList.find(d => d._id === intakeForm.doctor)?.name || 'Consultant';
+            const allocatedToken = bookingRes?.appointment?.tokenNumber || nextToken;
             Alert.alert(
                 "Registration Completed!",
-                `Patient ${pName} has been successfully registered and queued for Dr. ${doctorsList.find(d => d._id === intakeForm.doctor)?.name || 'Consultant'}.`,
-                [{ text: "View Desk Queue", onPress: () => { setViewMode('desk'); fetchData(); } }]
+                `Patient ${pName} has been successfully registered and queued for Dr. ${docName}.${allocatedToken ? ` Allocated Token: #${allocatedToken}` : ''}`,
+                [
+                    { text: "View Desk Queue", onPress: () => { setViewMode('desk'); fetchData(); } },
+                    { 
+                        text: "🖨️ Print OPD Slip", 
+                        onPress: async () => {
+                            try {
+                                const html = `
+                                    <html>
+                                        <body style="font-family: Arial, sans-serif; padding: 24px; color: #1e293b; text-align: center;">
+                                            <h2>OPD REGISTRATION SLIP & RECEIPT</h2>
+                                            <p style="color: #64748b; font-size: 12px;">Date: ${intakeForm.visitDate}</p>
+                                            ${allocatedToken ? `<div style="margin: 16px auto; padding: 12px; border: 2px dashed #0d9488; border-radius: 8px; width: 140px;"><span style="font-size: 12px; color: #0d9488; font-weight: bold;">TOKEN</span><h1 style="margin: 4px 0; color: #0f766e;">#${allocatedToken}</h1></div>` : ''}
+                                            <div style="text-align: left; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 16px 0;">
+                                                <p style="margin: 4px 0;"><strong>Patient:</strong> ${pName} (${intakeForm.gender}, ${intakeForm.age} yrs)</p>
+                                                <p style="margin: 4px 0;"><strong>Doctor:</strong> Dr. ${docName}</p>
+                                                <p style="margin: 4px 0;"><strong>Department:</strong> ${intakeForm.department || 'General'}</p>
+                                                <p style="margin: 4px 0;"><strong>Consultation Fee:</strong> ₹${fee} (Paid via ${intakeForm.splitPayments[0]?.method || 'Cash'})</p>
+                                            </div>
+                                            <p style="font-size: 11px; color: #94a3b8;">Medical365 Hospital Management System</p>
+                                        </body>
+                                    </html>
+                                `;
+                                await Print.printAsync({ html });
+                            } catch (e) { console.warn('OPD print error', e); }
+                            setViewMode('desk');
+                            fetchData();
+                        } 
+                    }
+                ]
             );
 
             // Reset form
@@ -673,7 +762,47 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         });
     };
 
+    const printDischargeBill = async (adm) => {
+        try {
+            const pName = adm?.patientId?.name || 'Patient';
+            const html = `
+                <html>
+                    <body style="font-family: Arial, sans-serif; padding: 24px; color: #1e293b;">
+                        <h2 style="text-align: center; color: #0f172a; margin-bottom: 4px;">INPATIENT DISCHARGE BILL & RECEIPT</h2>
+                        <p style="text-align: center; color: #64748b; font-size: 12px; margin-top: 0;">Date: ${new Date().toLocaleDateString('en-IN')}</p>
+                        <hr style="border: none; border-top: 1px solid #cbd5e1; margin: 16px 0;" />
+                        <table style="width: 100%; font-size: 14px; margin-bottom: 20px;">
+                            <tr>
+                                <td><strong>Patient Name:</strong> ${pName}</td>
+                                <td><strong>MRN:</strong> ${adm?.patientId?.mrn || adm?.patientId?.patientId || '-'}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Ward / Bed:</strong> ${adm?.ward || 'General'} - Bed ${adm?.bedId?.bedNumber || '-'}</td>
+                                <td><strong>Admission Date:</strong> ${adm?.admissionDate || '-'}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Discharge Date:</strong> ${adm?.dischargeDate || new Date().toISOString().split('T')[0]}</td>
+                                <td><strong>Attending Doctor:</strong> Dr. ${adm?.admittingDoctorId?.name || adm?.doctorId?.name || 'Doctor'}</td>
+                            </tr>
+                        </table>
+                        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-top: 20px;">
+                            <h4 style="margin: 0 0 10px; color: #0f172a;">Billing & Clearance Summary</h4>
+                            <p style="margin: 4px 0; font-size: 13px;"><strong>Daily Bed Rate:</strong> ₹${adm?.bedId?.pricePerDay || 2000}</p>
+                            <p style="margin: 4px 0; font-size: 13px;"><strong>Status:</strong> <span style="color: #16a34a; font-weight: bold;">CLEARED & DISCHARGED</span></p>
+                        </div>
+                        <p style="text-align: center; font-size: 11px; color: #94a3b8; margin-top: 40px;">This is a computer-generated discharge receipt.</p>
+                    </body>
+                </html>
+            `;
+            await Print.printAsync({ html });
+        } catch (err) {
+            console.warn('Discharge bill print error:', err);
+        }
+    };
+
     const submitDischarge = async () => {
+        const admToPrint = dischargeModal.admission;
+        const dDate = dischargeModal.dischargeDate;
         try {
             setSaving(true);
             await admissionAPI.dischargePatient(dischargeModal.admission._id, {
@@ -681,7 +810,14 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                 dischargeTime: dischargeModal.dischargeTime,
                 notes: dischargeModal.notes
             });
-            Alert.alert("Success", "Patient discharged successfully.");
+            Alert.alert(
+                "Patient Discharged",
+                "Patient discharged successfully. Would you like to print the Inpatient Discharge Bill?",
+                [
+                    { text: "Later", style: "cancel" },
+                    { text: "🖨️ Print Discharge Bill", onPress: () => printDischargeBill({ ...admToPrint, dischargeDate: dDate }) }
+                ]
+            );
             setDischargeModal({ open: false, admission: null, dischargeDate: '', dischargeTime: '', notes: '' });
             fetchData();
         } catch (err) {
@@ -1908,27 +2044,75 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                 <Text style={styles.addSplitRowBtnText}>Add Split Payment Method</Text>
                             </TouchableOpacity>
 
-                            {/* UPI QR Display */}
-                            {intakeForm.splitPayments.some(p => p.method === 'UPI') && (
-                                <View style={styles.upiQrBox}>
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                                        <Feather name="smartphone" size={18} color="#0d9488" />
-                                        <Text style={styles.upiTitle}>Clinic UPI QR Code</Text>
-                                    </View>
-                                    <Text style={styles.upiSub}>Scan & pay using any UPI app (GPay / PhonePe / Paytm)</Text>
-                                    <View style={styles.qrPlaceholder}>
-                                        <MaterialCommunityIcons name="qrcode-scan" size={80} color="#0f766e" />
-                                        <Text style={styles.upiIdText}>UPI ID: reception@{hospitalContext?.slug || 'clinic'}.bank</Text>
-                                    </View>
+                            {/* Dynamic UPI QR Display & Dept UPI Picker */}
+                            {intakeForm.splitPayments.some(p => p.method === 'UPI') && (() => {
+                                const upiAmount = intakeForm.splitPayments.filter(p => p.method === 'UPI').reduce((sum, p) => sum + (Number(p.amount) || 0), 0) || Number(intakeForm.consultationFee) || 0;
+                                const activeUpi = selectedUpiId || upiOptions[0]?.upiId || (hospitalContext?.upiId || 'clinic@upi');
+                                const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent('upi://pay?pa=' + activeUpi.trim() + '&pn=Medical365&am=' + upiAmount + '&cu=INR')}`;
 
-                                    <TouchableOpacity style={styles.proofUploadBtn} onPress={handlePickPaymentProof}>
-                                        <Feather name="image" size={14} color="#475569" />
-                                        <Text style={styles.proofUploadBtnText}>
-                                            {paymentScreenshot ? 'Change Screenshot' : 'Upload Payment Screenshot'}
-                                        </Text>
-                                    </TouchableOpacity>
-                                </View>
-                            )}
+                                return (
+                                    <View style={styles.upiQrBox}>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                                            <Feather name="smartphone" size={18} color="#0d9488" />
+                                            <Text style={styles.upiTitle}>Clinic Department UPI QR Code</Text>
+                                        </View>
+                                        <Text style={styles.upiSub}>Scan & pay using any UPI app (GPay / PhonePe / Paytm)</Text>
+
+                                        {upiOptions.length > 1 && (
+                                            <View style={{ marginBottom: 12 }}>
+                                                <Text style={[styles.fieldLabel, { fontSize: 11 }]}>Select Department UPI</Text>
+                                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                                                    {upiOptions.map((opt, oIdx) => (
+                                                        <TouchableOpacity
+                                                            key={oIdx}
+                                                            onPress={() => setSelectedUpiId(opt.upiId)}
+                                                            style={[
+                                                                styles.miniPill,
+                                                                (selectedUpiId === opt.upiId || (!selectedUpiId && oIdx === 0)) && styles.miniPillActive
+                                                            ]}
+                                                        >
+                                                            <Text style={[styles.miniPillText, (selectedUpiId === opt.upiId || (!selectedUpiId && oIdx === 0)) && styles.miniPillTextActive]}>
+                                                                {opt.label || opt.upiId}
+                                                            </Text>
+                                                        </TouchableOpacity>
+                                                    ))}
+                                                </View>
+                                            </View>
+                                        )}
+
+                                        <View style={{ alignItems: 'center', padding: 12, backgroundColor: '#ffffff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', marginVertical: 8 }}>
+                                            <Image 
+                                                source={{ uri: qrUrl }} 
+                                                style={{ width: 150, height: 150, borderRadius: 8 }} 
+                                                resizeMode="contain" 
+                                            />
+                                            <Text style={[styles.upiIdText, { marginTop: 8, fontWeight: '700', color: '#0f766e' }]}>
+                                                UPI ID: {activeUpi}
+                                            </Text>
+                                            <Text style={{ fontSize: 13, fontWeight: '800', color: '#0d9488', marginTop: 2 }}>
+                                                Amount: ₹{upiAmount}
+                                            </Text>
+                                        </View>
+
+                                        <View style={{ marginTop: 8 }}>
+                                            <Text style={styles.fieldLabel}>UPI Transaction Reference / UTR *</Text>
+                                            <TextInput
+                                                style={styles.formInput}
+                                                placeholder="Enter 12-digit UPI reference number"
+                                                value={intakePaymentData.transactionId}
+                                                onChangeText={val => setIntakePaymentData(prev => ({ ...prev, transactionId: val }))}
+                                            />
+                                        </View>
+
+                                        <TouchableOpacity style={styles.proofUploadBtn} onPress={handlePickPaymentProof}>
+                                            <Feather name="image" size={14} color="#475569" />
+                                            <Text style={styles.proofUploadBtnText}>
+                                                {paymentScreenshot ? '✅ Proof Attached (Tap to Change)' : 'Upload Payment Screenshot'}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                );
+                            })()}
                         </View>
                     )}
 

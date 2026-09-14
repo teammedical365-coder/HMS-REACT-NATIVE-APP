@@ -13,6 +13,7 @@ import { useAuth } from '../../store/hooks';
 // Dummy imports for child components to avoid breaking
 import DynamicQuestionForm from '../../components/DynamicQuestionForm';
 import AppointmentReports from '../../components/AppointmentReports';
+import DoctorIPDOrdersPanel from '../../components/ipd/DoctorIPDOrdersPanel';
 
 const doseOptions = [
     'OD – Once Daily',
@@ -45,7 +46,7 @@ const DoctorPatientDetails = () => {
     const navigation = useNavigation();
     
     // In React Native, route params are used instead of useParams/useLocation
-    const id = route.params?.id;
+    const id = route.params?.id || route.params?.patientId;
     const [appointmentId, setAppointmentId] = useState(route.params?.appointmentId);
 
     const { user } = useAuth();
@@ -817,6 +818,7 @@ const DoctorPatientDetails = () => {
 
     const tabs = [
         { id: 'overview', label: 'Overview', icon: '📋' },
+        { id: 'ipd_orders', label: 'IPD / Admission Orders', icon: '🏥' },
         { id: 'history', label: 'Past Visits', icon: '📜' },
         { id: 'reports', label: 'Reports & Files', icon: '📁' },
     ];
@@ -1006,6 +1008,15 @@ const DoctorPatientDetails = () => {
                                         </View>
                                     )}
                                 </View>
+                            )}
+
+                            {activeTab === 'ipd_orders' && (
+                                <DoctorIPDOrdersPanel
+                                    patientId={id || patient?._id}
+                                    patient={patient}
+                                    appointment={appointment}
+                                    currentUser={user}
+                                />
                             )}
 
                             {activeTab === 'reports' && (

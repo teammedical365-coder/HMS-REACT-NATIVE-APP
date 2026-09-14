@@ -13,10 +13,12 @@ export default function CentralAdminForms({
   savingHospital,
   onClose,
   availableDepartments,
+  onAddCustomDept,
   onCreateAdmin,
   hospitals = [],
 }) {
   const [deptDropdownOpen, setDeptDropdownOpen] = React.useState(false);
+  const [newDeptInput, setNewDeptInput] = React.useState('');
   const [adminForm, setAdminForm] = React.useState({ name: '', email: '', phone: '', password: '', hospitalId: '' });
   const [adminFormError, setAdminFormError] = React.useState('');
 
@@ -241,6 +243,62 @@ export default function CentralAdminForms({
           <View style={{ gap: 6 }}>
             <Text style={styles.chLabel}>Address <Text style={{ color: '#059669' }}>*</Text></Text>
             <TextInput style={styles.chInput} placeholder="Enter complete address" value={hospitalForm.address} onChangeText={t => setHospitalForm({ ...hospitalForm, address: t })} />
+          </View>
+
+          {/* Row 5: Departments Selection */}
+          <View style={{ gap: 8 }}>
+            <Text style={styles.chLabel}>Departments</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {(availableDepartments || []).map(dept => {
+                const isSelected = (hospitalForm.departments || []).includes(dept);
+                return (
+                  <TouchableOpacity
+                    key={dept}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 6,
+                      borderRadius: 16,
+                      backgroundColor: isSelected ? '#059669' : '#f1f5f9',
+                      borderWidth: 1,
+                      borderColor: isSelected ? '#059669' : '#cbd5e1'
+                    }}
+                    onPress={() => {
+                      const cur = hospitalForm.departments || [];
+                      const updated = isSelected ? cur.filter(d => d !== dept) : [...cur, dept];
+                      setHospitalForm({ ...hospitalForm, departments: updated });
+                    }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: '600', color: isSelected ? '#ffffff' : '#475569' }}>
+                      {dept} {isSelected ? '✓' : '+'}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 6 }}>
+              <TextInput
+                style={[styles.chInput, { flex: 1, height: 38 }]}
+                placeholder="Add custom department..."
+                value={newDeptInput}
+                onChangeText={setNewDeptInput}
+              />
+              <TouchableOpacity
+                style={{ backgroundColor: '#059669', paddingHorizontal: 14, justifyContent: 'center', borderRadius: 8 }}
+                onPress={() => {
+                  if (newDeptInput.trim()) {
+                    const trimmed = newDeptInput.trim();
+                    const cur = hospitalForm.departments || [];
+                    if (!cur.includes(trimmed)) {
+                      setHospitalForm({ ...hospitalForm, departments: [...cur, trimmed] });
+                    }
+                    if (onAddCustomDept) onAddCustomDept(trimmed);
+                    setNewDeptInput('');
+                  }
+                }}
+              >
+                <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 13 }}>Add</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* White-Label Settings */}

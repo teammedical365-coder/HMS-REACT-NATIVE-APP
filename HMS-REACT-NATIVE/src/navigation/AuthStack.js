@@ -21,6 +21,12 @@ import PatientSignup from '../screens/patient/PatientSignup';
 import PatientForgotPassword from '../screens/patient/PatientForgotPassword';
 import PatientResetPassword from '../screens/patient/PatientResetPassword';
 
+// Public Services, Doctors & Booking Workflow
+import Services from '../screens/user/Services';
+import Doctors from '../screens/user/Doctors';
+import Appointment from '../screens/user/Appointment';
+import AppointmentSuccess from '../screens/user/AppointmentSuccess';
+
 const Stack = createNativeStackNavigator();
 
 const AuthStack = () => {
@@ -42,6 +48,12 @@ const AuthStack = () => {
             <Stack.Screen name="Login" component={Login} />
             <Stack.Screen name="Signup" component={SignupScreen} />
             <Stack.Screen name="OTP" component={OTPVerificationScreen} />
+
+            {/* Public Booking Workflow */}
+            <Stack.Screen name="Services" component={Services} />
+            <Stack.Screen name="Doctors" component={Doctors} />
+            <Stack.Screen name="Appointment" component={Appointment} />
+            <Stack.Screen name="AppointmentSuccess" component={AppointmentSuccess} />
 
             {/* Central Admin (Independent of Workspace usually, but part of public stack) */}
             <Stack.Screen name="CentralAdminLogin" component={CentralAdminLogin} />

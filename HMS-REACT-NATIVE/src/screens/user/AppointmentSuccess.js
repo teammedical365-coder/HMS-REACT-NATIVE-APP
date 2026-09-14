@@ -85,11 +85,15 @@ const AppointmentSuccess = () => {
                 </View>
 
                 <View style={styles.actions}>
-                    <TouchableOpacity style={styles.btnSecondary} onPress={() => navigation.navigate('Dashboard')}>
-                        <Text style={styles.btnSecondaryText}>Back to Home</Text>
+                    <TouchableOpacity style={styles.btnSecondary} onPress={() => {
+                        try { navigation.navigate('Services'); } catch(_) { navigation.goBack(); }
+                    }}>
+                        <Text style={styles.btnSecondaryText}>Book Another Appointment</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.btnPrimary} onPress={() => navigation.navigate('LabReports')}>
-                        <Text style={styles.btnPrimaryText}>View Lab Reports</Text>
+                    <TouchableOpacity style={styles.btnPrimary} onPress={() => {
+                        try { navigation.navigate('Login'); } catch(_) { navigation.goBack(); }
+                    }}>
+                        <Text style={styles.btnPrimaryText}>Go to Login</Text>
                     </TouchableOpacity>
                 </View>
             </View>

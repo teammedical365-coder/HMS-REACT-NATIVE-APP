@@ -5,7 +5,8 @@ import {
     Dimensions, Keyboard 
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { reportAPI, patientAPI, doctorAPI } from '../../utils/api';
+import { reportAPI, patientAPI, doctorAPI, aiWalletAPI } from '../../utils/api';
+import VoiceScribe from '../../components/voicescribe/VoiceScribe';
 
 const { width } = Dimensions.get('window');
 const isTablet = width > 768;
@@ -29,6 +30,43 @@ const HighlightKeyword = ({ text, keyword }) => {
 const AIAssistant = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState([]);
+
+    // ── AI Mode Switcher ──
+    const [activeAIMode, setActiveAIMode] = useState('reports'); // 'reports' | 'voice_scribe'
+
+    // ── AI Wallet State ──
+    const [wallet, setWallet] = useState(null);
+    const [walletStatus, setWalletStatus] = useState('ACTIVE');
+    const [isWalletLoading, setIsWalletLoading] = useState(false);
+
+    const fetchWalletData = async () => {
+        setIsWalletLoading(true);
+        try {
+            const res = await aiWalletAPI.getWallet();
+            if (res && res.success && res.data) {
+                setWallet(res.data);
+                setWalletStatus(res.data.status || 'ACTIVE');
+            }
+        } catch (err) {
+            console.warn("Could not fetch AI wallet:", err);
+        } finally {
+            setIsWalletLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchWalletData();
+    }, []);
+
+    const getWalletStatusInfo = (status) => {
+        switch (status) {
+            case 'LOW':           return { label: 'Low Balance', color: '#f59e0b', bgColor: '#fef3c7', icon: '⚠️' };
+            case 'CRITICAL':      return { label: 'Critical', color: '#f97316', bgColor: '#ffedd5', icon: '🔶' };
+            case 'VERY_CRITICAL': return { label: 'Very Low', color: '#ef4444', bgColor: '#fee2e2', icon: '🔴' };
+            case 'EXHAUSTED':     return { label: 'Exhausted', color: '#dc2626', bgColor: '#fecaca', icon: '🚫' };
+            default:              return { label: 'Active', color: '#16a34a', bgColor: '#dcfce7', icon: '✅' };
+        }
+    };
 
     const [allPatients, setAllPatients] = useState([]);
     const [isFetchingPatients, setIsFetchingPatients] = useState(true);
@@ -97,6 +135,10 @@ const AIAssistant = () => {
     ];
 
     const handleChatSend = async (overrideText) => {
+        if (walletStatus === 'EXHAUSTED' || wallet?.status === 'EXHAUSTED') {
+            Alert.alert('AI Credits Exhausted', 'Your AI credit balance is exhausted. Please recharge your AI Wallet from Hospital Admin to continue using AI services.');
+            return;
+        }
         const text = (overrideText || chatInput).trim();
         if (!text || !selectedPatient) return;
 
@@ -210,6 +252,10 @@ const AIAssistant = () => {
             setError("Please select a report first.");
             return;
         }
+        if (walletStatus === 'EXHAUSTED' || wallet?.status === 'EXHAUSTED') {
+            Alert.alert('AI Credits Exhausted', 'Your AI credit balance is exhausted. Please recharge your AI Wallet from Hospital Admin to continue using AI services.');
+            return;
+        }
 
         setIsLoading(true);
         setError(null);
@@ -233,6 +279,10 @@ const AIAssistant = () => {
     };
 
     const handleCompareReports = async () => {
+        if (walletStatus === 'EXHAUSTED' || wallet?.status === 'EXHAUSTED') {
+            Alert.alert('AI Credits Exhausted', 'Your AI credit balance is exhausted. Please recharge your AI Wallet from Hospital Admin to continue using AI services.');
+            return;
+        }
         const sortedReports = reports ? [...reports].sort((a, b) => new Date(b.uploadedAt || b.date) - new Date(a.uploadedAt || a.date)) : [];
         if (sortedReports.length < 2) {
             setCompareError("At least two reports are required for comparison.");
@@ -383,14 +433,50 @@ const AIAssistant = () => {
                     <View style={styles.aiHeaderTop}>
                         <View>
                             <Text style={styles.aiHeaderTitle}>🤖 AI Assistant</Text>
-                            <Text style={styles.aiHeaderSubtitle}>Advanced patient insights, automated summaries & real-time analytics</Text>
+                            <Text style={styles.aiHeaderSubtitle}>Advanced clinical intelligence, voice ambient scribing & real-time analytics</Text>
                         </View>
-                        <TouchableOpacity style={styles.aiTokenTrackerBtn} onPress={handleOpenTracker}>
-                            <Text style={styles.aiTokenTrackerBtnText}>⚡ AI Token Tracker</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: isTablet ? 0 : 10 }}>
+                            <TouchableOpacity 
+                                style={[styles.walletBadgeBtn, { backgroundColor: getWalletStatusInfo(walletStatus).bgColor, borderColor: getWalletStatusInfo(walletStatus).color }]}
+                                onPress={handleOpenTracker}
+                            >
+                                <Text style={[styles.walletBadgeBtnText, { color: getWalletStatusInfo(walletStatus).color }]}>
+                                    {getWalletStatusInfo(walletStatus).icon} {wallet?.balance !== undefined ? `${Number(wallet.balance).toFixed(1)} Credits` : 'AI Wallet'} ({getWalletStatusInfo(walletStatus).label})
+                                </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.aiTokenTrackerBtn} onPress={handleOpenTracker}>
+                                <Text style={styles.aiTokenTrackerBtnText}>⚡ Tracker</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+
+                    {/* Mode Switcher */}
+                    <View style={styles.modeTabsRow}>
+                        <TouchableOpacity
+                            style={[styles.modeTabBtn, activeAIMode === 'reports' && styles.modeTabBtnActive]}
+                            onPress={() => setActiveAIMode('reports')}
+                        >
+                            <Text style={[styles.modeTabBtnText, activeAIMode === 'reports' && styles.modeTabBtnTextActive]}>
+                                📄 Reports Analysis & Chat
+                            </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.modeTabBtn, activeAIMode === 'voice_scribe' && styles.modeTabBtnActive]}
+                            onPress={() => setActiveAIMode('voice_scribe')}
+                        >
+                            <Text style={[styles.modeTabBtnText, activeAIMode === 'voice_scribe' && styles.modeTabBtnTextActive]}>
+                                🎙️ VoiceScribe Clinical Scribe
+                            </Text>
                         </TouchableOpacity>
                     </View>
                 </View>
 
+                {activeAIMode === 'voice_scribe' ? (
+                    <VoiceScribe
+                        patientId={selectedPatient?._id || selectedPatient?.patientId}
+                        patient={selectedPatient}
+                    />
+                ) : (
                 <View style={styles.aiGrid}>
                     {/* Left Column */}
                     <View style={styles.aiColLeft}>
@@ -869,6 +955,7 @@ const AIAssistant = () => {
                         </View>
                     </View>
                 </View>
+                )}
             </ScrollView>
 
             {/* ── AI Token Tracker & Analytics Modal ── */}
@@ -1019,6 +1106,43 @@ const styles = StyleSheet.create({
         color: 'white',
         fontWeight: 'bold',
         marginBottom: 8,
+    },
+    walletBadgeBtn: {
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 16,
+        borderWidth: 1.5,
+        alignItems: 'center',
+    },
+    walletBadgeBtnText: {
+        fontSize: 12,
+        fontWeight: '800',
+    },
+    modeTabsRow: {
+        flexDirection: 'row',
+        gap: 10,
+        marginTop: 16,
+        paddingTop: 14,
+        borderTopWidth: 1,
+        borderTopColor: 'rgba(255,255,255,0.25)',
+    },
+    modeTabBtn: {
+        paddingVertical: 8,
+        paddingHorizontal: 16,
+        borderRadius: 20,
+        backgroundColor: 'rgba(255,255,255,0.18)',
+    },
+    modeTabBtnActive: {
+        backgroundColor: '#ffffff',
+    },
+    modeTabBtnText: {
+        color: '#ffffff',
+        fontSize: 13,
+        fontWeight: '700',
+    },
+    modeTabBtnTextActive: {
+        color: '#7c3aed',
+        fontWeight: '800',
     },
     aiHeaderSubtitle: {
         color: '#e0e7ff',

@@ -691,6 +691,10 @@ export const admissionAPI = {
     (await apiClient.get('/api/admissions/active', { params })).data,
   getPatientAdmissions: async (patientId) =>
     (await apiClient.get(`/api/admissions/patient/${patientId}`)).data,
+  getAdmissions: async (params = {}) => {
+    if (params.patientId) return (await apiClient.get(`/api/admissions/patient/${params.patientId}`)).data;
+    return (await apiClient.get('/api/admissions/active', { params })).data;
+  },
   dischargePatient: async (id, data = {}) =>
     (await apiClient.put(`/api/admissions/${id}/discharge`, data)).data,
   markAdmissionPaid: async (id) =>
@@ -1048,22 +1052,34 @@ export const aiWalletAPI = {
 
 // ─── IPD Clinical API ─────────────────────────────────────────────────────────
 export const ipdClinicalAPI = {
-  getOrders: async (admissionId) =>
-    (await apiClient.get(`/api/ipd-clinical/admissions/${admissionId}/orders`)).data,
-  acknowledgeOrder: async (admissionId, orderId, data = {}) =>
-    (await apiClient.post(`/api/ipd-clinical/admissions/${admissionId}/orders/${orderId}/acknowledge`, data)).data,
-  requestClarification: async (admissionId, orderId, data) =>
-    (await apiClient.post(`/api/ipd-clinical/admissions/${admissionId}/orders/${orderId}/clarification`, data)).data,
-  getVitalsHistory: async (admissionId) =>
-    (await apiClient.get(`/api/ipd-clinical/admissions/${admissionId}/vitals`)).data,
-  getLatestVitals: async (admissionId) =>
-    (await apiClient.get(`/api/ipd-clinical/admissions/${admissionId}/vitals/latest`)).data,
-  recordVitals: async (admissionId, data) =>
-    (await apiClient.post(`/api/ipd-clinical/admissions/${admissionId}/vitals`, data)).data,
-  getMARRecords: async (admissionId, params = {}) =>
-    (await apiClient.get(`/api/ipd-clinical/admissions/${admissionId}/mar`, { params })).data,
-  updateMARRecord: async (marId, data) =>
-    (await apiClient.patch(`/api/ipd-clinical/mar/${marId}`, data)).data,
+  // Inpatient Clinical Orders
+  createOrder: async (data) => (await apiClient.post('/api/ipd-clinical/orders', data)).data,
+  getOrders: async (admissionId) => (await apiClient.get(`/api/ipd-clinical/admissions/${admissionId}/orders`)).data,
+  getPatientOrders: async (patientId) => (await apiClient.get(`/api/ipd-clinical/patients/${patientId}/orders`)).data,
+  getActiveOrders: async (admissionId) => (await apiClient.get(`/api/ipd-clinical/admissions/${admissionId}/orders/active`)).data,
+  updateOrder: async (orderId, data) => (await apiClient.patch(`/api/ipd-clinical/orders/${orderId}`, data)).data,
+
+  // Clinical Coordination
+  acknowledgeOrder: async (admissionId, orderId, data = {}) => (await apiClient.post(`/api/ipd-clinical/admissions/${admissionId}/orders/${orderId}/acknowledge`, data)).data,
+  requestClarification: async (admissionId, orderId, data) => (await apiClient.post(`/api/ipd-clinical/admissions/${admissionId}/orders/${orderId}/clarification`, data)).data,
+  respondClarification: async (admissionId, orderId, data) => (await apiClient.post(`/api/ipd-clinical/admissions/${admissionId}/orders/${orderId}/clarification-response`, data)).data,
+  getClarificationsInbox: async (params = {}) => (await apiClient.get('/api/ipd-clinical/clarifications/inbox', { params })).data,
+
+  // Medication Administration Records (MAR)
+  scheduleMAR: async (data) => (await apiClient.post('/api/ipd-clinical/mar', data)).data,
+  getMARRecords: async (admissionId, params = {}) => (await apiClient.get(`/api/ipd-clinical/admissions/${admissionId}/mar`, { params })).data,
+  getDueMARRecords: async (admissionId) => (await apiClient.get(`/api/ipd-clinical/admissions/${admissionId}/mar/due`)).data,
+  updateMARRecord: async (marId, data) => (await apiClient.patch(`/api/ipd-clinical/mar/${marId}`, data)).data,
+
+  // Inpatient Vitals
+  recordVitals: async (admissionId, data) => (await apiClient.post(`/api/ipd-clinical/admissions/${admissionId}/vitals`, data)).data,
+  getVitalsHistory: async (admissionId) => (await apiClient.get(`/api/ipd-clinical/admissions/${admissionId}/vitals`)).data,
+  getLatestVitals: async (admissionId) => (await apiClient.get(`/api/ipd-clinical/admissions/${admissionId}/vitals/latest`)).data,
+
+  // Doctor Clinical Discharge Order & Structured Summary
+  createDischargeOrder: async (admissionId, data) => (await apiClient.post(`/api/ipd-clinical/admissions/${admissionId}/discharge-order`, data)).data,
+  saveDischargeSummary: async (admissionId, data) => (await apiClient.post(`/api/ipd-clinical/admissions/${admissionId}/discharge-summary`, data)).data,
+  getDischargeSummary: async (admissionId) => (await apiClient.get(`/api/ipd-clinical/admissions/${admissionId}/discharge-summary`)).data,
 };
 
 // ─── Nursing Notes API ────────────────────────────────────────────────────────
@@ -1176,6 +1192,20 @@ export const ipdCommandCenterAPI = {
     (await apiClient.get('/api/ipd-nursing/analytics/census-trends', { params })).data,
   getNurseWorkload: async () =>
     (await apiClient.get('/api/ipd-nursing/analytics/nurse-workload')).data,
+};
+
+// ─── Voice Scribe API ─────────────────────────────────────────────────────────
+export const voiceScribeAPI = {
+  analyze: async (formData) => (await apiClient.post('/api/voice-scribe/analyze', formData, {
+    timeout: 180000,
+    headers: (typeof FormData !== 'undefined' && formData instanceof FormData)
+      ? { 'Content-Type': 'multipart/form-data' }
+      : undefined
+  })).data,
+  saveDraft: async (data) => (await apiClient.post('/api/voice-scribe/save-draft', data)).data,
+  approve: async (id, data) => (await apiClient.put(`/api/voice-scribe/${id}/approve`, data)).data,
+  discard: async (id) => (await apiClient.put(`/api/voice-scribe/${id}/discard`)).data,
+  getForAppointment: async (appointmentId) => (await apiClient.get(`/api/voice-scribe/appointment/${appointmentId}`)).data,
 };
 
 export default apiClient;

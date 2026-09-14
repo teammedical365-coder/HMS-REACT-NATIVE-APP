@@ -56,6 +56,8 @@ const HospitalAdminDashboard = () => {
     });
     const [updating, setUpdating] = useState(false);
     const [deleteConfirm, setDeleteConfirm] = useState(null);
+    const [staffSearchQuery, setStaffSearchQuery] = useState('');
+    const [staffRoleFilter, setStaffRoleFilter] = useState('all');
 
     const [stats, setStats] = useState({ totalUsers: 0, totalDoctors: 0, totalPatients: 0, totalRoles: 0 });
 
@@ -2047,7 +2049,63 @@ const HospitalAdminDashboard = () => {
                     </View>
 
                     <View style={styles.adminCard}>
-                        <Text style={styles.cardTitle}>All Staff & Doctors</Text>
+                        <View style={{ flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', marginBottom: 16, gap: 12 }}>
+                            <View>
+                                <Text style={styles.cardTitle}>All Staff & Doctors</Text>
+                                <Text style={{ color: '#64748b', fontSize: 13, marginTop: 2 }}>
+                                    {users.filter(u => {
+                                        const q = (staffSearchQuery || '').toLowerCase().trim();
+                                        const matchesQ = !q || (u.name || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q) || (u.phone || '').includes(q) || (u.role || '').toLowerCase().includes(q);
+                                        const matchesRole = staffRoleFilter === 'all' || (u.role || '').toLowerCase() === staffRoleFilter.toLowerCase();
+                                        return matchesQ && matchesRole;
+                                    }).length} members listed
+                                </Text>
+                            </View>
+
+                            {/* Search and Role Filter Toolbar */}
+                            <View style={{ flexDirection: isMobile ? 'column' : 'row', gap: 10, width: isMobile ? '100%' : 'auto', alignItems: 'center' }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#f1f5f9', borderRadius: 8, paddingHorizontal: 10, borderWidth: 1, borderColor: '#e2e8f0', minWidth: isMobile ? '100%' : 220 }}>
+                                    <Feather name="search" size={15} color="#94a3b8" />
+                                    <TextInput
+                                        style={{ flex: 1, paddingVertical: 8, paddingHorizontal: 8, fontSize: 13, color: '#0f172a' }}
+                                        placeholder="Search staff, email, role..."
+                                        placeholderTextColor="#94a3b8"
+                                        value={staffSearchQuery}
+                                        onChangeText={setStaffSearchQuery}
+                                    />
+                                    {staffSearchQuery !== '' && (
+                                        <TouchableOpacity onPress={() => setStaffSearchQuery('')}>
+                                            <Feather name="x" size={14} color="#94a3b8" />
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
+
+                                {/* Role Filter */}
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxWidth: isMobile ? '100%' : 340 }}>
+                                    <View style={{ flexDirection: 'row', gap: 6 }}>
+                                        {['all', ...Array.from(new Set(users.map(u => (u.role || '').toLowerCase()).filter(Boolean)))].map(rKey => (
+                                            <TouchableOpacity
+                                                key={rKey}
+                                                onPress={() => setStaffRoleFilter(rKey)}
+                                                style={{
+                                                    paddingVertical: 6,
+                                                    paddingHorizontal: 12,
+                                                    borderRadius: 20,
+                                                    borderWidth: 1,
+                                                    backgroundColor: staffRoleFilter === rKey ? '#2563eb' : '#f8fafc',
+                                                    borderColor: staffRoleFilter === rKey ? '#1d4ed8' : '#e2e8f0'
+                                                }}
+                                            >
+                                                <Text style={{ fontSize: 11, fontWeight: '700', color: staffRoleFilter === rKey ? '#ffffff' : '#64748b', textTransform: 'capitalize' }}>
+                                                    {rKey === 'all' ? 'All Roles' : rKey}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
+                                </ScrollView>
+                            </View>
+                        </View>
+
                         {loadingUsers ? (
                             <View style={{ padding: 40, alignItems: 'center' }}><Text style={{ color: '#94a3b8' }}>Loading users...</Text></View>
                         ) : users.length === 0 ? (
@@ -2063,7 +2121,12 @@ const HospitalAdminDashboard = () => {
                                         <Text style={[styles.th, { width: 120 }]}>Phone</Text>
                                         <Text style={[styles.th, { width: 150 }]}>Actions</Text>
                                     </View>
-                                    {users.map(userItem => {
+                                    {users.filter(userItem => {
+                                        const q = (staffSearchQuery || '').toLowerCase().trim();
+                                        const matchesQ = !q || (userItem.name || '').toLowerCase().includes(q) || (userItem.email || '').toLowerCase().includes(q) || (userItem.phone || '').includes(q) || (userItem.role || '').toLowerCase().includes(q);
+                                        const matchesRole = staffRoleFilter === 'all' || (userItem.role || '').toLowerCase() === staffRoleFilter.toLowerCase();
+                                        return matchesQ && matchesRole;
+                                    }).map(userItem => {
                                         const isCurrentUser = (userItem.id || userItem._id) === currentUser.id;
                                         const isSuperUser = ['centraladmin', 'superadmin'].includes(userItem.role?.toLowerCase());
                                         const roleStr = (userItem.role || '').toLowerCase();

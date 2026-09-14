@@ -234,10 +234,10 @@ const Services = () => {
             const response = await api.post('/api/appointments/create', appointmentData);
 
             if (response.data.success) {
+                const createdAppt = response.data.appointment || appointmentData;
                 setSuccess('Appointment booked successfully!');
-                setTimeout(() => {
-                    setShowBookingForm(false);
-                }, 2000);
+                setShowBookingForm(false);
+                navigation.navigate('AppointmentSuccess', { appointment: createdAppt });
             }
         } catch (err) {
             console.error(err);

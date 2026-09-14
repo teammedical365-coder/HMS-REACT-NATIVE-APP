@@ -243,14 +243,13 @@ const Appointment = () => {
       const result = await dispatch(createAppointment(appointmentData));
       
       if (createAppointment.fulfilled.match(result)) {
+        const createdAppt = result.payload || appointmentData;
         setShowBookingModal(false);
         setModalFormData({ serviceId: '', doctorId: '', appointmentDate: new Date().toISOString().split('T')[0], appointmentTime: '' });
         setAvailableDoctors([]);
         setAvailableTimes([]);
         dispatch(fetchAppointments());
-        if (selectedDoctor && modalFormData.appointmentDate) {
-          dispatch(fetchBookedSlots({ doctorId: selectedDoctor, date: modalFormData.appointmentDate }));
-        }
+        navigation.navigate('AppointmentSuccess', { appointment: createdAppt });
       } else {
         setError(result.payload || 'Failed to book appointment.');
       }
@@ -322,10 +321,12 @@ const Appointment = () => {
       const result = await dispatch(createAppointment(appointmentData));
 
       if (createAppointment.fulfilled.match(result)) {
+        const createdAppt = result.payload || appointmentData;
         dispatch(fetchAppointments());
         setFormData({ appointmentDate: '', appointmentTime: '', notes: '' });
         navigation.setParams({ doctorId: undefined });
         setSelectedDoctor(null);
+        navigation.navigate('AppointmentSuccess', { appointment: createdAppt });
       } else {
         setError(result.payload || 'Failed to create appointment');
       }

@@ -10,6 +10,7 @@ import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import Svg, { Defs, RadialGradient, LinearGradient as SvgLinearGradient, Stop, Ellipse, Rect, Path, Line, Circle } from 'react-native-svg';
 import { styles, SIDEBAR_WIDTH, SIDEBAR_COLLAPSED } from './DashboardLayoutStyles';
+import OfflineBanner from '../OfflineBanner';
 
 // Cute 3D AI Robot Illustration with glowing pedestal (Web ha-sidebar-ai-card parity)
 const HaSidebarAiCard = () => {
@@ -620,7 +621,7 @@ const DashboardLayout = ({ children }) => {
 
             <View style={[styles.erpMainArea, isDarkModule && { backgroundColor: '#0b1120' }]}>
                 <TopBar sidebarOpen={sidebarOpen} toggleSidebar={() => setSidebarOpen(!sidebarOpen)} isMobile={isMobileView} />
-                
+                <OfflineBanner />
                 <View style={[styles.erpPageContent, isDarkModule && { padding: 0, backgroundColor: '#0b1120' }]}>
                     {children}
                 </View>

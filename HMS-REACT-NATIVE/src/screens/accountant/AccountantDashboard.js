@@ -9,6 +9,7 @@ const AccountantDashboard = () => {
     const [currentUser, setCurrentUser] = useState({});
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
     
     const [billingSearch, setBillingSearch] = useState('');
     const [billingSearching, setBillingSearching] = useState(false);
@@ -37,6 +38,7 @@ const AccountantDashboard = () => {
 
     const fetchStats = async (preset = datePreset, start = customStartDate, end = customEndDate) => {
         setLoading(true);
+        setError('');
         try {
             let queryStart = '';
             let queryEnd = '';
@@ -44,10 +46,18 @@ const AccountantDashboard = () => {
                 const now = new Date();
                 const endD = new Date(now);
                 const startD = new Date(now);
-                if (preset === 'today') { startD.setHours(0,0,0,0); endD.setHours(23,59,59,999); }
-                else if (preset === '30') { startD.setDate(startD.getDate() - 30); }
-                else if (preset === '60') { startD.setDate(startD.getDate() - 60); }
-                else if (preset === '90') { startD.setDate(startD.getDate() - 90); }
+                if (preset === 'today') { 
+                    startD.setHours(0,0,0,0); 
+                    endD.setHours(23,59,59,999); 
+                } else if (preset === '7') { 
+                    startD.setDate(startD.getDate() - 7); 
+                } else if (preset === '30') { 
+                    startD.setDate(startD.getDate() - 30); 
+                } else if (preset === '60') { 
+                    startD.setDate(startD.getDate() - 60); 
+                } else if (preset === '90') { 
+                    startD.setDate(startD.getDate() - 90); 
+                }
                 queryStart = startD.toISOString();
                 queryEnd = endD.toISOString();
             } else if (preset === 'custom') {
@@ -55,9 +65,16 @@ const AccountantDashboard = () => {
                 if (end) queryEnd = new Date(end).toISOString();
             }
             const res = await financeAPI.getDashboardStats(queryStart, queryEnd);
-            if (res.success) setStats(res.data);
-        } catch (err) { Alert.alert('Error', 'Failed to fetch financial stats'); }
-        finally { setLoading(false); }
+            if (res.success) {
+                setStats(res.data);
+            } else {
+                setError(res.message || 'Failed to fetch financial stats');
+            }
+        } catch (err) { 
+            setError(err.response?.data?.message || 'Failed to fetch financial stats');
+        } finally { 
+            setLoading(false); 
+        }
     };
 
     const handleBillingSearch = async () => {
@@ -106,14 +123,21 @@ const AccountantDashboard = () => {
             <View style={styles.card}>
                 <Text style={styles.cardTitle}>📅 Analytics Timeframe</Text>
                 <View style={styles.filterRow}>
-                    {['all', 'today', '30', '60', '90'].map(p => (
+                    {[
+                        { key: 'all', label: 'All Time' },
+                        { key: 'today', label: 'Today' },
+                        { key: '7', label: '7 Days' },
+                        { key: '30', label: '30 Days' },
+                        { key: '60', label: '60 Days' },
+                        { key: '90', label: '90 Days' },
+                    ].map(p => (
                         <TouchableOpacity 
-                            key={p} 
-                            style={[styles.filterBtn, datePreset === p && styles.filterBtnActive]} 
-                            onPress={() => { setDatePreset(p); fetchStats(p); }}
+                            key={p.key} 
+                            style={[styles.filterBtn, datePreset === p.key && styles.filterBtnActive]} 
+                            onPress={() => { setDatePreset(p.key); fetchStats(p.key); }}
                         >
-                            <Text style={datePreset === p ? styles.filterBtnTextActive : styles.filterBtnText}>
-                                {p === 'all' ? 'All Time' : p === 'today' ? 'Today' : `${p} Days`}
+                            <Text style={datePreset === p.key ? styles.filterBtnTextActive : styles.filterBtnText}>
+                                {p.label}
                             </Text>
                         </TouchableOpacity>
                     ))}
@@ -140,10 +164,30 @@ const AccountantDashboard = () => {
                         style={styles.btnApplyCustom} 
                         onPress={() => fetchStats('custom', customStartDate, customEndDate)}
                     >
-                        <Text style={styles.btnApplyCustomText}>Apply Custom</Text>
+                        <Text style={styles.btnApplyCustomText}>Apply</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                        style={styles.btnResetCustom} 
+                        onPress={() => {
+                            setCustomStartDate('');
+                            setCustomEndDate('');
+                            setDatePreset('all');
+                            fetchStats('all', '', '');
+                        }}
+                    >
+                        <Text style={styles.btnResetCustomText}>Reset</Text>
                     </TouchableOpacity>
                 </View>
             </View>
+
+            {error ? (
+                <View style={styles.errorBox}>
+                    <Text style={styles.errorText}>⚠️ {error}</Text>
+                    <TouchableOpacity onPress={() => fetchStats()} style={styles.retryBtn}>
+                        <Text style={styles.retryBtnText}>Retry</Text>
+                    </TouchableOpacity>
+                </View>
+            ) : null}
 
             {loading ? <ActivityIndicator size="large" color="#3b82f6" style={{ marginTop: 20 }} /> : stats && (
                 <>
@@ -213,6 +257,12 @@ const styles = StyleSheet.create({
     dateToText: { fontSize: 13, color: '#64748b', fontWeight: '600' },
     btnApplyCustom: { backgroundColor: '#2563eb', paddingHorizontal: 14, height: 38, justifyContent: 'center', alignItems: 'center', borderRadius: 6 },
     btnApplyCustomText: { color: '#ffffff', fontWeight: '700', fontSize: 12 },
+    btnResetCustom: { backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#cbd5e1', paddingHorizontal: 12, height: 38, justifyContent: 'center', alignItems: 'center', borderRadius: 6 },
+    btnResetCustomText: { color: '#475569', fontWeight: '700', fontSize: 12 },
+    errorBox: { backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fca5a5', padding: 12, borderRadius: 8, marginBottom: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    errorText: { color: '#dc2626', fontSize: 13, flex: 1, marginRight: 8 },
+    retryBtn: { backgroundColor: '#dc2626', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 },
+    retryBtnText: { color: '#ffffff', fontWeight: '700', fontSize: 12 },
     sectionTitle: { fontSize: 18, fontWeight: 'bold', marginVertical: 12, color: '#334155' },
     grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
     statBox: { backgroundColor: 'white', width: '48%', padding: 16, borderRadius: 12, elevation: 1, borderLeftWidth: 4, marginBottom: 10 },

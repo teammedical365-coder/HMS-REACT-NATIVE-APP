@@ -1,14 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Platform } from 'react-native';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import { useDispatch } from 'react-redux';
+import { setCredentials } from '../../store/slices/authSlice';
 import { useBranding } from '../../context/BrandingContext';
 import { publicAPI, patientAuthAPI } from '../../utils/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NeuralAuthPortal from '../../components/auth/NeuralAuthPortal';
+import { HARDCODED_TENANT } from '../../tenant';
 
 const PatientPortalLogin = () => {
     const { loadBranding } = useBranding();
     const navigation = useNavigation();
+    const route = useRoute();
+    const dispatch = useDispatch();
     
     const [hospital, setHospital] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -19,29 +24,57 @@ const PatientPortalLogin = () => {
         const resolveHospital = async () => {
             try {
                 setLoading(true);
-                // For native, window.location.hostname isn't available. We rely on subdomain mapping if built.
-                // Assuming a default or fetched tenant ID for native app.
-                const domain = 'localhost'; // Placeholder or env variable
+                let domain = null;
+                if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.hostname) {
+                    const host = window.location.hostname;
+                    if (host !== 'localhost' && !host.startsWith('127.') && !host.startsWith('192.')) {
+                        domain = host;
+                    }
+                }
+                
+                if (!domain) {
+                    domain = route.params?.tenantId ||
+                        route.params?.slug ||
+                        (await AsyncStorage.getItem('tenant_id')) ||
+                        (await AsyncStorage.getItem('tenant_slug')) ||
+                        process.env.EXPO_PUBLIC_TENANT_ID ||
+                        HARDCODED_TENANT?.slug ||
+                        'city-hospital';
+                }
+
                 const res = await publicAPI.getTenantConfig(domain);
                 
                 if (res.success && res.tenant) {
-                    setHospital({
-                        id: res.tenant.id,
+                    const tenantData = {
+                        id: res.tenant.id || res.tenant._id,
                         name: res.tenant.name,
                         logo: res.tenant.branding?.logoUrl
-                    });
-                    if (res.tenant.id) {
-                        loadBranding(res.tenant.id);
+                    };
+                    setHospital(tenantData);
+                    if (tenantData.id) {
+                        loadBranding(tenantData.id);
                     }
+                } else {
+                    // Fallback to default hospital branding if tenant lookup returned empty
+                    setHospital({
+                        id: HARDCODED_TENANT?.slug || "6758493021abcdef12345679",
+                        name: HARDCODED_TENANT?.name || "City Hospital",
+                        logo: null
+                    });
                 }
             } catch (err) {
-                console.error('Could not load hospital branding', err);
+                console.warn('Could not load hospital branding, applying fallback:', err?.message || err);
+                setHospital({
+                    id: HARDCODED_TENANT?.slug || "6758493021abcdef12345679",
+                    name: HARDCODED_TENANT?.name || "City Hospital",
+                    logo: null
+                });
             } finally {
                 setLoading(false);
             }
         };
         resolveHospital();
-    }, [loadBranding]);
+    }, [loadBranding, route.params]);
 
     const [otpStep, setOtpStep] = useState(null);
     const [preAuthToken, setPreAuthToken] = useState(null);
@@ -52,19 +85,16 @@ const PatientPortalLogin = () => {
         setErrorMsg('');
         setSuccessMsg('');
 
-        if (!id.trim() || !password) {
+        if (!id?.trim() || !password) {
             setErrorMsg('Email/Mobile and Password are required.');
             return;
         }
 
-        if (!hospital?.id) {
-            setErrorMsg('Hospital branding context is missing.');
-            return;
-        }
+        const hospitalId = hospital?.id || HARDCODED_TENANT?.slug || "6758493021abcdef12345679";
 
         setIsSubmitting(true);
         try {
-            const res = await patientAuthAPI.sendOtp(id.trim(), password, hospital.id);
+            const res = await patientAuthAPI.sendOtp(id.trim(), password, hospitalId);
             if (res.success && res.preAuthToken) {
                 setPreAuthToken(res.preAuthToken);
                 setOtpRecipient(res.email || res.mobile || id);
@@ -89,9 +119,30 @@ const PatientPortalLogin = () => {
         try {
             const res = await patientAuthAPI.verifyOtp(preAuthToken, otp);
             if (res.success && res.token) {
+                const patientUser = {
+                    ...(res.user || {}),
+                    role: 'patient',
+                    permissions: res.user?.permissions || ['patient_access']
+                };
+
                 await AsyncStorage.setItem('patientToken', res.token);
-                await AsyncStorage.setItem('patientUser', JSON.stringify(res.user));
-                navigation.navigate('PatientDashboard');
+                await AsyncStorage.setItem('patientUser', JSON.stringify(patientUser));
+                await AsyncStorage.setItem('token', res.token);
+                await AsyncStorage.setItem('user', JSON.stringify(patientUser));
+                if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                    localStorage.setItem('patientToken', res.token);
+                    localStorage.setItem('patientUser', JSON.stringify(patientUser));
+                    localStorage.setItem('token', res.token);
+                    localStorage.setItem('user', JSON.stringify(patientUser));
+                    localStorage.setItem('role', 'patient');
+                    localStorage.removeItem('isLoggedOut');
+                }
+
+                // Update Redux state so root AppNavigator automatically transitions to PatientApp
+                dispatch(setCredentials({
+                    user: patientUser,
+                    token: res.token
+                }));
             } else {
                 setErrorMsg(res.message || 'OTP verification failed.');
             }
