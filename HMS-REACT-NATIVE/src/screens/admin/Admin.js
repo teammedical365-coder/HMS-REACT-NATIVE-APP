@@ -122,7 +122,7 @@ const Admin = () => {
                 if (response.success) {
                     const staffUsers = response.users || [];
                     const hasDoc = staffUsers.some(u => {
-                        const rName = (u.role || '').toLowerCase();
+                        const rName = (typeof u.role === 'string' ? u.role : (u.role?.name || u.roleName || '')).toLowerCase();
                         return rName === 'clinic doctor' || rName === 'doctor';
                     });
                     setClinicDoctorExists(hasDoc);
@@ -139,7 +139,7 @@ const Admin = () => {
     useEffect(() => {
         if (hospital?.clinicType === 'clinic') {
             const hasDoc = users.some(u => {
-                const rName = (u.role || '').toLowerCase();
+                const rName = (typeof u.role === 'string' ? u.role : (u.role?.name || u.roleName || '')).toLowerCase();
                 return rName === 'clinic doctor' || rName === 'doctor';
             });
             setClinicDoctorExists(hasDoc);
@@ -197,7 +197,7 @@ const Admin = () => {
             const userObj = JSON.parse(uStr || '{}');
             const isCentral = ['superadmin', 'centraladmin'].includes(userObj.role);
             const staffUsers = safeUsers.filter(u => {
-                const r = (u.role || '').toLowerCase();
+                const r = (typeof u.role === 'string' ? u.role : (u.role?.name || u.roleName || '')).toLowerCase();
                 if (['patient', 'user'].includes(r)) return false;
                 if (!isCentral && r.includes('doctor')) return false;
                 return true;
@@ -320,7 +320,7 @@ const Admin = () => {
                 if (response.success) {
                     const staffUsers = response.users || [];
                     const hasDoc = staffUsers.some(u => {
-                        const rName = (u.role || '').toLowerCase();
+                        const rName = (typeof u.role === 'string' ? u.role : (u.role?.name || u.roleName || '')).toLowerCase();
                         return rName === 'clinic doctor' || rName === 'doctor';
                     });
                     if (hasDoc) {
@@ -393,7 +393,7 @@ const Admin = () => {
         const limits = getSubscriptionLimits(hospital.subscriptionPlan);
         maxStaffCount = limits.maxStaff;
         currentStaffCount = users.filter(u => {
-            const rName = (u.role?.name || u.role || '').toLowerCase();
+            const rName = (typeof u.role === 'string' ? u.role : (u.role?.name || u.roleName || '')).toLowerCase();
             return !rName.includes('doctor') && !['patient', 'hospitaladmin', 'centraladmin', 'superadmin'].includes(rName);
         }).length;
         remainingStaff = Math.max(0, maxStaffCount - currentStaffCount);
@@ -782,7 +782,8 @@ const Admin = () => {
                                 {filteredUsers.map((userItem, index) => {
                                     const isCurrentUser = (userItem.id || userItem._id) === currentUser.id;
                                     const canModify = !isCurrentUser;
-                                    const roleStr = (userItem.role || '').toLowerCase();
+                                    const roleDisplay = typeof userItem.role === 'string' ? userItem.role : (userItem.role?.name || userItem.roleName || '');
+                                    const roleStr = roleDisplay.toLowerCase();
                                     const theme = RAINBOW_THEMES[index % RAINBOW_THEMES.length];
                                     const planInfo = getPlanBadge(userItem);
                                     
@@ -832,7 +833,7 @@ const Admin = () => {
                                             </View>
                                             <View style={{ width: 130 }}>
                                                 <View style={[styles.staffRoleTag, { backgroundColor: roleBg, borderColor: roleBorder }]}>
-                                                    <Text style={[styles.staffRoleTagText, { color: roleColor }]}>{(userItem.role || 'No Role').toUpperCase()}</Text>
+                                                    <Text style={[styles.staffRoleTagText, { color: roleColor }]}>{(roleDisplay || 'No Role').toUpperCase()}</Text>
                                                 </View>
                                             </View>
                                             <Text style={[styles.td, { width: 200, color: '#334155', fontWeight: '500' }]} numberOfLines={1}>{userItem.email}</Text>

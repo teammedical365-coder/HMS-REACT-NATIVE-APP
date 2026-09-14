@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { View, Text, Image, TouchableOpacity, Platform, Alert, ActivityIndicator, Linking } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { View, Text, Image, TouchableOpacity, useWindowDimensions, Alert, Linking } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import apiClient, { whiteLabelAPI } from '../../utils/api';
+import { whiteLabelAPI } from '../../utils/api';
 import { styles } from './CentralAdminDashboardStyles';
 
 const normalizePlan = (value) => {
@@ -27,7 +27,12 @@ export default function CentralAdminHospitalCards({
   editHospital,
 }) {
   const navigation = useNavigation();
+  const { width } = useWindowDimensions();
   const [buildStatuses, setBuildStatuses] = useState({});
+
+  const isDesktop = width >= 1024;
+  const isTablet = width >= 640 && width < 1024;
+  const cardWidth = isDesktop ? '31.8%' : (isTablet ? '48.5%' : '100%');
 
   if (showHospitalForm || showHospitalAdminForm || editHospital) return null;
 
@@ -65,19 +70,16 @@ export default function CentralAdminHospitalCards({
     }
   };
 
+  const emptyIcon = activeTab === 'simple-clinics' ? '🏪' : '📄';
   const emptyMessage =
-    activeTab === 'multi-speciality'
-      ? 'No multi-speciality hospitals found.'
-      : activeTab === 'clinic-basic'
-        ? 'No clinic basic hospitals found.'
-        : activeTab === 'simple-clinics'
-          ? 'No starter clinics found.'
-          : 'No enterprise hospitals found. Add one to get started.';
+    activeTab === 'simple-clinics'
+      ? 'No clinics found in this plan. Click + Add Starter Clinic to get started.'
+      : 'No hospitals found for this plan. Add your first hospital above.';
 
   if (!loading && filteredHospitals.length === 0) {
     return (
       <View style={styles.emptyBanner}>
-        <Text style={styles.emptyIcon}>ℹ️</Text>
+        <Text style={{ fontSize: 18, marginRight: 8 }}>{emptyIcon}</Text>
         <Text style={styles.emptyBannerText}>{emptyMessage}</Text>
       </View>
     );
@@ -87,13 +89,14 @@ export default function CentralAdminHospitalCards({
     <View style={styles.hospitalsGrid}>
       {filteredHospitals.map((hospital) => {
         const logoUrl = hospital.brandingSchema?.logoUrl || hospital.branding?.logoUrl;
-        const planKey = normalizePlan(hospital.subscriptionPlan || hospital.clinicPlan || hospital.plan);
+        const hospitalId = hospital._id || hospital.id;
+        const currentStatus = buildStatuses[hospitalId] || hospital.appConfig?.rnBuildStatus || 'NOT_BUILT';
 
         return (
           <TouchableOpacity
-            key={hospital._id || hospital.id}
-            style={styles.hospitalCard}
-            activeOpacity={0.8}
+            key={hospitalId}
+            style={[styles.hospitalCard, { width: cardWidth }]}
+            activeOpacity={0.85}
             onPress={() => onSelectHospital?.(hospital)}
           >
             <View style={styles.hospitalCardHeader}>
@@ -106,113 +109,72 @@ export default function CentralAdminHospitalCards({
               </View>
 
               <View style={styles.hospitalInfo}>
-                <Text style={styles.hospitalName} numberOfLines={1}>{hospital.name || 'Untitled Hospital'}</Text>
-                <Text style={styles.hospitalTagline} numberOfLines={1}>
-                  {hospital.city ? `${hospital.city}${hospital.state ? `, ${hospital.state}` : ''}` : 'Location not set'}
-                </Text>
+                <Text style={styles.hospitalName} numberOfLines={1}>{hospital.branding?.appName || hospital.name || 'Untitled Hospital'}</Text>
+                {hospital.branding?.tagline ? (
+                  <Text style={styles.hospitalTagline} numberOfLines={1}>{hospital.branding.tagline}</Text>
+                ) : hospital.city ? (
+                  <Text style={styles.hospitalTagline} numberOfLines={1}>
+                    📍 {hospital.city}{hospital.state ? `, ${hospital.state}` : ''}
+                  </Text>
+                ) : null}
               </View>
             </View>
 
-            <View style={{ gap: 4, marginBottom: 14 }}>
-              {hospital.phone ? <Text style={{ fontSize: 13, color: '#64748b' }}>📞 {hospital.phone}</Text> : null}
-              {hospital.email ? <Text style={{ fontSize: 13, color: '#64748b' }}>✉️ {hospital.email}</Text> : null}
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
-                {hospital.customDomain ? (
-                  <View style={{ backgroundColor: '#eff6ff', borderWidth: 1, borderColor: '#bfdbfe', paddingVertical: 2, paddingHorizontal: 8, borderRadius: 6 }}>
-                    <Text style={{ color: '#2563eb', fontSize: 11, fontWeight: '600' }}>{hospital.customDomain}</Text>
-                  </View>
-                ) : null}
+            <View style={styles.hospitalMetaList}>
+              {hospital.city ? <Text style={styles.hospitalMetaItem}>📍 {hospital.city}{hospital.state ? `, ${hospital.state}` : ''}</Text> : null}
+              {hospital.phone ? <Text style={styles.hospitalMetaItem}>📞 {hospital.phone}</Text> : null}
+              {hospital.email ? <Text style={styles.hospitalMetaItem}>✉️ {hospital.email}</Text> : null}
+
+              <View style={styles.domainBadgeWrap}>
                 {hospital.slug ? (
-                  <View style={{ backgroundColor: '#eff6ff', borderWidth: 1, borderColor: '#bfdbfe', paddingVertical: 2, paddingHorizontal: 8, borderRadius: 6 }}>
-                    <Text style={{ color: '#2563eb', fontSize: 11, fontWeight: '600' }}>{hospital.slug}.hms.com</Text>
-                  </View>
+                  <TouchableOpacity 
+                    style={styles.domainBadge}
+                    onPress={() => Linking.openURL(`https://${hospital.slug}.medical365.in`)}
+                  >
+                    <Text style={styles.domainBadgeText}>🌐 {hospital.slug}.medical365.in</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {hospital.customDomain ? (
+                  <TouchableOpacity 
+                    style={styles.domainBadge}
+                    onPress={() => Linking.openURL(`https://${hospital.customDomain.replace(/^https?:\/\//, '')}`)}
+                  >
+                    <Text style={styles.domainBadgeText}>🌐 {hospital.customDomain.replace(/^https?:\/\//, '')}</Text>
+                  </TouchableOpacity>
                 ) : null}
               </View>
             </View>
 
             <View style={styles.hospitalCardFooter}>
-              <Text style={{ fontSize: 12, color: '#2563eb', fontWeight: '700', marginBottom: 6 }}>
-                📊 {planKey === 'multi-speciality' ? 'Multi-speciality plan' : planKey === 'clinic-basic' ? 'Clinic basic plan' : planKey === 'simple-clinics' ? 'Starter plan' : 'Enterprise plan'}
+              <Text style={styles.hospitalClickHint}>
+                📊 Click to view full analytics →
               </Text>
 
               <View style={styles.hospitalBtnGroup}>
-                {(() => {
-                  const currentStatus = buildStatuses[hospital._id || hospital.id] || hospital.appConfig?.rnBuildStatus || 'NOT_BUILT';
-                  
-                  if (currentStatus === 'BUILDING') {
-                    return (
-                      <TouchableOpacity style={[styles.loginAsBtn, { backgroundColor: '#f59e0b' }]} disabled>
-                        <Text style={styles.loginAsBtnText}>Building...</Text>
-                      </TouchableOpacity>
-                    );
-                  }
-                  
-                  if (currentStatus === 'FAILED') {
-                    return (
-                      <TouchableOpacity 
-                        style={[styles.loginAsBtn, { backgroundColor: '#ef4444' }]} 
-                        onPress={(e) => { e.stopPropagation(); handleBuildRNApp(hospital); }}
-                      >
-                        <Text style={styles.loginAsBtnText}>Build Failed</Text>
-                      </TouchableOpacity>
-                    );
-                  }
-                  
-                  if (currentStatus === 'COMPLETED') {
-                    return (
-                      <>
-                        <TouchableOpacity 
-                          style={styles.loginAsBtn} 
-                          onPress={(e) => { e.stopPropagation(); handleBuildRNApp(hospital); }}
-                        >
-                          <Text style={styles.loginAsBtnText}>Build RN App</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity 
-                          style={[styles.loginAsBtn, { backgroundColor: '#10b981', marginLeft: 6 }]} 
-                          onPress={(e) => { 
-                            e.stopPropagation(); 
-                            const hid = hospital?._id || hospital?.id;
-                            if (hid) Linking.openURL(whiteLabelAPI.getApkDownloadUrl(hid));
-                          }}
-                        >
-                          <Text style={styles.loginAsBtnText}>Download APK</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity 
-                          style={[styles.loginAsBtn, { backgroundColor: '#8b5cf6', marginLeft: 6 }]} 
-                          onPress={(e) => { 
-                            e.stopPropagation(); 
-                            const hid = hospital?._id || hospital?.id;
-                            if (hid) Linking.openURL(whiteLabelAPI.getAabDownloadUrl(hid));
-                          }}
-                        >
-                          <Text style={styles.loginAsBtnText}>Download AAB</Text>
-                        </TouchableOpacity>
-                      </>
-                    );
-                  }
-                  
-                  return (
-                    <TouchableOpacity 
-                      style={styles.loginAsBtn} 
-                      onPress={(e) => { e.stopPropagation(); handleBuildRNApp(hospital); }}
-                    >
-                      <Text style={styles.loginAsBtnText}>Build RN App</Text>
-                    </TouchableOpacity>
-                  );
-                })()}
-
                 {activeTab !== 'simple-clinics' && (
-                  <TouchableOpacity style={styles.btnSmBranding} onPress={(e) => { e.stopPropagation(); onBrandingHospital?.(hospital); }}>
+                  <TouchableOpacity 
+                    style={styles.btnSmBranding} 
+                    onPress={(e) => { e.stopPropagation(); onBrandingHospital?.(hospital); }}
+                    activeOpacity={0.8}
+                  >
                     <Text style={styles.btnSmBrandingText}>🎨 Branding</Text>
                   </TouchableOpacity>
                 )}
 
-                <TouchableOpacity style={styles.btnSmEdit} onPress={(e) => { e.stopPropagation(); onEditHospital?.(hospital); }}>
-                  <Text style={styles.btnSmEditText}>✏️ Edit</Text>
+                <TouchableOpacity 
+                  style={styles.btnSmEdit} 
+                  onPress={(e) => { e.stopPropagation(); onEditHospital?.(hospital); }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.btnSmEditText}>Edit</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={[styles.btnSmEdit, { backgroundColor: '#fef2f2', borderColor: '#fecaca', marginLeft: 'auto' }]} onPress={(e) => { e.stopPropagation(); onDeleteHospital?.(hospital._id || hospital.id); }}>
-                  <Text style={[styles.btnSmEditText, { color: '#dc2626' }]}>🗑️ Delete</Text>
+                <TouchableOpacity 
+                  style={styles.btnSmDelete} 
+                  onPress={(e) => { e.stopPropagation(); onDeleteHospital?.(hospitalId); }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.btnSmDeleteText}>Delete</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -222,5 +184,3 @@ export default function CentralAdminHospitalCards({
     </View>
   );
 }
-
-

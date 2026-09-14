@@ -1,16 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { 
     View, Text, TouchableOpacity, StyleSheet, ScrollView, Platform, 
-    Dimensions, Linking, Image, ActivityIndicator, TextInput, Alert 
+    useWindowDimensions, Linking, Image, ActivityIndicator, TextInput, Alert 
 } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import Svg, { Path, Defs, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
+import Svg, { Path, Defs, LinearGradient as SvgLinearGradient, Stop, Circle, Rect, G } from 'react-native-svg';
 import { useNavigation } from '@react-navigation/native';
 import { hospitalAPI, whiteLabelAPI } from '../../utils/api';
-
-const { width } = Dimensions.get('window');
-const isSmallScreen = width < 768;
 
 function WhiteLabelBuilder({ hospital }) {
     const hospitalId = hospital?._id || hospital?.id;
@@ -101,51 +98,56 @@ function WhiteLabelBuilder({ hospital }) {
                         </View>
                     )}
                     {status === 'BUILDING' && (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                            <ActivityIndicator size="small" color="#f59e0b" />
-                            <Text style={{ fontSize: 13, color: '#f59e0b', fontWeight: '600' }}>Building App (ETA: 3-5 mins)... ⏳</Text>
-                            <TouchableOpacity onPress={handleReset} style={styles.wlResetBtn}>
-                                <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: '700' }}>Reset</Text>
-                            </TouchableOpacity>
+                        <View style={[styles.wlStatusBadge, { backgroundColor: '#fef3c7', borderColor: '#fde68a' }]}>
+                            <ActivityIndicator size="small" color="#d97706" style={{ marginRight: 6 }} />
+                            <Text style={{ fontSize: 13, color: '#d97706', fontWeight: '600' }}>Building Android Package...</Text>
                         </View>
                     )}
                     {status === 'COMPLETED' && (
-                        <View style={styles.wlStatusBadge}>
-                            <Text style={{ fontSize: 13, color: '#10b981', fontWeight: '700' }}>App Ready ✅</Text>
+                        <View style={[styles.wlStatusBadge, { backgroundColor: '#dcfce7', borderColor: '#bbf7d0' }]}>
+                            <View style={[styles.statusDot, { backgroundColor: '#16a34a' }]} />
+                            <Text style={{ fontSize: 13, color: '#16a34a', fontWeight: '600' }}>Build Ready</Text>
                         </View>
                     )}
                     {status === 'FAILED' && (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                            <Text style={{ fontSize: 13, color: '#ef4444', fontWeight: '700' }}>Build Failed ❌</Text>
-                            {buildError ? <Text style={{ fontSize: 11, color: '#ef4444' }} numberOfLines={1}>({buildError})</Text> : null}
-                            <TouchableOpacity onPress={handleReset} style={styles.wlResetBtn}>
-                                <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: '700' }}>Reset</Text>
-                            </TouchableOpacity>
+                        <View style={[styles.wlStatusBadge, { backgroundColor: '#fee2e2', borderColor: '#fecaca' }]}>
+                            <View style={[styles.statusDot, { backgroundColor: '#dc2626' }]} />
+                            <Text style={{ fontSize: 13, color: '#dc2626', fontWeight: '600' }}>Build Failed</Text>
                         </View>
                     )}
                 </View>
 
-                <View style={styles.wlActionRow}>
-                    <TouchableOpacity 
-                        style={[styles.wlBuildBtn, (status === 'BUILDING' || isTriggering) && { opacity: 0.6 }]} 
-                        onPress={handleBuild}
-                        disabled={status === 'BUILDING' || isTriggering}
-                    >
-                        <Text style={styles.wlBuildBtnText}>
-                            {isTriggering ? 'Starting...' : '⚙️ Build Android App'}
-                        </Text>
-                    </TouchableOpacity>
+                {buildError ? (
+                    <Text style={styles.wlErrorText}>Error: {buildError}</Text>
+                ) : null}
 
+                <View style={styles.wlActionsRow}>
+                    {status !== 'BUILDING' && (
+                        <TouchableOpacity
+                            style={[styles.wlBtn, styles.wlBuildBtn]}
+                            onPress={handleBuild}
+                            disabled={isTriggering}
+                        >
+                            <Text style={styles.wlBuildBtnText}>
+                                {status === 'COMPLETED' ? '🔄 Rebuild App' : '⚡ Start Cloud Build'}
+                            </Text>
+                        </TouchableOpacity>
+                    )}
+                    {status === 'FAILED' && (
+                        <TouchableOpacity style={[styles.wlBtn, styles.wlResetBtn]} onPress={handleReset}>
+                            <Text style={styles.wlResetBtnText}>Reset Build</Text>
+                        </TouchableOpacity>
+                    )}
                     {status === 'COMPLETED' && (
                         <>
-                            <TouchableOpacity 
-                                style={[styles.wlBuildBtn, { backgroundColor: '#10b981' }]} 
+                            <TouchableOpacity
+                                style={[styles.wlBtn, styles.wlDownloadBtn]}
                                 onPress={() => handleDownload('apk')}
                             >
                                 <Text style={styles.wlBuildBtnText}>📥 Download APK</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity 
-                                style={[styles.wlBuildBtn, { backgroundColor: '#8b5cf6' }]} 
+                            <TouchableOpacity
+                                style={[styles.wlBtn, styles.wlDownloadBtn, { backgroundColor: '#8b5cf6' }]}
                                 onPress={() => handleDownload('aab')}
                             >
                                 <Text style={styles.wlBuildBtnText}>🚀 Download AAB</Text>
@@ -160,8 +162,14 @@ function WhiteLabelBuilder({ hospital }) {
 
 export default function CentralAdminHospitalDetails({ hospital, onBack }) {
     const navigation = useNavigation();
+    const { width } = useWindowDimensions();
+    const isDesktop = width >= 1024;
+    const isTablet = width >= 768 && width < 1024;
+    const isMobile = width < 768;
 
     const [datePreset, setDatePreset] = useState('all');
+    const [customStartDate, setCustomStartDate] = useState('');
+    const [customEndDate, setCustomEndDate] = useState('');
     const [statsData, setStatsData] = useState(null);
     const [loadingStats, setLoadingStats] = useState(false);
     const [statsError, setStatsError] = useState('');
@@ -174,12 +182,13 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
     // Staff Table states
     const [staffSearch, setStaffSearch] = useState('');
     const [staffRoleFilter, setStaffRoleFilter] = useState('all');
+    const [chartRange, setChartRange] = useState('this_month');
 
     useEffect(() => {
         fetchStats(datePreset);
     }, [hospital?._id, datePreset]);
 
-    const fetchStats = async (preset) => {
+    const fetchStats = async (preset, customStart, customEnd) => {
         if (!hospital?._id) return;
         setLoadingStats(true);
         setStatsError('');
@@ -187,7 +196,10 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
             let queryStart = '';
             let queryEnd = '';
 
-            if (preset !== 'all') {
+            if (preset === 'custom' && customStart && customEnd) {
+                queryStart = new Date(customStart).toISOString();
+                queryEnd = new Date(customEnd).toISOString();
+            } else if (preset !== 'all' && preset !== 'custom') {
                 const now = new Date();
                 const endD = new Date(now);
                 const startD = new Date(now);
@@ -221,6 +233,15 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
         }
     };
 
+    const handleApplyCustom = () => {
+        if (!customStartDate || !customEndDate) {
+            Alert.alert('Date Range Required', 'Please select both start and end dates.');
+            return;
+        }
+        setDatePreset('custom');
+        fetchStats('custom', customStartDate, customEndDate);
+    };
+
     const handleSaveApptMode = async () => {
         if (!hospital?._id) return;
         setSavingApptMode(true);
@@ -245,18 +266,18 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
         Linking.openURL(url).catch(err => console.error("Couldn't load page", err));
     };
 
-    const [chartRange, setChartRange] = useState('this_month');
+    const formatCurrency = (amount) => '₹' + Number(amount || 0).toLocaleString('en-IN');
 
     const features = [
-        { label: 'Doctors', icon: 'plus-circle', color: '#3b82f6', bg: '#eff6ff', route: 'AdminDoctors' },
-        { label: 'Staff', icon: 'users', color: '#8b5cf6', bg: '#f5f3ff', route: 'Admin' },
-        { label: 'Roles', icon: 'key', color: '#eab308', bg: '#fefce8', route: 'AdminRoles' },
-        { label: 'Labs', icon: 'activity', color: '#22c55e', bg: '#f0fdf4', route: 'AdminLabs' },
-        { label: 'Lab Tests', icon: 'file-text', color: '#10b981', bg: '#ecfdf5', route: 'AdminLabTests' },
-        { label: 'Pharmacy', icon: 'shopping-bag', color: '#f97316', bg: '#fff7ed', route: 'AdminPharmacy' },
-        { label: 'Reception', icon: 'monitor', color: '#14b8a6', bg: '#f0fdfa', route: 'AdminReception' },
-        { label: 'Services', icon: 'grid', color: '#d946ef', bg: '#fdf4ff', route: 'AdminServices' },
-        { label: 'Medicines', icon: 'heart', color: '#ef4444', bg: '#fef2f2', route: 'AdminMedicines' },
+        { label: 'Doctors', icon: '👩‍⚕️', color: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe', route: 'AdminDoctors' },
+        { label: 'Staff', icon: '👥', color: '#0284c7', bg: '#f0f9ff', border: '#bae6fd', route: 'Admin' },
+        { label: 'Roles', icon: '🔑', color: '#7e22ce', bg: '#faf5ff', border: '#e9d5ff', route: 'AdminRoles' },
+        { label: 'Labs', icon: '🧪', color: '#6d28d9', bg: '#f5f3ff', border: '#ddd6fe', route: 'AdminLabs' },
+        { label: 'Lab Tests', icon: '📋', color: '#15803d', bg: '#f0fdf4', border: '#bbf7d0', route: 'AdminLabTests' },
+        { label: 'Pharmacy', icon: '💊', color: '#c2410c', bg: '#fff7ed', border: '#fed7aa', route: 'AdminPharmacy' },
+        { label: 'Reception', icon: '🏥', color: '#047857', bg: '#ecfdf5', border: '#a7f3d0', route: 'AdminReception' },
+        { label: 'Services', icon: '🛠️', color: '#a16207', bg: '#fefce8', border: '#fef08a', route: 'AdminServices' },
+        { label: 'Medicines', icon: '💉', color: '#be123c', bg: '#fff1f2', border: '#fecdd3', route: 'AdminMedicines' },
     ];
 
     const handleFeatureClick = (feature) => {
@@ -272,12 +293,14 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
     };
 
     // Live Stats derived from backend response
-    const totalStaff = statsData?.stats?.totalStaff ?? 0;
-    const uniquePatients = statsData?.stats?.totalPatients ?? statsData?.stats?.uniquePatients ?? 0;
-    const totalAppointments = statsData?.stats?.totalAppointments ?? 0;
-    const completedAppointments = statsData?.stats?.completedAppointments ?? 0;
-    const pendingAppointments = statsData?.stats?.pendingAppointments ?? 0;
-    const totalRevenue = statsData?.stats?.totalRevenue ?? 0;
+    const s = statsData?.stats || {};
+    const totalStaff = s?.totalStaff ?? 0;
+    const uniquePatients = s?.totalPatients ?? s?.uniquePatients ?? 0;
+    const totalAppointments = s?.totalAppointments ?? 0;
+    const completedAppointments = s?.completedAppointments ?? 0;
+    const pendingAppointments = s?.pendingAppointments ?? 0;
+    const totalRevenue = s?.totalRevenue ?? 0;
+    const totalSixMonthRevenue = s?.totalSixMonthRevenue ?? (s?.monthlyRevenue?.reduce((acc, m) => acc + (m.revenue || 0), 0) ?? totalRevenue);
     const appointmentsToRender = statsData?.recentAppointments || [];
 
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -288,10 +311,10 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
         ? [`01 ${prevM}`, `05 ${prevM}`, `10 ${prevM}`, `15 ${prevM}`, `20 ${prevM}`, `25 ${prevM}`, `30 ${prevM}`]
         : chartRange === 'this_year'
             ? ['Jan', 'Mar', 'May', 'Jul', 'Sep', 'Nov', 'Dec']
-            : [`01 ${curM}`, `05 ${curM}`, `10 ${curM}`, `15 ${curM}`, `20 ${curM}`];
+            : [`01 ${curM}`, `05 ${curM}`, `10 ${curM}`, `15 ${curM}`, `20 ${curM}`, `25 ${curM}`, `30 ${curM}`];
 
     // Staff List derived from backend response
-    const rawStaffList = statsData?.staffList || statsData?.stats?.staff || [];
+    const rawStaffList = statsData?.staffList || s?.staff || [];
     const staffListWithoutPatients = rawStaffList.filter(st => {
         const r = (st.roleName || st.role || '').toLowerCase();
         return !['patient', 'patients'].includes(r);
@@ -317,160 +340,339 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
         return true;
     });
 
+    const logoUrl = hospital?.brandingSchema?.logoUrl || hospital?.branding?.logoUrl;
+    const hospitalName = hospital?.name || 'Apollo Hospital';
+    const hospitalLocation = hospital?.city ? `${hospital.city}${hospital.state ? `, ${hospital.state}` : ''}` : (hospital?.address || 'Jaipur, Rajasthan');
+    const hospitalPhone = hospital?.phone || '8795719836';
+    const doctorCount = s?.doctorCount ?? s?.totalDoctors ?? s?.staffCounts?.doctor ?? 0;
+
     return (
-        <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-            {/* Header Section */}
-            <View style={styles.headerContainer}>
-                <LinearGradient colors={['#1e1b4b', '#312e81', '#1e3a8a']} style={styles.headerGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-                    <View style={styles.headerTop}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <View style={styles.hospitalLogoBox}>
-                                <Feather name="plus" size={32} color="#ef4444" style={{ fontWeight: 'bold' }} />
-                            </View>
-                            <View style={{ marginLeft: 16 }}>
-                                <Text style={styles.hospitalProfileTag}>Hospital Profile</Text>
-                                <Text style={styles.hospitalName}>{hospital?.name || 'Hospital Name'}</Text>
-                                <View style={styles.hospitalContactRow}>
-                                    <View style={styles.contactBadge}>
-                                        <Feather name="map-pin" size={12} color="#3b82f6" />
-                                        <Text style={styles.contactBadgeText}>{hospital?.city || 'Location'}, {hospital?.state || ''}</Text>
-                                    </View>
-                                    {hospital?.phone && (
-                                        <View style={styles.contactBadge}>
-                                            <Feather name="phone" size={12} color="#10b981" />
-                                            <Text style={styles.contactBadgeText}>{hospital.phone}</Text>
-                                        </View>
-                                    )}
+        <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+            {/* 1. Hospital Profile Hero Header Banner (100% Web Parity with SVG Wave, Hexagon Logo, ECG Heartbeat Widget) */}
+            <View style={styles.heroBanner}>
+                {/* Left Organic Deep Blue / Indigo Wave Background (Desktop/Tablet only, matching Web 1:1) */}
+                {!isMobile && (
+                    <View style={styles.heroWaves}>
+                        <Svg style={styles.heroWaveSvg} viewBox="0 0 280 280" preserveAspectRatio="none">
+                            <Defs>
+                                <SvgLinearGradient id="heroBlueDeep" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <Stop offset="0%" stopColor="#081038" />
+                                    <Stop offset="28%" stopColor="#131e5c" />
+                                    <Stop offset="55%" stopColor="#2e1a6b" />
+                                    <Stop offset="78%" stopColor="#4c1d95" />
+                                    <Stop offset="100%" stopColor="#6366f1" />
+                                </SvgLinearGradient>
+                                <SvgLinearGradient id="heroBlueEdge" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <Stop offset="0%" stopColor="#38bdf8" />
+                                    <Stop offset="45%" stopColor="#818cf8" />
+                                    <Stop offset="80%" stopColor="#a855f7" />
+                                    <Stop offset="100%" stopColor="#c084fc" />
+                                </SvgLinearGradient>
+                            </Defs>
+                            <Path d="M0 0 L265 0 C215 55 225 120 185 180 C145 230 100 280 0 280 Z" fill="url(#heroBlueDeep)" />
+                            <Path d="M265 0 C215 55 225 120 185 180 C145 230 100 280 0 280" fill="none" stroke="url(#heroBlueEdge)" strokeWidth="3.5" strokeOpacity="0.95" />
+                        </Svg>
+                        {/* Bottom Left Dot Matrix */}
+                        <View style={styles.heroDarkDotMatrix}>
+                            {Array.from({ length: 16 }).map((_, i) => (
+                                <View key={i} style={styles.heroMatrixDot} />
+                            ))}
+                        </View>
+                    </View>
+                )}
+
+                {/* Top Row: Left "Hospital Profile" Badge + Right Compact "← Back" Button */}
+                <View style={styles.heroTopRow}>
+                    <View style={styles.profilePill}>
+                        <Svg width={14} height={14} viewBox="0 0 24 24" fill="#38bdf8">
+                            <Path d="M12 2L4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5l-8-3z" />
+                            <Path d="M9 12l2 2 4-4" stroke="#ffffff" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                        </Svg>
+                        <Text style={styles.profilePillText}>Hospital Profile</Text>
+                    </View>
+
+                    <TouchableOpacity 
+                        style={styles.topBackBtn} 
+                        onPress={onBack}
+                        activeOpacity={0.8}
+                    >
+                        <Text style={styles.topBackArrow}>←</Text>
+                        <Text style={styles.topBackText}>Back</Text>
+                    </TouchableOpacity>
+                </View>
+
+                {/* Main Hero Upper Content */}
+                <View style={[styles.heroContent, isMobile && { flexDirection: 'column', alignItems: 'center' }]}>
+                    {/* 3D Hexagon Hospital Logo with Orbital Planetary Rings */}
+                    <View style={styles.hexLogoContainer}>
+                        <View style={styles.hexOrbitRing} />
+                        <View style={[styles.hexOrbitNode, styles.nodeA]} />
+                        <View style={[styles.hexOrbitNode, styles.nodeB]} />
+                        <View style={[styles.hexOrbitNode, styles.nodeC]} />
+
+                        <Svg width={78} height={86} viewBox="0 0 100 115">
+                            <Defs>
+                                <SvgLinearGradient id="hexOuterGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <Stop offset="0%" stopColor="#ffffff" />
+                                    <Stop offset="100%" stopColor="#f0fdf4" />
+                                </SvgLinearGradient>
+                            </Defs>
+                            <Path d="M50 2 L98 29 L98 86 L50 113 L2 86 L2 29 Z" fill="url(#hexOuterGrad)" stroke="#86efac" strokeWidth="2.5" />
+                            <Path d="M50 9 L91 32 L91 83 L50 106 L9 83 L9 32 Z" fill="#ffffff" />
+                        </Svg>
+
+                        <View style={styles.hexLogoCenterWrap}>
+                            {logoUrl ? (
+                                <Image source={{ uri: logoUrl }} style={styles.hexImg} resizeMode="contain" />
+                            ) : (
+                                <View style={styles.redCrossBox}>
+                                    <View style={styles.crossArmH} />
+                                    <View style={styles.crossArmV} />
                                 </View>
+                            )}
+                        </View>
+                    </View>
+
+                    {/* Center Hospital Info */}
+                    <View style={[styles.heroInfo, isMobile && { marginVertical: 10, paddingHorizontal: 4 }]}>
+                        {/* Top 5x4 Dot Matrix Pattern */}
+                        <View style={styles.centerDotMatrix}>
+                            {Array.from({ length: 20 }).map((_, i) => (
+                                <View key={i} style={styles.centerMatrixDot} />
+                            ))}
+                        </View>
+
+                        {/* Title */}
+                        <Text style={styles.heroTitle}>{hospitalName}</Text>
+
+                        {/* Progress Underline Accent Bar */}
+                        <View style={styles.heroAccentBar}>
+                            <View style={styles.accentBarFill} />
+                            <View style={styles.accentBarDot} />
+                        </View>
+
+                        {/* Meta Pills: Location & Phone */}
+                        <View style={styles.heroMetaRow}>
+                            <View style={styles.metaChip}>
+                                <View style={[styles.metaChipIcon, styles.pinIcon]}>
+                                    <Feather name="map-pin" size={11} color="#4f46e5" />
+                                </View>
+                                <Text style={styles.metaChipText}>{hospitalLocation}</Text>
+                            </View>
+                            <View style={styles.metaSep} />
+                            <View style={styles.metaChip}>
+                                <View style={[styles.metaChipIcon, styles.phoneIcon]}>
+                                    <Feather name="phone" size={11} color="#0d9488" />
+                                </View>
+                                <Text style={styles.metaChipText}>{hospitalPhone}</Text>
                             </View>
                         </View>
-                        <TouchableOpacity style={styles.backButton} onPress={onBack}>
-                            <Feather name="arrow-left" size={16} color="#fff" />
-                            <Text style={styles.backButtonText}>Back to Hospitals</Text>
-                        </TouchableOpacity>
                     </View>
-                </LinearGradient>
-                
-                {/* Floating Info Cards */}
-                <View style={styles.floatingCardsRow}>
-                    <View style={styles.floatCard}>
-                        <Feather name="shield" size={16} color="#6366f1" />
-                        <View style={{ marginLeft: 8 }}>
-                            <Text style={styles.floatCardLabel}>Trusted Care</Text>
-                            <Text style={styles.floatCardValue}>24/7</Text>
+
+                    {/* Right: ECG Heartbeat Widget */}
+                    {!isMobile && (
+                        <View style={styles.heroRightCol}>
+                            <View style={styles.ecgWidget}>
+                                <Svg width={185} height={58} viewBox="0 0 230 76">
+                                    <Defs>
+                                        <SvgLinearGradient id="ecgLineGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                                            <Stop offset="0%" stopColor="#38bdf8" />
+                                            <Stop offset="45%" stopColor="#0284c7" />
+                                            <Stop offset="85%" stopColor="#2563eb" />
+                                            <Stop offset="100%" stopColor="#10b981" />
+                                        </SvgLinearGradient>
+                                    </Defs>
+                                    {/* Dot grid points */}
+                                    {Array.from({ length: 18 }).map((_, r) =>
+                                        Array.from({ length: 6 }).map((__, c) => (
+                                            <Circle key={`${r}-${c}`} cx={12 + r * 12} cy={8 + c * 11} r={0.9} fill="#93c5fd" fillOpacity={0.4} />
+                                        ))
+                                    )}
+                                    {/* Static trace */}
+                                    <Path 
+                                        d="M 12 40 H 42 L 48 34 L 54 44 L 66 10 L 76 68 L 83 38 L 89 43 L 130 40 L 138 52 L 148 18 L 158 55 L 164 40 L 198 40" 
+                                        stroke="#e0f2fe" 
+                                        strokeWidth="2.5" 
+                                        strokeLinecap="round" 
+                                        strokeLinejoin="round" 
+                                    />
+                                    {/* Glowing ECG Pulse Line */}
+                                    <Path 
+                                        d="M 12 40 H 42 L 48 34 L 54 44 L 66 10 L 76 68 L 83 38 L 89 43 L 130 40 L 138 52 L 148 18 L 158 55 L 164 40 L 198 40" 
+                                        stroke="url(#ecgLineGrad)" 
+                                        strokeWidth="2.8" 
+                                        strokeLinecap="round" 
+                                        strokeLinejoin="round" 
+                                    />
+                                    {/* Green Radar Signal End Node with Expanding Ripples */}
+                                    <Circle cx={198} cy={40} r={16} fill="#10b981" fillOpacity={0.15} />
+                                    <Circle cx={198} cy={40} r={10} stroke="#10b981" strokeWidth={1} fill="none" opacity={0.6} />
+                                    <Circle cx={198} cy={40} r={7} fill="#a7f3d0" fillOpacity={0.75} />
+                                    <Circle cx={198} cy={40} r={4.5} fill="#10b981" />
+                                    <Circle cx={197} cy={39} r={1.5} fill="#ffffff" />
+                                </Svg>
+                            </View>
+                        </View>
+                    )}
+                </View>
+
+                {/* Bottom Floating Stats & Real-time Status Bar */}
+                <View style={[styles.heroBottomBar, isMobile && { width: '100%', maxWidth: '100%', flexDirection: 'column', gap: 10, paddingVertical: 10 }]}>
+                    <View style={[{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around' }, isMobile && { width: '100%' }]}>
+                        <View style={styles.bottomStatItem}>
+                            <View style={[styles.bottomStatIcon, styles.iconShield]}>
+                                <Feather name="shield" size={12} color="#6366f1" />
+                            </View>
+                            <View style={styles.bottomStatText}>
+                                <Text style={styles.bottomStatLabel}>Trusted Care</Text>
+                                <Text style={styles.bottomStatVal}>24/7</Text>
+                            </View>
+                        </View>
+
+                        <View style={styles.bottomStatSep} />
+
+                        <View style={styles.bottomStatItem}>
+                            <View style={[styles.bottomStatIcon, styles.iconDoctors]}>
+                                <Feather name="user" size={12} color="#0d9488" />
+                            </View>
+                            <View style={styles.bottomStatText}>
+                                <Text style={styles.bottomStatLabel}>Expert Doctors</Text>
+                                <Text style={styles.bottomStatVal}>{doctorCount}</Text>
+                            </View>
                         </View>
                     </View>
-                    <View style={styles.floatCard}>
-                        <Feather name="user" size={16} color="#10b981" />
-                        <View style={{ marginLeft: 8 }}>
-                            <Text style={styles.floatCardLabel}>Total Doctors</Text>
-                            <Text style={styles.floatCardValue}>{statsData?.stats?.doctorCount ?? statsData?.stats?.totalDoctors ?? '—'}</Text>
+
+                    {/* Right Status Capsule with ECG wave inside */}
+                    <View style={[styles.bottomStatRight, isMobile && { width: '100%', alignItems: 'center', justifyContent: 'center' }]}>
+                        <View style={[styles.statusCapsule, hospital?.isActive === false && styles.statusCapsuleInactive, isMobile && { width: '100%', justifyContent: 'center' }]}>
+                            <View style={styles.liveDot} />
+                            <Text style={styles.statusCapsuleName}>{hospital?.isActive === false ? 'INACTIVE' : 'ACTIVE'}</Text>
+                            <View style={styles.statusEcgWrap}>
+                                <Svg viewBox="0 0 60 24" style={{ width: 36, height: 14 }}>
+                                    <Path d="M0 12 L15 12 L20 4 L25 20 L30 8 L35 16 L40 12 L60 12" stroke="#16a34a" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                                </Svg>
+                            </View>
                         </View>
-                    </View>
-                    <View style={styles.floatCard}>
-                        <Feather name="users" size={16} color="#3b82f6" />
-                        <View style={{ marginLeft: 8 }}>
-                            <Text style={styles.floatCardLabel}>Patients Served</Text>
-                            <Text style={styles.floatCardValue}>{uniquePatients}</Text>
-                        </View>
-                    </View>
-                    <View style={styles.floatCardStatus}>
-                        <View style={styles.statusDot} />
-                        <Text style={styles.statusText}>ACTIVE</Text>
                     </View>
                 </View>
             </View>
 
-            {/* Analytics Timeframe */}
-            <View style={styles.sectionCard}>
-                <View style={styles.sectionHeaderRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Feather name="calendar" size={18} color="#6366f1" />
-                        <Text style={styles.sectionTitle}>Analytics Timeframe</Text>
+            {/* 2. Analytics Timeframe Bar */}
+            <View style={styles.timeframeCard}>
+                <View style={[styles.timeframeHead, isMobile && { flexDirection: 'column', alignItems: 'flex-start', gap: 6 }]}>
+                    <View style={styles.timeframeTitleGroup}>
+                        <View style={styles.purpleIconCircle}>
+                            <Feather name="calendar" size={16} color="#6366f1" />
+                        </View>
+                        <Text style={styles.timeframeTitle}>Analytics Timeframe</Text>
                     </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                         {loadingStats && <ActivityIndicator size="small" color="#6366f1" />}
-                        <Text style={styles.sectionSubtitle}>Choose a reporting period</Text>
+                        <Text style={styles.timeframeSubtitle}>Choose a reporting period</Text>
                     </View>
                 </View>
 
                 {statsError ? (
-                    <View style={{ backgroundColor: '#fef2f2', padding: 10, borderRadius: 8, marginBottom: 12 }}>
+                    <View style={{ backgroundColor: '#fef2f2', padding: 10, borderRadius: 8 }}>
                         <Text style={{ color: '#ef4444', fontSize: 12 }}>{statsError}</Text>
                     </View>
                 ) : null}
 
-                <View style={styles.timeframeControls}>
+                <View style={[styles.timeframeControls, isMobile && { flexDirection: 'column', alignItems: 'stretch' }]}>
+                    {/* Presets Group */}
                     <View style={styles.presetGroup}>
                         {[
                             { key: 'all', label: 'All Time' },
                             { key: 'today', label: 'Today' },
                             { key: '30', label: '30 Days' },
-                            { key: '60', label: '60 Days' },
-                            { key: '90', label: '90 Days' },
-                        ].map((preset) => (
-                            <TouchableOpacity 
-                                key={preset.key} 
-                                style={[styles.presetBtn, datePreset === preset.key && styles.presetBtnActive]}
-                                onPress={() => setDatePreset(preset.key)}
+                        ].map(p => (
+                            <TouchableOpacity
+                                key={p.key}
+                                style={[styles.presetBtn, datePreset === p.key && styles.presetBtnActive]}
+                                onPress={() => setDatePreset(p.key)}
                             >
-                                <Text style={[styles.presetBtnText, datePreset === preset.key && styles.presetBtnTextActive]}>
-                                    {preset.label}
+                                <Text style={[styles.presetBtnText, datePreset === p.key && styles.presetBtnTextActive]}>
+                                    {p.label}
                                 </Text>
                             </TouchableOpacity>
                         ))}
                     </View>
 
-                    <TouchableOpacity 
-                        style={[styles.btnPrimary, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}
-                        onPress={() => fetchStats(datePreset)}
-                    >
-                        <Feather name="refresh-cw" size={13} color="#fff" />
-                        <Text style={styles.btnPrimaryText}>Refresh</Text>
-                    </TouchableOpacity>
+                    {/* Date Picker Range Inputs */}
+                    <View style={[styles.datePickerGroup, isMobile && { width: '100%', marginTop: 8 }]}>
+                        <TextInput
+                            style={styles.dateInput}
+                            placeholder="YYYY-MM-DD"
+                            value={customStartDate}
+                            onChangeText={setCustomStartDate}
+                            placeholderTextColor="#94a3b8"
+                        />
+                        <Text style={styles.dateSep}>to</Text>
+                        <TextInput
+                            style={styles.dateInput}
+                            placeholder="YYYY-MM-DD"
+                            value={customEndDate}
+                            onChangeText={setCustomEndDate}
+                            placeholderTextColor="#94a3b8"
+                        />
+                        <TouchableOpacity style={styles.applyBtn} onPress={handleApplyCustom}>
+                            <Text style={styles.applyBtnText}>Apply Custom</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
             </View>
 
-            {/* Live Stat Cards Grid */}
-            <View style={styles.statsGrid}>
-                <View style={[styles.statCard, { borderBottomColor: '#22c55e', borderBottomWidth: 3 }]}>
-                    <View style={[styles.statIconBox, { backgroundColor: '#dcfce7' }]}>
-                        <Feather name="user" size={20} color="#16a34a" />
+            {/* 3. 4 KPI Stat Cards (Modern Light Colorful Themes) */}
+            <View style={[styles.kpiGrid, isMobile ? { flexDirection: 'column' } : (isTablet ? { flexWrap: 'wrap' } : {})]}>
+                {/* 1. Green Theme: Total Staff */}
+                <View style={[styles.kpiCard, styles.kpiCardGreen, isTablet && { width: '48%' }, isMobile && { width: '100%' }]}>
+                    <View style={[styles.kpiIconWrap, { color: '#16a34a' }]}>
+                        <Feather name="user" size={18} color="#16a34a" />
                     </View>
-                    <Text style={styles.statValue}>{totalStaff}</Text>
-                    <Text style={styles.statLabel}>Total Staff</Text>
-                    <Text style={styles.statSub}>Active staff members</Text>
+                    <Text style={[styles.kpiVal, { color: '#065f46' }]}>{totalStaff}</Text>
+                    <Text style={[styles.kpiLbl, { color: '#166534' }]}>Total Staff</Text>
+                    <Text style={[styles.kpiSub, { color: '#15803d' }]}>Active staff members</Text>
+                    <View style={[styles.kpiBar, { backgroundColor: '#34d399' }]} />
                 </View>
-                <View style={[styles.statCard, { borderBottomColor: '#3b82f6', borderBottomWidth: 3 }]}>
-                    <View style={[styles.statIconBox, { backgroundColor: '#dbeafe' }]}>
-                        <Feather name="users" size={20} color="#2563eb" />
+
+                {/* 2. Blue Theme: Unique Patients */}
+                <View style={[styles.kpiCard, styles.kpiCardBlue, isTablet && { width: '48%' }, isMobile && { width: '100%' }]}>
+                    <View style={[styles.kpiIconWrap, { color: '#0284c7' }]}>
+                        <Feather name="users" size={18} color="#0284c7" />
                     </View>
-                    <Text style={styles.statValue}>{uniquePatients}</Text>
-                    <Text style={styles.statLabel}>Unique Patients</Text>
-                    <Text style={styles.statSub}>In selected period</Text>
+                    <Text style={[styles.kpiVal, { color: '#075985' }]}>{uniquePatients}</Text>
+                    <Text style={[styles.kpiLbl, { color: '#0369a1' }]}>Unique Patients</Text>
+                    <Text style={[styles.kpiSub, { color: '#0284c7' }]}>In selected period</Text>
+                    <View style={[styles.kpiBar, { backgroundColor: '#38bdf8' }]} />
                 </View>
-                <View style={[styles.statCard, { borderBottomColor: '#a855f7', borderBottomWidth: 3 }]}>
-                    <View style={[styles.statIconBox, { backgroundColor: '#f3e8ff' }]}>
-                        <Feather name="calendar" size={20} color="#9333ea" />
+
+                {/* 3. Purple Theme: Total Appointments */}
+                <View style={[styles.kpiCard, styles.kpiCardPurple, isTablet && { width: '48%' }, isMobile && { width: '100%' }]}>
+                    <View style={[styles.kpiIconWrap, { color: '#7c3aed' }]}>
+                        <Feather name="calendar" size={18} color="#7c3aed" />
                     </View>
-                    <Text style={styles.statValue}>{totalAppointments}</Text>
-                    <Text style={styles.statLabel}>Total Appointments</Text>
-                    <Text style={styles.statSub}>In selected period</Text>
+                    <Text style={[styles.kpiVal, { color: '#581c87' }]}>{totalAppointments}</Text>
+                    <Text style={[styles.kpiLbl, { color: '#6b21a8' }]}>Total Appointments</Text>
+                    <Text style={[styles.kpiSub, { color: '#7c3aed' }]}>In selected period</Text>
+                    <View style={[styles.kpiBar, { backgroundColor: '#c084fc' }]} />
                 </View>
-                <View style={[styles.statCard, { borderBottomColor: '#eab308', borderBottomWidth: 3 }]}>
-                    <View style={[styles.statIconBox, { backgroundColor: '#fef9c3' }]}>
-                        <Text style={{ fontSize: 18, color: '#ca8a04', fontWeight: 'bold' }}>₹</Text>
+
+                {/* 4. Orange Theme: Total Revenue */}
+                <View style={[styles.kpiCard, styles.kpiCardOrange, isTablet && { width: '48%' }, isMobile && { width: '100%' }]}>
+                    <View style={[styles.kpiIconWrap, { color: '#d97706' }]}>
+                        <Text style={{ fontSize: 18, color: '#d97706', fontWeight: 'bold' }}>₹</Text>
                     </View>
-                    <Text style={styles.statValue}>₹{(totalRevenue || 0).toLocaleString('en-IN')}</Text>
-                    <Text style={styles.statLabel}>Total Revenue</Text>
-                    <Text style={styles.statSub}>From paid appointments</Text>
+                    <Text style={[styles.kpiVal, { color: '#78350f' }]}>{formatCurrency(totalRevenue)}</Text>
+                    <Text style={[styles.kpiLbl, { color: '#92400e' }]}>Total Revenue</Text>
+                    <Text style={[styles.kpiSub, { color: '#b45309' }]}>From paid appointments</Text>
+                    <View style={[styles.kpiBar, { backgroundColor: '#fbbf24' }]} />
                 </View>
             </View>
 
-            {/* Appointments Overview & Recent Appointments */}
-            <View style={[styles.middleGrid, isSmallScreen && styles.middleGridMobile]}>
+            {/* 4. Appointments Overview & Recent Appointments Grid */}
+            <View style={[styles.middleGrid, isMobile && { flexDirection: 'column' }]}>
                 {/* Left: Appointments Overview Chart */}
-                <View style={styles.chartCard}>
+                <View style={[styles.chartCard, isMobile && { width: '100%' }]}>
                     <View style={styles.chartCardHead}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                             <View style={styles.purpleIconCircle}>
@@ -563,7 +765,7 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
                 </View>
 
                 {/* Right: Recent Appointments mini-table */}
-                <View style={styles.summaryCard}>
+                <View style={[styles.summaryCard, isMobile && { width: '100%' }]}>
                     <View style={styles.chartCardHead}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                             <View style={[styles.purpleIconCircle, { backgroundColor: '#ffedd5' }]}>
@@ -594,8 +796,6 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
                                             ? new Date(appt.appointmentDate).toLocaleDateString('en-GB') 
                                             : (appt.date || '—');
                                         const statusStr = (appt.status || 'completed').toLowerCase();
-                                        const isCompleted = statusStr === 'completed' || statusStr === 'confirmed';
-                                        const isPending = statusStr === 'pending' || statusStr === 'scheduled';
                                         const amt = appt.amount || 0;
 
                                         return (
@@ -610,20 +810,14 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
                                                     {dateStr}
                                                 </Text>
                                                 <View style={{ width: 95, justifyContent: 'center' }}>
-                                                    <View style={[
-                                                        styles.recentApptBadge,
-                                                        isCompleted ? styles.badgeSuccess : (isPending ? styles.badgeWarning : styles.badgeDefault)
-                                                    ]}>
-                                                        <Text style={[
-                                                            styles.recentApptBadgeText,
-                                                            isCompleted ? { color: '#16a34a' } : (isPending ? { color: '#d97706' } : { color: '#64748b' })
-                                                        ]}>
+                                                    <View style={styles.statusCompletedBadge}>
+                                                        <Text style={styles.statusCompletedText}>
                                                             {statusStr}
                                                         </Text>
                                                     </View>
                                                 </View>
                                                 <Text style={[styles.recentApptTd, { width: 80, textAlign: 'right', fontWeight: '700', color: '#0f172a' }]}>
-                                                    ₹{amt.toLocaleString('en-IN')}
+                                                    {formatCurrency(amt)}
                                                 </Text>
                                             </View>
                                         );
@@ -641,13 +835,10 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
                 </View>
             </View>
 
-            {/* Quick Feature Management */}
+            {/* 5. Exact Quick Feature Management (5-Column Desktop Grid) */}
             <View style={styles.sectionCard}>
                 <View style={styles.sectionHeaderRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Feather name="zap" size={18} color="#ea580c" />
-                        <Text style={styles.sectionTitle}>Quick Feature Management</Text>
-                    </View>
+                    <Text style={styles.sectionTitle}>⚡ Quick Feature Management</Text>
                 </View>
                 <Text style={[styles.sectionSubtitle, { marginBottom: 16, marginTop: -10 }]}>
                     Jump to manage specific features for this hospital.
@@ -657,10 +848,17 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
                     {features.map((feature, idx) => (
                         <TouchableOpacity 
                             key={idx} 
-                            style={[styles.featureBtn, { backgroundColor: feature.bg }]}
+                            style={[
+                                styles.featureBtn, 
+                                { backgroundColor: feature.bg, borderColor: feature.border },
+                                isDesktop && { width: '18.8%' },
+                                isTablet && { width: '31%' },
+                                isMobile && { width: '48%' }
+                            ]}
                             onPress={() => handleFeatureClick(feature)}
+                            activeOpacity={0.8}
                         >
-                            <Feather name={feature.icon} size={14} color={feature.color} />
+                            <Text style={{ fontSize: 15, marginRight: 6 }}>{feature.icon}</Text>
                             <Text style={[styles.featureBtnText, { color: feature.color }]}>{feature.label}</Text>
                         </TouchableOpacity>
                     ))}
@@ -670,12 +868,11 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
             {/* White Label Mobile App Builder */}
             <WhiteLabelBuilder hospital={hospital} />
 
-            {/* Appointment System Mode */}
+            {/* 6. Appointment System Mode */}
             <View style={styles.sectionCard}>
                 <View style={styles.sectionHeaderRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <View style={{ width: 16, height: 12, backgroundColor: '#f43f5e', borderRadius: 2, marginRight: 8 }} />
-                        <Text style={styles.sectionTitle}>Appointment System Mode</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                        <Text style={styles.sectionTitle}>🎟️ Appointment System Mode</Text>
                         <View style={styles.badgeBlue}>
                             <Text style={styles.badgeBlueText}>
                                 Current: {apptMode === 'token' ? 'Token Queue' : 'Time Slots'}
@@ -687,14 +884,16 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
                     Choose your appointment system mode. You can switch between modes at any time.
                 </Text>
                 
-                <View style={styles.modeCardsRow}>
+                <View style={[styles.modeCardsRow, isMobile && { flexDirection: 'column' }]}>
                     <TouchableOpacity 
-                        style={[styles.modeCard, apptMode === 'slot' && styles.modeCardActive]} 
+                        style={[styles.modeCard, apptMode === 'slot' && styles.modeCardActive, isMobile && { width: '100%', marginBottom: 10 }]} 
                         onPress={() => { setApptMode('slot'); setApptModeSuccess(''); setApptModeError(''); }}
                     >
-                        <View style={styles.modeIconBox}><Feather name="clock" size={18} color="#6366f1" /></View>
+                        <View style={[styles.modeIconBox, { backgroundColor: '#ede9fe' }]}>
+                            <Feather name="clock" size={18} color="#6366f1" />
+                        </View>
                         <View style={{ flex: 1, marginLeft: 12 }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                                 <Text style={styles.modeCardTitle}>Time Slot Booking</Text>
                                 <View style={styles.badgePrimary}><Text style={styles.badgePrimaryText}>Recommended</Text></View>
                             </View>
@@ -703,10 +902,12 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
                     </TouchableOpacity>
 
                     <TouchableOpacity 
-                        style={[styles.modeCard, apptMode === 'token' && styles.modeCardActive]} 
+                        style={[styles.modeCard, apptMode === 'token' && styles.modeCardActive, isMobile && { width: '100%' }]} 
                         onPress={() => { setApptMode('token'); setApptModeSuccess(''); setApptModeError(''); }}
                     >
-                        <View style={[styles.modeIconBox, { backgroundColor: '#fef3c7' }]}><Feather name="list" size={18} color="#d97706" /></View>
+                        <View style={[styles.modeIconBox, { backgroundColor: '#fef3c7' }]}>
+                            <Feather name="list" size={18} color="#d97706" />
+                        </View>
                         <View style={{ flex: 1, marginLeft: 12 }}>
                             <Text style={styles.modeCardTitle}>Token Queue System</Text>
                             <Text style={styles.modeCardDesc}>Sequential tokens (1, 2, 3...). 1 patient per day or live token updating board.</Text>
@@ -744,145 +945,377 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
                 </View>
             </View>
 
-            {/* Hospital Info */}
-            <View style={styles.sectionCard}>
-                <View style={styles.sectionHeaderRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <View style={[styles.statIconBox, { backgroundColor: '#e0e7ff', width: 32, height: 32 }]}><Feather name="cpu" size={16} color="#4f46e5" /></View>
-                        <Text style={[styles.sectionTitle, { marginLeft: 8 }]}>Hospital Info</Text>
-                        <View style={[styles.badgeBlue, { backgroundColor: '#ccfbf1', borderColor: '#99f6e4' }]}><Text style={[styles.badgeBlueText, { color: '#0f766e' }]}>AI Synced</Text></View>
-                    </View>
-                </View>
+            {/* 7. Hospital Info + Holographic AI Security Panel (2-Column Desktop Grid) */}
+            <View style={styles.hospitalInfoCard}>
+                <View style={[styles.infoCardLayout, !isDesktop && { flexDirection: 'column', gap: 24 }]}>
+                    {/* Left Column: Colorful Single Column Hospital Info */}
+                    <View style={[styles.infoLeftCol, !isDesktop && { width: '100%' }]}>
+                        <View style={styles.infoHeaderRow}>
+                            <View style={styles.aiGradientIcon}>
+                                <Feather name="cpu" size={20} color="#ffffff" />
+                            </View>
+                            <View style={styles.infoHeaderTitles}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                                    <Text style={styles.colTitle}>🏥 Hospital Info</Text>
+                                    <View style={styles.aiSyncPill}>
+                                        <View style={styles.aiPulseDot} />
+                                        <Text style={styles.aiSyncPillText}>AI Synced</Text>
+                                    </View>
+                                </View>
+                            </View>
+                        </View>
 
-                <View style={styles.infoGridRow}>
-                    <View style={styles.infoRow}><Feather name="mail" size={14} color="#3b82f6" /><Text style={styles.infoLabel}>Email</Text><Text style={styles.infoValue}>{hospital?.email || 'N/A'}</Text></View>
-                    <View style={styles.infoRow}><Feather name="map-pin" size={14} color="#eab308" /><Text style={styles.infoLabel}>Address</Text><Text style={styles.infoValue}>{hospital?.address ? `${hospital.address}${hospital.city ? `, ${hospital.city}` : ''}` : (hospital?.city || 'N/A')}</Text></View>
-                    <View style={styles.infoRow}><Feather name="user" size={14} color="#8b5cf6" /><Text style={styles.infoLabel}>Admin</Text><Text style={styles.infoValue}>{hospital?.adminName || hospital?.adminUserId?.name || 'SuperAdmin'}</Text></View>
-                    <View style={styles.infoRow}><Feather name="at-sign" size={14} color="#ec4899" /><Text style={styles.infoLabel}>Admin Email</Text><Text style={styles.infoValue}>{hospital?.adminEmail || hospital?.adminUserId?.email || hospital?.email || 'N/A'}</Text></View>
-                    <View style={styles.infoRow}>
-                        <Feather name="link" size={14} color="#10b981" />
-                        <Text style={styles.infoLabel}>Staff Login URL</Text>
-                        <TouchableOpacity style={styles.urlBadge} onPress={() => handleOpenURL(`https://${hospital?.slug || hospital?.customDomain || 'demo'}.medical365.in/login`)}>
-                            <Text style={styles.urlText}>https://{hospital?.slug || hospital?.customDomain || 'demo'}.medical365.in/login</Text>
-                            <Feather name="external-link" size={12} color="#059669" style={{ marginLeft: 4 }} />
-                        </TouchableOpacity>
+                        <View style={styles.metaListColorful}>
+                            {/* Email */}
+                            <View style={[styles.metaRowColorful, styles.themeBlue]}>
+                                <View style={styles.rowLeft}>
+                                    <View style={[styles.chipIcon, { backgroundColor: '#eff6ff' }]}>
+                                        <Feather name="mail" size={13} color="#2563eb" />
+                                    </View>
+                                    <Text style={[styles.rowKey, { color: '#1d4ed8' }]}>Email</Text>
+                                </View>
+                                <Text style={styles.rowVal}>{hospital?.email || '—'}</Text>
+                            </View>
+
+                            {/* Address */}
+                            <View style={[styles.metaRowColorful, styles.themeAmber]}>
+                                <View style={styles.rowLeft}>
+                                    <View style={[styles.chipIcon, { backgroundColor: '#fffbeb' }]}>
+                                        <Feather name="map-pin" size={13} color="#d97706" />
+                                    </View>
+                                    <Text style={[styles.rowKey, { color: '#b45309' }]}>Address</Text>
+                                </View>
+                                <Text style={styles.rowVal}>{hospitalLocation}</Text>
+                            </View>
+
+                            {/* Admin */}
+                            <View style={[styles.metaRowColorful, styles.themePurple]}>
+                                <View style={styles.rowLeft}>
+                                    <View style={[styles.chipIcon, { backgroundColor: '#f5f3ff' }]}>
+                                        <Feather name="shield" size={13} color="#7c3aed" />
+                                    </View>
+                                    <Text style={[styles.rowKey, { color: '#6d28d9' }]}>Admin</Text>
+                                </View>
+                                <View style={styles.adminBadgeWrap}>
+                                    <Text style={styles.adminTag}>{hospital?.adminName || hospital?.adminUserId?.name || 'Admin'}</Text>
+                                </View>
+                            </View>
+
+                            {/* Admin Email */}
+                            <View style={[styles.metaRowColorful, styles.themePink]}>
+                                <View style={styles.rowLeft}>
+                                    <View style={[styles.chipIcon, { backgroundColor: '#fdf2f8' }]}>
+                                        <Feather name="at-sign" size={13} color="#db2777" />
+                                    </View>
+                                    <Text style={[styles.rowKey, { color: '#be185d' }]}>Admin Email</Text>
+                                </View>
+                                <Text style={styles.rowVal}>{hospital?.adminEmail || hospital?.adminUserId?.email || hospital?.email || '—'}</Text>
+                            </View>
+
+                            {/* Staff Login URL */}
+                            <View style={[styles.metaRowColorful, styles.themeEmerald]}>
+                                <View style={styles.rowLeft}>
+                                    <View style={[styles.chipIcon, { backgroundColor: '#ecfdf5' }]}>
+                                        <Feather name="link" size={13} color="#059669" />
+                                    </View>
+                                    <Text style={[styles.rowKey, { color: '#047857' }]}>Staff Login URL</Text>
+                                </View>
+                                <TouchableOpacity 
+                                    style={styles.loginPillLink} 
+                                    onPress={() => handleOpenURL(`https://${hospital?.slug || 'demo'}.medical365.in`)}
+                                >
+                                    <Text style={styles.loginPillLinkText}>{hospital?.slug ? `${hospital.slug}.medical365.in` : '—'}</Text>
+                                    <Feather name="external-link" size={11} color="#047857" style={{ marginLeft: 4 }} />
+                                </TouchableOpacity>
+                            </View>
+
+                            {/* Custom Domain */}
+                            {hospital?.customDomain ? (
+                                <View style={[styles.metaRowColorful, styles.themeCyan]}>
+                                    <View style={styles.rowLeft}>
+                                        <View style={[styles.chipIcon, { backgroundColor: '#ecfeff' }]}>
+                                            <Feather name="globe" size={13} color="#0891b2" />
+                                        </View>
+                                        <Text style={[styles.rowKey, { color: '#0e7490' }]}>Custom Domain</Text>
+                                    </View>
+                                    <TouchableOpacity 
+                                        style={styles.loginPillLink} 
+                                        onPress={() => handleOpenURL(`https://${hospital.customDomain.replace(/^https?:\/\//, '')}`)}
+                                    >
+                                        <Text style={styles.loginPillLinkText}>{hospital.customDomain.replace(/^https?:\/\//, '')}</Text>
+                                        <Feather name="external-link" size={11} color="#047857" style={{ marginLeft: 4 }} />
+                                    </TouchableOpacity>
+                                </View>
+                            ) : null}
+                        </View>
+                    </View>
+
+                    {/* Right Column: Holographic AI Security Hub */}
+                    <View style={[styles.infoRightAiCol, !isDesktop && { width: '100%', minHeight: 220 }]}>
+                        <View style={styles.aiHologramStage}>
+                            {/* Aurora Glow */}
+                            <View style={styles.aiAuroraGlow} />
+
+                            {/* 3D Gyro Orbit Rings */}
+                            <View style={[styles.aiGyroRing, styles.gyro1]} />
+                            <View style={[styles.aiGyroRing, styles.gyro2]} />
+                            <View style={[styles.aiGyroRing, styles.gyro3]} />
+
+                            {/* Floating Satellite Badges */}
+                            <View style={[styles.aiFloatingNode, styles.nodeEngine]}>
+                                <Text style={styles.nodeIcon}>✨</Text>
+                                <Text style={[styles.nodeText, { color: '#0284c7' }]}>AI Core</Text>
+                            </View>
+                            <View style={[styles.aiFloatingNode, styles.nodeQuantum]}>
+                                <Text style={styles.nodeIcon}>🔒</Text>
+                                <Text style={[styles.nodeText, { color: '#7c3aed' }]}>256-Bit</Text>
+                            </View>
+                            <View style={[styles.aiFloatingNode, styles.nodeCloud]}>
+                                <Text style={styles.nodeIcon}>⚡</Text>
+                                <Text style={[styles.nodeText, { color: '#059669' }]}>99.9%</Text>
+                            </View>
+
+                            {/* Center Shield Orb */}
+                            <View style={styles.aiCenterShieldOrb}>
+                                <View style={styles.aiLaserScanner} />
+                                <Svg width={38} height={38} viewBox="0 0 24 24">
+                                    <Defs>
+                                        <SvgLinearGradient id="aiCrossGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                            <Stop offset="0%" stopColor="#22d3ee" />
+                                            <Stop offset="50%" stopColor="#10b981" />
+                                            <Stop offset="100%" stopColor="#6366f1" />
+                                        </SvgLinearGradient>
+                                    </Defs>
+                                    <Path d="M12 2L4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5l-8-3z" fill="url(#aiCrossGrad)" />
+                                    <Path d="M12 8v8M8 12h8" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" />
+                                </Svg>
+                            </View>
+
+                            {/* AI Synapse Equalizer Bars */}
+                            <View style={styles.aiSynapseBars}>
+                                <View style={[styles.synapseBar, { height: 7, backgroundColor: '#06b6d4' }]} />
+                                <View style={[styles.synapseBar, { height: 16, backgroundColor: '#10b981' }]} />
+                                <View style={[styles.synapseBar, { height: 20, backgroundColor: '#8b5cf6' }]} />
+                                <View style={[styles.synapseBar, { height: 12, backgroundColor: '#ec4899' }]} />
+                                <View style={[styles.synapseBar, { height: 9, backgroundColor: '#3b82f6' }]} />
+                            </View>
+                        </View>
+
+                        {/* Status Pill */}
+                        <View style={styles.aiStatusPill}>
+                            <Text style={styles.aiLiveSparkle}>✨</Text>
+                            <Text style={styles.aiStatusCaption}>AI Health-Grid Active • 256-Bit Neural Security</Text>
+                        </View>
                     </View>
                 </View>
             </View>
 
-            {/* Hospital Staff Table (P2 #10) */}
-            <View style={styles.sectionCard}>
-                <View style={styles.sectionHeaderRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Feather name="users" size={18} color="#8b5cf6" />
-                        <Text style={styles.sectionTitle}>Hospital Staff Members</Text>
-                        <View style={[styles.badgeBlue, { marginLeft: 8 }]}>
-                            <Text style={styles.badgeBlueText}>{filteredStaff.length} Members</Text>
+            {/* 8. Monthly Revenue Card (Last 6 Months) */}
+            <View style={styles.revenueCard}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                    <View style={[styles.purpleIconCircle, { backgroundColor: '#dcfce7' }]}>
+                        <Feather name="trending-up" size={16} color="#16a34a" />
+                    </View>
+                    <Text style={styles.colTitle}>Monthly Revenue (Last 6 Months)</Text>
+                </View>
+                <Text style={styles.revVal}>{formatCurrency(totalSixMonthRevenue)}</Text>
+                <Text style={styles.revSub}>
+                    {s?.monthlyRevenue && s.monthlyRevenue.length > 0 
+                        ? `${s.monthlyRevenue.length} active billing month(s) recorded` 
+                        : 'Total hospital revenue across billing cycles'}
+                </Text>
+            </View>
+
+            {/* 9. Staff Members Table with Filter & Search Controls */}
+            <View style={styles.tableCard}>
+                <View style={[styles.staffHead, isMobile && { flexDirection: 'column', alignItems: 'stretch' }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                        <View style={styles.purpleIconCircle}>
+                            <Feather name="users" size={16} color="#6366f1" />
                         </View>
+                        <View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                <Text style={[styles.colTitle, { margin: 0 }]}>Staff Members</Text>
+                                <Text style={styles.countBadge}>
+                                    ({filteredStaff.length}{filteredStaff.length !== staffListWithoutPatients.length ? ` of ${staffListWithoutPatients.length}` : ''})
+                                </Text>
+                            </View>
+                            <Text style={styles.colSub}>See staff and login details in hospital's panel</Text>
+                        </View>
+                    </View>
+
+                    {/* Filter Toolbar */}
+                    <View style={[styles.staffFilterToolbar, isMobile && { width: '100%', marginTop: 10 }]}>
+                        {/* Search Box */}
+                        <View style={[styles.staffSearchBox, isMobile && { flex: 1, minWidth: 150 }]}>
+                            <Feather name="search" size={14} color="#94a3b8" style={{ marginRight: 6 }} />
+                            <TextInput
+                                style={styles.staffSearchInput}
+                                placeholder="Search staff (name, email, phone)..."
+                                value={staffSearch}
+                                onChangeText={setStaffSearch}
+                                placeholderTextColor="#94a3b8"
+                            />
+                            {staffSearch ? (
+                                <TouchableOpacity onPress={() => setStaffSearch('')}>
+                                    <Feather name="x" size={14} color="#94a3b8" />
+                                </TouchableOpacity>
+                            ) : null}
+                        </View>
+
+                        {/* Live Role Filter Dropdown with Filter Icon (matching Web 1:1) */}
+                        {Platform.OS === 'web' ? (
+                            <View style={styles.roleSelectWrap}>
+                                <Feather name="filter" size={12} color="#6366f1" style={styles.roleSelectIcon} />
+                                <select
+                                    value={staffRoleFilter}
+                                    onChange={(e) => setStaffRoleFilter(e.target.value)}
+                                    style={{
+                                        appearance: 'none',
+                                        WebkitAppearance: 'none',
+                                        padding: '7px 28px 7px 30px',
+                                        fontSize: 12,
+                                        fontWeight: '700',
+                                        color: '#334155',
+                                        backgroundColor: '#f8fafc',
+                                        border: '1px solid #cbd5e1',
+                                        borderRadius: 10,
+                                        cursor: 'pointer',
+                                        outline: 'none',
+                                        fontFamily: 'inherit'
+                                    }}
+                                    title="Filter staff by role"
+                                >
+                                    <option value="all">All Roles ({staffListWithoutPatients.length})</option>
+                                    {uniqueRoleNames.filter(r => r !== 'all').map(r => (
+                                        <option key={r} value={r}>{r.toUpperCase()}</option>
+                                    ))}
+                                </select>
+                                <Feather name="chevron-down" size={12} color="#64748b" style={styles.roleSelectArrow} />
+                            </View>
+                        ) : (
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxWidth: 260 }}>
+                                <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                                    {uniqueRoleNames.map(r => (
+                                        <TouchableOpacity
+                                            key={r}
+                                            style={[
+                                                styles.rolePillBtn,
+                                                staffRoleFilter === r && styles.rolePillBtnActive
+                                            ]}
+                                            onPress={() => setStaffRoleFilter(r)}
+                                        >
+                                            <Text style={[
+                                                styles.rolePillBtnText,
+                                                staffRoleFilter === r && styles.rolePillBtnTextActive
+                                            ]}>
+                                                {r === 'all' ? 'All Roles' : (r.charAt(0).toUpperCase() + r.slice(1))}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                            </ScrollView>
+                        )}
+
+                        {/* Reset Button */}
+                        {(staffRoleFilter !== 'all' || staffSearch.trim() !== '') && (
+                            <TouchableOpacity
+                                style={styles.filterResetBtn}
+                                onPress={() => { setStaffRoleFilter('all'); setStaffSearch(''); }}
+                            >
+                                <Feather name="rotate-ccw" size={12} color="#dc2626" />
+                                <Text style={styles.filterResetBtnText}>Reset</Text>
+                            </TouchableOpacity>
+                        )}
                     </View>
                 </View>
 
-                {/* Search and Role Filter */}
-                <View style={styles.staffFilterRow}>
-                    <View style={styles.staffSearchBox}>
-                        <Feather name="search" size={16} color="#94a3b8" />
-                        <TextInput
-                            style={styles.staffSearchInput}
-                            placeholder="Search staff by name, email, phone, role..."
-                            value={staffSearch}
-                            onChangeText={setStaffSearch}
-                            placeholderTextColor="#94a3b8"
-                        />
-                        {staffSearch ? (
-                            <TouchableOpacity onPress={() => setStaffSearch('')}>
-                                <Feather name="x" size={14} color="#94a3b8" />
-                            </TouchableOpacity>
-                        ) : null}
-                    </View>
+                {/* Staff Table */}
+                <View style={styles.staffTableWrap}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                        <View style={{ minWidth: 700 }}>
+                            <View style={styles.staffThead}>
+                                <Text style={[styles.staffTh, { width: 220 }]}>NAME</Text>
+                                <Text style={[styles.staffTh, { width: 140 }]}>ROLE</Text>
+                                <Text style={[styles.staffTh, { width: 200 }]}>EMAIL</Text>
+                                <Text style={[styles.staffTh, { width: 140 }]}>PHONE</Text>
+                            </View>
 
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 8 }}>
-                        <View style={{ flexDirection: 'row', gap: 6 }}>
-                            {uniqueRoleNames.map(r => (
-                                <TouchableOpacity
-                                    key={r}
-                                    style={[
-                                        styles.staffRolePill,
-                                        staffRoleFilter === r && styles.staffRolePillActive
-                                    ]}
-                                    onPress={() => setStaffRoleFilter(r)}
-                                >
-                                    <Text style={[
-                                        styles.staffRolePillText,
-                                        staffRoleFilter === r && styles.staffRolePillTextActive
-                                    ]}>
-                                        {r === 'all' ? 'All Roles' : (r.charAt(0).toUpperCase() + r.slice(1))}
-                                    </Text>
-                                </TouchableOpacity>
-                            ))}
+                            <ScrollView style={{ maxHeight: 280 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                                {loadingStats ? (
+                                    <View style={{ padding: 30, alignItems: 'center' }}>
+                                        <ActivityIndicator size="small" color="#6366f1" />
+                                        <Text style={{ marginTop: 8, color: '#64748b', fontSize: 13 }}>Loading staff members...</Text>
+                                    </View>
+                                ) : filteredStaff.length > 0 ? (
+                                    filteredStaff.map((staff, idx) => {
+                                        const initials = staff.name
+                                            ? staff.name.split(' ').filter(Boolean).map(n => n[0]).join('').substring(0, 2).toUpperCase()
+                                            : 'S';
+                                        const roleRaw = staff.roleName || staff.role || 'STAFF';
+                                        const roleKey = roleRaw.toLowerCase();
+                                        let roleBadgeStyle = styles.roleBadgeDefault;
+                                        let roleBadgeTextStyle = styles.roleBadgeTextDefault;
+
+                                        if (roleKey.includes('doc')) {
+                                            roleBadgeStyle = styles.roleBadgeDoctor;
+                                            roleBadgeTextStyle = styles.roleBadgeTextDoctor;
+                                        } else if (roleKey.includes('nurse')) {
+                                            roleBadgeStyle = styles.roleBadgeNurse;
+                                            roleBadgeTextStyle = styles.roleBadgeTextNurse;
+                                        } else if (roleKey.includes('recept')) {
+                                            roleBadgeStyle = styles.roleBadgeReception;
+                                            roleBadgeTextStyle = styles.roleBadgeTextReception;
+                                        } else if (roleKey.includes('pharm')) {
+                                            roleBadgeStyle = styles.roleBadgePharmacy;
+                                            roleBadgeTextStyle = styles.roleBadgeTextPharmacy;
+                                        } else if (roleKey.includes('lab')) {
+                                            roleBadgeStyle = styles.roleBadgeLab;
+                                            roleBadgeTextStyle = styles.roleBadgeTextLab;
+                                        } else if (roleKey.includes('admin')) {
+                                            roleBadgeStyle = styles.roleBadgeAdmin;
+                                            roleBadgeTextStyle = styles.roleBadgeTextAdmin;
+                                        }
+
+                                        return (
+                                            <View key={staff.id || staff._id || idx} style={styles.staffTrow}>
+                                                <View style={{ width: 220, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                                                    <View style={styles.avatarCircle}>
+                                                        <Text style={styles.avatarCircleText}>{initials}</Text>
+                                                    </View>
+                                                    <Text style={styles.staffName} numberOfLines={1}>{staff.name}</Text>
+                                                </View>
+                                                <View style={{ width: 140, justifyContent: 'center' }}>
+                                                    <View style={[styles.roleBadge, roleBadgeStyle]}>
+                                                        <Text style={[styles.roleBadgeText, roleBadgeTextStyle]} numberOfLines={1}>{roleRaw}</Text>
+                                                    </View>
+                                                </View>
+                                                <Text style={[styles.staffEmail, { width: 200 }]} numberOfLines={1}>
+                                                    {staff.email || '—'}
+                                                </Text>
+                                                <Text style={[styles.staffPhone, { width: 140 }]} numberOfLines={1}>
+                                                    {staff.phone || '—'}
+                                                </Text>
+                                            </View>
+                                        );
+                                    })
+                                ) : (
+                                    <View style={{ padding: 36, alignItems: 'center', gap: 8 }}>
+                                        <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' }}>
+                                            <Feather name="user-x" size={20} color="#94a3b8" />
+                                        </View>
+                                        <Text style={{ fontWeight: '600', color: '#334155', fontSize: 13 }}>
+                                            {staffListWithoutPatients.length === 0
+                                                ? 'No staff members found for this hospital.'
+                                                : 'No staff matching your search/filter.'}
+                                        </Text>
+                                    </View>
+                                )}
+                            </ScrollView>
                         </View>
                     </ScrollView>
                 </View>
-
-                {/* Table Content */}
-                {loadingStats ? (
-                    <View style={{ padding: 24, alignItems: 'center' }}>
-                        <ActivityIndicator size="small" color="#6366f1" />
-                        <Text style={{ marginTop: 8, color: '#64748b', fontSize: 13 }}>Loading staff members...</Text>
-                    </View>
-                ) : filteredStaff.length === 0 ? (
-                    <View style={{ padding: 24, alignItems: 'center' }}>
-                        <Text style={{ fontSize: 24, marginBottom: 8 }}>👥</Text>
-                        <Text style={{ color: '#64748b', fontSize: 13, fontWeight: '500' }}>
-                            {staffSearch ? 'No staff members matching your search.' : 'No staff members found for this hospital.'}
-                        </Text>
-                    </View>
-                ) : (
-                    <View style={styles.staffTable}>
-                        <View style={styles.staffTableHeader}>
-                            <Text style={[styles.staffTh, { flex: 2 }]}>NAME</Text>
-                            <Text style={[styles.staffTh, { flex: 1.5 }]}>ROLE</Text>
-                            <Text style={[styles.staffTh, { flex: 2 }]}>EMAIL</Text>
-                            <Text style={[styles.staffTh, { flex: 1.5 }]}>PHONE</Text>
-                        </View>
-                        {filteredStaff.map((staff, idx) => {
-                            const roleText = staff.roleName || staff.role || 'Staff';
-                            return (
-                                <View key={staff._id || staff.id || idx} style={styles.staffTableRow}>
-                                    <View style={[styles.staffTd, { flex: 2, flexDirection: 'row', alignItems: 'center' }]}>
-                                        <View style={styles.staffAvatarBox}>
-                                            <Text style={styles.staffAvatarText}>
-                                                {(staff.name || 'S').charAt(0).toUpperCase()}
-                                            </Text>
-                                        </View>
-                                        <Text style={styles.staffNameText} numberOfLines={1}>
-                                            {staff.name || 'Unnamed'}
-                                        </Text>
-                                    </View>
-                                    <View style={[styles.staffTd, { flex: 1.5 }]}>
-                                        <View style={styles.staffRoleBadge}>
-                                            <Text style={styles.staffRoleBadgeText} numberOfLines={1}>
-                                                {roleText}
-                                            </Text>
-                                        </View>
-                                    </View>
-                                    <View style={[styles.staffTd, { flex: 2 }]}>
-                                        <Text style={styles.staffMutedText} numberOfLines={1}>
-                                            {staff.email || '—'}
-                                        </Text>
-                                    </View>
-                                    <View style={[styles.staffTd, { flex: 1.5 }]}>
-                                        <Text style={styles.staffMutedText} numberOfLines={1}>
-                                            {staff.phone || '—'}
-                                        </Text>
-                                    </View>
-                                </View>
-                            );
-                        })}
-                    </View>
-                )}
             </View>
-            
-            <View style={{ height: 40 }} />
         </ScrollView>
     );
 }
@@ -892,537 +1325,558 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: '#f8fafc',
     },
-    headerContainer: {
-        marginBottom: 40,
+
+    // 1. Hero Header Banner
+    heroBanner: {
         position: 'relative',
-    },
-    headerGradient: {
-        paddingTop: 30,
-        paddingBottom: 60,
+        backgroundColor: '#ffffff',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        borderRadius: 18,
         paddingHorizontal: 24,
-        borderBottomLeftRadius: 24,
-        borderBottomRightRadius: 24,
+        paddingTop: 14,
+        paddingBottom: 14,
+        marginBottom: 20,
+        overflow: 'hidden',
+        minHeight: 155,
+        ...Platform.select({
+            ios: { shadowColor: '#0f172a', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 16 },
+            android: { elevation: 3 },
+            web: { boxShadow: '0 6px 20px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(0, 0, 0, 0.02)' }
+        }),
     },
-    headerTop: {
-        flexDirection: isSmallScreen ? 'column' : 'row',
-        justifyContent: 'space-between',
-        alignItems: isSmallScreen ? 'flex-start' : 'center',
-        gap: 16
+    heroWaves: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        width: 245,
+        height: '100%',
+        overflow: 'hidden',
+        zIndex: 1,
     },
-    hospitalLogoBox: {
-        width: 80,
-        height: 80,
-        backgroundColor: '#fff',
-        borderRadius: 16,
-        justifyContent: 'center',
+    heroWaveSvg: {
+        width: 245,
+        height: '100%',
+    },
+    heroDarkDotMatrix: {
+        position: 'absolute',
+        bottom: 12,
+        left: 16,
+        width: 48,
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 7,
+    },
+    heroMatrixDot: {
+        width: 3,
+        height: 3,
+        borderRadius: 1.5,
+        backgroundColor: '#38bdf8',
+        opacity: 0.55,
+    },
+
+    // Top Row
+    heroTopRow: {
+        flexDirection: 'row',
         alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8,
-        elevation: 5,
-    },
-    hospitalProfileTag: {
-        color: '#93c5fd',
-        fontSize: 12,
-        fontWeight: '600',
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
-        marginBottom: 4,
-    },
-    hospitalName: {
-        color: '#fff',
-        fontSize: 28,
-        fontWeight: 'bold',
+        justifyContent: 'space-between',
+        width: '100%',
+        zIndex: 15,
         marginBottom: 8,
     },
-    hospitalContactRow: {
-        flexDirection: 'row',
-        gap: 12,
-        flexWrap: 'wrap'
-    },
-    contactBadge: {
+    profilePill: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: 'rgba(255,255,255,0.1)',
+        gap: 6,
+        backgroundColor: 'rgba(255, 255, 255, 0.18)',
+        borderWidth: 1,
+        borderColor: 'rgba(56, 189, 248, 0.5)',
+        paddingVertical: 3,
         paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 20,
+        borderRadius: 18,
     },
-    contactBadgeText: {
-        color: '#e2e8f0',
-        fontSize: 13,
-        marginLeft: 6,
-        fontWeight: '500'
-    },
-    backButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: 'rgba(0,0,0,0.2)',
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        borderRadius: 20,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.1)'
-    },
-    backButtonText: {
-        color: '#fff',
-        marginLeft: 8,
-        fontWeight: '600',
-        fontSize: 14
-    },
-    floatingCardsRow: {
-        flexDirection: 'row',
-        position: 'absolute',
-        bottom: -25,
-        left: 24,
-        right: 24,
-        backgroundColor: '#fff',
-        borderRadius: 12,
-        padding: 16,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.05,
-        shadowRadius: 20,
-        elevation: 8,
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        flexWrap: 'wrap',
-        gap: 10
-    },
-    floatCard: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingRight: 16,
-        borderRightWidth: 1,
-        borderRightColor: '#f1f5f9'
-    },
-    floatCardLabel: {
+    profilePillText: {
+        color: '#ffffff',
         fontSize: 11,
-        color: '#64748b',
-        fontWeight: '500'
-    },
-    floatCardValue: {
-        fontSize: 14,
         fontWeight: '700',
-        color: '#0f172a'
+        letterSpacing: 0.2,
     },
-    floatCardStatus: {
+    topBackBtn: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#ecfdf5',
-        paddingHorizontal: 12,
-        paddingVertical: 6,
+        gap: 6,
+        paddingVertical: 5,
+        paddingHorizontal: 14,
         borderRadius: 20,
+        backgroundColor: 'rgba(15, 23, 42, 0.78)',
         borderWidth: 1,
-        borderColor: '#a7f3d0'
+        borderColor: 'rgba(56, 189, 248, 0.45)',
     },
-    statusDot: {
-        width: 6,
-        height: 6,
-        backgroundColor: '#10b981',
-        borderRadius: 3,
-        marginRight: 6
+    topBackArrow: {
+        color: '#ffffff',
+        fontSize: 14,
+        fontWeight: '900',
     },
-    statusText: {
-        color: '#059669',
+    topBackText: {
+        color: '#ffffff',
         fontSize: 12,
-        fontWeight: '700'
-    },
-    sectionCard: {
-        backgroundColor: '#fff',
-        borderRadius: 16,
-        padding: 24,
-        marginHorizontal: 24,
-        marginBottom: 20,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.02,
-        shadowRadius: 8,
-        elevation: 2,
-    },
-    sectionHeaderRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 16,
-    },
-    sectionTitle: {
-        fontSize: 16,
         fontWeight: '700',
-        color: '#0f172a',
-        marginLeft: 8
     },
-    sectionSubtitle: {
-        fontSize: 13,
+
+    // Main Hero Content
+    heroContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 16,
+        width: '100%',
+        zIndex: 5,
+    },
+
+    // Hexagon Logo
+    hexLogoContainer: {
+        width: 78,
+        height: 86,
+        alignItems: 'center',
+        justifyContent: 'center',
+        position: 'relative',
+        flexShrink: 0,
+    },
+    hexOrbitRing: {
+        position: 'absolute',
+        width: 92,
+        height: 92,
+        borderRadius: 46,
+        borderWidth: 1,
+        borderColor: 'rgba(56, 189, 248, 0.45)',
+    },
+    hexOrbitNode: {
+        position: 'absolute',
+        width: 4.5,
+        height: 4.5,
+        borderRadius: 2.25,
+        backgroundColor: '#38bdf8',
+    },
+    nodeA: {
+        top: 6,
+        right: 0,
+    },
+    nodeB: {
+        bottom: 8,
+        left: -2,
+    },
+    nodeC: {
+        bottom: 0,
+        right: 16,
+    },
+    hexLogoCenterWrap: {
+        position: 'absolute',
+        width: 50,
+        height: 50,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    hexImg: {
+        width: 42,
+        height: 42,
+    },
+    redCrossBox: {
+        width: 30,
+        height: 30,
+        alignItems: 'center',
+        justifyContent: 'center',
+        position: 'relative',
+    },
+    crossArmH: {
+        position: 'absolute',
+        width: 26,
+        height: 8,
+        backgroundColor: '#e11d48',
+        borderRadius: 2.5,
+    },
+    crossArmV: {
+        position: 'absolute',
+        width: 8,
+        height: 26,
+        backgroundColor: '#e11d48',
+        borderRadius: 2.5,
+    },
+
+    // Center Info
+    heroInfo: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 12,
+        position: 'relative',
+    },
+    centerDotMatrix: {
+        width: 40,
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 5,
+        justifyContent: 'center',
+        marginBottom: 3,
+    },
+    centerMatrixDot: {
+        width: 2.5,
+        height: 2.5,
+        borderRadius: 1.25,
+        backgroundColor: '#94a3b8',
+        opacity: 0.45,
+    },
+    heroTitle: {
+        fontSize: 22,
+        fontWeight: '800',
+        color: '#0b192c',
+        textAlign: 'center',
+        letterSpacing: -0.4,
+    },
+    heroAccentBar: {
+        position: 'relative',
+        width: 155,
+        height: 2.5,
+        backgroundColor: '#e2e8f0',
+        borderRadius: 3,
+        marginVertical: 6,
+    },
+    accentBarFill: {
+        width: 55,
+        height: '100%',
+        backgroundColor: '#2563eb',
+        borderRadius: 3,
+    },
+    accentBarDot: {
+        position: 'absolute',
+        right: 0,
+        top: -1.25,
+        width: 5,
+        height: 5,
+        borderRadius: 2.5,
+        backgroundColor: '#0284c7',
+    },
+    heroMetaRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        flexWrap: 'wrap',
+    },
+    metaChip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: '#ffffff',
+        borderWidth: 1,
+        borderColor: '#f1f5f9',
+        borderRadius: 8,
+        paddingVertical: 3,
+        paddingHorizontal: 9,
+    },
+    metaChipIcon: {
+        width: 18,
+        height: 18,
+        borderRadius: 9,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    pinIcon: {
+        backgroundColor: '#ede9fe',
+    },
+    phoneIcon: {
+        backgroundColor: '#ccfbf1',
+    },
+    metaChipText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#1e293b',
+    },
+    metaSep: {
+        width: 1,
+        height: 14,
+        backgroundColor: '#cbd5e1',
+    },
+
+    // Right ECG Widget
+    heroRightCol: {
+        alignItems: 'flex-end',
+        justifyContent: 'center',
+        flexShrink: 0,
+        minWidth: 185,
+        zIndex: 10,
+    },
+    ecgWidget: {
+        width: 185,
+        height: 58,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+
+    // Bottom Status Bar
+    heroBottomBar: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 16,
+        backgroundColor: 'rgba(255, 255, 255, 0.96)',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: 'rgba(226, 232, 240, 0.95)',
+        paddingVertical: 5,
+        paddingHorizontal: 18,
+        marginTop: 12,
+        alignSelf: 'center',
+        width: '58%',
+        maxWidth: 540,
+        minWidth: 300,
+        zIndex: 6,
+    },
+    bottomStatItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    bottomStatIcon: {
+        width: 24,
+        height: 24,
+        borderRadius: 6,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    iconShield: {
+        backgroundColor: '#ede9fe',
+    },
+    iconDoctors: {
+        backgroundColor: '#ccfbf1',
+    },
+    bottomStatText: {
+        flexDirection: 'column',
+    },
+    bottomStatLabel: {
+        fontSize: 10,
         color: '#64748b',
+        fontWeight: '600',
+    },
+    bottomStatVal: {
+        fontSize: 12,
+        color: '#0f172a',
+        fontWeight: '800',
+    },
+    bottomStatSep: {
+        width: 1,
+        height: 16,
+        backgroundColor: '#e2e8f0',
+    },
+    bottomStatRight: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    statusCapsule: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: '#ecfdf5',
+        borderWidth: 1,
+        borderColor: '#86efac',
+        borderRadius: 12,
+        paddingVertical: 3,
+        paddingHorizontal: 10,
+    },
+    statusCapsuleInactive: {
+        backgroundColor: '#fef2f2',
+        borderColor: '#fecaca',
+    },
+    liveDot: {
+        width: 5,
+        height: 5,
+        borderRadius: 2.5,
+        backgroundColor: '#16a34a',
+    },
+    statusCapsuleName: {
+        fontSize: 10,
+        fontWeight: '900',
+        color: '#15803d',
+        letterSpacing: 0.4,
+    },
+    statusEcgWrap: {
+        width: 36,
+        height: 14,
+        justifyContent: 'center',
+    },
+
+    // 2. Timeframe Card
+    timeframeCard: {
+        backgroundColor: '#ffffff',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        borderRadius: 18,
+        padding: 20,
+        marginBottom: 20,
+        ...Platform.select({
+            web: { boxShadow: '0 2px 10px rgba(0, 0, 0, 0.02)' }
+        })
+    },
+    timeframeHead: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 14,
+    },
+    timeframeTitleGroup: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
+    purpleIconCircle: {
+        width: 32,
+        height: 32,
+        borderRadius: 10,
+        backgroundColor: '#ede9fe',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    timeframeTitle: {
+        fontSize: 16,
+        fontWeight: '800',
+        color: '#0f172a',
+    },
+    timeframeSubtitle: {
+        fontSize: 12,
+        color: '#64748b',
+        fontWeight: '500',
     },
     timeframeControls: {
-        flexDirection: isSmallScreen ? 'column' : 'row',
+        flexDirection: 'row',
+        alignItems: 'center',
         justifyContent: 'space-between',
-        alignItems: isSmallScreen ? 'stretch' : 'center',
-        gap: 16
-    },
-    btnPrimary: {
-        backgroundColor: '#6366f1',
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        borderRadius: 8,
-    },
-    btnPrimaryText: {
-        color: '#fff',
-        fontWeight: '600',
-        fontSize: 13
+        flexWrap: 'wrap',
+        gap: 12,
     },
     presetGroup: {
         flexDirection: 'row',
+        alignItems: 'center',
         gap: 8,
-        flexWrap: 'wrap'
     },
     presetBtn: {
+        backgroundColor: '#ffffff',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        borderRadius: 10,
+        paddingVertical: 7,
         paddingHorizontal: 16,
-        paddingVertical: 8,
-        borderRadius: 8,
-        backgroundColor: '#f8fafc',
     },
     presetBtnActive: {
         backgroundColor: '#6366f1',
-    },
-    presetBtnText: {
-        fontSize: 13,
-        fontWeight: '600',
-        color: '#475569'
-    },
-    presetBtnTextActive: {
-        color: '#fff'
-    },
-    statsGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        paddingHorizontal: 16,
-        marginBottom: 20,
-    },
-    statCard: {
-        width: isSmallScreen ? '48%' : '23%',
-        backgroundColor: '#fff',
-        borderRadius: 16,
-        padding: 20,
-        margin: '1%',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.03,
-        shadowRadius: 10,
-        elevation: 2,
-    },
-    statIconBox: {
-        width: 40,
-        height: 40,
-        borderRadius: 10,
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: 16
-    },
-    statValue: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        color: '#0f172a',
-        marginBottom: 4
-    },
-    statLabel: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#334155',
-        marginBottom: 2
-    },
-    statSub: {
-        fontSize: 12,
-        color: '#94a3b8'
-    },
-    featuresGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 12
-    },
-    featureBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 16,
-        paddingVertical: 10,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: 'rgba(0,0,0,0.05)',
-        gap: 8,
-        width: isSmallScreen ? '47%' : '23%'
-    },
-    featureBtnText: {
-        fontWeight: '600',
-        fontSize: 13
-    },
-    badgeBlue: {
-        backgroundColor: '#eff6ff',
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 6,
-        borderWidth: 1,
-        borderColor: '#bfdbfe',
-        marginLeft: 12
-    },
-    badgeBlueText: {
-        color: '#2563eb',
-        fontSize: 11,
-        fontWeight: '600'
-    },
-    modeCardsRow: {
-        flexDirection: isSmallScreen ? 'column' : 'row',
-        gap: 16
-    },
-    modeCard: {
-        flex: 1,
-        flexDirection: 'row',
-        padding: 16,
-        backgroundColor: '#f8fafc',
-        borderRadius: 12,
-        borderWidth: 2,
-        borderColor: 'transparent'
-    },
-    modeCardActive: {
-        backgroundColor: '#eef2ff',
-        borderColor: '#c7d2fe'
-    },
-    modeIconBox: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        backgroundColor: '#e0e7ff',
-        justifyContent: 'center',
-        alignItems: 'center'
-    },
-    modeCardTitle: {
-        fontSize: 15,
-        fontWeight: '700',
-        color: '#1e293b'
-    },
-    badgePrimary: {
-        backgroundColor: '#6366f1',
-        paddingHorizontal: 6,
-        paddingVertical: 2,
-        borderRadius: 4,
-        marginLeft: 8
-    },
-    badgePrimaryText: {
-        color: '#fff',
-        fontSize: 10,
-        fontWeight: '600'
-    },
-    modeCardDesc: {
-        fontSize: 12,
-        color: '#64748b',
-        marginTop: 6,
-        lineHeight: 18
-    },
-    infoGridRow: {
-        marginTop: 10
-    },
-    infoRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: '#f1f5f9'
-    },
-    infoLabel: {
-        width: 140,
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#334155',
-        marginLeft: 12
-    },
-    infoValue: {
-        flex: 1,
-        fontSize: 14,
-        color: '#0f172a',
-        fontWeight: '500',
-        textAlign: 'right'
-    },
-    urlBadge: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#ecfdf5',
-        borderWidth: 1,
-        borderColor: '#a7f3d0',
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 20,
-        flex: 1,
-        justifyContent: 'flex-end'
-    },
-    urlText: {
-        color: '#059669',
-        fontSize: 13,
-        fontWeight: '600'
-    },
-    // White Label styles
-    wlContainer: {
-        backgroundColor: '#f8fafc',
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: '#e2e8f0',
-        padding: 16,
-        gap: 12,
-    },
-    wlStatusRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
-        gap: 8,
-    },
-    wlStatusBadge: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    wlResetBtn: {
-        borderWidth: 1,
-        borderColor: '#ef4444',
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-        borderRadius: 4,
-    },
-    wlActionRow: {
-        flexDirection: 'row',
-        gap: 10,
-        flexWrap: 'wrap',
-    },
-    wlBuildBtn: {
-        backgroundColor: '#3b82f6',
-        paddingHorizontal: 14,
-        paddingVertical: 8,
-        borderRadius: 6,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    wlBuildBtnText: {
-        color: '#fff',
-        fontSize: 12,
-        fontWeight: '600',
-    },
-    // Staff Table styles
-    staffFilterRow: {
-        marginBottom: 16,
-    },
-    staffSearchBox: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#f8fafc',
-        borderWidth: 1,
-        borderColor: '#e2e8f0',
-        borderRadius: 8,
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        marginBottom: 8,
-        gap: 8,
-    },
-    staffSearchInput: {
-        flex: 1,
-        fontSize: 13,
-        color: '#1e293b',
-        paddingVertical: 4,
-    },
-    staffRolePill: {
-        paddingHorizontal: 12,
-        paddingVertical: 4,
-        borderRadius: 14,
-        backgroundColor: '#f1f5f9',
-        borderWidth: 1,
-        borderColor: '#e2e8f0',
-    },
-    staffRolePillActive: {
-        backgroundColor: '#6366f1',
         borderColor: '#6366f1',
     },
-    staffRolePillText: {
-        fontSize: 12,
-        fontWeight: '500',
-        color: '#475569',
+    presetBtnText: {
+        fontSize: 12.5,
+        fontWeight: '700',
+        color: '#334155',
     },
-    staffRolePillTextActive: {
-        color: '#fff',
-        fontWeight: '600',
+    presetBtnTextActive: {
+        color: '#ffffff',
     },
-    staffTable: {
+    datePickerGroup: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    dateInput: {
         borderWidth: 1,
-        borderColor: '#e2e8f0',
-        borderRadius: 8,
-        overflow: 'hidden',
-    },
-    staffTableHeader: {
-        flexDirection: 'row',
-        backgroundColor: '#f8fafc',
-        paddingVertical: 10,
-        paddingHorizontal: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: '#e2e8f0',
-    },
-    staffTh: {
-        fontSize: 11,
-        fontWeight: '700',
-        color: '#64748b',
-        textTransform: 'uppercase',
-    },
-    staffTableRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 10,
-        paddingHorizontal: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: '#f1f5f9',
-    },
-    staffTd: {
-        justifyContent: 'center',
-    },
-    staffAvatarBox: {
-        width: 28,
-        height: 28,
-        borderRadius: 14,
-        backgroundColor: '#e0e7ff',
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginRight: 8,
-    },
-    staffAvatarText: {
-        color: '#4338ca',
-        fontWeight: '700',
-        fontSize: 12,
-    },
-    staffNameText: {
-        fontSize: 13,
-        fontWeight: '600',
+        borderColor: '#cbd5e1',
+        borderRadius: 10,
+        paddingVertical: 6,
+        paddingHorizontal: 10,
+        fontSize: 12.5,
         color: '#1e293b',
-    },
-    staffRoleBadge: {
-        backgroundColor: '#eff6ff',
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-        borderRadius: 4,
-        alignSelf: 'flex-start',
-    },
-    staffRoleBadgeText: {
-        color: '#2563eb',
-        fontSize: 11,
         fontWeight: '600',
+        backgroundColor: '#ffffff',
+        minWidth: 100,
     },
-    staffMutedText: {
+    dateSep: {
         fontSize: 12,
         color: '#64748b',
+        fontWeight: '600',
     },
-    // Middle Grid: Appointments Overview & Recent Appointments
-    middleGrid: {
+    applyBtn: {
+        backgroundColor: '#6366f1',
+        paddingVertical: 7,
+        paddingHorizontal: 16,
+        borderRadius: 10,
+    },
+    applyBtnText: {
+        color: '#ffffff',
+        fontSize: 12.5,
+        fontWeight: '700',
+    },
+
+    // 3. KPI Grid
+    kpiGrid: {
         flexDirection: 'row',
         gap: 16,
         marginBottom: 20,
     },
-    middleGridMobile: {
-        flexDirection: 'column',
+    kpiCard: {
+        flex: 1,
+        borderRadius: 18,
+        padding: 20,
+        position: 'relative',
+        overflow: 'hidden',
+        borderWidth: 1,
+    },
+    kpiCardGreen: {
+        backgroundColor: '#f0fdf4',
+        borderColor: '#bbf7d0',
+    },
+    kpiCardBlue: {
+        backgroundColor: '#f0f9ff',
+        borderColor: '#bae6fd',
+    },
+    kpiCardPurple: {
+        backgroundColor: '#faf5ff',
+        borderColor: '#ddd6fe',
+    },
+    kpiCardOrange: {
+        backgroundColor: '#fffbeb',
+        borderColor: '#fde68a',
+    },
+    kpiIconWrap: {
+        width: 38,
+        height: 38,
+        borderRadius: 10,
+        backgroundColor: '#ffffff',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 12,
+    },
+    kpiVal: {
+        fontSize: 24,
+        fontWeight: '800',
+        letterSpacing: -0.4,
+    },
+    kpiLbl: {
+        fontSize: 13,
+        fontWeight: '700',
+        marginTop: 4,
+        marginBottom: 2,
+    },
+    kpiSub: {
+        fontSize: 11.5,
+        fontWeight: '500',
+    },
+    kpiBar: {
+        height: 3.5,
+        borderRadius: 4,
+        marginTop: 14,
+        width: '100%',
+    },
+
+    // 4. Middle Grid
+    middleGrid: {
+        flexDirection: 'row',
+        gap: 16,
+        marginBottom: 20,
     },
     chartCard: {
         flex: 1,
@@ -1430,8 +1884,7 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: '#e2e8f0',
         borderRadius: 18,
-        padding: 20,
-        boxShadow: Platform.OS === 'web' ? '0 2px 10px rgba(0, 0, 0, 0.02)' : undefined,
+        padding: 22,
     },
     summaryCard: {
         flex: 1,
@@ -1439,68 +1892,53 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: '#e2e8f0',
         borderRadius: 18,
-        padding: 20,
-        boxShadow: Platform.OS === 'web' ? '0 2px 10px rgba(0, 0, 0, 0.02)' : undefined,
+        padding: 22,
     },
     chartCardHead: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
         marginBottom: 14,
-        flexWrap: 'wrap',
-        gap: 8,
-    },
-    purpleIconCircle: {
-        width: 28,
-        height: 28,
-        borderRadius: 14,
-        backgroundColor: '#e0e7ff',
-        alignItems: 'center',
-        justifyContent: 'center',
     },
     chartCardTitle: {
-        fontSize: 14,
+        fontSize: 15,
         fontWeight: '800',
         color: '#0f172a',
     },
     chartRangeButtonGroup: {
         flexDirection: 'row',
-        backgroundColor: '#f8fafc',
+        gap: 4,
+        backgroundColor: '#f1f5f9',
+        padding: 3,
         borderRadius: 8,
-        borderWidth: 1,
-        borderColor: '#e2e8f0',
-        overflow: 'hidden',
     },
     chartRangeBtn: {
-        paddingHorizontal: 10,
-        paddingVertical: 5,
+        paddingVertical: 3,
+        paddingHorizontal: 8,
+        borderRadius: 6,
     },
     chartRangeBtnActive: {
-        backgroundColor: '#e0e7ff',
+        backgroundColor: '#ffffff',
     },
     chartRangeBtnText: {
         fontSize: 11,
-        fontWeight: '700',
         color: '#64748b',
+        fontWeight: '600',
     },
     chartRangeBtnTextActive: {
-        color: '#4338ca',
+        color: '#0f172a',
+        fontWeight: '700',
     },
     chartStatsRow: {
         flexDirection: 'row',
+        alignItems: 'center',
         gap: 12,
         marginBottom: 10,
     },
     chartStatBadge: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 5,
-        backgroundColor: '#f8fafc',
-        paddingHorizontal: 8,
-        paddingVertical: 3,
-        borderRadius: 6,
-        borderWidth: 1,
-        borderColor: '#f1f5f9',
+        gap: 4,
     },
     chartDot: {
         width: 6,
@@ -1510,50 +1948,50 @@ const styles = StyleSheet.create({
     chartStatLabel: {
         fontSize: 11,
         color: '#64748b',
-        fontWeight: '600',
+        fontWeight: '500',
     },
     chartStatVal: {
-        fontSize: 12,
-        fontWeight: '800',
+        fontSize: 11,
+        fontWeight: '700',
     },
     chartBody: {
         flexDirection: 'row',
-        height: 160,
+        height: 140,
         position: 'relative',
         marginTop: 6,
     },
     chartYAxis: {
-        width: 26,
+        width: 24,
         justifyContent: 'space-between',
-        paddingRight: 6,
-        alignItems: 'flex-end',
+        paddingVertical: 2,
     },
     axisText: {
         fontSize: 10,
-        fontWeight: '600',
         color: '#94a3b8',
+        fontWeight: '600',
     },
     chartPlot: {
         flex: 1,
         position: 'relative',
-        height: '100%',
+        marginLeft: 8,
     },
     chartGridLine: {
         position: 'absolute',
         left: 0,
         right: 0,
+        height: 1,
         borderBottomWidth: 1,
         borderBottomColor: '#f1f5f9',
+        borderStyle: 'dashed',
     },
     chartXAxis: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        paddingLeft: 30,
-        paddingRight: 6,
-        marginTop: 8,
+        paddingLeft: 32,
+        paddingRight: 8,
+        marginTop: 6,
     },
     recentApptTableContainer: {
-        minWidth: 520,
         borderWidth: 1,
         borderColor: '#e2e8f0',
         borderRadius: 12,
@@ -1562,7 +2000,7 @@ const styles = StyleSheet.create({
     recentApptHeaderRow: {
         flexDirection: 'row',
         backgroundColor: '#f8fafc',
-        paddingVertical: 10,
+        paddingVertical: 9,
         paddingHorizontal: 12,
         borderBottomWidth: 1,
         borderBottomColor: '#e2e8f0',
@@ -1584,28 +2022,729 @@ const styles = StyleSheet.create({
     recentApptTd: {
         fontSize: 12,
     },
-    recentApptBadge: {
-        paddingHorizontal: 8,
+    statusCompletedBadge: {
+        backgroundColor: '#f0fdf4',
+        borderWidth: 1,
+        borderColor: '#bbf7d0',
         paddingVertical: 2,
-        borderRadius: 8,
+        paddingHorizontal: 8,
+        borderRadius: 10,
         alignSelf: 'flex-start',
+    },
+    statusCompletedText: {
+        fontSize: 11,
+        fontWeight: '800',
+        color: '#16a34a',
+        textTransform: 'capitalize',
+    },
+
+    // 5. Section Cards (Features, Mode, etc.)
+    sectionCard: {
+        backgroundColor: '#ffffff',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        borderRadius: 18,
+        padding: 22,
+        marginBottom: 20,
+    },
+    sectionHeaderRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 14,
+    },
+    sectionTitle: {
+        fontSize: 16,
+        fontWeight: '800',
+        color: '#0f172a',
+    },
+    sectionSubtitle: {
+        fontSize: 12,
+        color: '#64748b',
+    },
+    featuresGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 10,
+    },
+    featureBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 9,
+        paddingHorizontal: 14,
+        borderRadius: 10,
         borderWidth: 1,
     },
-    badgeSuccess: {
-        backgroundColor: '#f0fdf4',
-        borderColor: '#bbf7d0',
+    featureBtnText: {
+        fontSize: 13,
+        fontWeight: '700',
     },
-    badgeWarning: {
-        backgroundColor: '#fffbeb',
-        borderColor: '#fde68a',
+
+    // 6. Appointment Mode
+    modeCardsRow: {
+        flexDirection: 'row',
+        gap: 14,
     },
-    badgeDefault: {
-        backgroundColor: '#f8fafc',
+    modeCard: {
+        flex: 1,
+        borderRadius: 14,
+        padding: 16,
+        borderWidth: 1.5,
         borderColor: '#e2e8f0',
+        backgroundColor: '#f8fafc',
+        flexDirection: 'row',
+        alignItems: 'flex-start',
     },
-    recentApptBadgeText: {
+    modeCardActive: {
+        borderColor: '#6366f1',
+        backgroundColor: '#f5f3ff',
+    },
+    modeIconBox: {
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    modeCardTitle: {
+        fontSize: 14,
+        fontWeight: '800',
+        color: '#0f172a',
+    },
+    badgePrimary: {
+        backgroundColor: '#6366f1',
+        paddingVertical: 1,
+        paddingHorizontal: 6,
+        borderRadius: 6,
+    },
+    badgePrimaryText: {
+        color: '#ffffff',
         fontSize: 10,
         fontWeight: '800',
-        textTransform: 'capitalize',
+    },
+    modeCardDesc: {
+        fontSize: 11.5,
+        color: '#64748b',
+        marginTop: 4,
+        lineHeight: 16,
+    },
+    btnPrimary: {
+        backgroundColor: '#6366f1',
+        paddingVertical: 8,
+        paddingHorizontal: 18,
+        borderRadius: 10,
+    },
+    btnPrimaryText: {
+        color: '#ffffff',
+        fontSize: 13,
+        fontWeight: '700',
+    },
+    badgeBlue: {
+        backgroundColor: '#eff6ff',
+        borderWidth: 1,
+        borderColor: '#bfdbfe',
+        paddingVertical: 2,
+        paddingHorizontal: 8,
+        borderRadius: 12,
+    },
+    badgeBlueText: {
+        color: '#2563eb',
+        fontSize: 11,
+        fontWeight: '800',
+    },
+
+    // 7. Hospital Info + Hologram
+    hospitalInfoCard: {
+        backgroundColor: '#ffffff',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        borderRadius: 22,
+        padding: 24,
+        marginBottom: 20,
+    },
+    infoCardLayout: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 32,
+    },
+    infoLeftCol: {
+        flex: 1.25,
+    },
+    infoHeaderRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        marginBottom: 16,
+    },
+    aiGradientIcon: {
+        width: 38,
+        height: 38,
+        borderRadius: 12,
+        backgroundColor: '#6366f1',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    infoHeaderTitles: {
+        flexDirection: 'column',
+    },
+    colTitle: {
+        fontSize: 16,
+        fontWeight: '800',
+        color: '#0f172a',
+    },
+    aiSyncPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 5,
+        backgroundColor: '#ecfeff',
+        borderWidth: 1,
+        borderColor: '#67e8f9',
+        borderRadius: 16,
+        paddingVertical: 2,
+        paddingHorizontal: 8,
+    },
+    aiPulseDot: {
+        width: 5,
+        height: 5,
+        borderRadius: 2.5,
+        backgroundColor: '#06b6d4',
+    },
+    aiSyncPillText: {
+        fontSize: 11,
+        fontWeight: '800',
+        color: '#0891b2',
+    },
+    metaListColorful: {
+        flexDirection: 'column',
+        gap: 8,
+    },
+    metaRowColorful: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingVertical: 8,
+        paddingHorizontal: 14,
+        borderRadius: 12,
+        backgroundColor: '#ffffff',
+        borderWidth: 1,
+        borderColor: '#f1f5f9',
+    },
+    themeBlue: {
+        borderColor: '#e0f2fe',
+    },
+    themeAmber: {
+        borderColor: '#fef3c7',
+    },
+    themePurple: {
+        borderColor: '#ede9fe',
+    },
+    themePink: {
+        borderColor: '#fce7f3',
+    },
+    themeEmerald: {
+        borderColor: '#dcfce7',
+    },
+    themeCyan: {
+        borderColor: '#cffafe',
+    },
+    rowLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
+    chipIcon: {
+        width: 26,
+        height: 26,
+        borderRadius: 8,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    rowKey: {
+        fontSize: 13,
+        fontWeight: '700',
+    },
+    rowVal: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#0f172a',
+    },
+    adminBadgeWrap: {
+        backgroundColor: '#f5f3ff',
+        borderWidth: 1,
+        borderColor: '#ddd6fe',
+        paddingVertical: 2,
+        paddingHorizontal: 8,
+        borderRadius: 8,
+    },
+    adminTag: {
+        color: '#6d28d9',
+        fontWeight: '800',
+        fontSize: 12,
+    },
+    loginPillLink: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#ecfdf5',
+        borderWidth: 1,
+        borderColor: '#6ee7b7',
+        borderRadius: 8,
+        paddingVertical: 3,
+        paddingHorizontal: 8,
+    },
+    loginPillLinkText: {
+        color: '#047857',
+        fontWeight: '700',
+        fontSize: 12,
+    },
+
+    // Holographic AI Col
+    infoRightAiCol: {
+        flex: 0.95,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#f0fdfa',
+        borderRadius: 22,
+        borderWidth: 1,
+        borderColor: 'rgba(167, 243, 208, 0.7)',
+        padding: 16,
+        minHeight: 245,
+        position: 'relative',
+        overflow: 'hidden',
+    },
+    aiHologramStage: {
+        width: 180,
+        height: 180,
+        alignItems: 'center',
+        justifyContent: 'center',
+        position: 'relative',
+    },
+    aiAuroraGlow: {
+        position: 'absolute',
+        width: 120,
+        height: 120,
+        borderRadius: 60,
+        backgroundColor: '#22d3ee',
+        opacity: 0.25,
+    },
+    aiGyroRing: {
+        position: 'absolute',
+        borderRadius: 100,
+    },
+    gyro1: {
+        width: 160,
+        height: 160,
+        borderWidth: 2,
+        borderColor: '#06b6d4',
+        borderStyle: 'dashed',
+        opacity: 0.6,
+    },
+    gyro2: {
+        width: 130,
+        height: 130,
+        borderWidth: 2,
+        borderColor: '#8b5cf6',
+        opacity: 0.5,
+    },
+    gyro3: {
+        width: 100,
+        height: 100,
+        borderWidth: 1.5,
+        borderColor: '#10b981',
+        borderStyle: 'dotted',
+        opacity: 0.7,
+    },
+    aiFloatingNode: {
+        position: 'absolute',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 3,
+        backgroundColor: '#ffffff',
+        borderWidth: 1,
+        borderColor: '#ffffff',
+        borderRadius: 10,
+        paddingVertical: 2,
+        paddingHorizontal: 6,
+        zIndex: 8,
+    },
+    nodeEngine: {
+        top: 4,
+        right: 8,
+        borderColor: '#7dd3fc',
+    },
+    nodeQuantum: {
+        bottom: 20,
+        left: 4,
+        borderColor: '#c4b5fd',
+    },
+    nodeCloud: {
+        bottom: 20,
+        right: 4,
+        borderColor: '#6ee7b7',
+    },
+    nodeIcon: {
+        fontSize: 10,
+    },
+    nodeText: {
+        fontSize: 10,
+        fontWeight: '800',
+    },
+    aiCenterShieldOrb: {
+        width: 68,
+        height: 68,
+        borderRadius: 20,
+        backgroundColor: '#ffffff',
+        borderWidth: 2,
+        borderColor: '#a5f3fc',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 6,
+        overflow: 'hidden',
+    },
+    aiLaserScanner: {
+        position: 'absolute',
+        top: '40%',
+        left: 0,
+        width: '100%',
+        height: 3,
+        backgroundColor: '#22d3ee',
+    },
+    aiSynapseBars: {
+        position: 'absolute',
+        bottom: 4,
+        flexDirection: 'row',
+        alignItems: 'flex-end',
+        gap: 4,
+        height: 20,
+    },
+    synapseBar: {
+        width: 3,
+        borderRadius: 1.5,
+    },
+    aiStatusPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        marginTop: 10,
+        backgroundColor: '#f0fdf4',
+        borderWidth: 1,
+        borderColor: '#67e8f9',
+        borderRadius: 20,
+        paddingVertical: 4,
+        paddingHorizontal: 12,
+    },
+    aiLiveSparkle: {
+        fontSize: 11,
+        color: '#06b6d4',
+    },
+    aiStatusCaption: {
+        fontSize: 11,
+        fontWeight: '800',
+        color: '#0e7490',
+    },
+
+    // 8. Monthly Revenue Card
+    revenueCard: {
+        backgroundColor: '#ffffff',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        borderRadius: 18,
+        padding: 22,
+        marginBottom: 20,
+    },
+    revVal: {
+        fontSize: 26,
+        fontWeight: '900',
+        color: '#0f172a',
+        marginVertical: 6,
+    },
+    revSub: {
+        fontSize: 12,
+        color: '#64748b',
+        fontWeight: '500',
+    },
+
+    // 9. Staff Table Card
+    tableCard: {
+        backgroundColor: '#ffffff',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        borderRadius: 18,
+        padding: 22,
+        marginBottom: 20,
+    },
+    staffHead: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 14,
+    },
+    countBadge: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: '#6366f1',
+    },
+    colSub: {
+        fontSize: 12,
+        color: '#64748b',
+        marginTop: 2,
+    },
+    staffFilterToolbar: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    staffSearchBox: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#f8fafc',
+        borderWidth: 1,
+        borderColor: '#cbd5e1',
+        borderRadius: 10,
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        minWidth: 180,
+    },
+    staffSearchInput: {
+        flex: 1,
+        fontSize: 12,
+        color: '#1e293b',
+        padding: 0,
+    },
+    rolePillBtn: {
+        backgroundColor: '#f8fafc',
+        borderWidth: 1,
+        borderColor: '#cbd5e1',
+        borderRadius: 8,
+        paddingVertical: 5,
+        paddingHorizontal: 10,
+    },
+    rolePillBtnActive: {
+        backgroundColor: '#6366f1',
+        borderColor: '#6366f1',
+    },
+    rolePillBtnText: {
+        fontSize: 11.5,
+        fontWeight: '700',
+        color: '#334155',
+    },
+    rolePillBtnTextActive: {
+        color: '#ffffff',
+    },
+    filterResetBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        backgroundColor: '#fee2e2',
+        borderWidth: 1,
+        borderColor: '#fecaca',
+        borderRadius: 8,
+        paddingVertical: 5,
+        paddingHorizontal: 10,
+    },
+    filterResetBtnText: {
+        fontSize: 11.5,
+        fontWeight: '700',
+        color: '#dc2626',
+    },
+    roleSelectWrap: {
+        position: 'relative',
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    roleSelectIcon: {
+        position: 'absolute',
+        left: 10,
+        zIndex: 1,
+        pointerEvents: 'none',
+    },
+    roleSelectArrow: {
+        position: 'absolute',
+        right: 10,
+        zIndex: 1,
+        pointerEvents: 'none',
+    },
+    staffTableWrap: {
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        borderRadius: 12,
+        overflow: 'hidden',
+        marginTop: 8,
+    },
+    staffThead: {
+        flexDirection: 'row',
+        backgroundColor: '#252a5c',
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+    },
+    staffTh: {
+        color: '#ffffff',
+        fontSize: 11,
+        fontWeight: '800',
+        letterSpacing: 0.6,
+    },
+    staffTrow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#f1f5f9',
+    },
+    avatarCircle: {
+        width: 30,
+        height: 30,
+        borderRadius: 15,
+        backgroundColor: '#ede9fe',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    avatarCircleText: {
+        color: '#6366f1',
+        fontSize: 12,
+        fontWeight: '800',
+    },
+    staffName: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#0f172a',
+    },
+    roleBadge: {
+        paddingVertical: 3,
+        paddingHorizontal: 8,
+        borderRadius: 6,
+        alignSelf: 'flex-start',
+    },
+    roleBadgeText: {
+        fontSize: 11,
+        fontWeight: '800',
+        textTransform: 'uppercase',
+    },
+    roleBadgeDoctor: {
+        backgroundColor: '#eff6ff',
+        borderWidth: 1,
+        borderColor: '#bfdbfe',
+    },
+    roleBadgeTextDoctor: {
+        color: '#2563eb',
+    },
+    roleBadgeNurse: {
+        backgroundColor: '#f0fdf4',
+        borderWidth: 1,
+        borderColor: '#bbf7d0',
+    },
+    roleBadgeTextNurse: {
+        color: '#16a34a',
+    },
+    roleBadgeReception: {
+        backgroundColor: '#fffbeb',
+        borderWidth: 1,
+        borderColor: '#fde68a',
+    },
+    roleBadgeTextReception: {
+        color: '#d97706',
+    },
+    roleBadgePharmacy: {
+        backgroundColor: '#fdf2f8',
+        borderWidth: 1,
+        borderColor: '#fbcfe8',
+    },
+    roleBadgeTextPharmacy: {
+        color: '#db2777',
+    },
+    roleBadgeLab: {
+        backgroundColor: '#f5f3ff',
+        borderWidth: 1,
+        borderColor: '#ddd6fe',
+    },
+    roleBadgeTextLab: {
+        color: '#7c3aed',
+    },
+    roleBadgeAdmin: {
+        backgroundColor: '#ede9fe',
+        borderWidth: 1,
+        borderColor: '#c7d2fe',
+    },
+    roleBadgeTextAdmin: {
+        color: '#6366f1',
+    },
+    roleBadgeDefault: {
+        backgroundColor: '#f1f5f9',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+    },
+    roleBadgeTextDefault: {
+        color: '#475569',
+    },
+    staffEmail: {
+        fontSize: 12.5,
+        color: '#334155',
+    },
+    staffPhone: {
+        fontSize: 12.5,
+        color: '#334155',
+    },
+
+    // White Label Mobile App
+    wlContainer: {
+        paddingTop: 4,
+    },
+    wlStatusRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 12,
+    },
+    wlStatusBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 5,
+        paddingHorizontal: 12,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        backgroundColor: '#f8fafc',
+    },
+    statusDot: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        marginRight: 6,
+    },
+    wlErrorText: {
+        color: '#dc2626',
+        fontSize: 12,
+        marginBottom: 12,
+    },
+    wlActionsRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 10,
+    },
+    wlBtn: {
+        paddingVertical: 9,
+        paddingHorizontal: 16,
+        borderRadius: 10,
+    },
+    wlBuildBtn: {
+        backgroundColor: '#2563eb',
+    },
+    wlBuildBtnText: {
+        color: '#ffffff',
+        fontSize: 13,
+        fontWeight: '700',
+    },
+    wlResetBtn: {
+        backgroundColor: '#fee2e2',
+        borderWidth: 1,
+        borderColor: '#fecaca',
+    },
+    wlResetBtnText: {
+        color: '#dc2626',
+        fontSize: 13,
+        fontWeight: '700',
+    },
+    wlDownloadBtn: {
+        backgroundColor: '#10b981',
     },
 });

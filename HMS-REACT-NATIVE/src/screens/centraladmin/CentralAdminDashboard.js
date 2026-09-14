@@ -61,8 +61,16 @@ export default function CentralAdminDashboard() {
       setActiveTab(route.params.openTab);
       navigation.setParams({ openTab: undefined });
     }
-    setSelectedHospital(null); // Clear selected hospital on tab change
-  }, [activeTab, route.params?.openTab, navigation]);
+  }, [route.params?.openTab, navigation]);
+
+  useEffect(() => {
+    if (route.params?.hospital) {
+      setSelectedHospital(route.params.hospital);
+    } else if (route.params?.hospitalId && hospitals.length > 0) {
+      const found = hospitals.find(h => (h._id || h.id) === route.params.hospitalId);
+      if (found) setSelectedHospital(found);
+    }
+  }, [route.params?.hospital, route.params?.hospitalId, hospitals]);
 
   useEffect(() => {
     fetchHospitals();
@@ -208,9 +216,25 @@ export default function CentralAdminDashboard() {
     }
   };
 
+  // Web Parity: When a hospital is selected, render ONLY the Hospital Details page
+  if (selectedHospital) {
+    return (
+      <SafeAreaView style={styles.centralAdminPage}>
+        <ScrollView 
+          contentContainerStyle={[styles.centralAdminContainer, { padding: 20 }]} 
+          showsVerticalScrollIndicator={false}
+        >
+          <CentralAdminHospitalDetails 
+            hospital={selectedHospital} 
+            onBack={() => setSelectedHospital(null)} 
+          />
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.centralAdminPage}>
-
 
       <ScrollView contentContainerStyle={[styles.centralAdminContainer, { padding: 20 }]} showsVerticalScrollIndicator={false} pointerEvents="box-none">
         
@@ -219,6 +243,7 @@ export default function CentralAdminDashboard() {
           activeTab={activeTab} 
           setActiveTab={setActiveTab} 
           onRevenueAnalyticsPress={() => navigation.navigate('SystemRevenueDashboard')}
+          onRefreshPress={fetchHospitals}
         />
 
         {/* Global Notifications */}
@@ -250,16 +275,8 @@ export default function CentralAdminDashboard() {
           hospitals={hospitals}
         />
 
-        {/* Hospital Details Inline View */}
-        {selectedHospital && (
-          <CentralAdminHospitalDetails 
-            hospital={selectedHospital} 
-            onBack={() => setSelectedHospital(null)} 
-          />
-        )}
-
         {/* Child Component 4: Hospital List Grid */}
-        {(activeTab !== 'revenue-plans' && activeTab !== 'configurations' && !selectedHospital) && (
+        {(activeTab !== 'revenue-plans' && activeTab !== 'configurations') && (
           <CentralAdminHospitalCards 
             loading={loading}
             hospitals={hospitals}

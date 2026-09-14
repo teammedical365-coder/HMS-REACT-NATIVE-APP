@@ -23,8 +23,8 @@ export const styles = StyleSheet.create({
   // .centraladmin-page
   centralAdminPage: {
     flex: 1,
-    backgroundColor: '#F4F9FD', // Adjusted for Web Parity
-    padding: 0, // removed padding to accommodate navbar
+    backgroundColor: '#f8fafc',
+    padding: 0,
     paddingBottom: 60,
   },
   // Navbar Styles
@@ -90,6 +90,8 @@ export const styles = StyleSheet.create({
   },
   centralAdminContainer: {
     width: '100%',
+    maxWidth: 1280,
+    alignSelf: 'center',
   },
   // .cad-header-row
   headerRow: {
@@ -401,7 +403,6 @@ export const styles = StyleSheet.create({
   },
   // .cad-hospital-card
   hospitalCard: {
-    width: width > 768 ? '48%' : '100%',
     backgroundColor: '#ffffff',
     borderWidth: 1.5,
     borderColor: '#dbeafe',
@@ -409,6 +410,12 @@ export const styles = StyleSheet.create({
     padding: 18,
     flexDirection: 'column',
     justifyContent: 'space-between',
+    marginBottom: 8,
+    ...Platform.select({
+      ios: { shadowColor: '#0f172a', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 8 },
+      android: { elevation: 2 },
+      web: { boxShadow: '0 2px 8px rgba(15, 23, 42, 0.04)' }
+    }),
   },
   // .cad-hospital-card-header
   hospitalCardHeader: {
@@ -435,7 +442,7 @@ export const styles = StyleSheet.create({
   },
   // .cad-hospital-name
   hospitalName: {
-    fontSize: 15,
+    fontSize: 15.5,
     fontWeight: '800',
     color: colors.navy,
   },
@@ -446,33 +453,52 @@ export const styles = StyleSheet.create({
     fontStyle: 'italic',
     marginTop: 2,
   },
+  hospitalMetaList: {
+    flexDirection: 'column',
+    gap: 4,
+    marginVertical: 10,
+  },
+  hospitalMetaItem: {
+    fontSize: 12.5,
+    color: colors.slateMuted,
+  },
+  domainBadgeWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 4,
+  },
+  domainBadge: {
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+  },
+  domainBadgeText: {
+    color: '#2563eb',
+    fontSize: 11,
+    fontWeight: '600',
+  },
   // .cad-hospital-card-footer
   hospitalCardFooter: {
     borderTopWidth: 1,
     borderTopColor: '#f1f5f9',
     paddingTop: 12,
     flexDirection: 'column',
-    gap: 10,
+    gap: 8,
+  },
+  hospitalClickHint: {
+    fontSize: 12,
+    color: '#2563eb',
+    fontWeight: '700',
   },
   // .cad-hospital-btn-group
   hospitalBtnGroup: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-  },
-  // .cad-btn-sm-branding
-  loginAsBtn: {
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-    borderRadius: 6,
-    backgroundColor: '#f0fdf4',
-    borderWidth: 1,
-    borderColor: '#bbf7d0',
-  },
-  loginAsBtnText: {
-    color: '#16a34a',
-    fontSize: 12,
-    fontWeight: '700',
   },
   btnSmBranding: {
     paddingVertical: 5,
@@ -487,7 +513,6 @@ export const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
-  // .cad-btn-sm-edit
   btnSmEdit: {
     paddingVertical: 5,
     paddingHorizontal: 10,
@@ -498,6 +523,20 @@ export const styles = StyleSheet.create({
   },
   btnSmEditText: {
     color: '#334155',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  btnSmDelete: {
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    marginLeft: 'auto',
+  },
+  btnSmDeleteText: {
+    color: '#dc2626',
     fontSize: 12,
     fontWeight: '700',
   },

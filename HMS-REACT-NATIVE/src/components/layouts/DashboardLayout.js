@@ -429,7 +429,7 @@ const TopBar = ({ toggleSidebar, sidebarOpen, isMobile }) => {
     };
 
     const getCentralAdminTag = () => {
-        if (currentPath === 'CentralAdminDashboard') return 'SYSTEM OVERVIEW';
+        if (currentPath === 'CentralAdminDashboard') return 'CENTRAL ADMIN';
         if (currentPath === 'SystemRevenueDashboard') return 'SYSTEM REVENUE ANALYTICS';
         if (currentPath.includes('Consent')) return 'CONSENT HUB';
         if (currentPath.includes('QuestionLibrary')) return 'QUESTION LIBRARY';
