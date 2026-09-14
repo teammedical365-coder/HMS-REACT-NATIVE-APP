@@ -17,6 +17,9 @@ import AdminLabTests from '../screens/admin/AdminLabTests';
 import AdminTestPackages from '../screens/admin/AdminTestPackages';
 import AdminMedicines from '../screens/admin/AdminMedicines';
 import AdminServices from '../screens/admin/AdminServices';
+import AdminLabs from '../screens/admin/AdminLabs';
+import AdminPharmacy from '../screens/admin/AdminPharmacy';
+import AdminReception from '../screens/admin/AdminReception';
 
 // -- Hospital Admin Pages --
 import HospitalAdminDashboard from '../screens/hospitaladmin/HospitalAdminDashboard';
@@ -26,9 +29,11 @@ import HospitalAdminQuestionLibrary from '../screens/hospitaladmin/HospitalAdmin
 import BedManagement from '../screens/hospitaladmin/BedManagement'; // Based on audit
 
 // -- Doctor Pages --
+import DoctorDashboard from '../screens/doctors/DoctorDashboard';
 import Patient from '../screens/doctors/Patient';
 import DoctorPatientDetails from '../screens/doctors/DoctorPatientDetails';
 import AIAssistant from '../screens/doctors/AIAssistant';
+import LabReports from '../screens/user/LabReports';
 
 // -- OT Pages --
 import OTDashboard from '../screens/ot/OTDashboard';
@@ -104,6 +109,10 @@ export const CentralAdminApp = () => (
         <Stack.Screen name="AdminMedicines" component={withLayout(AdminMedicines)} />
         <Stack.Screen name="AdminServices" component={withLayout(AdminServices)} />
         <Stack.Screen name="Admin" component={withLayout(Admin)} />
+        <Stack.Screen name="AdminDoctors" component={withLayout(AdminDoctors)} />
+        <Stack.Screen name="AdminLabs" component={withLayout(AdminLabs)} />
+        <Stack.Screen name="AdminPharmacy" component={withLayout(AdminPharmacy)} />
+        <Stack.Screen name="AdminReception" component={withLayout(AdminReception)} />
     </Stack.Navigator>
 );
 
@@ -136,10 +145,15 @@ export const HospitalAdminApp = () => {
 
 export const DoctorApp = () => (
     <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
-        <Stack.Screen name="DoctorDashboard" component={withLayout(Patient)} />
+        <Stack.Screen name="DoctorDashboard" component={withLayout(DoctorDashboard)} />
         <Stack.Screen name="DoctorPatients" component={withLayout(Patient)} />
         <Stack.Screen name="DoctorPatientDetails" component={withLayout(DoctorPatientDetails)} />
         <Stack.Screen name="AIAssistant" component={withLayout(AIAssistant)} />
+        <Stack.Screen name="IPDCommandCenter" component={withLayout(IPDCommandCenter)} />
+        <Stack.Screen name="NursePatientWorkspace" component={withLayout(NursePatientWorkspace)} />
+        <Stack.Screen name="NurseDashboard" component={withLayout(NurseDashboard)} />
+        <Stack.Screen name="LabReports" component={withLayout(LabReports)} />
+        <Stack.Screen name="UnifiedPatientProfile" component={withLayout(UnifiedPatientProfile)} />
     </Stack.Navigator>
 );
 

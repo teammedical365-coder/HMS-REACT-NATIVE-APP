@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Modal, KeyboardAvoidingView, Platform, Dimensions } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Picker } from '@react-native-picker/picker';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 
 // Assuming you have mapped these API utilities to work in React Native
 import { doctorAPI, labTestAPI, questionLibraryAPI, hospitalAPI, patientAPI, receptionAPI, otAPI, adminEntitiesAPI, referralAPI, publicAPI } from '../../utils/api';
@@ -66,6 +68,8 @@ const DoctorPatientDetails = () => {
 
     // Modal States
     const [showPrescribeModal, setShowPrescribeModal] = useState(false);
+    const [showPrescriptionModal, setShowPrescriptionModal] = useState(false);
+    const [prescriptionMode, setPrescriptionMode] = useState('slip'); // 'slip' | 'cumulative'
 
     // Surgery Plan States
     const [operationRequired, setOperationRequired] = useState(false);
@@ -467,8 +471,8 @@ const DoctorPatientDetails = () => {
                             }
                         }));
                         
-                        // NOTE: jsPDF generation logic omitted for React Native since it requires native modules (expo-print).
-                        Alert.alert('PDF Generation', 'PDFs are currently unsupported natively without the expo-print module.');
+                        setPrescriptionMode('slip');
+                        setShowPrescriptionModal(true);
 
                     } catch (err) {
                         Alert.alert('Error', "Error: " + (err.response?.data?.message || err.message));
@@ -536,6 +540,279 @@ const DoctorPatientDetails = () => {
         partnerBloodGroup: clinicPatient.partnerBloodGroup || rawProfile.partnerBloodGroup || '',
         allergies: clinicPatient.allergies || rawProfile.allergies || '-',
         chronicConditions: clinicPatient.chronicConditions || rawProfile.chronicConditions || '-'
+    };
+
+    const getPrescriptionHTML = () => {
+        const pt = patient || {};
+        const prof = profile || {};
+        const hName = hospitalContext?.name || 'TEAM MEDICAL 365 HOSPITAL';
+        const hAddr = [hospitalContext?.address, hospitalContext?.city, hospitalContext?.state].filter(Boolean).join(', ');
+        const hPhone = hospitalContext?.phone || '';
+        
+        const rxItems = (sessionData.medicines || []).filter(m => m.medicineName?.trim()).length > 0
+            ? sessionData.medicines.filter(m => m.medicineName?.trim())
+            : (appointment?.pharmacy || []).map(p => ({
+                medicineName: p.medicineName,
+                saltName: p.saltName || '',
+                dose: p.frequency || '',
+                days: p.duration || ''
+            }));
+
+        const labItems = sessionData.labTests
+            ? sessionData.labTests.split(',').map(t => t.trim()).filter(Boolean)
+            : (appointment?.labTests || []);
+
+        const doctorName = appointment?.doctorName || user?.name || 'Attending Physician';
+        const diagnosis = appointment?.diagnosis || sessionData.diagnosis || '-';
+        const notes = sessionData.notes || appointment?.doctorNotes || '';
+        const dateStr = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+        const timeStr = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+
+        return `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Prescription Slip</title>
+    <style>
+        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #1e293b; padding: 24px; margin: 0; line-height: 1.4; }
+        .header { text-align: center; border-bottom: 2px solid #16a34a; padding-bottom: 12px; margin-bottom: 16px; }
+        .h-name { font-size: 24px; font-weight: 800; color: #0f172a; margin: 0; }
+        .h-sub { font-size: 11px; color: #64748b; margin-top: 4px; }
+        .badge-title { display: inline-block; background: #dcfce7; color: #166534; font-size: 13px; font-weight: 700; padding: 4px 16px; border-radius: 9999px; margin-top: 8px; text-transform: uppercase; letter-spacing: 1px; }
+        .info-table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 12px; }
+        .info-table td { padding: 6px 10px; border: 1px solid #e2e8f0; }
+        .label-col { font-weight: 700; color: #475569; background: #f8fafc; width: 22%; }
+        .sec-title { font-size: 14px; font-weight: 700; color: #0f172a; margin: 16px 0 8px 0; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; }
+        .data-table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 12px; }
+        .data-table th { background: #16a34a; color: #ffffff; text-align: left; padding: 8px 10px; font-weight: 700; }
+        .data-table.lab th { background: #0284c7; }
+        .data-table td { padding: 8px 10px; border-bottom: 1px solid #e2e8f0; }
+        .data-table tr:nth-child(even) td { background: #f8fafc; }
+        .notes-box { background: #f8fafc; border-left: 4px solid #3b82f6; padding: 10px 14px; font-size: 12px; color: #334155; margin-bottom: 16px; white-space: pre-wrap; }
+        .footer { border-top: 1px solid #cbd5e1; padding-top: 12px; margin-top: 24px; font-size: 11px; color: #64748b; display: flex; justify-content: space-between; align-items: flex-end; }
+        .validity-note { text-align: center; font-size: 10px; color: #94a3b8; margin-top: 12px; }
+        .doc-signature { text-align: right; }
+        .sig-line { width: 160px; border-bottom: 1px solid #475569; margin-bottom: 4px; margin-left: auto; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1 class="h-name">${hName}</h1>
+        ${hAddr ? `<div class="h-sub">${hAddr}</div>` : ''}
+        ${hPhone ? `<div class="h-sub">Phone: ${hPhone}</div>` : ''}
+        <div class="badge-title">Prescription Slip</div>
+    </div>
+
+    <table class="info-table">
+        <tr>
+            <td class="label-col">Patient Name</td>
+            <td><strong>${pt.name || intakeData.name || '-'}</strong></td>
+            <td class="label-col">MRN / ID</td>
+            <td><strong>${pt.patientId || pt.patientUid || appointment?.patientId || 'N/A'}</strong></td>
+        </tr>
+        <tr>
+            <td class="label-col">Age / Gender</td>
+            <td>${prof.age || intakeData.age || '-'} / ${prof.gender || intakeData.gender || '-'}</td>
+            <td class="label-col">Phone</td>
+            <td>${pt.phone || intakeData.phone || '-'}</td>
+        </tr>
+        <tr>
+            <td class="label-col">Doctor</td>
+            <td><strong>Dr. ${doctorName.replace(/^Dr\.?\s*/i, '')}</strong></td>
+            <td class="label-col">Date & Time</td>
+            <td>${dateStr} ${timeStr}</td>
+        </tr>
+        <tr>
+            <td class="label-col">Diagnosis</td>
+            <td colspan="3" style="color: #0f172a; font-weight: 600;">${diagnosis}</td>
+        </tr>
+    </table>
+
+    <div class="sec-title">💊 Medicines Prescribed</div>
+    ${rxItems.length > 0 ? `
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th style="width: 30px;">#</th>
+                    <th>Medicine Name</th>
+                    <th>Salt / Generic</th>
+                    <th>Dose / Frequency</th>
+                    <th style="width: 60px;">Days</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rxItems.map((m, idx) => `
+                    <tr>
+                        <td>${idx + 1}</td>
+                        <td><strong>${m.medicineName || '-'}</strong></td>
+                        <td style="color: #64748b;">${m.saltName || '-'}</td>
+                        <td>${m.dose || m.frequency || '-'}</td>
+                        <td>${m.days || m.duration || '-'}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    ` : `<div style="color: #94a3b8; font-size: 12px; margin-bottom: 12px;">No medicines prescribed.</div>`}
+
+    <div class="sec-title" style="margin-top: 14px;">🧪 Lab Tests Ordered</div>
+    ${labItems.length > 0 ? `
+        <table class="data-table lab">
+            <thead>
+                <tr>
+                    <th style="width: 30px;">#</th>
+                    <th>Test Name</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${labItems.map((t, idx) => `
+                    <tr>
+                        <td>${idx + 1}</td>
+                        <td><strong>${t}</strong></td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    ` : `<div style="color: #94a3b8; font-size: 12px; margin-bottom: 12px;">No lab tests ordered.</div>`}
+
+    ${notes ? `
+        <div class="sec-title">📋 Clinical Notes</div>
+        <div class="notes-box">${notes}</div>
+    ` : ''}
+
+    <div class="footer">
+        <div>
+            <div><strong>Doctor:</strong> Dr. ${doctorName.replace(/^Dr\.?\s*/i, '')}</div>
+            <div><strong>Issued:</strong> ${dateStr} ${timeStr}</div>
+        </div>
+        <div class="doc-signature">
+            <div class="sig-line"></div>
+            <div>Authorized Signatory / Doctor</div>
+        </div>
+    </div>
+    <div class="validity-note">This prescription is valid for 30 days from the date of issue.</div>
+</body>
+</html>`;
+    };
+
+    const getCumulativeHTML = () => {
+        const pt = patient || {};
+        const prof = profile || {};
+        const hName = hospitalContext?.name || 'TEAM MEDICAL 365 HOSPITAL';
+        const hTagline = hospitalContext?.tagline || 'Excellence in Healthcare';
+        const dateStr = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+
+        return `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Cumulative Clinical Record</title>
+    <style>
+        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #1e293b; padding: 24px; margin: 0; line-height: 1.4; }
+        .header { text-align: center; border-bottom: 2px solid #2563eb; padding-bottom: 12px; margin-bottom: 16px; }
+        .h-name { font-size: 24px; font-weight: 800; color: #1e40af; margin: 0; }
+        .h-sub { font-size: 11px; color: #64748b; margin-top: 4px; }
+        .badge-title { display: inline-block; background: #dbeafe; color: #1e40af; font-size: 13px; font-weight: 700; padding: 4px 16px; border-radius: 9999px; margin-top: 8px; text-transform: uppercase; letter-spacing: 1px; }
+        .info-table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 12px; }
+        .info-table td { padding: 6px 10px; border: 1px solid #e2e8f0; }
+        .label-col { font-weight: 700; color: #475569; background: #f8fafc; width: 22%; }
+        .sec-title { font-size: 14px; font-weight: 700; color: #0f172a; margin: 16px 0 8px 0; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; }
+        .hist-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px; margin-bottom: 10px; font-size: 12px; }
+        .hist-header { font-weight: 700; color: #1e40af; margin-bottom: 4px; display: flex; justify-content: space-between; }
+        .footer { border-top: 1px solid #cbd5e1; padding-top: 12px; margin-top: 24px; font-size: 11px; color: #64748b; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1 class="h-name">${hName}</h1>
+        <div class="h-sub">${hTagline}</div>
+        <div class="badge-title">Cumulative Clinical Record / History</div>
+    </div>
+
+    <table class="info-table">
+        <tr>
+            <td class="label-col">Patient Name</td>
+            <td><strong>${pt.name || intakeData.name || '-'}</strong></td>
+            <td class="label-col">MRN / ID</td>
+            <td><strong>${pt.patientId || pt.patientUid || appointment?.patientId || 'N/A'}</strong></td>
+        </tr>
+        <tr>
+            <td class="label-col">Age / Gender</td>
+            <td>${prof.age || intakeData.age || '-'} / ${prof.gender || intakeData.gender || '-'}</td>
+            <td class="label-col">Record Date</td>
+            <td>${dateStr}</td>
+        </tr>
+    </table>
+
+    <div class="sec-title">📜 Past Consultations History (${(history || []).length})</div>
+    ${(history || []).length > 0 ? (history || []).map(h => `
+        <div class="hist-card">
+            <div class="hist-header">
+                <span>Date: ${new Date(h.appointmentDate || h.visitDate || h.createdAt).toLocaleDateString()}</span>
+                <span>Status: ${h.status}</span>
+            </div>
+            <div><strong>Diagnosis:</strong> ${h.doctorConsultation?.diagnosis?.join(', ') || h.diagnosis || 'None'}</div>
+            ${h.doctorNotes || h.doctorConsultation?.notes ? `<div><strong>Notes:</strong> ${h.doctorNotes || h.doctorConsultation?.notes}</div>` : ''}
+            ${(h.pharmacy?.length > 0 || h.doctorConsultation?.prescription?.length > 0) ? `
+                <div style="margin-top: 4px; color: #059669;">
+                    <strong>Prescription:</strong> ${
+                        (h.doctorConsultation?.prescription || []).map(p => `${p.medicine} (${p.dosage}, ${p.duration})`).join(' · ') ||
+                        (h.pharmacy || []).map(p => `${p.medicineName} (${p.frequency || p.dosage || ''})`).join(' · ')
+                    }
+                </div>
+            ` : ''}
+        </div>
+    `).join('') : `<div style="color: #94a3b8; font-size: 12px; margin-bottom: 12px;">No past consultations on record.</div>`}
+
+    <div class="sec-title">📌 Current Consultation Summary</div>
+    <div class="hist-card" style="border-left: 4px solid #16a34a; background: #f0fdf4;">
+        <div><strong>Diagnosis:</strong> ${sessionData.diagnosis || appointment?.diagnosis || 'Pending'}</div>
+        ${sessionData.notes ? `<div><strong>Clinical Notes:</strong> ${sessionData.notes}</div>` : ''}
+        ${sessionData.medicines?.length > 0 ? `
+            <div style="margin-top: 6px;">
+                <strong>Prescriptions:</strong>
+                <ul>
+                    ${sessionData.medicines.filter(m => m.medicineName).map(m => `<li>${m.medicineName} — ${m.dose || ''} (${m.days ? m.days + ' days' : ''})</li>`).join('')}
+                </ul>
+            </div>
+        ` : ''}
+        ${sessionData.labTests ? `<div><strong>Lab Tests:</strong> ${sessionData.labTests}</div>` : ''}
+    </div>
+
+    <div class="footer">
+        Generated by Team Medical 365 Clinical Information System &bull; ${dateStr}
+    </div>
+</body>
+</html>`;
+    };
+
+    const handlePrintPrescription = async (isCumulative = false) => {
+        try {
+            const html = isCumulative ? getCumulativeHTML() : getPrescriptionHTML();
+            await Print.printAsync({ html });
+        } catch (err) {
+            console.error("Print error:", err);
+            Alert.alert("Print Error", err.message || "Failed to print prescription");
+        }
+    };
+
+    const handleDownloadPrescriptionPDF = async (isCumulative = false) => {
+        try {
+            const html = isCumulative ? getCumulativeHTML() : getPrescriptionHTML();
+            const file = await Print.printToFileAsync({ html });
+            const canShare = await Sharing.isAvailableAsync();
+            if (canShare) {
+                await Sharing.shareAsync(file.uri, {
+                    UTI: '.pdf',
+                    mimeType: 'application/pdf',
+                    dialogTitle: isCumulative ? 'Cumulative Clinical Record' : 'Prescription Slip'
+                });
+            } else {
+                Alert.alert("PDF Generated", `Saved to: ${file.uri}`);
+            }
+        } catch (err) {
+            console.error("PDF generation error:", err);
+            Alert.alert("Export Error", err.message || "Failed to export PDF");
+        }
     };
 
     const tabs = [
@@ -799,7 +1076,20 @@ const DoctorPatientDetails = () => {
                                             <Text style={styles.rightHeaderTitle}>📝 Current Session</Text>
                                             <Text style={styles.rightSubtitle}>Record diagnosis, notes & prescription</Text>
                                         </View>
-                                        <View style={[styles.apptStatus, styles[`status_${appointment.status}`] || styles.status_pending]}><Text style={[styles.apptStatusText, styles[`statusText_${appointment.status}`] || styles.statusText_pending]}>{appointment.status}</Text></View>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                            <TouchableOpacity
+                                                style={styles.previewBtn}
+                                                onPress={() => {
+                                                    setPrescriptionMode('slip');
+                                                    setShowPrescriptionModal(true);
+                                                }}
+                                            >
+                                                <Text style={styles.previewBtnText}>📄 Preview Rx</Text>
+                                            </TouchableOpacity>
+                                            <View style={[styles.apptStatus, styles[`status_${appointment.status}`] || styles.status_pending]}>
+                                                <Text style={[styles.apptStatusText, styles[`statusText_${appointment.status}`] || styles.statusText_pending]}>{appointment.status}</Text>
+                                            </View>
+                                        </View>
                                     </View>
 
                                     <ScrollView style={styles.rightContent}>
@@ -874,11 +1164,29 @@ const DoctorPatientDetails = () => {
                                                     <Text style={styles.btnSaveDraftText}>💾 Save Profile</Text>
                                                 </TouchableOpacity>
                                                 <TouchableOpacity style={styles.btnFinish} onPress={handleSaveAndMerge} disabled={saving}>
-                                                    <Text style={styles.btnFinishText}>{saving ? '⏳ Saving...' : '✅ Save & Finish'}</Text>
+                                                    <Text style={styles.btnFinishText}>{saving ? '⏳ Saving...' : '✅ Save & Generate Prescription'}</Text>
                                                 </TouchableOpacity>
                                             </>
                                         ) : (
                                             <>
+                                                <TouchableOpacity
+                                                    style={styles.btnReprint}
+                                                    onPress={() => {
+                                                        setPrescriptionMode('slip');
+                                                        setShowPrescriptionModal(true);
+                                                    }}
+                                                >
+                                                    <Text style={styles.btnReprintText}>📄 Reprint Prescription</Text>
+                                                </TouchableOpacity>
+                                                <TouchableOpacity
+                                                    style={[styles.btnReprint, { borderColor: '#93c5fd', backgroundColor: '#eff6ff' }]}
+                                                    onPress={() => {
+                                                        setPrescriptionMode('cumulative');
+                                                        setShowPrescriptionModal(true);
+                                                    }}
+                                                >
+                                                    <Text style={[styles.btnReprintText, { color: '#1d4ed8' }]}>📜 Cumulative Record</Text>
+                                                </TouchableOpacity>
                                                 <TouchableOpacity style={[styles.btnFinish, { backgroundColor: '#64748b' }]} onPress={() => navigation.navigate('DoctorPatients')}>
                                                     <Text style={styles.btnFinishText}>← Back to Queue</Text>
                                                 </TouchableOpacity>
@@ -1035,6 +1343,137 @@ const DoctorPatientDetails = () => {
                     </View>
                 </View>
             </Modal>
+
+            {/* PRESCRIPTION PREVIEW & PRINT MODAL */}
+            <Modal visible={showPrescriptionModal} animationType="slide" transparent={true}>
+                <View style={styles.pdfModalOverlay}>
+                    <View style={styles.pdfModalContent}>
+                        <View style={styles.pdfHeader}>
+                            <Text style={styles.pdfTitle}>
+                                {prescriptionMode === 'cumulative' ? '📜 Cumulative Clinical Record' : '📄 Prescription Slip'}
+                            </Text>
+                            <TouchableOpacity onPress={() => setShowPrescriptionModal(false)} style={styles.modalCloseBtn}>
+                                <Text style={styles.modalCloseText}>✕</Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        <View style={styles.pdfToggleBar}>
+                            <TouchableOpacity
+                                style={[styles.pdfToggleBtn, prescriptionMode === 'slip' && styles.pdfToggleBtnActive]}
+                                onPress={() => setPrescriptionMode('slip')}
+                            >
+                                <Text style={[styles.pdfToggleText, prescriptionMode === 'slip' && styles.pdfToggleTextActive]}>
+                                    Prescription Slip
+                                </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.pdfToggleBtn, prescriptionMode === 'cumulative' && styles.pdfToggleBtnActive]}
+                                onPress={() => setPrescriptionMode('cumulative')}
+                            >
+                                <Text style={[styles.pdfToggleText, prescriptionMode === 'cumulative' && styles.pdfToggleTextActive]}>
+                                    Cumulative Record
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        <ScrollView style={styles.pdfBody}>
+                            <View style={styles.pdfCard}>
+                                <Text style={styles.pdfHospitalName}>{hospitalContext?.name || 'TEAM MEDICAL 365 HOSPITAL'}</Text>
+                                <Text style={styles.pdfHospitalSub}>
+                                    {[hospitalContext?.address, hospitalContext?.city, hospitalContext?.state].filter(Boolean).join(', ') || 'Excellence in Healthcare'}
+                                </Text>
+                                {hospitalContext?.phone ? <Text style={styles.pdfHospitalSub}>Ph: {hospitalContext.phone}</Text> : null}
+
+                                <View style={[styles.pdfDivider, prescriptionMode === 'cumulative' && { backgroundColor: '#2563eb' }]} />
+
+                                <View style={styles.pdfInfoRow}>
+                                    <Text style={styles.pdfInfoLabel}>Patient:</Text>
+                                    <Text style={styles.pdfInfoVal}>{patient.name || intakeData.name || '-'}</Text>
+                                </View>
+                                <View style={styles.pdfInfoRow}>
+                                    <Text style={styles.pdfInfoLabel}>MRN / ID:</Text>
+                                    <Text style={styles.pdfInfoVal}>{patient.patientId || patient.patientUid || appointment?.patientId || 'N/A'}</Text>
+                                </View>
+                                <View style={styles.pdfInfoRow}>
+                                    <Text style={styles.pdfInfoLabel}>Age / Gender:</Text>
+                                    <Text style={styles.pdfInfoVal}>{profile.age || intakeData.age || '-'} / {profile.gender || intakeData.gender || '-'}</Text>
+                                </View>
+                                <View style={styles.pdfInfoRow}>
+                                    <Text style={styles.pdfInfoLabel}>Doctor:</Text>
+                                    <Text style={styles.pdfInfoVal}>Dr. {(appointment?.doctorName || user?.name || 'Doctor').replace(/^Dr\.?\s*/i, '')}</Text>
+                                </View>
+                                <View style={styles.pdfInfoRow}>
+                                    <Text style={styles.pdfInfoLabel}>Diagnosis:</Text>
+                                    <Text style={[styles.pdfInfoVal, { fontWeight: 'bold' }]}>{sessionData.diagnosis || appointment?.diagnosis || '-'}</Text>
+                                </View>
+
+                                {prescriptionMode === 'slip' ? (
+                                    <>
+                                        <Text style={styles.pdfSectionHead}>💊 Prescribed Medicines</Text>
+                                        {(sessionData.medicines || []).filter(m => m.medicineName?.trim()).length > 0 ? (
+                                            (sessionData.medicines || []).filter(m => m.medicineName?.trim()).map((m, idx) => (
+                                                <View key={idx} style={styles.pdfMedItem}>
+                                                    <Text style={{ fontWeight: 'bold', color: '#0f172a' }}>{idx + 1}. {m.medicineName}</Text>
+                                                    <Text style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                                                        Dose: {m.dose || 'Standard'} &bull; Timing: {m.saltName || 'As directed'} &bull; Duration: {m.days ? `${m.days} days` : 'Ongoing'}
+                                                    </Text>
+                                                </View>
+                                            ))
+                                        ) : (
+                                            <Text style={{ color: '#94a3b8', fontSize: 12, marginVertical: 4 }}>No medicines prescribed.</Text>
+                                        )}
+
+                                        <Text style={styles.pdfSectionHead}>🧪 Lab Tests Ordered</Text>
+                                        {sessionData.labTests ? (
+                                            <Text style={{ color: '#0f172a', fontSize: 13, marginBottom: 8 }}>{sessionData.labTests}</Text>
+                                        ) : (
+                                            <Text style={{ color: '#94a3b8', fontSize: 12, marginVertical: 4 }}>No lab tests ordered.</Text>
+                                        )}
+
+                                        {sessionData.notes ? (
+                                            <>
+                                                <Text style={styles.pdfSectionHead}>📋 Clinical Notes</Text>
+                                                <Text style={{ color: '#334155', fontSize: 13, lineHeight: 18 }}>{sessionData.notes}</Text>
+                                            </>
+                                        ) : null}
+                                    </>
+                                ) : (
+                                    <>
+                                        <Text style={styles.pdfSectionHead}>📜 Past Visits ({history.length})</Text>
+                                        {history.length > 0 ? history.map((h, i) => (
+                                            <View key={h._id || i} style={styles.pdfMedItem}>
+                                                <Text style={{ fontWeight: 'bold', color: '#1e40af' }}>
+                                                    {new Date(h.appointmentDate || h.visitDate || h.createdAt).toLocaleDateString()} — {h.status}
+                                                </Text>
+                                                <Text style={{ fontSize: 12, color: '#334155', marginTop: 2 }}>
+                                                    Diagnosis: {h.doctorConsultation?.diagnosis?.join(', ') || h.diagnosis || 'None'}
+                                                </Text>
+                                            </View>
+                                        )) : (
+                                            <Text style={{ color: '#94a3b8', fontSize: 12, marginVertical: 4 }}>No previous visits on record.</Text>
+                                        )}
+                                    </>
+                                )}
+                            </View>
+                        </ScrollView>
+
+                        <View style={styles.pdfFooterBar}>
+                            <TouchableOpacity
+                                style={[styles.modalActionBtn, { backgroundColor: '#10b981', flexDirection: 'row', alignItems: 'center', gap: 6 }]}
+                                onPress={() => handlePrintPrescription(prescriptionMode === 'cumulative')}
+                            >
+                                <Text style={styles.modalActionBtnText}>🖨️ Print / Save PDF</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.modalActionBtn, { backgroundColor: '#3b82f6', flexDirection: 'row', alignItems: 'center', gap: 6 }]}
+                                onPress={() => handleDownloadPrescriptionPDF(prescriptionMode === 'cumulative')}
+                            >
+                                <Text style={styles.modalActionBtnText}>📤 Export / Share</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
         </KeyboardAvoidingView>
     );
 };
@@ -1178,6 +1617,32 @@ const styles = StyleSheet.create({
     modalFooter: { padding: 16, borderTopWidth: 1, borderColor: '#e2e8f0', flexDirection: 'row', justifyContent: 'flex-end' },
     modalActionBtn: { backgroundColor: '#3b82f6', paddingVertical: 12, paddingHorizontal: 24, borderRadius: 10, alignItems: 'center' },
     modalActionBtnText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+
+    previewBtn: { backgroundColor: '#eff6ff', borderWidth: 1, borderColor: '#93c5fd', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, flexDirection: 'row', alignItems: 'center' },
+    previewBtnText: { color: '#1d4ed8', fontWeight: '600', fontSize: 12 },
+    btnReprint: { padding: 12, backgroundColor: '#f8fafc', borderWidth: 1.5, borderColor: '#cbd5e1', borderRadius: 10, flex: 1, alignItems: 'center' },
+    btnReprintText: { color: '#334155', fontWeight: 'bold', fontSize: 12 },
+
+    pdfModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 16 },
+    pdfModalContent: { backgroundColor: 'white', borderRadius: 16, width: '100%', maxWidth: 700, maxHeight: '90%', overflow: 'hidden' },
+    pdfHeader: { padding: 16, borderBottomWidth: 1, borderColor: '#e2e8f0', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc' },
+    pdfTitle: { fontSize: 18, fontWeight: 'bold', color: '#0f172a' },
+    pdfToggleBar: { flexDirection: 'row', backgroundColor: '#e2e8f0', padding: 4, borderRadius: 8, marginHorizontal: 16, marginTop: 12 },
+    pdfToggleBtn: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 6 },
+    pdfToggleBtnActive: { backgroundColor: '#ffffff' },
+    pdfToggleText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
+    pdfToggleTextActive: { color: '#0f172a', fontWeight: '700' },
+    pdfBody: { padding: 16 },
+    pdfCard: { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 12, padding: 16, marginBottom: 14 },
+    pdfHospitalName: { fontSize: 18, fontWeight: '800', textAlign: 'center', color: '#0f172a' },
+    pdfHospitalSub: { fontSize: 11, textAlign: 'center', color: '#64748b', marginTop: 2 },
+    pdfDivider: { height: 2, backgroundColor: '#16a34a', marginVertical: 12 },
+    pdfInfoRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+    pdfInfoLabel: { fontSize: 12, fontWeight: 'bold', color: '#475569' },
+    pdfInfoVal: { fontSize: 12, color: '#0f172a' },
+    pdfSectionHead: { fontSize: 14, fontWeight: 'bold', color: '#0f172a', marginTop: 12, marginBottom: 8, borderBottomWidth: 1, borderColor: '#e2e8f0', paddingBottom: 4 },
+    pdfMedItem: { backgroundColor: '#f8fafc', padding: 8, borderRadius: 6, marginBottom: 6, borderWidth: 1, borderColor: '#e2e8f0' },
+    pdfFooterBar: { padding: 16, borderTopWidth: 1, borderColor: '#e2e8f0', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', gap: 10 },
 });
 
 export default DoctorPatientDetails;

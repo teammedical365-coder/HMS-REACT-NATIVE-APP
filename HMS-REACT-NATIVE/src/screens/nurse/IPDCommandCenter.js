@@ -10,6 +10,7 @@ import {
   Modal,
   Dimensions,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { ipdCommandCenterAPI } from '../../utils/api';
@@ -29,6 +30,11 @@ const STAGE_CONFIG = {
 };
 
 export default function IPDCommandCenter({ navigation }) {
+  const { width: windowWidth } = useWindowDimensions();
+  const isDesktop = windowWidth >= 1024;
+  const isTablet = windowWidth >= 768 && windowWidth < 1024;
+  const isMobile = windowWidth < 768;
+
   const [activeTab, setActiveTab] = useState('board'); // 'board', 'wards', 'analytics', 'reconcile'
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -202,13 +208,13 @@ export default function IPDCommandCenter({ navigation }) {
   return (
     <View style={styles.container}>
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, isDesktop && styles.scrollContentDesktop]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
         {/* ── Top Command Bar ── */}
-        <View style={styles.ccHeader}>
-          <View style={styles.ccHeaderLeft}>
+        <View style={[styles.ccHeader, !isMobile && styles.ccHeaderDesktop]}>
+          <View style={[styles.ccHeaderLeft, !isMobile && styles.ccHeaderLeftDesktop]}>
             <View style={styles.ccBadgeLive}>
               <View style={styles.pulseDot} />
               <Text style={styles.ccBadgeLiveText}>LIVE COMMAND CENTER</Text>
@@ -219,7 +225,7 @@ export default function IPDCommandCenter({ navigation }) {
             </Text>
           </View>
 
-          <View style={styles.ccHeaderRight}>
+          <View style={[styles.ccHeaderRight, !isMobile && styles.ccHeaderRightDesktop]}>
             <View style={styles.syncInfo}>
               <Feather name="clock" size={13} color="#94a3b8" />
               <Text style={styles.syncText}>
@@ -227,7 +233,7 @@ export default function IPDCommandCenter({ navigation }) {
               </Text>
             </View>
 
-            <View style={styles.headerActionsRow}>
+            <View style={[styles.headerActionsRow, !isMobile && styles.headerActionsRowDesktop]}>
               <TouchableOpacity
                 style={[styles.btnRefresh, refreshing && styles.btnRefreshActive]}
                 onPress={() => fetchCommandCenterData(false)}
@@ -252,9 +258,9 @@ export default function IPDCommandCenter({ navigation }) {
         {/* ── KPI Census Deck (6 Cards) ── */}
         <View style={styles.kpiDeck}>
           {/* 1. Bed Occupancy */}
-          <View style={styles.kpiCard}>
+          <View style={[styles.kpiCard, isDesktop && styles.kpiCardDesktop, isTablet && styles.kpiCardTablet]}>
             <View style={[styles.kpiIconWrap, { backgroundColor: 'rgba(59, 130, 246, 0.15)' }]}>
-              <Feather name="pie-chart" size={20} color="#3b82f6" />
+              <Feather name="pie-chart" size={22} color="#3b82f6" />
             </View>
             <View style={styles.kpiContent}>
               <Text style={styles.kpiLabel}>BED OCCUPANCY</Text>
@@ -279,9 +285,9 @@ export default function IPDCommandCenter({ navigation }) {
           </View>
 
           {/* 2. Active Inpatients */}
-          <View style={styles.kpiCard}>
+          <View style={[styles.kpiCard, isDesktop && styles.kpiCardDesktop, isTablet && styles.kpiCardTablet]}>
             <View style={[styles.kpiIconWrap, { backgroundColor: 'rgba(14, 165, 233, 0.15)' }]}>
-              <Feather name="users" size={20} color="#0ea5e9" />
+              <Feather name="users" size={22} color="#0ea5e9" />
             </View>
             <View style={styles.kpiContent}>
               <Text style={styles.kpiLabel}>ACTIVE INPATIENTS</Text>
@@ -298,9 +304,9 @@ export default function IPDCommandCenter({ navigation }) {
           </View>
 
           {/* 3. Discharge Pipeline */}
-          <View style={styles.kpiCard}>
+          <View style={[styles.kpiCard, isDesktop && styles.kpiCardDesktop, isTablet && styles.kpiCardTablet]}>
             <View style={[styles.kpiIconWrap, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
-              <Feather name="log-out" size={20} color="#10b981" />
+              <Feather name="log-out" size={22} color="#10b981" />
             </View>
             <View style={styles.kpiContent}>
               <Text style={styles.kpiLabel}>DISCHARGE PIPELINE</Text>
@@ -315,9 +321,9 @@ export default function IPDCommandCenter({ navigation }) {
           </View>
 
           {/* 4. Long-Stay Patients */}
-          <View style={styles.kpiCard}>
+          <View style={[styles.kpiCard, isDesktop && styles.kpiCardDesktop, isTablet && styles.kpiCardTablet]}>
             <View style={[styles.kpiIconWrap, { backgroundColor: 'rgba(245, 158, 11, 0.15)' }]}>
-              <Feather name="clock" size={20} color="#f59e0b" />
+              <Feather name="clock" size={22} color="#f59e0b" />
             </View>
             <View style={styles.kpiContent}>
               <Text style={styles.kpiLabel}>LONG-STAY PATIENTS</Text>
@@ -330,9 +336,9 @@ export default function IPDCommandCenter({ navigation }) {
           </View>
 
           {/* 5. Clinical Workload */}
-          <View style={styles.kpiCard}>
+          <View style={[styles.kpiCard, isDesktop && styles.kpiCardDesktop, isTablet && styles.kpiCardTablet]}>
             <View style={[styles.kpiIconWrap, { backgroundColor: 'rgba(139, 92, 246, 0.15)' }]}>
-              <Feather name="activity" size={20} color="#8b5cf6" />
+              <Feather name="activity" size={22} color="#8b5cf6" />
             </View>
             <View style={styles.kpiContent}>
               <Text style={styles.kpiLabel}>CLINICAL WORKLOAD</Text>
@@ -351,9 +357,9 @@ export default function IPDCommandCenter({ navigation }) {
           </View>
 
           {/* 6. Clarifications */}
-          <View style={styles.kpiCard}>
+          <View style={[styles.kpiCard, isDesktop && styles.kpiCardDesktop, isTablet && styles.kpiCardTablet]}>
             <View style={[styles.kpiIconWrap, { backgroundColor: 'rgba(244, 63, 94, 0.15)' }]}>
-              <Feather name="help-circle" size={20} color="#f43f5e" />
+              <Feather name="help-circle" size={22} color="#f43f5e" />
             </View>
             <View style={styles.kpiContent}>
               <Text style={styles.kpiLabel}>CLARIFICATIONS</Text>
@@ -366,9 +372,14 @@ export default function IPDCommandCenter({ navigation }) {
           </View>
         </View>
 
-        {/* ── Navigation Tabs Bar ── */}
-        <View style={styles.tabsBar}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsScroll}>
+        {/* ── Navigation Tabs & Filters Bar ── */}
+        <View style={[styles.tabsBar, !isMobile && styles.tabsBarDesktop]}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.tabsScroll}
+            style={styles.tabsScrollFlex}
+          >
             <TouchableOpacity
               style={[styles.tabBtn, activeTab === 'board' && styles.tabBtnActive]}
               onPress={() => setActiveTab('board')}
@@ -419,61 +430,61 @@ export default function IPDCommandCenter({ navigation }) {
               </Text>
             </TouchableOpacity>
           </ScrollView>
-        </View>
 
-        {/* ── Filters (Search & Ward Filter) for Flow Board ── */}
-        {activeTab === 'board' && (
-          <View style={styles.flowFiltersContainer}>
-            <View style={styles.searchWrap}>
-              <Feather name="search" size={15} color="#94a3b8" style={{ marginRight: 8 }} />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search patient, MRN, Bed..."
-                placeholderTextColor="#64748b"
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-              />
-              {searchQuery.length > 0 && (
-                <TouchableOpacity onPress={() => setSearchQuery('')}>
-                  <Feather name="x" size={16} color="#94a3b8" />
+          {/* Right filters (Search & Ward Selector) on the same row on desktop/tablet */}
+          {activeTab === 'board' && (
+            <View style={[styles.flowFiltersRight, isMobile && styles.flowFiltersRightMobile]}>
+              <View style={styles.searchWrap}>
+                <Feather name="search" size={15} color="#94a3b8" style={{ marginRight: 8 }} />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search patient, MRN, Bed..."
+                  placeholderTextColor="#64748b"
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                />
+                {searchQuery.length > 0 && (
+                  <TouchableOpacity onPress={() => setSearchQuery('')}>
+                    <Feather name="x" size={16} color="#94a3b8" />
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {/* Ward Selector */}
+              <View style={styles.wardFilterWrap}>
+                <TouchableOpacity
+                  style={styles.wardSelectBtn}
+                  onPress={() => setWardDropdownOpen(!wardDropdownOpen)}
+                >
+                  <Feather name="filter" size={14} color="#38bdf8" />
+                  <Text style={styles.wardSelectBtnText}>
+                    {selectedWard === 'ALL' ? 'All Wards' : `Ward: ${selectedWard}`}
+                  </Text>
+                  <Feather name="chevron-down" size={14} color="#94a3b8" />
                 </TouchableOpacity>
-              )}
-            </View>
 
-            {/* Ward Selector */}
-            <View style={styles.wardFilterWrap}>
-              <TouchableOpacity
-                style={styles.wardSelectBtn}
-                onPress={() => setWardDropdownOpen(!wardDropdownOpen)}
-              >
-                <Feather name="filter" size={14} color="#38bdf8" />
-                <Text style={styles.wardSelectBtnText}>
-                  {selectedWard === 'ALL' ? 'All Wards' : `Ward: ${selectedWard}`}
-                </Text>
-                <Feather name="chevron-down" size={14} color="#94a3b8" />
-              </TouchableOpacity>
-
-              {wardDropdownOpen && (
-                <View style={styles.wardDropdownMenu}>
-                  {availableWards.map((w) => (
-                    <TouchableOpacity
-                      key={w}
-                      style={[styles.wardDropdownItem, selectedWard === w && styles.wardDropdownItemActive]}
-                      onPress={() => {
-                        setSelectedWard(w);
-                        setWardDropdownOpen(false);
-                      }}
-                    >
-                      <Text style={[styles.wardDropdownItemText, selectedWard === w && styles.wardDropdownItemTextActive]}>
-                        {w === 'ALL' ? 'All Wards' : `Ward: ${w}`}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
+                {wardDropdownOpen && (
+                  <View style={styles.wardDropdownMenu}>
+                    {availableWards.map((w) => (
+                      <TouchableOpacity
+                        key={w}
+                        style={[styles.wardDropdownItem, selectedWard === w && styles.wardDropdownItemActive]}
+                        onPress={() => {
+                          setSelectedWard(w);
+                          setWardDropdownOpen(false);
+                        }}
+                      >
+                        <Text style={[styles.wardDropdownItemText, selectedWard === w && styles.wardDropdownItemTextActive]}>
+                          {w === 'ALL' ? 'All Wards' : `Ward: ${w}`}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+              </View>
             </View>
-          </View>
-        )}
+          )}
+        </View>
 
         {/* ── Loading Spinner ── */}
         {loading && (
@@ -533,7 +544,15 @@ export default function IPDCommandCenter({ navigation }) {
                 if (selectedStage !== 'ALL' && selectedStage !== stageKey) return null;
 
                 return (
-                  <View key={stageKey} style={styles.flowColumn}>
+                  <View
+                    key={stageKey}
+                    style={[
+                      styles.flowColumn,
+                      isDesktop && styles.flowColumnDesktop,
+                      isTablet && styles.flowColumnTablet,
+                      selectedStage !== 'ALL' && styles.flowColumnSingle,
+                    ]}
+                  >
                     {/* Column Header */}
                     <View style={[styles.flowColumnHeader, { borderTopColor: cfg.color }]}>
                       <View style={styles.colTitleLeft}>
@@ -743,7 +762,14 @@ export default function IPDCommandCenter({ navigation }) {
         {!loading && activeTab === 'wards' && (
           <View style={styles.wardBreakdownGrid}>
             {wardBreakdown.map((w, idx) => (
-              <View key={idx} style={styles.wardCard}>
+              <View
+                key={idx}
+                style={[
+                  styles.wardCard,
+                  isDesktop && styles.wardCardDesktop,
+                  isTablet && styles.wardCardTablet,
+                ]}
+              >
                 <View style={styles.wardCardHeader}>
                   <Text style={styles.wardName}>{w.wardName}</Text>
                   <View style={styles.wardOccupancyPill}>
@@ -1185,14 +1211,14 @@ export default function IPDCommandCenter({ navigation }) {
 
 function getBlockerTypeBg(type = '') {
   const t = type.toUpperCase();
-  if (t === 'CRITICAL' || t === 'HARD' || t === 'ERROR') return 'rgba(239, 68, 68, 0.15)';
+  if (t === 'BLOCKING' || t === 'CRITICAL' || t === 'HARD' || t === 'ERROR') return 'rgba(239, 68, 68, 0.15)';
   if (t === 'WARNING' || t === 'MEDIUM') return 'rgba(245, 158, 11, 0.15)';
   return 'rgba(56, 189, 248, 0.15)';
 }
 
 function getBlockerTypeColor(type = '') {
   const t = type.toUpperCase();
-  if (t === 'CRITICAL' || t === 'HARD' || t === 'ERROR') return '#ef4444';
+  if (t === 'BLOCKING' || t === 'CRITICAL' || t === 'HARD' || t === 'ERROR') return '#ef4444';
   if (t === 'WARNING' || t === 'MEDIUM') return '#f59e0b';
   return '#38bdf8';
 }
@@ -1206,6 +1232,11 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 40,
   },
+  scrollContentDesktop: {
+    paddingHorizontal: 32,
+    paddingVertical: 24,
+    paddingBottom: 48,
+  },
 
   // ── Header ──
   ccHeader: {
@@ -1216,8 +1247,19 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 16,
   },
+  ccHeaderDesktop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 22,
+  },
   ccHeaderLeft: {
     marginBottom: 12,
+  },
+  ccHeaderLeftDesktop: {
+    marginBottom: 0,
+    flex: 1,
+    marginRight: 24,
   },
   ccBadgeLive: {
     flexDirection: 'row',
@@ -1245,15 +1287,15 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   ccMainTitle: {
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: '800',
     color: '#ffffff',
     marginBottom: 4,
   },
   ccSubTitle: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#94a3b8',
-    lineHeight: 18,
+    lineHeight: 19,
   },
   ccHeaderRight: {
     flexDirection: 'row',
@@ -1264,13 +1306,21 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.06)',
   },
+  ccHeaderRightDesktop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    paddingTop: 0,
+    borderTopWidth: 0,
+    flexShrink: 0,
+  },
   syncInfo: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
   },
   syncText: {
-    fontSize: 11,
+    fontSize: 12,
     color: '#64748b',
   },
   headerActionsRow: {
@@ -1279,6 +1329,10 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 6,
   },
+  headerActionsRowDesktop: {
+    marginTop: 0,
+    gap: 10,
+  },
   btnRefresh: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1286,15 +1340,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(30, 41, 59, 0.9)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.12)',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
   },
   btnRefreshActive: {
     opacity: 0.6,
   },
   btnRefreshText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
     color: '#e2e8f0',
   },
@@ -1303,12 +1357,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     backgroundColor: '#0284c7',
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
   },
   btnWorkspaceShortcutText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     color: '#ffffff',
   },
@@ -1317,34 +1371,48 @@ const styles = StyleSheet.create({
   kpiDeck: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 16,
+    gap: 14,
+    marginBottom: 18,
   },
   kpiCard: {
-    flex: 1,
-    minWidth: (SCREEN_WIDTH - 44) / 2 > 150 ? (SCREEN_WIDTH - 44) / 2 : 150,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 14,
     backgroundColor: 'rgba(15, 23, 42, 0.85)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 14,
+    padding: 16,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: '47%',
+    minWidth: 150,
+  },
+  kpiCardDesktop: {
+    flexBasis: 180,
+    minWidth: 190,
+  },
+  kpiCardTablet: {
+    flexBasis: 220,
+    minWidth: 200,
   },
   kpiIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 8,
+    flexShrink: 0,
   },
   kpiContent: {
     flex: 1,
+    minWidth: 0,
   },
   kpiLabel: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
     color: '#94a3b8',
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
     marginBottom: 4,
   },
   kpiValGroup: {
@@ -1354,57 +1422,66 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   kpiMainVal: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: '800',
     color: '#f8fafc',
   },
   kpiSubVal: {
-    fontSize: 11,
-    color: '#94a3b8',
+    fontSize: 12,
+    color: '#64748b',
     fontWeight: '500',
   },
   kpiBarTrack: {
-    height: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 2,
+    height: 5,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 999,
     overflow: 'hidden',
-    marginTop: 4,
+    marginTop: 6,
   },
   kpiBarFill: {
     height: '100%',
-    borderRadius: 2,
+    borderRadius: 999,
   },
   kpiHint: {
-    fontSize: 10,
+    fontSize: 11,
     color: '#64748b',
-    marginTop: 2,
+    marginTop: 4,
   },
 
   // ── Tabs Bar ──
   tabsBar: {
-    backgroundColor: 'rgba(15, 23, 42, 0.95)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 12,
-    padding: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    paddingBottom: 12,
     marginBottom: 16,
+    gap: 12,
+  },
+  tabsBarDesktop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   tabsScroll: {
     flexDirection: 'row',
     gap: 6,
   },
+  tabsScrollFlex: {
+    flexGrow: 0,
+  },
   tabBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    gap: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
   tabBtnActive: {
-    backgroundColor: 'rgba(14, 165, 233, 0.15)',
-    borderWidth: 1,
-    borderColor: '#0284c7',
+    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    borderColor: 'rgba(56, 189, 248, 0.3)',
   },
   tabBtnText: {
     fontSize: 13,
@@ -1415,41 +1492,43 @@ const styles = StyleSheet.create({
     color: '#38bdf8',
   },
   tabPill: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 10,
-    paddingHorizontal: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 999,
+    paddingHorizontal: 7,
     paddingVertical: 2,
   },
   tabPillActive: {
-    backgroundColor: '#0284c7',
+    backgroundColor: 'rgba(56, 189, 248, 0.25)',
   },
   tabPillText: {
     fontSize: 11,
-    color: '#94a3b8',
+    color: '#f1f5f9',
     fontWeight: '700',
   },
   tabPillTextActive: {
-    color: '#ffffff',
+    color: '#bae6fd',
   },
 
-  // ── Flow Filters ──
-  flowFiltersContainer: {
+  // ── Flow Filters (in Tabs bar on desktop) ──
+  flowFiltersRight: {
     flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  flowFiltersRightMobile: {
+    width: '100%',
     flexWrap: 'wrap',
-    gap: 10,
-    marginBottom: 14,
   },
   searchWrap: {
-    flex: 1,
     minWidth: 200,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(30, 41, 59, 0.8)',
+    backgroundColor: 'rgba(15, 23, 42, 0.8)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 10,
     paddingHorizontal: 12,
-    height: 40,
+    height: 38,
   },
   searchInput: {
     flex: 1,
@@ -1464,12 +1543,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(30, 41, 59, 0.8)',
+    backgroundColor: 'rgba(15, 23, 42, 0.8)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 10,
     paddingHorizontal: 12,
-    height: 40,
+    height: 38,
   },
   wardSelectBtnText: {
     fontSize: 12,
@@ -1520,14 +1599,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 20,
-    backgroundColor: 'rgba(30, 41, 59, 0.6)',
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   stagePillActive: {
-    backgroundColor: 'rgba(56, 189, 248, 0.2)',
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
     borderColor: '#38bdf8',
   },
   stageDot: {
@@ -1536,7 +1615,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   stagePillText: {
-    fontSize: 11,
+    fontSize: 12,
     color: '#94a3b8',
     fontWeight: '600',
   },
@@ -1545,18 +1624,21 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   stageCountBadge: {
-    borderRadius: 8,
-    paddingHorizontal: 5,
+    borderRadius: 999,
+    paddingHorizontal: 6,
     paddingVertical: 1,
   },
   stageCountText: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
   },
 
   // ── Flow Columns Container ──
   flowColumnsContainer: {
-    gap: 16,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 18,
+    alignItems: 'flex-start',
   },
   flowColumn: {
     backgroundColor: 'rgba(15, 23, 42, 0.7)',
@@ -1564,15 +1646,39 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: 14,
     overflow: 'hidden',
+    minHeight: 400,
+    width: '100%',
+  },
+  flowColumnDesktop: {
+    flexGrow: 1,
+    flexShrink: 0,
+    flexBasis: 285,
+    minWidth: 280,
+    maxWidth: 380,
+    width: undefined,
+  },
+  flowColumnTablet: {
+    flexGrow: 1,
+    flexShrink: 0,
+    flexBasis: 320,
+    minWidth: 300,
+    maxWidth: 480,
+    width: undefined,
+  },
+  flowColumnSingle: {
+    maxWidth: '100%',
+    flexBasis: '100%',
   },
   flowColumnHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    backgroundColor: 'rgba(30, 41, 59, 0.8)',
+    paddingVertical: 12,
+    backgroundColor: 'rgba(30, 41, 59, 0.6)',
     borderTopWidth: 3,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
   },
   colTitleLeft: {
     flexDirection: 'row',
@@ -1585,29 +1691,35 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   colTitle: {
-    fontSize: 14,
+    fontSize: 13.5,
     fontWeight: '700',
-    color: '#f8fafc',
+    color: '#f1f5f9',
   },
   colCounterBadge: {
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 12,
+    borderRadius: 999,
   },
   colCounterText: {
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   flowCardsList: {
-    padding: 10,
-    gap: 10,
+    padding: 12,
+    gap: 12,
   },
   emptyStageBox: {
-    paddingVertical: 20,
+    minHeight: 120,
+    justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 10,
+    margin: 8,
   },
   emptyStageText: {
-    fontSize: 12,
+    fontSize: 12.5,
     color: '#64748b',
     fontStyle: 'italic',
   },
@@ -1877,14 +1989,31 @@ const styles = StyleSheet.create({
 
   // ── Tab 2: Ward Breakdown ──
   wardBreakdownGrid: {
-    gap: 14,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 18,
+    alignItems: 'flex-start',
   },
   wardCard: {
     backgroundColor: 'rgba(15, 23, 42, 0.85)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: 14,
-    padding: 14,
+    padding: 16,
+    width: '100%',
+  },
+  wardCardDesktop: {
+    flexGrow: 1,
+    flexBasis: 320,
+    minWidth: 300,
+    maxWidth: 480,
+    width: undefined,
+  },
+  wardCardTablet: {
+    flexGrow: 1,
+    flexBasis: 320,
+    minWidth: 300,
+    width: undefined,
   },
   wardCardHeader: {
     flexDirection: 'row',

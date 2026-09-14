@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { 
     View, Text, TouchableOpacity, ScrollView, TextInput, 
-    StyleSheet, ActivityIndicator, Alert, Modal
+    StyleSheet, ActivityIndicator, Alert, Modal, Platform
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as DocumentPicker from 'expo-document-picker';
 import { doctorAPI, reportAPI, referralAPI, otAPI } from '../../utils/api';
 import { Feather } from '@expo/vector-icons';
 
@@ -97,13 +98,79 @@ const Patient = () => {
         }
     }, [vitals.weight, vitals.height]);
 
+    const handlePickDocument = async () => {
+        try {
+            const res = await DocumentPicker.getDocumentAsync({
+                type: ['application/pdf', 'image/*'],
+                copyToCacheDirectory: true
+            });
+            if (!res.canceled && res.assets && res.assets.length > 0) {
+                setUploadFile(res.assets[0]);
+            }
+        } catch (err) {
+            console.error('Document picker error:', err);
+        }
+    };
+
     const handleUploadReport = async () => {
-        if (!uploadFile) {
-            Alert.alert('File Picker', 'Native file picker integration is required here. Proceeding as mockup.');
-            setUploadPatient(null);
+        if (!uploadFile || !uploadPatient) {
+            Alert.alert('Required', 'Please select a report file to upload');
             return;
         }
-        // Native upload mockup logic goes here...
+        setUploading(true);
+
+        try {
+            const formData = new FormData();
+            if (Platform.OS === 'web' && uploadFile.file) {
+                formData.append('reportFile', uploadFile.file);
+            } else {
+                formData.append('reportFile', {
+                    uri: uploadFile.uri,
+                    name: uploadFile.name || 'medical_report.pdf',
+                    type: uploadFile.mimeType || 'application/octet-stream'
+                });
+            }
+            formData.append('appointmentId', uploadPatient._id);
+
+            const res = await reportAPI.uploadReport(formData);
+            if (res && (res.success || res.report)) {
+                const uploadedFile = res.report || res;
+                const patientId = uploadPatient.userId?._id || uploadPatient.clinicPatientId?.patientUid || uploadPatient.clinicPatientId?._id || uploadPatient.patientId;
+                
+                const isClinic = !!uploadPatient.clinicPatientId;
+                const existingReports = isClinic 
+                    ? (uploadPatient.clinicPatientId?.reports || []).map(r => ({
+                        fileName: r.name,
+                        url: (r.filename || '').startsWith('http://') || (r.filename || '').startsWith('https://')
+                            ? r.filename
+                            : `${r.filename}`,
+                        date: r.uploadedAt
+                      }))
+                    : (uploadPatient.userId?.fertilityProfile?.previousReports || []);
+                
+                const newReport = {
+                    fileName: uploadFile.name || 'Report',
+                    url: uploadedFile.url,
+                    date: new Date().toISOString()
+                };
+
+                await doctorAPI.updatePatientProfile(patientId, {
+                    previousReports: [...existingReports, newReport]
+                });
+
+                Alert.alert('Success', 'Report uploaded successfully!');
+                setUploadPatient(null);
+                setUploadFile(null);
+                fetchAllAppointments();
+            } else {
+                throw new Error(res?.message || 'Upload failed');
+            }
+        } catch (err) {
+            console.error('Report upload error:', err);
+            Alert.alert('Error', 'Error uploading report: ' + (err.response?.data?.message || err.message || 'Upload failed'));
+        } finally {
+            setUploading(false);
+        }
     };
 
     const handleSaveVitals = async () => {
@@ -680,8 +747,14 @@ const Patient = () => {
                                 Upload previous medical reports, prescriptions, or scans for <Text style={{ fontWeight: 'bold', color: '#fff' }}>{uploadPatient?.userId?.name || 'Patient'}</Text>.
                             </Text>
                             
-                            <TouchableOpacity style={{ padding: 20, borderWidth: 1, borderColor: '#cbd5e1', borderStyle: 'dashed', borderRadius: 8, alignItems: 'center' }} onPress={() => setUploadFile({ name: 'mock_file.pdf' })}>
-                                <Text style={{ color: '#fff' }}>{uploadFile ? uploadFile.name : 'Tap to select document (Native Picker Req)'}</Text>
+                            <TouchableOpacity
+                                style={{ padding: 20, borderWidth: 1, borderColor: '#cbd5e1', borderStyle: 'dashed', borderRadius: 8, alignItems: 'center', backgroundColor: uploadFile ? 'rgba(56, 189, 248, 0.1)' : 'transparent' }}
+                                onPress={handlePickDocument}
+                            >
+                                <Feather name="upload-cloud" size={24} color="#38bdf8" style={{ marginBottom: 8 }} />
+                                <Text style={{ color: '#fff', fontWeight: uploadFile ? '700' : 'normal' }}>
+                                    {uploadFile ? uploadFile.name : 'Tap to select document (PDF or Images)'}
+                                </Text>
                             </TouchableOpacity>
 
                             <View style={[styles.modalFooter, { borderTopWidth: 0, marginTop: 20, padding: 0 }]}>

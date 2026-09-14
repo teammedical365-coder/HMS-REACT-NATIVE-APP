@@ -12,7 +12,7 @@ import CentralAdminHospitalDetails from '../../components/centraladmin/CentralAd
 import CentralAdminForms from '../../components/centraladmin/CentralAdminForms';
 import HospitalBrandingEditor from '../../components/HospitalBrandingEditor';
 import RevenuePlanEditorModal from '../../components/centraladmin/RevenuePlanEditorModal';
-import { hospitalAPI, simpleClinicAPI, revenueAPI, centralAdminAPI, hospitalAdminAPI } from '../../utils/api';
+import { hospitalAPI, simpleClinicAPI, revenueAPI, hospitalAdminAPI } from '../../utils/api';
 
 export default function CentralAdminDashboard() {
   const navigation = useNavigation(); 
@@ -48,10 +48,10 @@ export default function CentralAdminDashboard() {
   const configurationItems = [
     { title: 'Roles & Permissions', sub: 'Create and manage user roles', icon: <Feather name="key" size={20} color="#3b82f6" />, bg: '#eff6ff', color: '#3b82f6', route: 'AdminRoles' },
     { title: 'Question Library', sub: 'Configure assessment forms', icon: <Feather name="help-circle" size={20} color="#8b5cf6" />, bg: '#f5f3ff', color: '#8b5cf6', route: 'AdminQuestionLibrary' },
-    { title: 'Lab Tests', sub: 'Manage lab test catalog', icon: <Feather name="activity" size={20} color="#d946ef" />, bg: '#fdf4ff', color: '#d946ef', route: 'LabTests' },
-    { title: 'Test Packages', sub: 'Bundle lab tests into packages', icon: <Feather name="package" size={20} color="#22c55e" />, bg: '#f0fdf4', color: '#22c55e', route: 'TestPackages' },
-    { title: 'Medicine Catalog', sub: 'Global medicine library', icon: <Feather name="heart" size={20} color="#ea580c" />, bg: '#fff7ed', color: '#ea580c', route: 'Medicines' },
-    { title: 'Services', sub: 'Configure hospital services', icon: <Feather name="grid" size={20} color="#06b6d4" />, bg: '#ecfeff', color: '#06b6d4', route: 'Services' },
+    { title: 'Lab Tests', sub: 'Manage lab test catalog', icon: <Feather name="activity" size={20} color="#d946ef" />, bg: '#fdf4ff', color: '#d946ef', route: 'AdminLabTests' },
+    { title: 'Test Packages', sub: 'Bundle lab tests into packages', icon: <Feather name="package" size={20} color="#22c55e" />, bg: '#f0fdf4', color: '#22c55e', route: 'AdminTestPackages' },
+    { title: 'Medicine Catalog', sub: 'Global medicine library', icon: <Feather name="heart" size={20} color="#ea580c" />, bg: '#fff7ed', color: '#ea580c', route: 'AdminMedicines' },
+    { title: 'Services', sub: 'Configure hospital services', icon: <Feather name="grid" size={20} color="#06b6d4" />, bg: '#ecfeff', color: '#06b6d4', route: 'AdminServices' },
     { title: 'Consent Forms', sub: 'Manage templates for patient consent', icon: <Feather name="file-text" size={20} color="#64748b" />, bg: '#f1f5f9', color: '#64748b', route: 'ConsentManagement' },
   ];
 
@@ -77,7 +77,7 @@ export default function CentralAdminDashboard() {
   const fetchRevenuePlans = async () => {
     setLoading(true);
     try {
-      const response = await centralAdminAPI.getHospitalsRevenue();
+      const response = await revenueAPI.getHospitalsRevenue();
       const payload = Array.isArray(response) ? response : (response?.hospitals || response?.data || []);
       setRevenueData(payload);
     } catch (err) {
@@ -91,7 +91,7 @@ export default function CentralAdminDashboard() {
   const fetchHospitals = async () => {
     setLoading(true);
     try {
-      const hospitalsRes = await centralAdminAPI.getHospitals('all');
+      const hospitalsRes = await hospitalAPI.getHospitals('all');
       let clinicsRes = { data: [] };
       try {
         clinicsRes = await simpleClinicAPI.getClinics('all');
@@ -168,14 +168,20 @@ export default function CentralAdminDashboard() {
 
   const handleCreateHospitalAdmin = async (adminValues) => {
     try {
+      if (!adminValues?.hospitalId) {
+        setError('Please select a hospital for the admin');
+        return;
+      }
       const payload = {
-        ...adminValues,
-        hospitalId: adminValues.hospitalId || '',
-        age: adminValues.age || '',
-        aadhaarNumber: adminValues.aadhaarNumber || '',
+        name: adminValues.name,
+        email: adminValues.email,
+        phone: adminValues.phone,
+        password: adminValues.password,
+        hospitalId: adminValues.hospitalId,
       };
       await hospitalAdminAPI.createHospitalAdmin(payload);
       setSuccess('Hospital admin created successfully');
+      setShowHospitalAdminForm(false);
       await fetchHospitals();
     } catch (err) {
       setError(err?.response?.data?.message || 'Failed to create hospital admin');
@@ -241,6 +247,7 @@ export default function CentralAdminDashboard() {
           onClose={() => { setShowHospitalForm(false); setShowHospitalAdminForm(false); setEditHospital(null); }}
           availableDepartments={availableDepartments}
           onCreateAdmin={handleCreateHospitalAdmin}
+          hospitals={hospitals}
         />
 
         {/* Hospital Details Inline View */}
@@ -390,7 +397,7 @@ export default function CentralAdminDashboard() {
                 <TouchableOpacity 
                   key={idx} 
                   style={styles.configCard}
-                  onPress={() => console.log(`Navigating to ${item.route}`)}
+                  onPress={() => navigation.navigate(item.route)}
                 >
                   <View style={[styles.configIconBox, { backgroundColor: item.bg }]}>
                     {item.icon}
@@ -428,7 +435,7 @@ export default function CentralAdminDashboard() {
               ratePerLogin: data.ratePerLogin !== undefined ? Number(data.ratePerLogin) : undefined,
               billingCycle: data.billingCycle || 'monthly',
             };
-            await centralAdminAPI.updateHospitalPlan(revenuePlanModalData._id, payload);
+            await revenueAPI.setHospitalPlan(revenuePlanModalData._id, payload);
             setSuccess(`Revenue plan updated for ${revenuePlanModalData.name}`);
             await fetchRevenuePlans();
           } catch (error) {

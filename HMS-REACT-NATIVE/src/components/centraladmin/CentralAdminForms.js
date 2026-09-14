@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, Switch } from 'react-native';
 import { styles } from './CentralAdminDashboardStyles';
+import DropdownSelect from '../common/DropdownSelect';
 
 export default function CentralAdminForms({
   showHospitalForm,
@@ -13,15 +14,29 @@ export default function CentralAdminForms({
   onClose,
   availableDepartments,
   onCreateAdmin,
+  hospitals = [],
 }) {
   const [deptDropdownOpen, setDeptDropdownOpen] = React.useState(false);
-  const [adminForm, setAdminForm] = React.useState({ name: '', email: '', phone: '', password: '' });
+  const [adminForm, setAdminForm] = React.useState({ name: '', email: '', phone: '', password: '', hospitalId: '' });
+  const [adminFormError, setAdminFormError] = React.useState('');
+
+  React.useEffect(() => {
+    if (showHospitalAdminForm) {
+      setAdminForm({ name: '', email: '', phone: '', password: '', hospitalId: '' });
+      setAdminFormError('');
+    }
+  }, [showHospitalAdminForm]);
 
   if (!showHospitalForm && !showHospitalAdminForm) {
     return null;
   }
 
   if (showHospitalAdminForm) {
+    const hospitalOptions = (hospitals || []).map(h => ({
+      label: `${h.name || 'Unnamed'}${h.city ? ` (${h.city})` : ''}`,
+      value: h._id || h.id
+    }));
+
     return (
       <View style={{ width: '100%', marginVertical: 20 }}>
         <View style={styles.chMainCard}>
@@ -50,6 +65,21 @@ export default function CentralAdminForms({
           </View>
 
           <View style={{ gap: 20 }}>
+            {/* Hospital Selector */}
+            <View style={{ gap: 6 }}>
+              <Text style={styles.chLabel}>Select Hospital <Text style={{ color: '#059669' }}>*</Text></Text>
+              <DropdownSelect 
+                options={hospitalOptions}
+                value={adminForm.hospitalId}
+                onChange={val => {
+                  setAdminForm(prev => ({ ...prev, hospitalId: val }));
+                  setAdminFormError('');
+                }}
+                placeholder="-- Select a Hospital --"
+                searchable
+              />
+            </View>
+
             <View style={{ flexDirection: 'row', gap: 20 }}>
               <View style={{ flex: 1, gap: 6 }}>
                 <Text style={styles.chLabel}>Admin Name <Text style={{ color: '#059669' }}>*</Text></Text>
@@ -57,7 +87,7 @@ export default function CentralAdminForms({
                   style={styles.chInput} 
                   placeholder="e.g. John Doe" 
                   value={adminForm.name}
-                  onChangeText={t => setAdminForm({ ...adminForm, name: t })}
+                  onChangeText={t => setAdminForm(prev => ({ ...prev, name: t }))}
                 />
               </View>
               <View style={{ flex: 1, gap: 6 }}>
@@ -68,7 +98,7 @@ export default function CentralAdminForms({
                   keyboardType="phone-pad"
                   maxLength={10}
                   value={adminForm.phone}
-                  onChangeText={t => setAdminForm({ ...adminForm, phone: t.replace(/\D/g, '') })}
+                  onChangeText={t => setAdminForm(prev => ({ ...prev, phone: t.replace(/\D/g, '') }))}
                 />
               </View>
             </View>
@@ -82,7 +112,7 @@ export default function CentralAdminForms({
                   keyboardType="email-address"
                   autoCapitalize="none"
                   value={adminForm.email}
-                  onChangeText={t => setAdminForm({ ...adminForm, email: t })}
+                  onChangeText={t => setAdminForm(prev => ({ ...prev, email: t }))}
                 />
               </View>
               <View style={{ flex: 1, gap: 6 }}>
@@ -92,18 +122,29 @@ export default function CentralAdminForms({
                   placeholder="Enter secure password" 
                   secureTextEntry
                   value={adminForm.password}
-                  onChangeText={t => setAdminForm({ ...adminForm, password: t })}
+                  onChangeText={t => setAdminForm(prev => ({ ...prev, password: t }))}
                 />
               </View>
             </View>
 
+            {adminFormError ? (
+              <Text style={{ color: '#ef4444', fontSize: 13, fontWeight: '600' }}>{adminFormError}</Text>
+            ) : null}
+
             <TouchableOpacity 
               style={[styles.chSubmitBtn, { backgroundColor: '#2563eb' }]} 
               onPress={async () => {
+                if (!adminForm.hospitalId) {
+                  setAdminFormError('Please select a hospital');
+                  return;
+                }
+                if (!adminForm.name.trim() || !adminForm.email.trim() || !adminForm.password.trim()) {
+                  setAdminFormError('Name, email, and password are required');
+                  return;
+                }
                 if (onCreateAdmin) {
                   await onCreateAdmin(adminForm);
                 }
-                onClose();
               }}
             >
               <Text style={styles.chSubmitBtnText}>Create Admin</Text>

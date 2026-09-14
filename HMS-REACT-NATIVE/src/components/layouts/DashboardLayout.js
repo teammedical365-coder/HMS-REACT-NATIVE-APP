@@ -84,7 +84,8 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
     const { user } = useSelector(state => state.auth);
     const dispatch = useDispatch();
     const { branding } = useBranding();
-    const role = (user?.role || '').toLowerCase();
+    const rawRole = (typeof user?.role === 'object' ? user?.role?.name : user?.role) || (Platform.OS === 'web' && typeof window !== 'undefined' ? (localStorage.getItem('role') || (() => { try { return JSON.parse(localStorage.getItem('user') || '{}')?.role; } catch(e){ return ''; } })()) : '') || '';
+    const role = (typeof rawRole === 'object' ? rawRole?.name : rawRole || '').toLowerCase();
     
     const navigation = useNavigation();
     const route = useRoute();
@@ -188,8 +189,21 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
             ];
         }
 
-        const isNurseRoute = currentPath && (currentPath === 'NurseDashboard' || currentPath === 'NurseOPDQueue' || currentPath === 'NurseAppointments' || currentPath === 'NursePatientWorkspace' || currentPath === 'IPDCommandCenter');
-        if (role === 'nurse' || role === 'staffnurse' || role === 'headnurse' || roleClean === 'nurse' || roleClean === 'staffnurse' || roleClean === 'headnurse' || isNurseRoute) {
+        const isDoctor = role === 'doctor' || role === 'clinic doctor' || roleClean === 'doctor' || roleClean === 'clinicdoctor';
+        const isDoctorRoute = currentPath && (currentPath === 'DoctorDashboard' || currentPath === 'DoctorPatients' || currentPath === 'DoctorPatientDetails' || currentPath === 'AIAssistant' || (currentPath === 'LabReports' && isDoctor));
+        if (isDoctor || (isDoctorRoute && !role)) {
+            return [
+                { label: 'Dashboard', path: 'DoctorDashboard', icon: <Feather name="home" size={18} /> },
+                { label: 'IPD Command Center', path: 'IPDCommandCenter', icon: <Feather name="activity" size={18} /> },
+                { label: 'My Patients', path: 'DoctorPatients', icon: <Feather name="users" size={18} /> },
+                { label: 'AI Assistant', path: 'AIAssistant', icon: <Feather name="file-text" size={18} /> },
+                { label: 'Reports', path: 'LabReports', icon: <Feather name="file-text" size={18} /> },
+            ];
+        }
+
+        const isNurse = role === 'nurse' || role === 'staffnurse' || role === 'headnurse' || roleClean === 'nurse' || roleClean === 'staffnurse' || roleClean === 'headnurse';
+        const isNurseRoute = currentPath && (currentPath === 'NurseDashboard' || currentPath === 'NurseOPDQueue' || currentPath === 'NurseAppointments' || (currentPath === 'NursePatientWorkspace' && isNurse));
+        if (isNurse || (isNurseRoute && !isDoctor)) {
             return [
                 { label: 'Nurse Command Center', path: 'NurseDashboard', icon: <Feather name="home" size={18} /> },
                 { label: 'OPD Patient Queue', path: 'NurseOPDQueue', icon: <Feather name="users" size={18} /> },
@@ -280,8 +294,16 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
                     );
                 })}
 
-                {(isCentralAdmin || role === 'hospitaladmin') && isOpen && (
-                    <HaSidebarAiCard />
+                {(isCentralAdmin || role === 'hospitaladmin' || role === 'doctor' || role === 'clinic doctor' || isDoctorRoute) && isOpen && (
+                    <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => {
+                            navigation.navigate('AIAssistant');
+                            if (isMobile) setOpen(false);
+                        }}
+                    >
+                        <HaSidebarAiCard />
+                    </TouchableOpacity>
                 )}
             </ScrollView>
 
@@ -333,7 +355,8 @@ const TopBar = ({ toggleSidebar, sidebarOpen, isMobile }) => {
     const route = useRoute();
     const currentPath = route.name; 
 
-    const role = (user?.role || '').toLowerCase();
+    const rawRole = (typeof user?.role === 'object' ? user?.role?.name : user?.role) || (Platform.OS === 'web' && typeof window !== 'undefined' ? (localStorage.getItem('role') || (() => { try { return JSON.parse(localStorage.getItem('user') || '{}')?.role; } catch(e){ return ''; } })()) : '') || '';
+    const role = (typeof rawRole === 'object' ? rawRole?.name : rawRole || '').toLowerCase();
     const isCentralAdmin = (role === 'centraladmin' || role === 'superadmin');
 
     const [dropdownVisible, setDropdownVisible] = useState(false);
@@ -364,6 +387,14 @@ const TopBar = ({ toggleSidebar, sidebarOpen, isMobile }) => {
 
     const formatPageName = (name) => {
         if (!name) return 'Dashboard';
+        if (name === 'CentralAdminDashboard') return 'System Overview';
+        if (name === 'SystemRevenueDashboard') return 'System Revenue Analytics';
+        if (name === 'ConsentManagement') return 'Consent Hub';
+        if (name === 'AdminQuestionLibrary') return 'Question Library';
+        if (name === 'AdminLabTests') return 'Lab Tests';
+        if (name === 'AdminTestPackages') return 'Test Packages';
+        if (name === 'AdminMedicines') return 'Medicine Catalog';
+        if (name === 'AdminServices') return 'Services';
         if (name === 'HospitalAdminDashboard') return 'Hospital Overview';
         if (name === 'ClinicDashboard') return 'Clinic Hub';
         if (name === 'VialManagement') return 'Vial Management';
@@ -389,15 +420,25 @@ const TopBar = ({ toggleSidebar, sidebarOpen, isMobile }) => {
         if (name === 'NurseAppointments') return 'Appointments';
         if (name === 'NursePatientWorkspace') return 'Inpatient Workspace';
         if (name === 'IPDCommandCenter') return 'IPD Command Center';
+        if (name === 'DoctorDashboard') return 'Dashboard';
+        if (name === 'DoctorPatients') return 'My Patients';
+        if (name === 'DoctorPatientDetails') return 'Clinical Workspace';
+        if (name === 'AIAssistant') return 'AI Assistant';
+        if (name === 'LabReports') return 'Reports';
         return name.replace(/([A-Z])/g, ' $1').trim();
     };
 
     const getCentralAdminTag = () => {
-        if (currentPath === 'CentralAdminDashboard') return 'CENTRAL ADMIN';
-        if (currentPath.includes('QuestionLibrary')) return 'QUESTION LIBRARY';
+        if (currentPath === 'CentralAdminDashboard') return 'SYSTEM OVERVIEW';
+        if (currentPath === 'SystemRevenueDashboard') return 'SYSTEM REVENUE ANALYTICS';
         if (currentPath.includes('Consent')) return 'CONSENT HUB';
+        if (currentPath.includes('QuestionLibrary')) return 'QUESTION LIBRARY';
         if (currentPath.includes('Roles')) return 'ROLES & PERMISSIONS';
-        if (currentPath.includes('Admin')) return 'MANAGE STAFF';
+        if (currentPath.includes('LabTests')) return 'LAB TESTS';
+        if (currentPath.includes('TestPackages')) return 'TEST PACKAGES';
+        if (currentPath.includes('Medicines')) return 'MEDICINE CATALOG';
+        if (currentPath.includes('Services')) return 'SERVICES';
+        if (currentPath === 'Admin') return 'MANAGE STAFF';
         if (currentPath.includes('Revenue')) return 'REVENUE ANALYTICS';
         return 'CENTRAL ADMIN';
     };
@@ -551,6 +592,9 @@ const TopBar = ({ toggleSidebar, sidebarOpen, isMobile }) => {
 
 const DashboardLayout = ({ children }) => {
     const { width: windowWidth } = useWindowDimensions();
+    const route = useRoute();
+    const currentPath = route?.name;
+    const isDarkModule = currentPath === 'IPDCommandCenter';
     const isMobileView = windowWidth <= 1024;
     const [sidebarOpen, setSidebarOpen] = useState(windowWidth > 1024);
 
@@ -574,10 +618,10 @@ const DashboardLayout = ({ children }) => {
                 />
             )}
 
-            <View style={styles.erpMainArea}>
+            <View style={[styles.erpMainArea, isDarkModule && { backgroundColor: '#0b1120' }]}>
                 <TopBar sidebarOpen={sidebarOpen} toggleSidebar={() => setSidebarOpen(!sidebarOpen)} isMobile={isMobileView} />
                 
-                <View style={styles.erpPageContent}>
+                <View style={[styles.erpPageContent, isDarkModule && { padding: 0, backgroundColor: '#0b1120' }]}>
                     {children}
                 </View>
             </View>

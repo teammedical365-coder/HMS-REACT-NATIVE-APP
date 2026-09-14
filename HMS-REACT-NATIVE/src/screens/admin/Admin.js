@@ -164,36 +164,6 @@ const Admin = () => {
         }
     };
 
-    const defaultStaffUsers = [
-        {
-            _id: 'staff-001',
-            name: 'Priya Sharma',
-            email: 'priya.sharma@metropolis.org',
-            phone: '9876500001',
-            role: 'headnurse',
-            departments: ['Nursing', 'Emergency'],
-            avatar: '👩‍⚕️'
-        },
-        {
-            _id: 'staff-002',
-            name: 'Rahul Verma',
-            email: 'rahul.verma@metropolis.org',
-            phone: '9876500002',
-            role: 'receptionist',
-            departments: ['Front Desk', 'OPD'],
-            avatar: '👨‍💼'
-        },
-        {
-            _id: 'staff-003',
-            name: 'Vikram Malhotra',
-            email: 'vikram.m@metropolis.org',
-            phone: '9876500003',
-            role: 'pharmacist',
-            departments: ['Pharmacy'],
-            avatar: '👨‍🔬'
-        }
-    ];
-
     const defaultRoles = [
         { _id: 'r-1', name: 'Nurse', roleKey: 'nurse' },
         { _id: 'r-2', name: 'Head Nurse', roleKey: 'headnurse' },
@@ -221,7 +191,7 @@ const Admin = () => {
             const response = await adminAPI.getUsers(plan, hospitalId);
             
             const actualData = response?.data?.data || response?.data?.users || response?.users || response?.data || response || [];
-            const safeUsers = Array.isArray(actualData) && actualData.length > 0 ? actualData : defaultStaffUsers;
+            const safeUsers = Array.isArray(actualData) ? actualData : [];
 
             const uStr = await AsyncStorage.getItem('user');
             const userObj = JSON.parse(uStr || '{}');
@@ -235,7 +205,8 @@ const Admin = () => {
             setUsers(staffUsers);
         } catch (err) {
             console.error('Error fetching users:', err);
-            setUsers(defaultStaffUsers);
+            setUsers([]);
+            setError('Failed to fetch staff members');
         } finally {
             setLoadingUsers(false);
         }

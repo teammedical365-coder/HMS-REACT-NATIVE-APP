@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { View, Text, Image, TouchableOpacity, Platform, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, Image, TouchableOpacity, Platform, Alert, ActivityIndicator, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
-import apiClient, { centralAdminAPI } from '../../utils/api';
+import apiClient, { whiteLabelAPI } from '../../utils/api';
 import { styles } from './CentralAdminDashboardStyles';
 
 const normalizePlan = (value) => {
@@ -48,22 +48,20 @@ export default function CentralAdminHospitalCards({
       const hospitalId = hospital?._id || hospital?.id;
       setBuildStatuses(prev => ({ ...prev, [hospitalId]: 'BUILDING' }));
       
-      // Call the exact backend API
-      console.log("TRIGGERING BUILD FOR ID:", hospitalId);
-      const response = await apiClient.post(`/api/superadmin/hospitals/${hospitalId}/trigger-mobile-build`);
+      const response = await whiteLabelAPI.buildApp(hospitalId);
       
-      if (response.data?.success) {
+      if (response?.success !== false) {
         setBuildStatuses(prev => ({ ...prev, [hospitalId]: 'BUILDING' }));
-        Alert.alert('Success', 'React Native App build triggered successfully.');
+        Alert.alert('Success', 'Android App build triggered successfully.');
       } else {
         setBuildStatuses(prev => ({ ...prev, [hospitalId]: 'FAILED' }));
-        Alert.alert('Build Failed', response.data?.message || 'Failed to build app.');
+        Alert.alert('Build Failed', response?.message || 'Failed to build app.');
       }
     } catch (error) {
-      console.error('Build RN App failed:', error);
+      console.error('Build App failed:', error);
       const hospitalId = hospital?._id || hospital?.id;
       setBuildStatuses(prev => ({ ...prev, [hospitalId]: 'FAILED' }));
-      Alert.alert('Error', 'Failed to trigger React Native App build.');
+      Alert.alert('Error', error?.response?.data?.message || 'Failed to trigger App build.');
     }
   };
 
@@ -171,13 +169,21 @@ export default function CentralAdminHospitalCards({
                         </TouchableOpacity>
                         <TouchableOpacity 
                           style={[styles.loginAsBtn, { backgroundColor: '#10b981', marginLeft: 6 }]} 
-                          onPress={(e) => { e.stopPropagation(); }}
+                          onPress={(e) => { 
+                            e.stopPropagation(); 
+                            const hid = hospital?._id || hospital?.id;
+                            if (hid) Linking.openURL(whiteLabelAPI.getApkDownloadUrl(hid));
+                          }}
                         >
                           <Text style={styles.loginAsBtnText}>Download APK</Text>
                         </TouchableOpacity>
                         <TouchableOpacity 
                           style={[styles.loginAsBtn, { backgroundColor: '#8b5cf6', marginLeft: 6 }]} 
-                          onPress={(e) => { e.stopPropagation(); }}
+                          onPress={(e) => { 
+                            e.stopPropagation(); 
+                            const hid = hospital?._id || hospital?.id;
+                            if (hid) Linking.openURL(whiteLabelAPI.getAabDownloadUrl(hid));
+                          }}
                         >
                           <Text style={styles.loginAsBtnText}>Download AAB</Text>
                         </TouchableOpacity>

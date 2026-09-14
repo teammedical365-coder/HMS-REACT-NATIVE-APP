@@ -68,6 +68,24 @@ const defaultPharmacyUser = {
     subscriptionPlan: "pro"
 };
 
+const defaultDoctorUser = {
+    _id: "6758493021abcdef12345670",
+    name: "Dr. Alexander Fleming",
+    email: "doctor@metropolisgeneral.org",
+    role: "doctor",
+    hospitalId: "6758493021abcdef12345679",
+    hospitalName: "Metropolis General Hospital",
+    permissions: [
+        "visit_diagnose",
+        "patient_view",
+        "clinical_history",
+        "lab_view",
+        "pharmacy_view",
+        "ai_assistant"
+    ],
+    subscriptionPlan: "pro"
+};
+
 const FallbackStack = () => (
     <DashboardLayout>
         <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
@@ -81,39 +99,60 @@ const AppNavigator = () => {
     const { loading: isLoading, isAuthenticated, user } = useAuth();
 
     const isWeb = Platform.OS === 'web' && typeof window !== 'undefined';
-    const isLoggedOut = isWeb && (localStorage.getItem('isLoggedOut') === 'true' || sessionStorage.getItem('isLoggedOut') === 'true');
-    const isLabDev = !isLoggedOut && isWeb && (
-        window.location.hash.includes('lab') ||
-        window.location.search.includes('lab') ||
-        window.location.pathname.includes('lab') ||
+
+    // Check if role is explicitly targeted in URL / hash
+    const forcedRoleInUrl = isWeb ? (
+        (window.location.hash.toLowerCase().includes('doctor') || window.location.search.toLowerCase().includes('doctor') || window.location.pathname.toLowerCase().includes('doctor') || window.location.pathname.includes('AIAssistant') || window.location.pathname.includes('IPDCommandCenter')) ? 'doctor' :
+        (window.location.hash.toLowerCase().includes('lab') || window.location.search.toLowerCase().includes('lab') || window.location.pathname.toLowerCase().includes('lab')) ? 'lab' :
+        (window.location.hash.toLowerCase().includes('pharmacy') || window.location.search.toLowerCase().includes('pharmacy') || window.location.pathname.toLowerCase().includes('pharmacy')) ? 'pharmacy' :
+        (window.location.hash.toLowerCase().includes('reception') || window.location.search.toLowerCase().includes('reception') || window.location.pathname.toLowerCase().includes('reception')) ? 'reception' :
+        (window.location.hash.toLowerCase().includes('hospitaladmin') || window.location.search.toLowerCase().includes('hospitaladmin') || window.location.pathname.toLowerCase().includes('hospitaladmin')) ? 'hospitaladmin' :
+        null
+    ) : null;
+
+    const isLoggedOut = !forcedRoleInUrl && isWeb && (localStorage.getItem('isLoggedOut') === 'true' || sessionStorage.getItem('isLoggedOut') === 'true');
+
+    const isDoctorDev = !isLoggedOut && isWeb && (
+        forcedRoleInUrl === 'doctor' ||
+        localStorage.getItem('role') === 'doctor' ||
+        localStorage.getItem('role') === 'clinicdoctor'
+    );
+    const isLabDev = !isLoggedOut && !isDoctorDev && isWeb && (
+        forcedRoleInUrl === 'lab' ||
         localStorage.getItem('role') === 'lab' ||
         localStorage.getItem('role') === 'pathologist' ||
         localStorage.getItem('role') === 'labtechnician'
     );
-    const isPharmacyDev = !isLoggedOut && !isLabDev && isWeb && (
-        window.location.hash.includes('pharmacy') ||
-        window.location.search.includes('pharmacy') ||
-        window.location.pathname.includes('pharmacy') ||
+    const isPharmacyDev = !isLoggedOut && !isDoctorDev && !isLabDev && isWeb && (
+        forcedRoleInUrl === 'pharmacy' ||
         localStorage.getItem('role') === 'pharmacy' ||
         localStorage.getItem('role') === 'pharmacist'
     );
-    const isReceptionDev = !isLoggedOut && !isLabDev && !isPharmacyDev && isWeb && (
-        window.location.hash.includes('reception') ||
-        window.location.search.includes('reception') ||
-        window.location.pathname.includes('reception') ||
+    const isReceptionDev = !isLoggedOut && !isDoctorDev && !isLabDev && !isPharmacyDev && isWeb && (
+        forcedRoleInUrl === 'reception' ||
         localStorage.getItem('role') === 'reception' ||
-        localStorage.getItem('role') === 'receptionist' ||
-        (!window.location.hash.includes('hospitaladmin') && !window.location.search.includes('hospitaladmin') && !window.location.hash.includes('lab') && !window.location.search.includes('lab') && localStorage.getItem('role') !== 'hospitaladmin' && localStorage.getItem('role') !== 'lab')
+        localStorage.getItem('role') === 'receptionist'
     );
-    const isHospitalAdminDev = !isLoggedOut && !isLabDev && !isPharmacyDev && !isReceptionDev && isWeb && (
-        window.location.hash.includes('hospitaladmin') ||
-        window.location.search.includes('hospitaladmin') ||
-        window.location.pathname.includes('hospitaladmin') ||
+    const isHospitalAdminDev = !isLoggedOut && !isDoctorDev && !isLabDev && !isPharmacyDev && !isReceptionDev && isWeb && (
+        forcedRoleInUrl === 'hospitaladmin' ||
         localStorage.getItem('role') === 'hospitaladmin'
     );
 
     React.useEffect(() => {
-        if (isLabDev && !isAuthenticated) {
+        if (isDoctorDev && !isAuthenticated) {
+            if (isWeb) {
+                localStorage.removeItem('isLoggedOut');
+                sessionStorage.removeItem('isLoggedOut');
+                localStorage.setItem('role', 'doctor');
+                try {
+                    localStorage.setItem('user', JSON.stringify(defaultDoctorUser));
+                } catch(e) {}
+            }
+            dispatch(setCredentials({
+                user: defaultDoctorUser,
+                token: "mock_jwt_token_for_doctor_parity"
+            }));
+        } else if (isLabDev && !isAuthenticated) {
             dispatch(setCredentials({
                 user: defaultLabUser,
                 token: "mock_jwt_token_for_lab_parity"
@@ -134,10 +173,20 @@ const AppNavigator = () => {
                 token: "mock_jwt_token_for_hospital_admin_parity"
             }));
         }
-    }, [isLabDev, isPharmacyDev, isReceptionDev, isHospitalAdminDev, isAuthenticated, dispatch]);
+    }, [isDoctorDev, isLabDev, isPharmacyDev, isReceptionDev, isHospitalAdminDev, isAuthenticated, dispatch]);
 
-    const activeUser = user || (isLabDev ? defaultLabUser : (isPharmacyDev ? defaultPharmacyUser : (isReceptionDev ? defaultReceptionUser : (isHospitalAdminDev ? defaultHospitalAdminUser : null))));
-    const isEffectiveAuth = isAuthenticated || isLabDev || isPharmacyDev || isReceptionDev || isHospitalAdminDev;
+    const activeUser = user || (
+        isDoctorDev ? defaultDoctorUser : (
+            isLabDev ? defaultLabUser : (
+                isPharmacyDev ? defaultPharmacyUser : (
+                    isReceptionDev ? defaultReceptionUser : (
+                        isHospitalAdminDev ? defaultHospitalAdminUser : null
+                    )
+                )
+            )
+        )
+    );
+    const isEffectiveAuth = isAuthenticated || isDoctorDev || isLabDev || isPharmacyDev || isReceptionDev || isHospitalAdminDev;
 
     const renderRoleStack = () => {
         const currentUserObj = activeUser || user;
