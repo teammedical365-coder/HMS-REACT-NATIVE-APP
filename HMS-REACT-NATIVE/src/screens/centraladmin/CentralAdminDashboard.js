@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { View, ScrollView, SafeAreaView, Text, Alert, Modal, TouchableOpacity, TextInput } from 'react-native';
+import { View, ScrollView, SafeAreaView, Text, Alert, Modal, TouchableOpacity, TextInput, useWindowDimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -9,6 +10,7 @@ import CentralAdminTabs from '../../components/centraladmin/CentralAdminTabs';
 import CentralAdminPricingCards from '../../components/centraladmin/CentralAdminPricingCards';
 import CentralAdminHospitalCards from '../../components/centraladmin/CentralAdminHospitalCards';
 import CentralAdminHospitalDetails from '../../components/centraladmin/CentralAdminHospitalDetails';
+import CentralAdminClinicDetails from '../../components/centraladmin/CentralAdminClinicDetails';
 import CentralAdminForms from '../../components/centraladmin/CentralAdminForms';
 import HospitalBrandingEditor from '../../components/HospitalBrandingEditor';
 import RevenuePlanEditorModal from '../../components/centraladmin/RevenuePlanEditorModal';
@@ -17,6 +19,8 @@ import { hospitalAPI, simpleClinicAPI, revenueAPI, hospitalAdminAPI } from '../.
 export default function CentralAdminDashboard() {
   const navigation = useNavigation(); 
   const route = useRoute();
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
 
   // State Management
   const [selectedHospital, setSelectedHospital] = useState(null);
@@ -29,6 +33,7 @@ export default function CentralAdminDashboard() {
   
   const [brandingHospital, setBrandingHospital] = useState(null);
   const [revenuePlanModalData, setRevenuePlanModalData] = useState(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Form states
   const [showHospitalForm, setShowHospitalForm] = useState(false);
@@ -107,9 +112,9 @@ export default function CentralAdminDashboard() {
     setLoading(true);
     try {
       const hospitalsRes = await hospitalAPI.getHospitals('all');
-      let clinicsRes = { data: [] };
+      let clinicsRes = { clinics: [] };
       try {
-        clinicsRes = await simpleClinicAPI.getClinics('all');
+        clinicsRes = await simpleClinicAPI.getClinics('starter');
       } catch (e) {
         console.log('Failed to fetch clinics:', e);
       }
@@ -131,15 +136,17 @@ export default function CentralAdminDashboard() {
 
       const normalizedHospitals = rawHospitals.map(item => ({
         ...item,
-        isSimpleClinic: false,
+        isSimpleClinic: item.clinicType === 'clinic',
+        clinicType: item.clinicType === 'clinic' ? 'clinic' : (item.clinicType || 'hospital'),
         plan: (item.plan || item.planName || item.subscriptionPlan || 'enterprise').toLowerCase().replace(/[\s-]/g, '_')
       }));
 
       const normalizedClinics = rawClinics.map(item => ({
         ...item,
         isSimpleClinic: true,
+        clinicType: 'clinic',
         name: item.name || item.clinicName || item.hospitalName || 'Clinic',
-        plan: (item.plan || item.planName || item.subscriptionPlan || 'clinic_basic').toLowerCase().replace(/[\s-]/g, '_')
+        plan: (item.plan || item.planName || item.subscriptionPlan || item.clinicPlan || 'starter').toLowerCase().replace(/[\s-]/g, '_')
       }));
 
       const unifiedList = [...normalizedHospitals, ...normalizedClinics];
@@ -155,6 +162,21 @@ export default function CentralAdminDashboard() {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRefresh = async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    setError('');
+    setSuccess('');
+    try {
+      await fetchHospitals();
+      setSuccess('Dashboard data refreshed!');
+    } catch (err) {
+      console.error('Refresh failed:', err);
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 500);
     }
   };
 
@@ -223,34 +245,61 @@ export default function CentralAdminDashboard() {
     }
   };
 
-  // Web Parity: When a hospital is selected, render ONLY the Hospital Details page
+  // Web Parity: When a clinic/hospital is selected, render clinic-specific details or hospital details
   if (selectedHospital) {
+    // Only genuine starter / simple-clinics (clinicType === 'clinic') are Simple Clinics.
+    // Clinic Basic is a Hospital (clinicType !== 'clinic') and uses CentralAdminHospitalDetails.
+    const isClinic = selectedHospital?.clinicType === 'clinic';
+
     return (
       <SafeAreaView style={styles.centralAdminPage}>
-        <ScrollView 
-          contentContainerStyle={[styles.centralAdminContainer, { padding: 20 }]} 
-          showsVerticalScrollIndicator={false}
-        >
+        {isClinic ? (
+          <CentralAdminClinicDetails 
+            clinic={selectedHospital} 
+            onBack={() => {
+              setSelectedHospital(null);
+              fetchHospitals();
+            }} 
+          />
+        ) : (
           <CentralAdminHospitalDetails 
             hospital={selectedHospital} 
             onBack={() => setSelectedHospital(null)} 
           />
-        </ScrollView>
+        )}
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.centralAdminPage}>
+    <LinearGradient
+      colors={['#f0fdf9', '#e0f2fe', '#fdf2f8']}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={{ flex: 1 }}
+    >
+      <SafeAreaView style={[styles.centralAdminPage, { backgroundColor: 'transparent' }]}>
 
-      <ScrollView contentContainerStyle={[styles.centralAdminContainer, { padding: 20 }]} showsVerticalScrollIndicator={false} pointerEvents="box-none">
+        <ScrollView 
+          contentContainerStyle={[
+            styles.centralAdminContainer, 
+            { 
+              paddingHorizontal: isMobile ? 12 : 24, 
+              paddingTop: isMobile ? 14 : 20, 
+              paddingBottom: isMobile ? 40 : 60 
+            }
+          ]} 
+          showsVerticalScrollIndicator={false} 
+          pointerEvents="box-none"
+        >
         
         {/* Child Component 1: Header and Tabs */}
         <CentralAdminTabs 
           activeTab={activeTab} 
           setActiveTab={setActiveTab} 
           onRevenueAnalyticsPress={() => navigation.navigate('SystemRevenueDashboard')}
-          onRefreshPress={fetchHospitals}
+          onRefreshPress={handleRefresh}
+          isRefreshing={isRefreshing}
         />
 
         {/* Global Notifications */}
@@ -470,7 +519,8 @@ export default function CentralAdminDashboard() {
           }
         }}
       />
-    </SafeAreaView>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 

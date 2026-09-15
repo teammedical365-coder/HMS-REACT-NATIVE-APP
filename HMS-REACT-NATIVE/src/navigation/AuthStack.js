@@ -11,6 +11,7 @@ import OTPVerificationScreen from '../screens/Auth/OTPVerificationScreen';
 // Central Admin Auth
 import CentralAdminLogin from '../screens/centraladmin/CentralAdminLogin';
 import CentralAdminSignup from '../screens/centraladmin/CentralAdminSignup';
+import AdminSignup from '../screens/administration/AdminSignup';
 
 // Hospital Admin Auth
 import HospitalAdminLogin from '../screens/hospitaladmin/HospitalAdminLogin';
@@ -58,6 +59,7 @@ const AuthStack = () => {
             {/* Central Admin (Independent of Workspace usually, but part of public stack) */}
             <Stack.Screen name="CentralAdminLogin" component={CentralAdminLogin} />
             <Stack.Screen name="CentralAdminSignup" component={CentralAdminSignup} />
+            <Stack.Screen name="AdminSignup" component={AdminSignup} />
 
             {/* Hospital Admin Portal */}
             <Stack.Screen name="HospitalAdminLogin" component={HospitalAdminLogin} />

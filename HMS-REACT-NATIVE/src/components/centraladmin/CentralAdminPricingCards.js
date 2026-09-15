@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, useWindowDimensions } from 'react-native';
+import { View, Text, TouchableOpacity, Pressable, Platform, StyleSheet, useWindowDimensions } from 'react-native';
 import Svg, { Path, Ellipse, Rect, Circle, G } from 'react-native-svg';
 import { styles } from './CentralAdminDashboardStyles';
 
@@ -116,7 +116,7 @@ export default function CentralAdminPricingCards({
 }) {
   const { width } = useWindowDimensions();
   const isDesktop = width >= 1024;
-  const isMobile = width < 640;
+  const isMobile = width < 768;
 
   const config = getPlanConfig(activeTab);
   if (!config) {
@@ -129,7 +129,7 @@ export default function CentralAdminPricingCards({
     <View style={styles.featuredPlanSection}>
       
       {/* SECTION HEADER */}
-      <View style={styles.planHeaderRow}>
+      <View style={[styles.planHeaderRow, isMobile && { flexDirection: 'column', alignItems: 'stretch', gap: 14 }]}>
         <View style={styles.planTitleCol}>
           <View style={styles.planBadgeIcon}>
             {config.badgeIcon === 'file' ? (
@@ -152,25 +152,60 @@ export default function CentralAdminPricingCards({
           </View>
         </View>
 
-        <View style={styles.planActionsRow}>
+        <View style={[styles.planActionsRow, isMobile && { flexDirection: 'column', width: '100%', gap: 10 }]}>
           {config.showAdminButton && (
-            <TouchableOpacity 
-              style={styles.btnSecondary} 
+            <Pressable 
+              style={({ pressed, hovered }) => [
+                styles.btnSecondary, 
+                isMobile && { width: '100%' },
+                hovered && {
+                  backgroundColor: '#eff6ff',
+                  transform: [{ translateY: -1 }],
+                  ...Platform.select({
+                    web: {
+                      cursor: 'pointer',
+                      boxShadow: '0 4px 10px rgba(37, 99, 235, 0.12)',
+                      transition: 'all 0.15s ease',
+                    }
+                  }),
+                },
+                pressed && {
+                  transform: [{ scale: 0.98 }]
+                }
+              ]} 
               onPress={onToggleAdminForm}
             >
               <Text style={styles.btnSecondaryText}>
                 {showHospitalAdminForm ? 'Cancel' : config.btnAddAdmin}
               </Text>
-            </TouchableOpacity>
+            </Pressable>
           )}
-          <TouchableOpacity 
-            style={styles.btnPrimary} 
+          <Pressable 
+            style={({ pressed, hovered }) => [
+              styles.btnPrimary, 
+              isMobile && { width: '100%' },
+              hovered && {
+                backgroundColor: '#1d4ed8',
+                transform: [{ translateY: -1 }],
+                ...Platform.select({
+                  web: {
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 14px rgba(37, 99, 235, 0.35)',
+                    transition: 'all 0.15s ease',
+                  }
+                }),
+              },
+              pressed && {
+                backgroundColor: '#1e40af',
+                transform: [{ scale: 0.98 }]
+              }
+            ]} 
             onPress={onToggleHospitalForm}
           >
             <Text style={styles.btnPrimaryText}>
               {showHospitalForm ? 'Cancel' : config.btnAddHospital}
             </Text>
-          </TouchableOpacity>
+          </Pressable>
         </View>
       </View>
 
@@ -179,7 +214,7 @@ export default function CentralAdminPricingCards({
         <View style={[styles.planCardsGrid, { flexDirection: isDesktop ? 'row' : 'column' }]}>
           
           {/* Left Card: Plan Operational Provision */}
-          <View style={[styles.planInfoCard, { position: 'relative', overflow: 'hidden' }]}>
+          <View style={[styles.planInfoCard, { position: 'relative', overflow: 'hidden', width: isDesktop ? undefined : '100%', flex: isDesktop ? 1 : 0 }]}>
             <View style={styles.infoCardHeader}>
               <Text style={styles.infoPlanName}>
                 {config.planName}
@@ -213,7 +248,11 @@ export default function CentralAdminPricingCards({
           </View>
 
           {/* Right Card: Digital Presence Add-on */}
-          <View style={[styles.addonCard, isMobile && { flexDirection: 'column', alignItems: 'stretch' }]}>
+          <View style={[
+            styles.addonCard, 
+            { width: isDesktop ? undefined : '100%', flex: isDesktop ? 1.25 : 0 },
+            isMobile && { flexDirection: 'column', alignItems: 'stretch', gap: 14 }
+          ]}>
             <View style={styles.addonContentCol}>
               <View style={styles.addonTag}>
                 <Text style={{ fontSize: 14, marginRight: 4 }}>✨</Text>
@@ -231,31 +270,33 @@ export default function CentralAdminPricingCards({
               </View>
             </View>
             
-            {/* Exact Web SVG Clipboard & Pen Illustration */}
-            <View style={{ alignItems: 'center', justifyContent: 'center', padding: 4 }}>
-              <Svg width={170} height={190} viewBox="0 0 200 220" fill="none">
-                <Ellipse cx="100" cy="195" rx="80" ry="18" fill="#e0f0fe" />
-                <Ellipse cx="100" cy="190" rx="65" ry="12" fill="#bfdbfe" fillOpacity={0.7} />
-                <Rect x="40" y="30" width="110" height="150" rx="14" fill="#ffffff" stroke="#93c5fd" strokeWidth={2.5} />
-                <Rect x="68" y="20" width="54" height="20" rx="6" fill="#60a5fa" />
-                <Circle cx="95" cy="28" r="4" fill="#ffffff" />
-                <Rect x="85" y="55" width="20" height="20" rx="4" fill="#eff6ff" />
-                <Rect x="92" y="58" width="6" height="14" rx="2" fill="#2563eb" />
-                <Rect x="88" y="62" width="14" height="6" rx="2" fill="#2563eb" />
-                <Rect x="58" y="90" width="74" height="5" rx="2.5" fill="#93c5fd" />
-                <Rect x="58" y="104" width="74" height="5" rx="2.5" fill="#cbd5e1" />
-                <Rect x="58" y="118" width="74" height="5" rx="2.5" fill="#cbd5e1" />
-                <Rect x="58" y="132" width="50" height="5" rx="2.5" fill="#cbd5e1" />
-                <Rect x="58" y="146" width="60" height="5" rx="2.5" fill="#cbd5e1" />
-                <G transform="rotate(35 155 125)">
-                  <Rect x="145" y="60" width="14" height="90" rx="7" fill="#2563eb" />
-                  <Path d="M145 150 L152 166 L159 150 Z" fill="#1e293b" />
-                  <Circle cx="152" cy="166" r="1.5" fill="#38bdf8" />
-                  <Rect x="148" y="70" width="8" height="15" rx="2" fill="#60a5fa" />
-                  <Rect x="143" y="66" width="3" height="30" rx="1.5" fill="#93c5fd" />
-                </G>
-              </Svg>
-            </View>
+            {/* Exact Web SVG Clipboard & Pen Illustration (Desktop/Tablet only, hidden on mobile) */}
+            {!isMobile && (
+              <View style={{ alignItems: 'center', justifyContent: 'center', padding: 4 }}>
+                <Svg width={170} height={190} viewBox="0 0 200 220" fill="none">
+                  <Ellipse cx="100" cy="195" rx="80" ry="18" fill="#e0f0fe" />
+                  <Ellipse cx="100" cy="190" rx="65" ry="12" fill="#bfdbfe" fillOpacity={0.7} />
+                  <Rect x="40" y="30" width="110" height="150" rx="14" fill="#ffffff" stroke="#93c5fd" strokeWidth={2.5} />
+                  <Rect x="68" y="20" width="54" height="20" rx="6" fill="#60a5fa" />
+                  <Circle cx="95" cy="28" r="4" fill="#ffffff" />
+                  <Rect x="85" y="55" width="20" height="20" rx="4" fill="#eff6ff" />
+                  <Rect x="92" y="58" width="6" height="14" rx="2" fill="#2563eb" />
+                  <Rect x="88" y="62" width="14" height="6" rx="2" fill="#2563eb" />
+                  <Rect x="58" y="90" width="74" height="5" rx="2.5" fill="#93c5fd" />
+                  <Rect x="58" y="104" width="74" height="5" rx="2.5" fill="#cbd5e1" />
+                  <Rect x="58" y="118" width="74" height="5" rx="2.5" fill="#cbd5e1" />
+                  <Rect x="58" y="132" width="50" height="5" rx="2.5" fill="#cbd5e1" />
+                  <Rect x="58" y="146" width="60" height="5" rx="2.5" fill="#cbd5e1" />
+                  <G transform="rotate(35 155 125)">
+                    <Rect x="145" y="60" width="14" height="90" rx="7" fill="#2563eb" />
+                    <Path d="M145 150 L152 166 L159 150 Z" fill="#1e293b" />
+                    <Circle cx="152" cy="166" r="1.5" fill="#38bdf8" />
+                    <Rect x="148" y="70" width="8" height="15" rx="2" fill="#60a5fa" />
+                    <Rect x="143" y="66" width="3" height="30" rx="1.5" fill="#93c5fd" />
+                  </G>
+                </Svg>
+              </View>
+            )}
           </View>
 
         </View>
@@ -267,8 +308,8 @@ export default function CentralAdminPricingCards({
 const localCardStyles = StyleSheet.create({
   shieldWatermark: {
     position: 'absolute',
-    right: 15,
-    bottom: 15,
-    opacity: 0.6,
+    right: 6,
+    bottom: -6,
+    opacity: 0.85,
   },
 });

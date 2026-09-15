@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
-    View, Text, TouchableOpacity, StyleSheet, ScrollView, Platform, 
+    View, Text, TouchableOpacity, Pressable, StyleSheet, ScrollView, Platform, 
     useWindowDimensions, Linking, Image, ActivityIndicator, TextInput, Alert 
 } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -391,14 +391,29 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
                         <Text style={styles.profilePillText}>Hospital Profile</Text>
                     </View>
 
-                    <TouchableOpacity 
-                        style={styles.topBackBtn} 
+                    <Pressable 
+                        style={({ pressed, hovered }) => [
+                            styles.topBackBtn,
+                            Platform.select({ web: { transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)', cursor: 'pointer' } }),
+                            hovered && {
+                                backgroundColor: 'rgba(22, 38, 110, 0.95)',
+                                borderColor: '#7dd3fc',
+                                transform: [{ translateY: -2 }, { scale: 1.02 }],
+                                ...Platform.select({
+                                    web: {
+                                        boxShadow: '0 5px 16px rgba(56, 189, 248, 0.4)',
+                                    }
+                                })
+                            },
+                            pressed && {
+                                transform: [{ scale: 0.97 }]
+                            }
+                        ]} 
                         onPress={onBack}
-                        activeOpacity={0.8}
                     >
                         <Text style={styles.topBackArrow}>←</Text>
                         <Text style={styles.topBackText}>Back</Text>
-                    </TouchableOpacity>
+                    </Pressable>
                 </View>
 
                 {/* Main Hero Upper Content */}
@@ -846,21 +861,34 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
                 
                 <View style={styles.featuresGrid}>
                     {features.map((feature, idx) => (
-                        <TouchableOpacity 
+                        <Pressable 
                             key={idx} 
-                            style={[
+                            style={({ pressed, hovered }) => [
                                 styles.featureBtn, 
                                 { backgroundColor: feature.bg, borderColor: feature.border },
                                 isDesktop && { width: '18.8%' },
                                 isTablet && { width: '31%' },
-                                isMobile && { width: '48%' }
+                                isMobile && { width: '48%' },
+                                Platform.select({ web: { transition: 'all 0.15s ease', cursor: 'pointer' } }),
+                                hovered && {
+                                    transform: [{ translateY: -1 }],
+                                    opacity: 0.95,
+                                    ...Platform.select({
+                                        web: {
+                                            boxShadow: '0 2px 6px rgba(0, 0, 0, 0.04)',
+                                            filter: 'brightness(0.95)',
+                                        }
+                                    })
+                                },
+                                pressed && {
+                                    transform: [{ scale: 0.97 }]
+                                }
                             ]}
                             onPress={() => handleFeatureClick(feature)}
-                            activeOpacity={0.8}
                         >
                             <Text style={{ fontSize: 15, marginRight: 6 }}>{feature.icon}</Text>
                             <Text style={[styles.featureBtnText, { color: feature.color }]}>{feature.label}</Text>
-                        </TouchableOpacity>
+                        </Pressable>
                     ))}
                 </View>
             </View>

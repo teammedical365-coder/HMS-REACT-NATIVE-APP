@@ -154,15 +154,16 @@ const AdminDoctors = () => {
 
     const [formData, setFormData] = useState(initialFormState);
     const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-    const isHospitalAdmin = user?.role === 'hospitaladmin';
+    const userRole = (typeof user?.role === 'object' ? user?.role?.name : user?.role || '').toLowerCase();
+    const isHospitalAdmin = userRole === 'hospitaladmin' || userRole === 'admin';
 
     useEffect(() => {
-        if (!user || !['admin', 'hospitaladmin'].includes(user.role)) {
-            navigation.navigate('HospitalAdminDashboard');
+        if (user && !['admin', 'hospitaladmin', 'centraladmin', 'superadmin'].includes(userRole)) {
+            navigation.goBack();
             return;
         }
         dispatch(fetchAdminDoctors());
-    }, [navigation, user, dispatch]);
+    }, [navigation, user, userRole, dispatch]);
 
     useEffect(() => {
         if (doctorsState.error) setError(doctorsState.error);
@@ -377,6 +378,16 @@ const AdminDoctors = () => {
                     </Animated.View>
 
                     <View style={styles.adHeroLeft}>
+                        {navigation.canGoBack() && (
+                            <TouchableOpacity 
+                                onPress={() => navigation.goBack()}
+                                style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 6 }}
+                                activeOpacity={0.7}
+                            >
+                                <Feather name="arrow-left" size={16} color="#0284c7" />
+                                <Text style={{ color: '#0284c7', fontWeight: '700', fontSize: 13 }}>← Back</Text>
+                            </TouchableOpacity>
+                        )}
                         <Text style={styles.adHeroTitle}>
                             Manage <Text style={styles.adTitleHighlight}>Doctors</Text>
                         </Text>

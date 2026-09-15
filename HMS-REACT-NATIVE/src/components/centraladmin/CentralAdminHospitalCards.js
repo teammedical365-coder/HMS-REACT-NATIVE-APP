@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, Image, TouchableOpacity, useWindowDimensions, Alert, Linking } from 'react-native';
+import { View, Text, Image, TouchableOpacity, Pressable, useWindowDimensions, Alert, Linking, Platform } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { whiteLabelAPI } from '../../utils/api';
@@ -32,18 +32,27 @@ export default function CentralAdminHospitalCards({
 
   const isDesktop = width >= 1024;
   const isTablet = width >= 640 && width < 1024;
-  const cardWidth = isDesktop ? '31.8%' : (isTablet ? '48.5%' : '100%');
+  const cardWidth = Platform.select({
+    web: isDesktop ? 'calc((100% - 36px) / 3)' : (isTablet ? 'calc((100% - 18px) / 2)' : '100%'),
+    default: isDesktop ? '31.8%' : (isTablet ? '48.5%' : '100%'),
+  });
 
   if (showHospitalForm || showHospitalAdminForm || editHospital) return null;
 
   const filteredHospitals = (hospitals || []).filter((h) => {
-    const plan = normalizePlan(h.subscriptionPlan || h.clinicPlan || h.plan);
+    const isClinic = h.clinicType === 'clinic';
     if (activeTab === 'all') return true;
+    if (activeTab === 'simple-clinics') {
+      return isClinic;
+    }
+    // All other tabs are for hospitals only (hospitals cannot appear in simple-clinics, clinics cannot appear in hospital tabs)
+    if (isClinic) return false;
+
+    const plan = normalizePlan(h.subscriptionPlan || h.clinicPlan || h.plan);
     if (activeTab === 'multi-speciality') return plan === 'multi-speciality';
     if (activeTab === 'clinic-basic') return plan === 'clinic-basic';
-    if (activeTab === 'simple-clinics') return plan === 'simple-clinics';
     if (activeTab === 'hospitals') {
-      return !['multi-speciality', 'clinic-basic', 'simple-clinics'].includes(plan);
+      return plan !== 'multi-speciality' && plan !== 'clinic-basic';
     }
     return true;
   });
@@ -93,10 +102,30 @@ export default function CentralAdminHospitalCards({
         const currentStatus = buildStatuses[hospitalId] || hospital.appConfig?.rnBuildStatus || 'NOT_BUILT';
 
         return (
-          <TouchableOpacity
+          <Pressable
             key={hospitalId}
-            style={[styles.hospitalCard, { width: cardWidth }]}
-            activeOpacity={0.85}
+            style={({ pressed, hovered }) => [
+              styles.hospitalCard,
+              { width: cardWidth },
+              Platform.select({
+                web: {
+                  transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+                  cursor: 'pointer',
+                },
+              }),
+              hovered && {
+                borderColor: '#2563eb',
+                transform: [{ translateY: -2 }],
+                ...Platform.select({
+                  web: {
+                    boxShadow: '0 8px 24px rgba(37, 99, 235, 0.12)',
+                  },
+                }),
+              },
+              pressed && {
+                transform: [{ translateY: 0 }, { scale: 0.99 }],
+              },
+            ]}
             onPress={() => onSelectHospital?.(hospital)}
           >
             <View style={styles.hospitalCardHeader}>
@@ -152,33 +181,45 @@ export default function CentralAdminHospitalCards({
 
               <View style={styles.hospitalBtnGroup}>
                 {activeTab !== 'simple-clinics' && (
-                  <TouchableOpacity 
-                    style={styles.btnSmBranding} 
-                    onPress={(e) => { e.stopPropagation(); onBrandingHospital?.(hospital); }}
-                    activeOpacity={0.8}
+                  <Pressable 
+                    style={({ pressed, hovered }) => [
+                      styles.btnSmBranding,
+                      Platform.select({ web: { transition: 'all 0.15s ease', cursor: 'pointer' } }),
+                      hovered && { backgroundColor: '#dbeafe', transform: [{ translateY: -1 }] },
+                      pressed && { transform: [{ scale: 0.96 }] },
+                    ]} 
+                    onPress={(e) => { e.stopPropagation?.(); onBrandingHospital?.(hospital); }}
                   >
                     <Text style={styles.btnSmBrandingText}>🎨 Branding</Text>
-                  </TouchableOpacity>
+                  </Pressable>
                 )}
 
-                <TouchableOpacity 
-                  style={styles.btnSmEdit} 
-                  onPress={(e) => { e.stopPropagation(); onEditHospital?.(hospital); }}
-                  activeOpacity={0.8}
+                <Pressable 
+                  style={({ pressed, hovered }) => [
+                    styles.btnSmEdit,
+                    Platform.select({ web: { transition: 'all 0.15s ease', cursor: 'pointer' } }),
+                    hovered && { backgroundColor: '#f1f5f9', borderColor: '#94a3b8', transform: [{ translateY: -1 }] },
+                    pressed && { transform: [{ scale: 0.96 }] },
+                  ]} 
+                  onPress={(e) => { e.stopPropagation?.(); onEditHospital?.(hospital); }}
                 >
                   <Text style={styles.btnSmEditText}>Edit</Text>
-                </TouchableOpacity>
+                </Pressable>
 
-                <TouchableOpacity 
-                  style={styles.btnSmDelete} 
-                  onPress={(e) => { e.stopPropagation(); onDeleteHospital?.(hospitalId); }}
-                  activeOpacity={0.8}
+                <Pressable 
+                  style={({ pressed, hovered }) => [
+                    styles.btnSmDelete,
+                    Platform.select({ web: { transition: 'all 0.15s ease', cursor: 'pointer' } }),
+                    hovered && { backgroundColor: '#fee2e2', borderColor: '#f87171', transform: [{ translateY: -1 }] },
+                    pressed && { transform: [{ scale: 0.96 }] },
+                  ]} 
+                  onPress={(e) => { e.stopPropagation?.(); onDeleteHospital?.(hospitalId); }}
                 >
                   <Text style={styles.btnSmDeleteText}>Delete</Text>
-                </TouchableOpacity>
+                </Pressable>
               </View>
             </View>
-          </TouchableOpacity>
+          </Pressable>
         );
       })}
     </View>

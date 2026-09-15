@@ -25,7 +25,6 @@ export const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f8fafc',
     padding: 0,
-    paddingBottom: 60,
   },
   // Navbar Styles
   navbarContainer: {
@@ -90,7 +89,7 @@ export const styles = StyleSheet.create({
   },
   centralAdminContainer: {
     width: '100%',
-    maxWidth: 1280,
+    maxWidth: '100%',
     alignSelf: 'center',
   },
   // .cad-header-row
@@ -153,6 +152,7 @@ export const styles = StyleSheet.create({
     ...Platform.select({
       ios: { shadowColor: colors.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.28, shadowRadius: 14 },
       android: { elevation: 4 },
+      web: { boxShadow: '0 4px 14px rgba(37, 99, 235, 0.28)' }
     }),
   },
   // .cad-revenue-analytics-btn text
@@ -301,7 +301,7 @@ export const styles = StyleSheet.create({
   },
   // .cad-plan-cards-grid
   planCardsGrid: {
-    flexDirection: width > 1024 ? 'row' : 'column',
+    flexDirection: 'row',
     gap: 20,
     marginBottom: 24,
   },
@@ -410,7 +410,6 @@ export const styles = StyleSheet.create({
     padding: 18,
     flexDirection: 'column',
     justifyContent: 'space-between',
-    marginBottom: 8,
     ...Platform.select({
       ios: { shadowColor: '#0f172a', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 8 },
       android: { elevation: 2 },

@@ -54,6 +54,13 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
     const [selectedUpiId, setSelectedUpiId] = useState('');
     const [intakePaymentData, setIntakePaymentData] = useState({ upiId: '', transactionId: '', cardDetails: '', bankReference: '' });
 
+    // Transactions Ledger state (1:1 Web Parity)
+    const [transactions, setTransactions] = useState([]);
+    const [loadingTransactions, setLoadingTransactions] = useState(false);
+    const [transactionSearch, setTransactionSearch] = useState('');
+    const [transactionStatusFilter, setTransactionStatusFilter] = useState('all'); // 'all', 'paid', 'pending'
+    const [selectedTxModal, setSelectedTxModal] = useState(null);
+
     // Live search states
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState([]);
@@ -137,7 +144,10 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         if (route.params?.view) {
             const v = route.params.view;
             if (v === 'desk' || v === 'list') setViewMode('desk');
-            else setViewMode(v);
+            else if (v === 'transactions') {
+                fetchTransactions();
+                setViewMode('transactions');
+            } else setViewMode(v);
         }
     }, [route.params?.view]);
 
@@ -214,8 +224,31 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         } catch (err) {
             console.warn('Failed to fetch stats:', err);
         }
+
+        try {
+            const txRes = await receptionAPI.getTransactions();
+            if (txRes?.success && Array.isArray(txRes.transactions)) {
+                setTransactions(txRes.transactions);
+            }
+        } catch (err) {
+            console.warn('Failed to fetch transactions:', err);
+        }
         setLoading(false);
     }, []);
+
+    const fetchTransactions = async () => {
+        setLoadingTransactions(true);
+        try {
+            const res = await receptionAPI.getTransactions();
+            if (res?.success && Array.isArray(res.transactions)) {
+                setTransactions(res.transactions);
+            }
+        } catch (err) {
+            console.error('Error fetching transactions:', err);
+        } finally {
+            setLoadingTransactions(false);
+        }
+    };
 
     useEffect(() => {
         fetchData();
@@ -939,7 +972,11 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
 
                     {/* 2. Hero Action Controls — 3 Mini Action Chips */}
                     <View style={[styles.wHeroActions, isMobile && { width: '100%', marginTop: 8 }]}>
-                        <TouchableOpacity style={styles.wActionChip} activeOpacity={0.85} onPress={() => setViewMode('desk')}>
+                        <TouchableOpacity 
+                            style={styles.wActionChip} 
+                            activeOpacity={0.85} 
+                            onPress={() => { fetchTransactions(); setViewMode('transactions'); }}
+                        >
                             <View style={[styles.wChipIcon, styles.wChipIconPurple]}>
                                 <FontAwesome5 name="rupee-sign" size={14} color="#7c3aed" />
                             </View>
@@ -1097,7 +1134,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                 <View style={styles.miniChipsRow}>
                     <TouchableOpacity 
                         style={[styles.miniChip, { backgroundColor: '#f3e8ff', borderColor: '#d8b4fe' }]}
-                        onPress={() => navigation.navigate('PatientBillingProfile')}
+                        onPress={() => { fetchTransactions(); setViewMode('transactions'); }}
                     >
                         <View style={[styles.miniChipIcon, { backgroundColor: '#c084fc' }]}>
                             <FontAwesome5 name="rupee-sign" size={12} color="#ffffff" />
@@ -2152,6 +2189,291 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         );
     };
 
+    // ─── TRANSACTIONS LEDGER (1:1 Web Parity Lines 2699-2801) ─────────────
+    const handlePrintTransactionReceipt = async (t) => {
+        if (!t) return;
+        try {
+            const isPaid = (t.paymentStatus || '').toLowerCase() === 'paid';
+            const d = t.createdAt ? new Date(t.createdAt) : new Date();
+            const dateStr = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+            const timeStr = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+            const hospitalName = hospitalContext?.name || 'Care Hospital & Medical Centre';
+            const hospitalAddress = hospitalContext?.address || 'Healthcare Way, Medical Enclave';
+
+            const html = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="utf-8">
+                    <title>Payment Receipt - ${t._id || 'TX'}</title>
+                    <style>
+                        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 30px; color: #1e293b; line-height: 1.5; }
+                        .header { border-bottom: 2px solid #0d9488; padding-bottom: 16px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: flex-start; }
+                        .title { font-size: 22px; font-weight: bold; color: #0f766e; margin: 0; }
+                        .sub { font-size: 12px; color: #64748b; margin-top: 4px; }
+                        .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; background: ${isPaid ? '#dcfce7' : '#fef3c7'}; color: ${isPaid ? '#166534' : '#92400e'}; }
+                        .details-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                        .details-table td { padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: 13px; }
+                        .details-table td.label { font-weight: bold; color: #475569; width: 35%; }
+                        .total-box { margin-top: 24px; padding: 16px; background: #f8fafc; border-radius: 8px; border: 1px solid #cbd5e1; display: flex; justify-content: space-between; align-items: center; }
+                        .total-amount { font-size: 24px; font-weight: 800; color: #0f172a; }
+                        .footer { margin-top: 40px; font-size: 11px; text-align: center; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 16px; }
+                    </style>
+                </head>
+                <body>
+                    <div class="header">
+                        <div>
+                            <h1 class="title">${hospitalName}</h1>
+                            <div class="sub">${hospitalAddress}</div>
+                            <div class="sub" style="margin-top: 8px;"><strong>Official Billing Receipt</strong></div>
+                        </div>
+                        <div style="text-align: right;">
+                            <div class="badge">${isPaid ? 'PAID ✓' : 'PENDING'}</div>
+                            <div class="sub" style="margin-top: 6px;">Date: ${dateStr} ${timeStr}</div>
+                            <div class="sub">Receipt ID: #${(t._id || '').slice(-8).toUpperCase()}</div>
+                        </div>
+                    </div>
+
+                    <table class="details-table">
+                        <tr>
+                            <td class="label">Patient Name:</td>
+                            <td><strong>${t.userId?.name || t.patientName || 'Walk-in Patient'}</strong></td>
+                        </tr>
+                        <tr>
+                            <td class="label">Patient ID / MRN:</td>
+                            <td>${t.userId?.patientId || t.patientId || 'N/A'}</td>
+                        </tr>
+                        <tr>
+                            <td class="label">Consulting Doctor:</td>
+                            <td>${t.doctorName || t.doctorId?.name || 'General OPD'}</td>
+                        </tr>
+                        <tr>
+                            <td class="label">Payment Method:</td>
+                            <td>${t.paymentMethod || 'Cash'}</td>
+                        </tr>
+                        <tr>
+                            <td class="label">Transaction Reference:</td>
+                            <td>${t.transactionId || t.bankReference || t._id || 'N/A'}</td>
+                        </tr>
+                        <tr>
+                            <td class="label">Status:</td>
+                            <td>${t.paymentStatus || 'Paid'}</td>
+                        </tr>
+                    </table>
+
+                    <div class="total-box">
+                        <span style="font-weight: bold; font-size: 15px; color: #334155;">Total Amount Paid:</span>
+                        <span class="total-amount">₹${Number(t.amount || 0).toLocaleString('en-IN')}</span>
+                    </div>
+
+                    <div class="footer">
+                        Computer-generated receipt issued at Reception Desk • ${new Date().toLocaleString('en-IN')}
+                    </div>
+                </body>
+                </html>
+            `;
+            await Print.printAsync({ html });
+        } catch (err) {
+            Alert.alert('Print Error', 'Could not print receipt: ' + err.message);
+        }
+    };
+
+    const renderTransactions = () => {
+        const totalCollected = transactions.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+        const totalBills = transactions.length;
+        const pendingBills = transactions.filter(t => (t.paymentStatus || '').toLowerCase() !== 'paid').length;
+
+        // Payment mode breakdown
+        const cashTotal = transactions.filter(t => (t.paymentMethod || 'Cash').toLowerCase() === 'cash').reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+        const upiTotal = transactions.filter(t => (t.paymentMethod || '').toLowerCase() === 'upi').reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+        const cardTotal = transactions.filter(t => ['card', 'debit card', 'credit card'].includes((t.paymentMethod || '').toLowerCase())).reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+
+        const filteredTransactions = transactions.filter(t => {
+            const matchesStatus = transactionStatusFilter === 'all' 
+                ? true 
+                : transactionStatusFilter === 'paid' 
+                    ? (t.paymentStatus || '').toLowerCase() === 'paid'
+                    : (t.paymentStatus || '').toLowerCase() !== 'paid';
+            
+            const q = transactionSearch.trim().toLowerCase();
+            const matchesSearch = !q || (
+                (t.userId?.name || t.patientName || '').toLowerCase().includes(q) ||
+                (t.doctorName || t.doctorId?.name || '').toLowerCase().includes(q) ||
+                (t.paymentMethod || '').toLowerCase().includes(q) ||
+                (t.transactionId || t._id || '').toLowerCase().includes(q)
+            );
+
+            return matchesStatus && matchesSearch;
+        });
+
+        return (
+            <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+                {/* Header */}
+                <View style={styles.txHeader}>
+                    <TouchableOpacity onPress={() => setViewMode('welcome')} style={styles.txBackBtn}>
+                        <Feather name="arrow-left" size={18} color="#334155" />
+                        <Text style={styles.txBackBtnText}>Back</Text>
+                    </TouchableOpacity>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, marginLeft: 12 }}>
+                        <Text style={{ fontSize: 24 }}>💳</Text>
+                        <View>
+                            <Text style={styles.txHeaderTitle}>Patient Billing & Transactions</Text>
+                            <Text style={styles.txHeaderSub}>View lifetime collections and receipts</Text>
+                        </View>
+                    </View>
+                    <TouchableOpacity onPress={fetchTransactions} style={styles.txRefreshBtn} activeOpacity={0.8}>
+                        {loadingTransactions ? (
+                            <ActivityIndicator size="small" color="#0d9488" />
+                        ) : (
+                            <Feather name="refresh-cw" size={16} color="#0d9488" />
+                        )}
+                    </TouchableOpacity>
+                </View>
+
+                {/* Summary Cards (1:1 Web Lines 2717-2734) */}
+                <View style={styles.txSummaryGrid}>
+                    <View style={[styles.txStatCard, { backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }]}>
+                        <Text style={[styles.txStatLabel, { color: '#1e40af' }]}>Total Collected</Text>
+                        <Text style={[styles.txStatValue, { color: '#1d4ed8' }]}>₹{totalCollected.toLocaleString('en-IN')}</Text>
+                        <Text style={[styles.txStatSub, { color: '#3b82f6' }]}>Lifetime collections</Text>
+                    </View>
+
+                    <View style={[styles.txStatCard, { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' }]}>
+                        <Text style={[styles.txStatLabel, { color: '#166534' }]}>Total Transactions</Text>
+                        <Text style={[styles.txStatValue, { color: '#15803d' }]}>{totalBills}</Text>
+                        <Text style={[styles.txStatSub, { color: '#22c55e' }]}>Total bills generated</Text>
+                    </View>
+
+                    <View style={[styles.txStatCard, { backgroundColor: '#fef2f2', borderColor: '#fecaca' }]}>
+                        <Text style={[styles.txStatLabel, { color: '#991b1b' }]}>Pending Payments</Text>
+                        <Text style={[styles.txStatValue, { color: '#b91c1c' }]}>{pendingBills}</Text>
+                        <Text style={[styles.txStatSub, { color: '#ef4444' }]}>Requires attention</Text>
+                    </View>
+                </View>
+
+                {/* Payment Mode Breakdown Bar */}
+                <View style={styles.txBreakdownBar}>
+                    <View style={styles.txBreakdownItem}>
+                        <Text style={styles.txBreakdownLabel}>💵 Cash:</Text>
+                        <Text style={styles.txBreakdownVal}>₹{cashTotal.toLocaleString('en-IN')}</Text>
+                    </View>
+                    <View style={styles.txBreakdownDivider} />
+                    <View style={styles.txBreakdownItem}>
+                        <Text style={styles.txBreakdownLabel}>📱 UPI:</Text>
+                        <Text style={styles.txBreakdownVal}>₹{upiTotal.toLocaleString('en-IN')}</Text>
+                    </View>
+                    <View style={styles.txBreakdownDivider} />
+                    <View style={styles.txBreakdownItem}>
+                        <Text style={styles.txBreakdownLabel}>💳 Card/Other:</Text>
+                        <Text style={styles.txBreakdownVal}>₹{cardTotal.toLocaleString('en-IN')}</Text>
+                    </View>
+                </View>
+
+                {/* Search & Filter Controls Card */}
+                <View style={styles.txControlsCard}>
+                    <View style={styles.txSearchBox}>
+                        <Feather name="search" size={16} color="#94a3b8" style={{ marginRight: 10 }} />
+                        <TextInput 
+                            style={styles.txSearchInput} 
+                            placeholder="Search by patient name, doctor, reference..."
+                            placeholderTextColor="#94a3b8"
+                            value={transactionSearch}
+                            onChangeText={setTransactionSearch}
+                        />
+                        {transactionSearch.length > 0 && (
+                            <TouchableOpacity onPress={() => setTransactionSearch('')}>
+                                <Feather name="x" size={16} color="#94a3b8" />
+                            </TouchableOpacity>
+                        )}
+                    </View>
+
+                    {/* Status Tabs */}
+                    <View style={styles.txFilterTabs}>
+                        {[
+                            { key: 'all', label: `All (${transactions.length})` },
+                            { key: 'paid', label: `Paid (${totalBills - pendingBills})` },
+                            { key: 'pending', label: `Pending (${pendingBills})` }
+                        ].map(tab => (
+                            <TouchableOpacity 
+                                key={tab.key}
+                                style={[styles.txFilterTab, transactionStatusFilter === tab.key && styles.txFilterTabActive]}
+                                onPress={() => setTransactionStatusFilter(tab.key)}
+                            >
+                                <Text style={[styles.txFilterTabText, transactionStatusFilter === tab.key && styles.txFilterTabTextActive]}>
+                                    {tab.label}
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+                </View>
+
+                {/* Transactions Card List */}
+                {loadingTransactions && transactions.length === 0 ? (
+                    <View style={styles.txLoadingBox}>
+                        <ActivityIndicator size="large" color="#0d9488" />
+                        <Text style={styles.txLoadingText}>Loading transactions ledger...</Text>
+                    </View>
+                ) : filteredTransactions.length === 0 ? (
+                    <View style={styles.txEmptyBox}>
+                        <Text style={{ fontSize: 44, marginBottom: 12 }}>🧾</Text>
+                        <Text style={styles.txEmptyTitle}>No transactions found</Text>
+                        <Text style={styles.txEmptySub}>There are no billing records matching your filter.</Text>
+                    </View>
+                ) : (
+                    <View style={styles.txCardList}>
+                        {filteredTransactions.map(t => {
+                            const isPaid = (t.paymentStatus || '').toLowerCase() === 'paid';
+                            const d = t.createdAt ? new Date(t.createdAt) : new Date();
+                            const dateStr = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+                            const timeStr = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+                            const method = t.paymentMethod || 'Cash';
+                            const icon = method === 'Cash' ? '💵' : method === 'UPI' ? '📱' : '💳';
+
+                            return (
+                                <TouchableOpacity 
+                                    key={t._id || Math.random().toString()} 
+                                    style={styles.txCard}
+                                    activeOpacity={0.9}
+                                    onPress={() => setSelectedTxModal(t)}
+                                >
+                                    <View style={styles.txCardHeader}>
+                                        <View style={{ flex: 1, marginRight: 12 }}>
+                                            <Text style={styles.txPatientName}>
+                                                {t.userId?.name || t.patientName || 'Walk-in'}
+                                            </Text>
+                                            <Text style={styles.txDoctorName}>
+                                                Doctor: <Text style={{ fontWeight: '700', color: '#334155' }}>{t.doctorName || t.doctorId?.name || '-'}</Text>
+                                            </Text>
+                                        </View>
+                                        <Text style={styles.txAmount}>₹{Number(t.amount || 0).toLocaleString('en-IN')}</Text>
+                                    </View>
+
+                                    <View style={styles.txCardFooter}>
+                                        <View style={styles.txDateTimeBox}>
+                                            <Feather name="calendar" size={12} color="#64748b" style={{ marginRight: 4 }} />
+                                            <Text style={styles.txDateTimeText}>{dateStr} • {timeStr}</Text>
+                                        </View>
+
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                            <View style={styles.txMethodBadge}>
+                                                <Text style={styles.txMethodText}>{icon} {method}</Text>
+                                            </View>
+                                            <View style={[styles.txStatusBadge, isPaid ? styles.txStatusPaid : styles.txStatusPending]}>
+                                                <Text style={[styles.txStatusText, isPaid ? styles.txStatusTextPaid : styles.txStatusTextPending]}>
+                                                    {isPaid ? 'Paid ✓' : 'Pending'}
+                                                </Text>
+                                            </View>
+                                        </View>
+                                    </View>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
+                )}
+            </ScrollView>
+        );
+    };
+
     // ─── MODALS RENDERING ───────────────────────────────────────────────────
     const renderModals = () => (
         <>
@@ -2415,8 +2737,79 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
     // ─── RENDER MAIN VIEW ───────────────────────────────────────────────────
     return (
         <View style={styles.container}>
-            {viewMode === 'welcome' ? renderWelcome() : viewMode === 'intake' ? renderIntake() : renderDesk()}
+            {viewMode === 'welcome' 
+                ? renderWelcome() 
+                : viewMode === 'intake' 
+                    ? renderIntake() 
+                    : viewMode === 'transactions'
+                        ? renderTransactions()
+                        : renderDesk()}
             {renderModals()}
+            {/* Transaction Details Modal */}
+            <Modal visible={!!selectedTxModal} transparent animationType="fade">
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalCard}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>🧾 Receipt & Transaction</Text>
+                            <TouchableOpacity onPress={() => setSelectedTxModal(null)}>
+                                <Feather name="x" size={20} color="#64748b" />
+                            </TouchableOpacity>
+                        </View>
+
+                        {selectedTxModal && (
+                            <View style={{ gap: 12, marginVertical: 8 }}>
+                                <View style={{ backgroundColor: '#f8fafc', padding: 14, borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', gap: 8 }}>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                        <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '600' }}>Patient:</Text>
+                                        <Text style={{ fontSize: 13, color: '#0f172a', fontWeight: '800' }}>{selectedTxModal.userId?.name || selectedTxModal.patientName || 'Walk-in'}</Text>
+                                    </View>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                        <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '600' }}>Doctor:</Text>
+                                        <Text style={{ fontSize: 13, color: '#334155', fontWeight: '700' }}>{selectedTxModal.doctorName || selectedTxModal.doctorId?.name || 'General'}</Text>
+                                    </View>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                        <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '600' }}>Payment Mode:</Text>
+                                        <Text style={{ fontSize: 13, color: '#0f766e', fontWeight: '800' }}>{selectedTxModal.paymentMethod || 'Cash'}</Text>
+                                    </View>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                        <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '600' }}>Status:</Text>
+                                        <Text style={{ fontSize: 13, color: (selectedTxModal.paymentStatus || '').toLowerCase() === 'paid' ? '#166534' : '#92400e', fontWeight: '800' }}>
+                                            {selectedTxModal.paymentStatus || 'Paid'}
+                                        </Text>
+                                    </View>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                        <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '600' }}>Date & Time:</Text>
+                                        <Text style={{ fontSize: 12, color: '#475569' }}>
+                                            {new Date(selectedTxModal.createdAt).toLocaleString('en-IN')}
+                                        </Text>
+                                    </View>
+                                    <View style={{ height: 1, backgroundColor: '#e2e8f0', marginVertical: 4 }} />
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <Text style={{ fontSize: 14, color: '#0f172a', fontWeight: '800' }}>Total Amount:</Text>
+                                        <Text style={{ fontSize: 20, color: '#0d9488', fontWeight: '900' }}>₹{Number(selectedTxModal.amount || 0).toLocaleString('en-IN')}</Text>
+                                    </View>
+                                </View>
+
+                                <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 6 }}>
+                                    <TouchableOpacity 
+                                        style={styles.modalCancelBtn} 
+                                        onPress={() => setSelectedTxModal(null)}
+                                    >
+                                        <Text style={styles.modalCancelBtnText}>Close</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity 
+                                        style={[styles.modalConfirmBtn, { flexDirection: 'row', alignItems: 'center', gap: 6 }]} 
+                                        onPress={() => handlePrintTransactionReceipt(selectedTxModal)}
+                                    >
+                                        <Feather name="printer" size={14} color="#ffffff" />
+                                        <Text style={styles.modalConfirmBtnText}>Print Receipt</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        )}
+                    </View>
+                </View>
+            </Modal>
         </View>
     );
 };
@@ -2710,7 +3103,55 @@ const styles = StyleSheet.create({
     modalCancelBtn: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, backgroundColor: '#f1f5f9' },
     modalCancelBtnText: { color: '#475569', fontWeight: '700', fontSize: 13 },
     modalConfirmBtn: { paddingVertical: 10, paddingHorizontal: 18, borderRadius: 8, backgroundColor: '#0d9488' },
-    modalConfirmBtnText: { color: '#ffffff', fontWeight: '800', fontSize: 13 }
+    modalConfirmBtnText: { color: '#ffffff', fontWeight: '800', fontSize: 13 },
+
+    // ── Transactions Ledger Styles (1:1 Web Parity) ──
+    txHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18, backgroundColor: '#ffffff', padding: 14, borderRadius: 14, borderWidth: 1, borderColor: '#e2e8f0', elevation: 1 },
+    txBackBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8, backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#e2e8f0' },
+    txBackBtnText: { fontSize: 13, fontWeight: '700', color: '#334155' },
+    txHeaderTitle: { fontSize: 17, fontWeight: '800', color: '#0f172a' },
+    txHeaderSub: { fontSize: 11, color: '#64748b', marginTop: 1 },
+    txRefreshBtn: { padding: 10, borderRadius: 8, backgroundColor: '#f0fdfa', borderWidth: 1, borderColor: '#99f6e4' },
+    txSummaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 16 },
+    txStatCard: { flex: 1, minWidth: 150, padding: 16, borderRadius: 14, borderWidth: 1, elevation: 1 },
+    txStatLabel: { fontSize: 12, fontWeight: '700', marginBottom: 4 },
+    txStatValue: { fontSize: 22, fontWeight: '900' },
+    txStatSub: { fontSize: 10, fontWeight: '600', marginTop: 4 },
+    txBreakdownBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', backgroundColor: '#ffffff', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 16 },
+    txBreakdownItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    txBreakdownLabel: { fontSize: 12, fontWeight: '600', color: '#64748b' },
+    txBreakdownVal: { fontSize: 13, fontWeight: '800', color: '#0f172a' },
+    txBreakdownDivider: { width: 1, height: 18, backgroundColor: '#e2e8f0' },
+    txControlsCard: { backgroundColor: '#ffffff', padding: 14, borderRadius: 14, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 16, gap: 12 },
+    txSearchBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
+    txSearchInput: { flex: 1, fontSize: 13, color: '#0f172a', padding: 0 },
+    txFilterTabs: { flexDirection: 'row', gap: 8 },
+    txFilterTab: { paddingVertical: 6, paddingHorizontal: 14, borderRadius: 8, backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#e2e8f0' },
+    txFilterTabActive: { backgroundColor: '#0d9488', borderColor: '#0f766e' },
+    txFilterTabText: { fontSize: 12, fontWeight: '700', color: '#475569' },
+    txFilterTabTextActive: { color: '#ffffff' },
+    txLoadingBox: { padding: 40, alignItems: 'center', justifyContent: 'center', gap: 12 },
+    txLoadingText: { fontSize: 13, color: '#64748b', fontWeight: '600' },
+    txEmptyBox: { padding: 40, alignItems: 'center', justifyContent: 'center', backgroundColor: '#ffffff', borderRadius: 16, borderWidth: 1, borderColor: '#e2e8f0', marginVertical: 10 },
+    txEmptyTitle: { fontSize: 16, fontWeight: '800', color: '#0f172a' },
+    txEmptySub: { fontSize: 12, color: '#64748b', marginTop: 4, textAlign: 'center' },
+    txCardList: { gap: 10 },
+    txCard: { backgroundColor: '#ffffff', padding: 14, borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', gap: 10, elevation: 1 },
+    txCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+    txPatientName: { fontSize: 15, fontWeight: '800', color: '#0f172a' },
+    txDoctorName: { fontSize: 12, color: '#64748b', marginTop: 2 },
+    txAmount: { fontSize: 17, fontWeight: '900', color: '#0f172a' },
+    txCardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
+    txDateTimeBox: { flexDirection: 'row', alignItems: 'center' },
+    txDateTimeText: { fontSize: 11, color: '#64748b' },
+    txMethodBadge: { paddingVertical: 4, paddingHorizontal: 8, borderRadius: 6, backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#e2e8f0' },
+    txMethodText: { fontSize: 11, fontWeight: '700', color: '#475569' },
+    txStatusBadge: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: 20 },
+    txStatusPaid: { backgroundColor: '#dcfce7', borderWidth: 1, borderColor: '#86efac' },
+    txStatusPending: { backgroundColor: '#fef3c7', borderWidth: 1, borderColor: '#fde68a' },
+    txStatusText: { fontSize: 11, fontWeight: '800' },
+    txStatusTextPaid: { color: '#166534' },
+    txStatusTextPending: { color: '#92400e' }
 });
 
 export default ReceptionDashboard;

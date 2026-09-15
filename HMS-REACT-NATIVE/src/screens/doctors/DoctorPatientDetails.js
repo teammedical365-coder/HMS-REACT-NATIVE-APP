@@ -702,6 +702,11 @@ const DoctorPatientDetails = () => {
         const hTagline = hospitalContext?.tagline || 'Excellence in Healthcare';
         const dateStr = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 
+        const dynamicEntries = Object.entries(intakeData || {}).filter(([key, val]) => 
+            key !== '_id' && key !== 'createdAt' && key !== 'updatedAt' && key !== '__v' 
+            && typeof val !== 'object' && val !== '' && val !== null && val !== undefined
+        );
+
         return `<!DOCTYPE html>
 <html>
 <head>
@@ -743,6 +748,26 @@ const DoctorPatientDetails = () => {
             <td>${dateStr}</td>
         </tr>
     </table>
+
+    ${dynamicEntries.length > 0 ? `
+        <div class="sec-title">📋 Clinical Questionnaire Responses</div>
+        <table class="info-table" style="margin-bottom: 16px;">
+            <thead>
+                <tr style="background: #2563eb; color: #ffffff;">
+                    <th style="padding: 6px 10px; text-align: left;">Question / Assessment</th>
+                    <th style="padding: 6px 10px; text-align: left;">Response</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${dynamicEntries.map(([k, v]) => `
+                    <tr>
+                        <td class="label-col" style="width: 45%;">${k}</td>
+                        <td>${String(v)}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    ` : ''}
 
     <div class="sec-title">📜 Past Consultations History (${(history || []).length})</div>
     ${(history || []).length > 0 ? (history || []).map(h => `
@@ -1022,6 +1047,32 @@ const DoctorPatientDetails = () => {
                             {activeTab === 'reports' && (
                                 <AppointmentReports appointmentId={appointment?._id} prescriptions={appointment?.prescriptions} />
                             )}
+
+                            {/* DYNAMIC FORMS RENDERER */}
+                            {dynamicTabs.map(dTab => (
+                                activeTab === dTab.id && (
+                                    <View key={dTab.id} style={{ display: 'flex' }}>
+                                        <DynamicQuestionForm
+                                            categoryName={dTab.label}
+                                            questions={dTab.data}
+                                            intakeData={intakeData}
+                                            setIntakeData={setIntakeData}
+                                            readOnly={isLocked}
+                                        />
+                                        {!isLocked && (
+                                            <TouchableOpacity 
+                                                style={{ marginTop: 16, backgroundColor: '#2563eb', padding: 12, borderRadius: 8, alignItems: 'center' }} 
+                                                onPress={handleSaveProfile} 
+                                                disabled={saving}
+                                            >
+                                                <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 13 }}>
+                                                    {saving ? 'Saving...' : `💾 Save ${dTab.label} Data`}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        )}
+                                    </View>
+                                )
+                            ))}
                         </View>
                     </View>
 
@@ -1096,6 +1147,15 @@ const DoctorPatientDetails = () => {
                                                 }}
                                             >
                                                 <Text style={styles.previewBtnText}>📄 Preview Rx</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity
+                                                style={[styles.previewBtn, { backgroundColor: '#eff6ff', borderColor: '#bfdbfe', borderWidth: 1 }]}
+                                                onPress={() => {
+                                                    setPrescriptionMode('cumulative');
+                                                    setShowPrescriptionModal(true);
+                                                }}
+                                            >
+                                                <Text style={[styles.previewBtnText, { color: '#2563eb' }]}>📜 Cumulative</Text>
                                             </TouchableOpacity>
                                             <View style={[styles.apptStatus, styles[`status_${appointment.status}`] || styles.status_pending]}>
                                                 <Text style={[styles.apptStatusText, styles[`statusText_${appointment.status}`] || styles.statusText_pending]}>{appointment.status}</Text>

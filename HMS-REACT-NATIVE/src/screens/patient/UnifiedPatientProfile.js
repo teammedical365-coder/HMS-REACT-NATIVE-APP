@@ -21,6 +21,8 @@ import * as DocumentPicker from 'expo-document-picker';
 import { patientAPI, receptionAPI, reportAPI, consentAPI } from '../../utils/api';
 import { useAuth } from '../../store/hooks';
 import DoctorIPDOrdersPanel from '../../components/ipd/DoctorIPDOrdersPanel';
+import FamilyHealthTree from './FamilyHealthTree';
+import PatientVialsSection from '../../components/vials/PatientVialsSection';
 
 const { width } = Dimensions.get('window');
 
@@ -589,14 +591,24 @@ const UnifiedPatientProfile = () => {
         t => t.data?.amount || t.data?.totalAmount || t.data?.fee
     );
 
+    const userRole = String(authUser?.role || '').toLowerCase();
+    const dynRole = String(authUser?._roleData?.name || '').toLowerCase();
+    const permissions = authUser?._roleData?.permissions || [];
+    const canViewVials = ['hospitaladmin', 'centraladmin', 'superadmin', 'reception', 'receptionist', 'doctor', 'clinicdoctor', 'clinic doctor', 'staff', 'frontdesk'].includes(userRole) || 
+                         ['hospitaladmin', 'centraladmin', 'superadmin', 'reception', 'receptionist', 'doctor', 'clinicdoctor', 'clinic doctor', 'staff', 'frontdesk'].includes(dynRole) ||
+                         permissions.includes('reception_access') ||
+                         permissions.includes('admin_manage_roles');
+
     const tabs = [
         { key: 'timeline', label: 'Timeline' },
         { key: 'ipdOrders', label: '🏥 IPD Orders' },
+        { key: 'familyHistory', label: '🌳 Family History' },
         { key: 'clinical', label: 'Clinical History' },
         { key: 'vitals', label: 'Vitals' },
         { key: 'prescriptions', label: 'Prescriptions' },
         { key: 'reports', label: 'Reports' },
         { key: 'notes', label: 'Notes' },
+        ...(canViewVials ? [{ key: 'vialManagement', label: '🧪 Vial Storage' }] : []),
         { key: 'documents', label: 'Documents & Consents' },
         { key: 'billing', label: 'Billing & Payments' }
     ];
@@ -813,6 +825,26 @@ const UnifiedPatientProfile = () => {
                         patientId={patientData?._id || patientId}
                         patient={patientData}
                     />
+                )}
+
+                {/* FAMILY HEALTH TREE TAB */}
+                {activeTab === 'familyHistory' && (
+                    <View style={{ marginBottom: 16 }}>
+                        <FamilyHealthTree
+                            patientId={patientData?._id || patientId}
+                            patientData={patientData}
+                        />
+                    </View>
+                )}
+
+                {/* VIAL MANAGEMENT TAB */}
+                {activeTab === 'vialManagement' && (
+                    <View style={{ marginBottom: 16 }}>
+                        <PatientVialsSection
+                            patientId={patientData?._id || patientId}
+                            patientData={patientData}
+                        />
+                    </View>
                 )}
 
                 {/* 2. CLINICAL HISTORY TAB */}

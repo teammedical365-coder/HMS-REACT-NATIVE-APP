@@ -180,6 +180,351 @@ const filterValidVisits = (items) => {
     return items;
 };
 
+// ─── 1:1 Web Parity: Treatment Plan Invoice PDF (GAP 8) ────────────────────
+export const downloadTreatmentPlanPDF = async (plan) => {
+    try {
+        const { hName, hAddr, hPhone, issuedBy } = await getClinicInfo();
+        const pt = plan.clinicPatientId || {};
+        const planIdShort = (plan._id || '').slice(-6).toUpperCase();
+        const invoiceNo = `INV-${planIdShort}-${Date.now().toString(36).toUpperCase()}`;
+        const startDate = plan.visits?.length > 0 ? new Date(plan.visits[0].scheduledDate).toLocaleDateString('en-IN') : '—';
+        const pending = plan.pendingBalance ?? ((plan.totalAmount || 0) - (plan.totalPaid || 0));
+
+        // Payment History
+        const allPayments = [];
+        (plan.visits || []).forEach(v => {
+            if (v.paymentHistory && v.paymentHistory.length > 0) {
+                v.paymentHistory.forEach(ph => {
+                    allPayments.push({
+                        visitNumber: v.visitNumber,
+                        visitDate: v.scheduledDate,
+                        amount: ph.amount,
+                        date: ph.date,
+                        method: ph.method,
+                        upiRef: ph.upiRef
+                    });
+                });
+            } else if (v.amountPaid > 0) {
+                allPayments.push({
+                    visitNumber: v.visitNumber,
+                    visitDate: v.scheduledDate,
+                    amount: v.amountPaid,
+                    date: v.paidAt || v.completedAt || v.scheduledDate,
+                    method: v.paymentMethod || 'Cash',
+                    upiRef: v.upiRef || ''
+                });
+            }
+        });
+        allPayments.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        let runningBalance = plan.totalAmount || 0;
+        const paymentRowsHtml = allPayments.map(p => {
+            const balBefore = runningBalance;
+            runningBalance = Math.max(0, runningBalance - (p.amount || 0));
+            return `
+                <tr>
+                    <td style="border: 1px solid #e2e8f0; padding: 6px;">Visit ${p.visitNumber}</td>
+                    <td style="border: 1px solid #e2e8f0; padding: 6px;">${new Date(p.visitDate).toLocaleDateString('en-IN')}</td>
+                    <td style="border: 1px solid #e2e8f0; padding: 6px;">${p.date ? new Date(p.date).toLocaleDateString('en-IN') : '—'}</td>
+                    <td style="border: 1px solid #e2e8f0; padding: 6px;">${p.method || 'Cash'}${p.upiRef ? ` (${p.upiRef})` : ''}</td>
+                    <td style="border: 1px solid #e2e8f0; padding: 6px; font-weight: bold; color: #16a34a;">₹${Number(p.amount || 0).toLocaleString('en-IN')}</td>
+                    <td style="border: 1px solid #e2e8f0; padding: 6px;">₹${balBefore.toLocaleString('en-IN')}</td>
+                    <td style="border: 1px solid #e2e8f0; padding: 6px;">₹${runningBalance.toLocaleString('en-IN')}</td>
+                </tr>
+            `;
+        }).join('');
+
+        // Visits Rows
+        const visitRowsHtml = (plan.visits || []).map((v, i) => `
+            <tr>
+                <td style="border: 1px solid #e2e8f0; padding: 6px; font-weight: bold; color: #0891b2;">${v.visitNumber || i + 1}</td>
+                <td style="border: 1px solid #e2e8f0; padding: 6px;">${new Date(v.scheduledDate).toLocaleDateString('en-IN')} ${v.scheduledTime ? `· ${v.scheduledTime}` : ''}</td>
+                <td style="border: 1px solid #e2e8f0; padding: 6px;">${v.procedure || '—'}</td>
+                <td style="border: 1px solid #e2e8f0; padding: 6px; text-transform: uppercase; font-weight: bold; color: ${v.status === 'completed' ? '#16a34a' : v.status === 'missed' ? '#dc2626' : '#2563eb'};">${v.status || 'Scheduled'}</td>
+                <td style="border: 1px solid #e2e8f0; padding: 6px;">${v.amountPaid > 0 ? `₹${v.amountPaid.toLocaleString('en-IN')}` : '—'}</td>
+            </tr>
+        `).join('');
+
+        const html = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>Treatment Plan Invoice - ${invoiceNo}</title>
+                <style>
+                    body { font-family: 'Helvetica Neue', Arial, sans-serif; padding: 24px; color: #1e293b; line-height: 1.4; }
+                    .header { text-align: center; margin-bottom: 20px; }
+                    .h-name { font-size: 22px; font-weight: bold; margin: 0; color: #0f172a; }
+                    .h-addr { font-size: 11px; color: #64748b; margin: 4px 0; }
+                    .inv-title { font-size: 15px; font-weight: 800; color: #0891b2; margin-top: 10px; border-bottom: 2px solid #0891b2; padding-bottom: 6px; }
+                    .meta-row { display: flex; justify-content: space-between; font-size: 11px; color: #64748b; margin-top: 8px; }
+                    .info-grid { display: flex; gap: 20px; margin: 16px 0; font-size: 12px; }
+                    .info-col { flex: 1; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; }
+                    .info-title { font-weight: bold; color: #0f172a; margin-bottom: 6px; font-size: 13px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }
+                    .financial-box { display: flex; justify-content: space-around; background: #ecfeff; border: 1px solid #a5f3fc; border-radius: 8px; padding: 12px; margin: 16px 0; text-align: center; }
+                    .fin-label { font-size: 11px; color: #0891b2; font-weight: 600; }
+                    .fin-val { font-size: 18px; font-weight: 800; margin-top: 2px; }
+                    table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 8px; }
+                    th { background: #f1f5f9; padding: 6px; border: 1px solid #cbd5e1; text-align: left; font-weight: bold; color: #475569; }
+                    td { border: 1px solid #e2e8f0; padding: 6px; }
+                    .sec-title { font-size: 13px; font-weight: bold; color: #0f172a; margin-top: 18px; margin-bottom: 4px; }
+                    .footer { margin-top: 30px; font-size: 10px; text-align: center; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 12px; }
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <div class="h-name">${hName}</div>
+                    <div class="h-addr">${hAddr} ${hPhone ? `| Ph: ${hPhone}` : ''}</div>
+                    <div class="inv-title">TREATMENT PLAN INVOICE</div>
+                    <div class="meta-row">
+                        <div>Invoice #: <strong>${invoiceNo}</strong></div>
+                        <div>Print Date: <strong>${new Date().toLocaleDateString('en-IN')}</strong></div>
+                    </div>
+                </div>
+
+                <div class="info-grid">
+                    <div class="info-col">
+                        <div class="info-title">Patient Information</div>
+                        <div><strong>Name:</strong> ${pt.name || '—'}</div>
+                        <div><strong>Patient ID:</strong> ${pt.patientUid || pt._id || '—'}</div>
+                        <div><strong>Phone:</strong> ${pt.phone || '—'}</div>
+                        <div><strong>Gender / Age:</strong> ${pt.gender || '—'} / ${pt.age || '—'} yrs</div>
+                    </div>
+                    <div class="info-col">
+                        <div class="info-title">Plan Overview</div>
+                        <div><strong>Title:</strong> ${plan.title || '—'}</div>
+                        <div><strong>Total Visits:</strong> ${plan.visits?.length || 0}</div>
+                        <div><strong>Start Date:</strong> ${startDate}</div>
+                        <div><strong>Status:</strong> <span style="text-transform: uppercase; font-weight: bold;">${plan.status || 'active'}</span></div>
+                        ${plan.description ? `<div><strong>Notes:</strong> ${plan.description}</div>` : ''}
+                    </div>
+                </div>
+
+                <div class="financial-box">
+                    <div>
+                        <div class="fin-label">TOTAL COST</div>
+                        <div class="fin-val" style="color: #0891b2;">₹${Number(plan.totalAmount || 0).toLocaleString('en-IN')}</div>
+                    </div>
+                    <div>
+                        <div class="fin-label">TOTAL PAID</div>
+                        <div class="fin-val" style="color: #16a34a;">₹${Number(plan.totalPaid || 0).toLocaleString('en-IN')}</div>
+                    </div>
+                    <div>
+                        <div class="fin-label">BALANCE DUE</div>
+                        <div class="fin-val" style="color: ${pending > 0 ? '#dc2626' : '#16a34a'};">
+                            ${pending > 0 ? `₹${pending.toLocaleString('en-IN')}` : 'Cleared ✓'}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="sec-title">Payment History</div>
+                ${allPayments.length > 0 ? `
+                    <table>
+                        <thead>
+                            <tr style="background: #dcfce7;">
+                                <th>Visit</th>
+                                <th>Visit Date</th>
+                                <th>Payment Date</th>
+                                <th>Method</th>
+                                <th>Amount</th>
+                                <th>Bal. Before</th>
+                                <th>Bal. After</th>
+                            </tr>
+                        </thead>
+                        <tbody>${paymentRowsHtml}</tbody>
+                    </table>
+                ` : '<div style="font-size: 11px; color: #94a3b8; padding: 6px 0;">No payments recorded yet.</div>'}
+
+                <div class="sec-title">Visit Schedule</div>
+                <table>
+                    <thead>
+                        <tr style="background: #e0f2fe;">
+                            <th>#</th>
+                            <th>Date & Time</th>
+                            <th>Procedure</th>
+                            <th>Status</th>
+                            <th>Paid This Visit</th>
+                        </tr>
+                    </thead>
+                    <tbody>${visitRowsHtml}</tbody>
+                </table>
+
+                <div class="footer">
+                    Issued by: ${issuedBy} • Official Treatment Plan Invoice • Computer generated at ${new Date().toLocaleString('en-IN')}
+                </div>
+            </body>
+            </html>
+        `;
+
+        const { uri } = await Print.printToFileAsync({ html });
+        if (await Sharing.isAvailableAsync()) {
+            await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+        } else {
+            await Print.printAsync({ html });
+        }
+    } catch (e) {
+        Alert.alert('Invoice Generation Error', e.message);
+    }
+};
+
+// ─── 1:1 Web Parity: Patient Profile Summary PDF (GAP 9) ───────────────────
+export const generatePatientProfilePDF = async (patient, historyAppointments = []) => {
+    try {
+        const { hName, hAddr, hPhone, issuedBy } = await getClinicInfo();
+        const validAppts = filterValidVisits(historyAppointments);
+
+        const apptRowsHtml = validAppts.map(a => `
+            <tr>
+                <td style="border: 1px solid #e2e8f0; padding: 6px;">${fmtDate(a.appointmentDate)}</td>
+                <td style="border: 1px solid #e2e8f0; padding: 6px; font-weight: bold;">${a.tokenNumber ? `#${a.tokenNumber}` : a.appointmentTime || '—'}</td>
+                <td style="border: 1px solid #e2e8f0; padding: 6px;">${a.doctorName || 'Doctor'}</td>
+                <td style="border: 1px solid #e2e8f0; padding: 6px;">${a.diagnosis || '—'}</td>
+                <td style="border: 1px solid #e2e8f0; padding: 6px;">${a.doctorNotes || a.notes || '—'}</td>
+                <td style="border: 1px solid #e2e8f0; padding: 6px; text-transform: uppercase;">${a.status || 'Completed'}</td>
+            </tr>
+        `).join('');
+
+        const allMedicines = [];
+        validAppts.forEach(a => {
+            const medList = a.medicines || a.pharmacy || a.prescriptions || [];
+            if (Array.isArray(medList) && medList.length > 0) {
+                medList.forEach(m => {
+                    allMedicines.push({
+                        date: fmtDate(a.appointmentDate),
+                        name: m.name || m.medicineName || '—',
+                        dosage: m.dosage || m.dose || m.frequency || '—',
+                        frequency: m.frequency || '—',
+                        duration: m.duration || (m.days ? `${m.days} days` : '—'),
+                        instructions: m.instructions || m.notes || '—'
+                    });
+                });
+            }
+        });
+
+        const medRowsHtml = allMedicines.map((m, idx) => `
+            <tr>
+                <td style="border: 1px solid #e2e8f0; padding: 6px;">${idx + 1}</td>
+                <td style="border: 1px solid #e2e8f0; padding: 6px;">${m.date}</td>
+                <td style="border: 1px solid #e2e8f0; padding: 6px; font-weight: bold; color: #059669;">${m.name}</td>
+                <td style="border: 1px solid #e2e8f0; padding: 6px;">${m.dosage}</td>
+                <td style="border: 1px solid #e2e8f0; padding: 6px;">${m.duration}</td>
+                <td style="border: 1px solid #e2e8f0; padding: 6px;">${m.instructions}</td>
+            </tr>
+        `).join('');
+
+        const html = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>Patient Profile Summary - ${patient?.name || 'Patient'}</title>
+                <style>
+                    body { font-family: 'Helvetica Neue', Arial, sans-serif; padding: 24px; color: #1e293b; line-height: 1.4; }
+                    .header { text-align: center; margin-bottom: 20px; }
+                    .h-name { font-size: 22px; font-weight: bold; margin: 0; color: #0f172a; }
+                    .h-addr { font-size: 11px; color: #64748b; margin: 4px 0; }
+                    .doc-title { font-size: 16px; font-weight: 800; color: #6366f1; margin-top: 8px; border-bottom: 2px solid #6366f1; padding-bottom: 6px; }
+                    .info-table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 12px; }
+                    .info-table td { padding: 8px 12px; border: 1px solid #e2e8f0; }
+                    .info-table td.label { font-weight: bold; color: #475569; width: 30%; background: #f8fafc; }
+                    table.data-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 8px; }
+                    table.data-table th { background: #f1f5f9; padding: 6px; border: 1px solid #cbd5e1; text-align: left; font-weight: bold; color: #475569; }
+                    table.data-table td { border: 1px solid #e2e8f0; padding: 6px; }
+                    .sec-title { font-size: 13px; font-weight: bold; color: #0f172a; margin-top: 20px; margin-bottom: 4px; }
+                    .footer { margin-top: 30px; font-size: 10px; text-align: center; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 12px; }
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <div class="h-name">${hName}</div>
+                    <div class="h-addr">${hAddr} ${hPhone ? `| Ph: ${hPhone}` : ''}</div>
+                    <div class="doc-title">PATIENT PROFILE SUMMARY</div>
+                    <div style="text-align: right; font-size: 11px; color: #64748b; margin-top: 4px;">
+                        Date: <strong>${new Date().toLocaleDateString('en-IN')}</strong>
+                    </div>
+                </div>
+
+                <table class="info-table">
+                    <tr>
+                        <td class="label">Patient Name:</td>
+                        <td><strong>${patient?.name || '—'}</strong></td>
+                        <td class="label">Patient ID (MRN):</td>
+                        <td><strong>${patient?.patientUid || patient?._id || 'N/A'}</strong></td>
+                    </tr>
+                    <tr>
+                        <td class="label">Phone:</td>
+                        <td>${patient?.phone || '—'}</td>
+                        <td class="label">Gender / DOB:</td>
+                        <td>${patient?.gender || '—'} / ${patient?.dob ? new Date(patient.dob).toLocaleDateString('en-IN') : (patient?.age ? `${patient.age} yrs` : '—')}</td>
+                    </tr>
+                    <tr>
+                        <td class="label">Blood Group:</td>
+                        <td>${patient?.bloodGroup || '—'}</td>
+                        <td class="label">Allergies:</td>
+                        <td>${patient?.allergies || 'None'}</td>
+                    </tr>
+                    <tr>
+                        <td class="label">Chronic Conditions:</td>
+                        <td colspan="3">${patient?.chronicConditions || 'None'}</td>
+                    </tr>
+                    <tr>
+                        <td class="label">Address:</td>
+                        <td colspan="3">${patient?.address || '—'}</td>
+                    </tr>
+                </table>
+
+                <div class="sec-title">Consultation Visit History</div>
+                ${validAppts.length > 0 ? `
+                    <table class="data-table">
+                        <thead>
+                            <tr style="background: #eef2ff;">
+                                <th>Date</th>
+                                <th>Token/Slot</th>
+                                <th>Doctor</th>
+                                <th>Diagnosis</th>
+                                <th>Notes</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>${apptRowsHtml}</tbody>
+                    </table>
+                ` : '<div style="font-size: 11px; color: #94a3b8; padding: 6px 0;">No consultation visits recorded.</div>'}
+
+                <div class="sec-title">Prescribed Medicines Summary</div>
+                ${allMedicines.length > 0 ? `
+                    <table class="data-table">
+                        <thead>
+                            <tr style="background: #ecfdf5;">
+                                <th>#</th>
+                                <th>Date</th>
+                                <th>Medicine</th>
+                                <th>Dose / Freq</th>
+                                <th>Duration</th>
+                                <th>Instructions</th>
+                            </tr>
+                        </thead>
+                        <tbody>${medRowsHtml}</tbody>
+                    </table>
+                ` : '<div style="font-size: 11px; color: #94a3b8; padding: 6px 0;">No prescribed medicines recorded.</div>'}
+
+                <div class="footer">
+                    Official Patient Profile Summary • ${hName} • Generated by ${issuedBy} on ${new Date().toLocaleString('en-IN')}
+                </div>
+            </body>
+            </html>
+        `;
+
+        const { uri } = await Print.printToFileAsync({ html });
+        if (await Sharing.isAvailableAsync()) {
+            await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+        } else {
+            await Print.printAsync({ html });
+        }
+    } catch (e) {
+        Alert.alert('Profile PDF Error', e.message);
+    }
+};
+
 // ─────────────────────────────────────────────
 // Role Modes
 // ─────────────────────────────────────────────
@@ -1201,6 +1546,13 @@ const ReceptionMode = ({ preselectedPatient, clearPreselected, setPendingDownloa
                                             </>
                                         )}
                                         {isDone && <Text style={{ backgroundColor: '#dcfce7', color: '#16a34a', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, fontSize: 12, fontWeight: 'bold' }}>✅ Visited Today</Text>}
+                                        <TouchableOpacity 
+                                            style={[styles.btnSecondary, { paddingHorizontal: 8, paddingVertical: 4 }]} 
+                                            onPress={() => generatePatientProfilePDF(p)}
+                                            title="Export Patient Profile PDF"
+                                        >
+                                            <Text style={{ fontSize: 13 }}>📄</Text>
+                                        </TouchableOpacity>
                                         {!hasToken && (
                                             <TouchableOpacity style={styles.btnPrimary} onPress={() => setAssigningFor(isExpanding ? null : p._id)}>
                                                 <Text style={styles.btnPrimaryText}>{isExpanding ? '✕ Cancel' : isDone ? '🎟️ Rebook' : isSlotMode ? '🕐 Book Slot' : '🎟️ Assign Token'}</Text>
@@ -1532,6 +1884,13 @@ const DoctorMode = ({ setPendingDownload }) => {
                                 ))}
                             </View>
                         )}
+                        <TouchableOpacity 
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#eef2ff', borderWidth: 1, borderColor: '#c7d2fe', paddingVertical: 5, paddingHorizontal: 10, borderRadius: 6, alignSelf: 'flex-start', marginTop: 8 }}
+                            onPress={() => generatePatientProfilePDF(consulting.clinicPatientId, patientHistory)}
+                        >
+                            <Text style={{ fontSize: 13 }}>📄</Text>
+                            <Text style={{ color: '#4f46e5', fontWeight: '700', fontSize: 11 }}>Profile Summary PDF</Text>
+                        </TouchableOpacity>
                     </View>
                 </View>
 
@@ -1983,6 +2342,10 @@ const TreatmentPlanMode = () => {
     const [payModal, setPayModal] = useState(null);
     const [payInput, setPayInput] = useState({ amountPaid: '', paymentMethod: 'Cash', notes: '', upiId: 'payments@upi', upiRef: '', confirmedReceipt: false });
 
+    // Reschedule visit state (1:1 Web Parity)
+    const [rescheduleModal, setRescheduleModal] = useState(null); // { planId, visit }
+    const [rescheduleInput, setRescheduleInput] = useState({ newDate: '', newTime: '', remarks: '' });
+
     const flash = (type, text) => { setMsg({ type, text }); setTimeout(() => setMsg({ type: '', text: '' }), 5000); };
 
     const getEffectiveStatus = (visit) => {
@@ -2094,6 +2457,57 @@ const TreatmentPlanMode = () => {
                 flash('success', r.plan.status === 'completed' ? '🎉 Treatment plan completed!' : 'Visit marked completed.');
             } else flash('error', r.message);
         } catch (e) { flash('error', e.response?.data?.message || e.message); }
+    };
+
+    // 1:1 Web Parity: Mark Visit as Missed (GAP 10)
+    const handleMiss = (planId, visitId) => {
+        Alert.alert(
+            "Mark Visit as Missed",
+            "Are you sure you want to mark this scheduled visit as missed?",
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Mark Missed",
+                    style: "destructive",
+                    onPress: async () => {
+                        try {
+                            const r = await clinicAPI.missVisit(planId, visitId);
+                            if (r.success) {
+                                setSelectedPlan(r.plan);
+                                setPlans(prev => prev.map(p => p._id === r.plan._id ? r.plan : p));
+                                flash('success', 'Visit marked as missed.');
+                            } else {
+                                flash('error', r.message || 'Failed to mark visit as missed');
+                            }
+                        } catch (e) {
+                            flash('error', e.response?.data?.message || e.message);
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
+    // 1:1 Web Parity: Reschedule Visit (GAP 11)
+    const handleRescheduleSubmit = async () => {
+        if (!rescheduleModal) return;
+        if (!rescheduleInput.newDate) return flash('error', 'New date is required.');
+        setSaving(true);
+        try {
+            const r = await clinicAPI.rescheduleVisit(rescheduleModal.planId, rescheduleModal.visit._id, rescheduleInput);
+            if (r.success) {
+                setSelectedPlan(r.plan);
+                setPlans(prev => prev.map(p => p._id === r.plan._id ? r.plan : p));
+                setRescheduleModal(null);
+                flash('success', 'Visit rescheduled successfully.');
+            } else {
+                flash('error', r.message || 'Failed to reschedule visit');
+            }
+        } catch (e) {
+            flash('error', e.response?.data?.message || e.message);
+        } finally {
+            setSaving(false);
+        }
     };
 
     const planStatusColor = { active: '#0891b2', completed: '#16a34a', cancelled: '#dc2626' };
@@ -2259,9 +2673,18 @@ const TreatmentPlanMode = () => {
                 {msg.text ? <View style={[styles.downloadAlert, { borderColor: msg.type === 'error' ? '#fecaca' : '#a7f3d0', backgroundColor: msg.type === 'error' ? '#fef2f2' : '#ecfdf5' }]}><Text style={{ color: msg.type === 'error' ? '#dc2626' : '#059669', fontWeight: 'bold' }}>{msg.text}</Text></View> : null}
 
                 <View style={styles.clinicCard}>
-                    <View style={{ marginBottom: 16, borderBottomWidth: 1, borderColor: '#f1f5f9', paddingBottom: 16 }}>
-                        <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#0f172a' }}>{selectedPlan.title}</Text>
-                        <Text style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>👤 {selectedPlan.clinicPatientId?.name}</Text>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottomWidth: 1, borderColor: '#f1f5f9', paddingBottom: 16 }}>
+                        <View style={{ flex: 1 }}>
+                            <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#0f172a' }}>{selectedPlan.title}</Text>
+                            <Text style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>👤 {selectedPlan.clinicPatientId?.name}</Text>
+                        </View>
+                        <TouchableOpacity 
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#ecfeff', borderWidth: 1, borderColor: '#0891b2', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}
+                            onPress={() => downloadTreatmentPlanPDF(selectedPlan)}
+                        >
+                            <Text style={{ fontSize: 13 }}>📄</Text>
+                            <Text style={{ color: '#0891b2', fontWeight: 'bold', fontSize: 12 }}>Invoice PDF</Text>
+                        </TouchableOpacity>
                     </View>
 
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
@@ -2285,13 +2708,13 @@ const TreatmentPlanMode = () => {
                                 <View key={v._id} style={{ padding: 12, borderBottomWidth: idx < selectedPlan.visits.length - 1 ? 1 : 0, borderColor: '#f1f5f9', backgroundColor: idx % 2 === 0 ? '#fff' : '#f8fafc' }}>
                                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
                                         <Text style={{ fontWeight: 'bold', color: '#6366f1' }}>Visit {v.visitNumber} <Text style={{ color: '#1e293b' }}>· {new Date(v.scheduledDate).toLocaleDateString('en-IN')}</Text></Text>
-                                        <View style={{ backgroundColor: '#e2e8f0', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
-                                            <Text style={{ fontSize: 10, fontWeight: 'bold', textTransform: 'uppercase' }}>{effStatus}</Text>
+                                        <View style={{ backgroundColor: effStatus === 'completed' ? '#dcfce7' : effStatus === 'missed' ? '#fee2e2' : '#e2e8f0', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                                            <Text style={{ fontSize: 10, fontWeight: 'bold', textTransform: 'uppercase', color: effStatus === 'completed' ? '#166534' : effStatus === 'missed' ? '#dc2626' : '#475569' }}>{effStatus}</Text>
                                         </View>
                                     </View>
                                     {v.procedure ? <Text style={{ fontSize: 12, color: '#475569', marginBottom: 6 }}>{v.procedure}</Text> : null}
                                     
-                                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                                         {selectedPlan.status === 'active' && !['completed', 'missed'].includes(v.status) && (
                                             <>
                                                 {selectedPlan.pendingBalance > 0 && v.amountPaid === 0 && (
@@ -2302,7 +2725,21 @@ const TreatmentPlanMode = () => {
                                                 <TouchableOpacity style={{ backgroundColor: '#dbeafe', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }} onPress={() => handleComplete(selectedPlan._id, v._id)}>
                                                     <Text style={{ color: '#1d4ed8', fontSize: 12, fontWeight: 'bold' }}>✓ Done</Text>
                                                 </TouchableOpacity>
+                                                <TouchableOpacity style={{ backgroundColor: '#fee2e2', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }} onPress={() => handleMiss(selectedPlan._id, v._id)}>
+                                                    <Text style={{ color: '#dc2626', fontSize: 12, fontWeight: 'bold' }}>✗ Missed</Text>
+                                                </TouchableOpacity>
                                             </>
+                                        )}
+                                        {v.status === 'missed' && !v.rescheduledToDate && selectedPlan.status === 'active' && (
+                                            <TouchableOpacity 
+                                                style={{ backgroundColor: '#f3e8ff', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }} 
+                                                onPress={() => {
+                                                    setRescheduleModal({ planId: selectedPlan._id, visit: v });
+                                                    setRescheduleInput({ newDate: todayStr(), newTime: v.scheduledTime || '', remarks: '' });
+                                                }}
+                                            >
+                                                <Text style={{ color: '#9333ea', fontSize: 12, fontWeight: 'bold' }}>🔄 Reschedule</Text>
+                                            </TouchableOpacity>
                                         )}
                                         {v.amountPaid > 0 && <Text style={{ color: '#16a34a', fontWeight: 'bold', fontSize: 12, alignSelf: 'center' }}>Paid ₹{v.amountPaid}</Text>}
                                     </View>
@@ -2335,6 +2772,50 @@ const TreatmentPlanMode = () => {
                                     </TouchableOpacity>
                                     <TouchableOpacity style={[styles.btnPrimary, { flex: 1, alignItems: 'center' }]} disabled={saving} onPress={handlePay}>
                                         <Text style={styles.btnPrimaryText}>Confirm</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        </View>
+                    </Modal>
+                )}
+
+                {/* 1:1 Reschedule Modal (GAP 11) */}
+                {rescheduleModal && (
+                    <Modal transparent visible animationType="fade">
+                        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+                            <View style={{ backgroundColor: '#fff', padding: 24, borderRadius: 12, width: '100%', maxWidth: 400 }}>
+                                <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 16 }}>🔄 Reschedule Visit #{rescheduleModal.visit?.visitNumber}</Text>
+                                
+                                <Text style={styles.label}>New Scheduled Date *</Text>
+                                <DatePickerInput
+                                    value={rescheduleInput.newDate}
+                                    onChange={d => setRescheduleInput(p => ({ ...p, newDate: d }))}
+                                    placeholder="YYYY-MM-DD"
+                                    title="Select Date"
+                                />
+
+                                <Text style={[styles.label, { marginTop: 12 }]}>New Scheduled Time</Text>
+                                <TextInput 
+                                    style={[styles.input, { marginBottom: 12 }]} 
+                                    placeholder="e.g. 10:30 AM" 
+                                    value={rescheduleInput.newTime} 
+                                    onChangeText={t => setRescheduleInput(p => ({ ...p, newTime: t }))} 
+                                />
+
+                                <Text style={styles.label}>Remarks / Reason</Text>
+                                <TextInput 
+                                    style={[styles.input, { marginBottom: 16 }]} 
+                                    placeholder="e.g. Patient requested new slot" 
+                                    value={rescheduleInput.remarks} 
+                                    onChangeText={t => setRescheduleInput(p => ({ ...p, remarks: t }))} 
+                                />
+
+                                <View style={{ flexDirection: 'row', gap: 12, marginTop: 8 }}>
+                                    <TouchableOpacity style={[styles.btnPrimary, { flex: 1, backgroundColor: '#f1f5f9', alignItems: 'center' }]} onPress={() => setRescheduleModal(null)}>
+                                        <Text style={{ color: '#475569', fontWeight: 'bold' }}>Cancel</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity style={[styles.btnPrimary, { flex: 1, alignItems: 'center', backgroundColor: '#9333ea' }]} disabled={saving} onPress={handleRescheduleSubmit}>
+                                        <Text style={styles.btnPrimaryText}>{saving ? 'Saving...' : 'Reschedule'}</Text>
                                     </TouchableOpacity>
                                 </View>
                             </View>

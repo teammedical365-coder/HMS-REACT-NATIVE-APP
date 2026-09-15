@@ -512,6 +512,11 @@ export const patientAPI = {
     })).data,
   updateProfile: async (id, data) =>
     (await apiClient.put(`/api/reception/intake/${id}`, data)).data,
+  // Family Health Tree
+  getFamilyMembers: async (id) => (await apiClient.get(`/api/patients/${id}/family`)).data,
+  addFamilyMember: async (id, data) => (await apiClient.post(`/api/patients/${id}/family`, data)).data,
+  updateFamilyMember: async (id, memberId, data) => (await apiClient.put(`/api/patients/${id}/family/${memberId}`, data)).data,
+  deleteFamilyMember: async (id, memberId) => (await apiClient.delete(`/api/patients/${id}/family/${memberId}`)).data,
 };
 
 // ─── Notification API ─────────────────────────────────────────────────────────
@@ -780,7 +785,7 @@ export const clinicAPI = {
 export const simpleClinicAPI = {
   getClinics: async (plan) => {
     let url = '/api/simple-clinics';
-    if (plan) url += `?plan=${encodeURIComponent(plan)}`;
+    if (plan && plan !== 'all') url += `?plan=${encodeURIComponent(plan)}`;
     return (await apiClient.get(url)).data;
   },
   createClinic: async (data) => (await apiClient.post('/api/simple-clinics', data)).data,

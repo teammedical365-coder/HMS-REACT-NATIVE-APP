@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, Image, Dimensions, Platform, useWindowDimensions, Animated } from 'react-native';
+import { View, Text, TouchableOpacity, Pressable, ScrollView, Image, Dimensions, Platform, useWindowDimensions, Animated } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSelector, useDispatch } from 'react-redux';
 import { logout } from '../../store/slices/authSlice';
@@ -262,20 +262,27 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
                     const themeObj = isCentralAdmin ? caThemes[idx % caThemes.length] : null;
 
                     return (
-                        <TouchableOpacity 
+                        <Pressable 
                             key={idx} 
-                            style={[
+                            style={({ pressed, hovered }) => [
                                 styles.sidebarLink, 
                                 !isOpen && styles.sidebarLinkCollapsed,
                                 isCentralAdmin && styles.caSidebarLink,
                                 isActive && !isCentralAdmin && styles.sidebarLinkActive,
-                                isActive && isCentralAdmin && themeObj.bg
+                                isActive && isCentralAdmin && themeObj.bg,
+                                Platform.select({ web: { transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)', cursor: 'pointer' } }),
+                                !isActive && hovered && {
+                                    backgroundColor: '#f1f5f9',
+                                    transform: [{ translateX: 3 }],
+                                },
+                                pressed && {
+                                    transform: [{ scale: 0.98 }],
+                                }
                             ]}
                             onPress={() => {
                                 navigation.navigate(item.path, item.params);
                                 if (isMobile) setOpen(false);
                             }}
-                            activeOpacity={0.7}
                         >
                             <View style={[styles.sidebarLinkIcon, isActive && isCentralAdmin && themeObj.text]}>
                                 {React.cloneElement(item.icon, { color: (isActive && isCentralAdmin) ? themeObj.text.color : '#64748b' })}
@@ -291,26 +298,46 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
                                     {item.label}
                                 </Text>
                             )}
-                        </TouchableOpacity>
+                        </Pressable>
                     );
                 })}
 
                 {(isCentralAdmin || role === 'hospitaladmin' || role === 'doctor' || role === 'clinic doctor' || isDoctorRoute) && isOpen && (
-                    <TouchableOpacity
-                        activeOpacity={0.8}
+                    <Pressable
+                        style={({ pressed, hovered }) => [
+                            Platform.select({ web: { transition: 'all 0.2s ease', cursor: 'pointer' } }),
+                            hovered && {
+                                transform: [{ translateY: -2 }],
+                                ...Platform.select({ web: { filter: 'drop-shadow(0 6px 14px rgba(6, 182, 212, 0.2))' } })
+                            },
+                            pressed && {
+                                transform: [{ scale: 0.98 }],
+                            }
+                        ]}
                         onPress={() => {
                             navigation.navigate('AIAssistant');
                             if (isMobile) setOpen(false);
                         }}
                     >
                         <HaSidebarAiCard />
-                    </TouchableOpacity>
+                    </Pressable>
                 )}
             </ScrollView>
 
             <View style={{ borderTopWidth: 1, borderTopColor: '#e2e8f0', paddingVertical: 10, paddingHorizontal: isOpen ? 10 : 0 }}>
-                <TouchableOpacity 
-                    style={[styles.sidebarLink, !isOpen && styles.sidebarLinkCollapsed]} 
+                <Pressable 
+                    style={({ pressed, hovered }) => [
+                        styles.sidebarLink, 
+                        !isOpen && styles.sidebarLinkCollapsed,
+                        Platform.select({ web: { transition: 'all 0.2s ease', cursor: 'pointer' } }),
+                        hovered && {
+                            backgroundColor: '#fef2f2',
+                            transform: [{ translateX: 3 }],
+                        },
+                        pressed && {
+                            transform: [{ scale: 0.98 }],
+                        }
+                    ]} 
                     onPress={async () => {
                         try {
                             if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -336,7 +363,7 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
                             Logout
                         </Text>
                     )}
-                </TouchableOpacity>
+                </Pressable>
             </View>
 
             {isCentralAdmin && !isMobile && (
