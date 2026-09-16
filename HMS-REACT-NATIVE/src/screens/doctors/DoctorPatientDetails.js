@@ -1,16 +1,22 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Modal, KeyboardAvoidingView, Platform, Dimensions } from 'react-native';
+import { 
+    View, Text, StyleSheet, ScrollView, TouchableOpacity, 
+    TextInput, ActivityIndicator, Alert, Modal, KeyboardAvoidingView, 
+    Platform, useWindowDimensions 
+} from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Picker } from '@react-native-picker/picker';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import { Feather, FontAwesome5 } from '@expo/vector-icons';
 
-// Assuming you have mapped these API utilities to work in React Native
-import { doctorAPI, labTestAPI, questionLibraryAPI, hospitalAPI, patientAPI, receptionAPI, otAPI, adminEntitiesAPI, referralAPI, publicAPI } from '../../utils/api';
-// Assuming useAuth is mapped for React Native context
+import { 
+    doctorAPI, labTestAPI, questionLibraryAPI, hospitalAPI, 
+    patientAPI, receptionAPI, otAPI, adminEntitiesAPI, referralAPI, publicAPI 
+} from '../../utils/api';
 import { useAuth } from '../../store/hooks';
 
-// Dummy imports for child components to avoid breaking
+// Dynamic / child components
 import DynamicQuestionForm from '../../components/DynamicQuestionForm';
 import AppointmentReports from '../../components/AppointmentReports';
 import DoctorIPDOrdersPanel from '../../components/ipd/DoctorIPDOrdersPanel';
@@ -41,11 +47,93 @@ const timingOptions = [
     'At Bedtime (HS)'
 ];
 
+const isDocumentFileName = (str) => {
+    if (!str || typeof str !== 'string') return false;
+    const trimmed = str.trim();
+    if (/\.(jpe?g|png|webp|gif|bmp|svg|pdf|docx?|xlsx?|txt|csv)$/i.test(trimmed)) return true;
+    if (/^(WhatsApp Image|Screenshot|IMG[-_]|PXL[-_]|Scan[-_]|Document[-_])/i.test(trimmed)) return true;
+    if (/^(https?:\/\/|blob:|data:|file:\/\/)/i.test(trimmed)) return true;
+    return false;
+};
+
+const isValidMedicineRecord = (item) => {
+    if (!item) return false;
+    if (typeof item === 'string') {
+        const trimmed = item.trim();
+        return trimmed.length > 0 && !isDocumentFileName(trimmed);
+    }
+    if (typeof item !== 'object') return false;
+    
+    // Completely reject any object containing file / document / report metadata
+    if (item.url || item.fileUrl || item.mimetype || item.mimeType || item.uploadedAt || item.source === 'report' || item.source === 'prescription') {
+        return false;
+    }
+    
+    // Medicine name must not match document or file formats
+    const medName = (item.medicineName || item.medicine || (item.name && !isDocumentFileName(item.name)) || '').trim();
+    if (!medName || isDocumentFileName(medName)) {
+        return false;
+    }
+    return true;
+};
+
+const extractMedicinesFromAppt = (appt) => {
+    if (!appt) return [];
+    let list = [];
+    // Only accept valid pharmacy or doctorConsultation medicines - NEVER appt.prescriptions or reports (which are uploaded files)
+    if (Array.isArray(appt.pharmacy) && appt.pharmacy.length > 0) {
+        list = appt.pharmacy;
+    } else if (Array.isArray(appt.medicines) && appt.medicines.length > 0) {
+        list = appt.medicines;
+    } else if (Array.isArray(appt.doctorConsultation?.medicines) && appt.doctorConsultation.medicines.length > 0) {
+        list = appt.doctorConsultation.medicines;
+    } else if (Array.isArray(appt.doctorConsultation?.prescription) && appt.doctorConsultation.prescription.length > 0) {
+        list = appt.doctorConsultation.prescription;
+    }
+    
+    return list
+        .filter(isValidMedicineRecord)
+        .map(p => {
+            if (typeof p === 'string') return { medicineName: p.trim(), saltName: '', dose: '', days: '7' };
+            const medName = (p.medicineName || p.medicine || p.name || '').trim();
+            const salt = (p.saltName || p.genericName || p.instructions || p.timing || '').trim();
+            const doseVal = (p.frequency || p.dose || p.dosage || '').trim();
+            const daysVal = String(p.duration || p.days || (p.period ? p.period : '') || '7').trim();
+            return {
+                medicineName: medName,
+                saltName: salt,
+                dose: doseVal,
+                days: daysVal
+            };
+        })
+        .filter(m => m.medicineName && !isDocumentFileName(m.medicineName));
+};
+
+const extractLabTestsFromAppt = (appt) => {
+    if (!appt) return '';
+    const raw = appt.labTests || appt.labOrders || appt.doctorConsultation?.labTests || [];
+    if (typeof raw === 'string') return isDocumentFileName(raw) ? '' : raw;
+    if (Array.isArray(raw)) {
+        return raw.map(t => {
+            if (typeof t === 'string') return isDocumentFileName(t) ? '' : t;
+            if (t?.url || t?.fileUrl || t?.mimeType) return '';
+            const testName = t.name || t.testName || t.testId?.name || '';
+            return isDocumentFileName(testName) ? '' : testName;
+        }).filter(Boolean).join(', ');
+    }
+    return '';
+};
+
+const isValAvailable = (val) => {
+    return val && val !== '-' && val !== 'None' && val.toString().trim() !== '';
+};
+
 const DoctorPatientDetails = () => {
     const route = useRoute();
     const navigation = useNavigation();
-    
-    // In React Native, route params are used instead of useParams/useLocation
+    const { width } = useWindowDimensions();
+    const isTablet = width > 768;
+
     const id = route.params?.id || route.params?.patientId;
     const [appointmentId, setAppointmentId] = useState(route.params?.appointmentId);
 
@@ -77,7 +165,7 @@ const DoctorPatientDetails = () => {
     const [showSurgeryPlanModal, setShowSurgeryPlanModal] = useState(false);
     const [surgeonsList, setSurgeonsList] = useState([]);
     const [surgeryPlanData, setSurgeryPlanData] = useState({
-        surgery: '', diagnosis: '', surgeonId: '', preferredDate: '', preferredTime: '', admissionRequired: false, admissionDate: '', preOpRequired: false, notes: ''
+        surgery: '', diagnosis: '', surgeonId: '', preferredDate: '', preferredTime: '', admissionRequired: false, admissionDate: '', preOpRequired: false, notes: '', referralId: '', referringDoctorId: ''
     });
 
     // Referral States
@@ -104,6 +192,9 @@ const DoctorPatientDetails = () => {
     // Follow-up status for Patient
     const [currentFollowupStatus, setCurrentFollowupStatus] = useState(null);
 
+    // Tab Scroll ref
+    const tabsScrollViewRef = useRef(null);
+
     useEffect(() => {
         const fetchDetails = async () => {
             setLoading(true);
@@ -129,7 +220,9 @@ const DoctorPatientDetails = () => {
                     setSurgeryPlanData(prev => ({
                         ...prev,
                         surgery: refObj.reason || prev.surgery,
-                        diagnosis: refObj.notes || prev.diagnosis
+                        diagnosis: refObj.notes || prev.diagnosis,
+                        referralId: refObj._id,
+                        referringDoctorId: refObj.referringDoctorId?._id || refObj.referringDoctorId || ''
                     }));
                 }
 
@@ -192,16 +285,14 @@ const DoctorPatientDetails = () => {
                             } catch(e) { console.error("Error fetching follow-up", e); }
                         }
 
+                        const loadedMeds = extractMedicinesFromAppt(res.appointment);
+                        const loadedLabs = extractLabTestsFromAppt(res.appointment);
+
                         setSessionData({
                             diagnosis: res.appointment.diagnosis || '',
                             notes: res.appointment.doctorNotes || '',
-                            medicines: (res.appointment.pharmacy || []).map(p => ({
-                                medicineName: p.medicineName || '',
-                                saltName: p.saltName || '',
-                                dose: p.frequency || '',
-                                days: p.duration || ''
-                            })),
-                            labTests: (res.appointment.labTests || []).join(', ')
+                            medicines: loadedMeds,
+                            labTests: loadedLabs
                         });
                         
                         if (res.departments) {
@@ -248,6 +339,15 @@ const DoctorPatientDetails = () => {
                             if (profRes.appointments) {
                                 setHistory(profRes.appointments);
                             }
+
+                            // Web Parity: fallback profile consultation starts with clean empty sessionData
+                            setSessionData({
+                                diagnosis: '',
+                                notes: '',
+                                medicines: [],
+                                labTests: ''
+                            });
+
                             setLoading(false);
                             return;
                         }
@@ -257,7 +357,9 @@ const DoctorPatientDetails = () => {
             finally {
                 setLoading(false);
             }
+        };
 
+        const fetchCatalogs = async () => {
             try {
                 const testRes = await labTestAPI.getLabTests();
                 if (testRes.success) {
@@ -279,6 +381,8 @@ const DoctorPatientDetails = () => {
                 }
             } catch (err) { console.error("Error fetching dynamic question library", err); }
         };
+
+        fetchCatalogs();
         fetchDetails();
 
         const fetchHospital = async () => {
@@ -390,7 +494,7 @@ const DoctorPatientDetails = () => {
                 setShowSurgeryPlanModal(false);
                 setOperationRequired(false);
                 setSurgeryPlanData({
-                    surgery: '', diagnosis: '', surgeonId: '', preferredDate: '', preferredTime: '', admissionRequired: false, admissionDate: '', preOpRequired: false, notes: ''
+                    surgery: '', diagnosis: '', surgeonId: '', preferredDate: '', preferredTime: '', admissionRequired: false, admissionDate: '', preOpRequired: false, notes: '', referralId: '', referringDoctorId: ''
                 });
             }
         } catch(err) {
@@ -428,8 +532,8 @@ const DoctorPatientDetails = () => {
                             status: 'completed',
                             diagnosis: sessionData.diagnosis,
                             notes: sessionData.notes,
-                            labTests: sessionData.labTests.split(',').map(s => s.trim()).filter(Boolean),
-                            pharmacy: (sessionData.medicines || []).filter(m => m.medicineName?.trim()).map(m => ({
+                            labTests: sessionData.labTests.split(',').map(s => s.trim()).filter(Boolean).filter(t => !isDocumentFileName(t)),
+                            pharmacy: (sessionData.medicines || []).filter(m => m.medicineName?.trim() && !isDocumentFileName(m.medicineName)).map(m => ({
                                 medicineName: m.medicineName?.trim() || '',
                                 saltName: m.saltName?.trim() || '',
                                 frequency: m.dose?.trim() || '',
@@ -443,10 +547,10 @@ const DoctorPatientDetails = () => {
                             "Consultation Completed",
                             "Do you want to transition to the Reception Desk to Admit/Hospitalize this patient?",
                             [
-                                { text: "No, stay here", style: "cancel", onPress: () => {
+                                { text: "Stay Here", style: "cancel", onPress: () => {
                                     Alert.alert('Session Completed', 'This consultation has already been completed. This record is now read-only.');
                                 }},
-                                { text: "Yes", onPress: () => {
+                                { text: "Go to Reception", onPress: () => {
                                     navigation.navigate('ReceptionDashboard', { view: 'intake', patient: appointment?.userId || appointment?.clinicPatientId || appointment });
                                 }}
                             ]
@@ -497,7 +601,7 @@ const DoctorPatientDetails = () => {
             <View style={styles.loadingContainer}>
                 <Text style={styles.loadingText}>❌ Appointment not found.</Text>
                 <TouchableOpacity onPress={() => navigation.navigate('DoctorPatients')} style={styles.backBtn}>
-                    <Text style={styles.backBtnText}>← Back to Dashboard</Text>
+                    <Text style={styles.backBtnText}>← Back to Patients</Text>
                 </TouchableOpacity>
             </View>
         );
@@ -550,14 +654,14 @@ const DoctorPatientDetails = () => {
         const hAddr = [hospitalContext?.address, hospitalContext?.city, hospitalContext?.state].filter(Boolean).join(', ');
         const hPhone = hospitalContext?.phone || '';
         
-        const rxItems = (sessionData.medicines || []).filter(m => m.medicineName?.trim()).length > 0
-            ? sessionData.medicines.filter(m => m.medicineName?.trim())
-            : (appointment?.pharmacy || []).map(p => ({
-                medicineName: p.medicineName,
+        const rxItems = (sessionData.medicines || []).filter(m => m.medicineName?.trim() && !isDocumentFileName(m.medicineName)).length > 0
+            ? sessionData.medicines.filter(m => m.medicineName?.trim() && !isDocumentFileName(m.medicineName))
+            : (appointment?.pharmacy || []).filter(isValidMedicineRecord).map(p => ({
+                medicineName: p.medicineName || p.medicine || '',
                 saltName: p.saltName || '',
-                dose: p.frequency || '',
-                days: p.duration || ''
-            }));
+                dose: p.frequency || p.dose || '',
+                days: p.duration || p.days || ''
+            })).filter(m => m.medicineName?.trim() && !isDocumentFileName(m.medicineName));
 
         const labItems = sessionData.labTests
             ? sessionData.labTests.split(',').map(t => t.trim()).filter(Boolean)
@@ -636,176 +740,60 @@ const DoctorPatientDetails = () => {
                 <tr>
                     <th style="width: 30px;">#</th>
                     <th>Medicine Name</th>
-                    <th>Salt / Generic</th>
+                    <th>Timing / Instructions</th>
                     <th>Dose / Frequency</th>
-                    <th style="width: 60px;">Days</th>
+                    <th style="width: 70px;">Duration</th>
                 </tr>
             </thead>
             <tbody>
                 ${rxItems.map((m, idx) => `
                     <tr>
                         <td>${idx + 1}</td>
-                        <td><strong>${m.medicineName || '-'}</strong></td>
-                        <td style="color: #64748b;">${m.saltName || '-'}</td>
-                        <td>${m.dose || m.frequency || '-'}</td>
-                        <td>${m.days || m.duration || '-'}</td>
+                        <td><strong>${m.medicineName}</strong></td>
+                        <td>${m.saltName || '-'}</td>
+                        <td>${m.dose || '-'}</td>
+                        <td>${m.days ? `${m.days} days` : '-'}</td>
                     </tr>
                 `).join('')}
             </tbody>
         </table>
-    ` : `<div style="color: #94a3b8; font-size: 12px; margin-bottom: 12px;">No medicines prescribed.</div>`}
+    ` : '<p style="color: #64748b; font-size: 12px; font-style: italic;">No medicines prescribed.</p>'}
 
-    <div class="sec-title" style="margin-top: 14px;">🧪 Lab Tests Ordered</div>
+    <div class="sec-title">🧪 Diagnostic & Lab Orders</div>
     ${labItems.length > 0 ? `
         <table class="data-table lab">
             <thead>
                 <tr>
                     <th style="width: 30px;">#</th>
-                    <th>Test Name</th>
+                    <th>Test Name / Panel</th>
                 </tr>
             </thead>
             <tbody>
-                ${labItems.map((t, idx) => `
+                ${labItems.map((test, idx) => `
                     <tr>
                         <td>${idx + 1}</td>
-                        <td><strong>${t}</strong></td>
+                        <td><strong>${test}</strong></td>
                     </tr>
                 `).join('')}
             </tbody>
         </table>
-    ` : `<div style="color: #94a3b8; font-size: 12px; margin-bottom: 12px;">No lab tests ordered.</div>`}
+    ` : '<p style="color: #64748b; font-size: 12px; font-style: italic;">No lab tests requested.</p>'}
 
     ${notes ? `
-        <div class="sec-title">📋 Clinical Notes</div>
+        <div class="sec-title">📋 Clinical Advice / Notes</div>
         <div class="notes-box">${notes}</div>
     ` : ''}
 
     <div class="footer">
         <div>
-            <div><strong>Doctor:</strong> Dr. ${doctorName.replace(/^Dr\.?\s*/i, '')}</div>
-            <div><strong>Issued:</strong> ${dateStr} ${timeStr}</div>
+            <div>Generated via Team Medical 365 Health Suite</div>
+            <div class="validity-note">Valid across all in-network pharmacies and laboratories</div>
         </div>
         <div class="doc-signature">
             <div class="sig-line"></div>
-            <div>Authorized Signatory / Doctor</div>
+            <strong>Dr. ${doctorName.replace(/^Dr\.?\s*/i, '')}</strong>
+            <div style="font-size: 10px; color: #64748b;">Authorized Medical Practitioner</div>
         </div>
-    </div>
-    <div class="validity-note">This prescription is valid for 30 days from the date of issue.</div>
-</body>
-</html>`;
-    };
-
-    const getCumulativeHTML = () => {
-        const pt = patient || {};
-        const prof = profile || {};
-        const hName = hospitalContext?.name || 'TEAM MEDICAL 365 HOSPITAL';
-        const hTagline = hospitalContext?.tagline || 'Excellence in Healthcare';
-        const dateStr = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-
-        const dynamicEntries = Object.entries(intakeData || {}).filter(([key, val]) => 
-            key !== '_id' && key !== 'createdAt' && key !== 'updatedAt' && key !== '__v' 
-            && typeof val !== 'object' && val !== '' && val !== null && val !== undefined
-        );
-
-        return `<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8" />
-    <title>Cumulative Clinical Record</title>
-    <style>
-        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #1e293b; padding: 24px; margin: 0; line-height: 1.4; }
-        .header { text-align: center; border-bottom: 2px solid #2563eb; padding-bottom: 12px; margin-bottom: 16px; }
-        .h-name { font-size: 24px; font-weight: 800; color: #1e40af; margin: 0; }
-        .h-sub { font-size: 11px; color: #64748b; margin-top: 4px; }
-        .badge-title { display: inline-block; background: #dbeafe; color: #1e40af; font-size: 13px; font-weight: 700; padding: 4px 16px; border-radius: 9999px; margin-top: 8px; text-transform: uppercase; letter-spacing: 1px; }
-        .info-table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 12px; }
-        .info-table td { padding: 6px 10px; border: 1px solid #e2e8f0; }
-        .label-col { font-weight: 700; color: #475569; background: #f8fafc; width: 22%; }
-        .sec-title { font-size: 14px; font-weight: 700; color: #0f172a; margin: 16px 0 8px 0; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; }
-        .hist-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px; margin-bottom: 10px; font-size: 12px; }
-        .hist-header { font-weight: 700; color: #1e40af; margin-bottom: 4px; display: flex; justify-content: space-between; }
-        .footer { border-top: 1px solid #cbd5e1; padding-top: 12px; margin-top: 24px; font-size: 11px; color: #64748b; text-align: center; }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1 class="h-name">${hName}</h1>
-        <div class="h-sub">${hTagline}</div>
-        <div class="badge-title">Cumulative Clinical Record / History</div>
-    </div>
-
-    <table class="info-table">
-        <tr>
-            <td class="label-col">Patient Name</td>
-            <td><strong>${pt.name || intakeData.name || '-'}</strong></td>
-            <td class="label-col">MRN / ID</td>
-            <td><strong>${pt.patientId || pt.patientUid || appointment?.patientId || 'N/A'}</strong></td>
-        </tr>
-        <tr>
-            <td class="label-col">Age / Gender</td>
-            <td>${prof.age || intakeData.age || '-'} / ${prof.gender || intakeData.gender || '-'}</td>
-            <td class="label-col">Record Date</td>
-            <td>${dateStr}</td>
-        </tr>
-    </table>
-
-    ${dynamicEntries.length > 0 ? `
-        <div class="sec-title">📋 Clinical Questionnaire Responses</div>
-        <table class="info-table" style="margin-bottom: 16px;">
-            <thead>
-                <tr style="background: #2563eb; color: #ffffff;">
-                    <th style="padding: 6px 10px; text-align: left;">Question / Assessment</th>
-                    <th style="padding: 6px 10px; text-align: left;">Response</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${dynamicEntries.map(([k, v]) => `
-                    <tr>
-                        <td class="label-col" style="width: 45%;">${k}</td>
-                        <td>${String(v)}</td>
-                    </tr>
-                `).join('')}
-            </tbody>
-        </table>
-    ` : ''}
-
-    <div class="sec-title">📜 Past Consultations History (${(history || []).length})</div>
-    ${(history || []).length > 0 ? (history || []).map(h => `
-        <div class="hist-card">
-            <div class="hist-header">
-                <span>Date: ${new Date(h.appointmentDate || h.visitDate || h.createdAt).toLocaleDateString()}</span>
-                <span>Status: ${h.status}</span>
-            </div>
-            <div><strong>Diagnosis:</strong> ${h.doctorConsultation?.diagnosis?.join(', ') || h.diagnosis || 'None'}</div>
-            ${h.doctorNotes || h.doctorConsultation?.notes ? `<div><strong>Notes:</strong> ${h.doctorNotes || h.doctorConsultation?.notes}</div>` : ''}
-            ${(h.pharmacy?.length > 0 || h.doctorConsultation?.prescription?.length > 0) ? `
-                <div style="margin-top: 4px; color: #059669;">
-                    <strong>Prescription:</strong> ${
-                        (h.doctorConsultation?.prescription || []).map(p => `${p.medicine} (${p.dosage}, ${p.duration})`).join(' · ') ||
-                        (h.pharmacy || []).map(p => `${p.medicineName} (${p.frequency || p.dosage || ''})`).join(' · ')
-                    }
-                </div>
-            ` : ''}
-        </div>
-    `).join('') : `<div style="color: #94a3b8; font-size: 12px; margin-bottom: 12px;">No past consultations on record.</div>`}
-
-    <div class="sec-title">📌 Current Consultation Summary</div>
-    <div class="hist-card" style="border-left: 4px solid #16a34a; background: #f0fdf4;">
-        <div><strong>Diagnosis:</strong> ${sessionData.diagnosis || appointment?.diagnosis || 'Pending'}</div>
-        ${sessionData.notes ? `<div><strong>Clinical Notes:</strong> ${sessionData.notes}</div>` : ''}
-        ${sessionData.medicines?.length > 0 ? `
-            <div style="margin-top: 6px;">
-                <strong>Prescriptions:</strong>
-                <ul>
-                    ${sessionData.medicines.filter(m => m.medicineName).map(m => `<li>${m.medicineName} — ${m.dose || ''} (${m.days ? m.days + ' days' : ''})</li>`).join('')}
-                </ul>
-            </div>
-        ` : ''}
-        ${sessionData.labTests ? `<div><strong>Lab Tests:</strong> ${sessionData.labTests}</div>` : ''}
-    </div>
-
-    <div class="footer">
-        Generated by Team Medical 365 Clinical Information System &bull; ${dateStr}
     </div>
 </body>
 </html>`;
@@ -813,7 +801,7 @@ const DoctorPatientDetails = () => {
 
     const handlePrintPrescription = async (isCumulative = false) => {
         try {
-            const html = isCumulative ? getCumulativeHTML() : getPrescriptionHTML();
+            const html = getPrescriptionHTML();
             await Print.printAsync({ html });
         } catch (err) {
             console.error("Print error:", err);
@@ -823,7 +811,7 @@ const DoctorPatientDetails = () => {
 
     const handleDownloadPrescriptionPDF = async (isCumulative = false) => {
         try {
-            const html = isCumulative ? getCumulativeHTML() : getPrescriptionHTML();
+            const html = getPrescriptionHTML();
             const file = await Print.printToFileAsync({ html });
             const canShare = await Sharing.isAvailableAsync();
             if (canShare) {
@@ -892,9 +880,39 @@ const DoctorPatientDetails = () => {
 
     const allTabs = [...tabs, ...dynamicTabs];
 
-    const isValAvailable = (val) => {
-        return val && val !== '-' && val !== 'None' && val.toString().trim() !== '';
+    const scrollTabs = (dir) => {
+        if (tabsScrollViewRef.current) {
+            tabsScrollViewRef.current.scrollTo({ x: dir === 'left' ? 0 : 300, animated: true });
+        }
     };
+
+    // Vitals extraction matching Web
+    const apptVitals = appointment?.vitals || {};
+    const vitalsInfo = {
+        height: apptVitals.height || profile.height || intakeData.height || intakeData.vitals?.height,
+        weight: apptVitals.weight || profile.weight || intakeData.weight || intakeData.vitals?.weight,
+        bmi: apptVitals.bmi || profile.bmi || intakeData.bmi || intakeData.vitals?.bmi,
+        bp: apptVitals.bp || profile.bp || profile.bloodPressure || profile.historyBp || intakeData.bp || intakeData.bloodPressure || intakeData.historyBp || intakeData.vitals?.bloodPressure || intakeData.vitals?.bp,
+        pulse: apptVitals.pulse || profile.pulse || profile.pulseRate || profile.historyPulse || intakeData.pulse || intakeData.pulseRate || intakeData.historyPulse || intakeData.vitals?.pulse,
+        rr: apptVitals.rr || apptVitals.respiratoryRate || profile.rr || profile.respiratoryRate || intakeData.rr || intakeData.respiratoryRate || intakeData.vitals?.respiratoryRate,
+        temp: apptVitals.temperature || apptVitals.temp || profile.temperature || profile.temp || intakeData.temperature || intakeData.temp || intakeData.vitals?.temperature,
+        spo2: apptVitals.spo2 || profile.spo2 || intakeData.spo2 || intakeData.vitals?.spo2,
+        bloodSugar: apptVitals.bloodSugar || profile.bloodSugar || profile.blood_sugar || intakeData.bloodSugar || intakeData.blood_sugar,
+        heartRate: apptVitals.heartRate || apptVitals.heart_rate || profile.heartRate || profile.heart_rate || intakeData.heartRate || intakeData.heart_rate,
+        painScale: apptVitals.painScale || apptVitals.pain_scale || profile.painScale || profile.pain_scale || intakeData.painScale || intakeData.pain_scale,
+        allergies: (profile.allergies && profile.allergies !== '-') ? profile.allergies : ((intakeData.allergies && intakeData.allergies !== '-') ? intakeData.allergies : ''),
+        medications: profile.currentMedications || profile.currentMedication || intakeData.currentMedications || intakeData.currentMedication || profile.medications || intakeData.medications,
+        history: (profile.chronicConditions && profile.chronicConditions !== '-') ? profile.chronicConditions : ((intakeData.chronicConditions && intakeData.chronicConditions !== '-') ? intakeData.chronicConditions : '')
+    };
+
+    // Filtered history in current department
+    const currentDept = (appointment?.department || appointment?.serviceName || '').toLowerCase();
+    const filteredHistory = history.filter(h => {
+        if (!currentDept) return true;
+        if (h._id === appointmentId) return true;
+        const hDept = (h.department || h.serviceName || h.doctorConsultation?.department || '').toLowerCase();
+        return hDept === currentDept;
+    });
 
     return (
         <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -903,10 +921,12 @@ const DoctorPatientDetails = () => {
                     
                     {/* LEFT PANEL */}
                     <View style={styles.leftPanel}>
+                        {/* Patient Header Card */}
                         <View style={styles.patientHeader}>
                             <TouchableOpacity style={styles.backLink} onPress={() => navigation.navigate('DoctorPatients')}>
                                 <Text style={styles.backLinkText}>← Back</Text>
                             </TouchableOpacity>
+
                             <View style={styles.patientIdentity}>
                                 <View style={styles.patientAvatar}>
                                     <Text style={styles.patientAvatarText}>{(patient.name || 'P')[0].toUpperCase()}</Text>
@@ -914,18 +934,19 @@ const DoctorPatientDetails = () => {
                                 <View style={styles.patientMeta}>
                                     <Text style={styles.patientName}>{patient.name || 'Unknown Patient'}</Text>
                                     <View style={styles.patientTags}>
-                                        <Text style={[styles.tag, styles.tagMrn]}>MRN: {patient.patientId || 'N/A'}</Text>
-                                        <Text style={[styles.tag, styles.tagPhone]}>📱 {patient.phone || '-'}</Text>
-                                        {isValAvailable(profile.age) && <Text style={[styles.tag, styles.tagAge]}>Age: {profile.age}</Text>}
-                                        {isValAvailable(profile.gender) && <Text style={[styles.tag, styles.tagGender]}>{profile.gender}</Text>}
-                                        {isValAvailable(profile.bloodGroup) && <Text style={[styles.tag, styles.tagBlood]}>{profile.bloodGroup}</Text>}
+                                        <View style={[styles.tag, styles.tagMrn]}><Text style={styles.tagMrnText}>MRN: {patient.patientId || 'N/A'}</Text></View>
+                                        <View style={[styles.tag, styles.tagPhone]}><Text style={styles.tagPhoneText}>📱 {patient.phone || '-'}</Text></View>
+                                        {isValAvailable(profile.age) && <View style={[styles.tag, styles.tagAge]}><Text style={styles.tagAgeText}>Age: {profile.age}</Text></View>}
+                                        {isValAvailable(profile.gender) && <View style={[styles.tag, styles.tagGender]}><Text style={styles.tagGenderText}>{profile.gender}</Text></View>}
+                                        {isValAvailable(profile.bloodGroup) && <View style={[styles.tag, styles.tagBlood]}><Text style={styles.tagBloodText}>{profile.bloodGroup}</Text></View>}
                                     </View>
                                 </View>
                             </View>
+
                             <View style={styles.apptInfo}>
                                 <View style={styles.apptItem}>
                                     <Text style={styles.apptLabel}>Date</Text>
-                                    <Text style={styles.apptValue}>{new Date(appointment.appointmentDate).toLocaleDateString()}</Text>
+                                    <Text style={styles.apptValue}>{new Date(appointment.appointmentDate).toLocaleDateString('en-IN')}</Text>
                                 </View>
                                 <View style={styles.apptItem}>
                                     <Text style={styles.apptLabel}>Time</Text>
@@ -934,32 +955,65 @@ const DoctorPatientDetails = () => {
                                 <View style={styles.apptItem}>
                                     <Text style={styles.apptLabel}>Status</Text>
                                     <View style={[styles.apptStatus, styles[`status_${appointment.status}`] || styles.status_pending]}>
-                                        <Text style={[styles.apptStatusText, styles[`statusText_${appointment.status}`] || styles.statusText_pending]}>{appointment.status} {isLocked ? '🔒 Locked' : ''}</Text>
+                                        <Text style={[styles.apptStatusText, styles[`statusText_${appointment.status}`] || styles.statusText_pending]}>
+                                            {appointment.status} {isLocked ? '🔒 Locked' : ''}
+                                        </Text>
                                     </View>
                                 </View>
                                 <View style={styles.apptItem}>
                                     <Text style={styles.apptLabel}>Service</Text>
                                     <Text style={styles.apptValue}>{appointment.serviceName || 'Consultation'}</Text>
                                 </View>
+
+                                {/* AI Assistant Button (Web 1:1 Parity) */}
+                                <View style={[styles.apptItem, { width: '100%', marginTop: 8, alignItems: 'flex-start' }]}>
+                                    <TouchableOpacity
+                                        style={styles.openAiBtn}
+                                        onPress={() => navigation.navigate('AIAssistant', {
+                                            patientId: patient._id || id,
+                                            appointmentId: appointmentId || appointment?._id
+                                        })}
+                                        activeOpacity={0.8}
+                                    >
+                                        <Text style={styles.openAiBtnText}>🤖 Open AI Assistant</Text>
+                                    </TouchableOpacity>
+                                </View>
                             </View>
                         </View>
 
-                        {/* Tabs Nav */}
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsContainer} contentContainerStyle={styles.tabsNav}>
-                            {allTabs.map(tab => (
-                                <TouchableOpacity
-                                    key={tab.id}
-                                    style={[styles.tabBtn, activeTab === tab.id && styles.tabBtnActive]}
-                                    onPress={() => setActiveTab(tab.id)}
-                                >
-                                    <Text style={styles.tabIcon}>{tab.icon}</Text>
-                                    <Text style={[styles.tabLabel, activeTab === tab.id && styles.tabLabelActive]}>{tab.label}</Text>
-                                </TouchableOpacity>
-                            ))}
-                        </ScrollView>
+                        {/* Tabs Nav with Left/Right Scroll controls */}
+                        <View style={styles.tabsContainerWrapper}>
+                            <TouchableOpacity style={styles.tabScrollBtn} onPress={() => scrollTabs('left')}>
+                                <Text style={styles.tabScrollBtnText}>‹</Text>
+                            </TouchableOpacity>
+
+                            <ScrollView 
+                                ref={tabsScrollViewRef} 
+                                horizontal 
+                                showsHorizontalScrollIndicator={false} 
+                                style={styles.tabsContainer} 
+                                contentContainerStyle={styles.tabsNav}
+                            >
+                                {allTabs.map(tab => (
+                                    <TouchableOpacity
+                                        key={tab.id}
+                                        style={[styles.tabBtn, activeTab === tab.id && styles.tabBtnActive]}
+                                        onPress={() => setActiveTab(tab.id)}
+                                    >
+                                        <Text style={styles.tabIcon}>{tab.icon}</Text>
+                                        <Text style={[styles.tabLabel, activeTab === tab.id && styles.tabLabelActive]}>{tab.label}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </ScrollView>
+
+                            <TouchableOpacity style={styles.tabScrollBtn} onPress={() => scrollTabs('right')}>
+                                <Text style={styles.tabScrollBtnText}>›</Text>
+                            </TouchableOpacity>
+                        </View>
 
                         {/* Tab Content */}
                         <View style={styles.tabContent}>
+                            {/* OVERVIEW TAB */}
                             {activeTab === 'overview' && (
                                 <View style={styles.tabPanel}>
                                     <Text style={styles.panelTitle}>📋 Patient Overview</Text>
@@ -971,62 +1025,117 @@ const DoctorPatientDetails = () => {
                                         <View style={styles.ovCard}><Text style={styles.ovLabel}>Gender</Text><Text style={styles.ovValue}>{profile.gender || intakeData.gender || '-'}</Text></View>
                                         <View style={styles.ovCard}><Text style={styles.ovLabel}>Blood Group</Text><Text style={styles.ovValue}>{profile.bloodGroup || intakeData.bloodGroup || '-'}</Text></View>
                                         
-                                        {(() => {
-                                            const apptVitals = appointment?.vitals || {};
-                                            const vitalsInfo = {
-                                                height: apptVitals.height || profile.height || intakeData.height || intakeData.vitals?.height,
-                                                weight: apptVitals.weight || profile.weight || intakeData.weight || intakeData.vitals?.weight,
-                                                bmi: apptVitals.bmi || profile.bmi || intakeData.bmi || intakeData.vitals?.bmi,
-                                                bp: apptVitals.bp || profile.bp || profile.bloodPressure || profile.historyBp || intakeData.bp || intakeData.bloodPressure || intakeData.historyBp || intakeData.vitals?.bloodPressure || intakeData.vitals?.bp,
-                                                pulse: apptVitals.pulse || profile.pulse || profile.pulseRate || profile.historyPulse || intakeData.pulse || intakeData.pulseRate || intakeData.historyPulse || intakeData.vitals?.pulse,
-                                                rr: apptVitals.rr || apptVitals.respiratoryRate || profile.rr || profile.respiratoryRate || intakeData.rr || intakeData.respiratoryRate || intakeData.vitals?.respiratoryRate,
-                                                temp: apptVitals.temperature || apptVitals.temp || profile.temperature || profile.temp || intakeData.temperature || intakeData.temp || intakeData.vitals?.temperature,
-                                                spo2: apptVitals.spo2 || profile.spo2 || intakeData.spo2 || intakeData.vitals?.spo2,
-                                                bloodSugar: apptVitals.bloodSugar || profile.bloodSugar || profile.blood_sugar || intakeData.bloodSugar || intakeData.blood_sugar,
-                                                heartRate: apptVitals.heartRate || apptVitals.heart_rate || profile.heartRate || profile.heart_rate || intakeData.heartRate || intakeData.heart_rate,
-                                                painScale: apptVitals.painScale || apptVitals.pain_scale || profile.painScale || profile.pain_scale || intakeData.painScale || intakeData.pain_scale,
-                                                allergies: (profile.allergies && profile.allergies !== '-') ? profile.allergies : ((intakeData.allergies && intakeData.allergies !== '-') ? intakeData.allergies : ''),
-                                                medications: profile.currentMedications || profile.currentMedication || intakeData.currentMedications || intakeData.currentMedication || profile.medications || intakeData.medications,
-                                                history: (profile.chronicConditions && profile.chronicConditions !== '-') ? profile.chronicConditions : ((intakeData.chronicConditions && intakeData.chronicConditions !== '-') ? intakeData.chronicConditions : '')
-                                            };
-                                            return (
-                                                <>
-                                                    {isValAvailable(vitalsInfo.height) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Height</Text><Text style={styles.ovValue}>{vitalsInfo.height} cm</Text></View>}
-                                                    {isValAvailable(vitalsInfo.weight) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Weight</Text><Text style={styles.ovValue}>{vitalsInfo.weight} kg</Text></View>}
-                                                    {isValAvailable(vitalsInfo.bmi) && <View style={styles.ovCard}><Text style={styles.ovLabel}>BMI</Text><Text style={styles.ovValue}>{vitalsInfo.bmi}</Text></View>}
-                                                    {isValAvailable(vitalsInfo.bp) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Blood Pressure</Text><Text style={styles.ovValue}>{vitalsInfo.bp}</Text></View>}
-                                                    {isValAvailable(vitalsInfo.pulse) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Pulse</Text><Text style={styles.ovValue}>{vitalsInfo.pulse} bpm</Text></View>}
-                                                    {isValAvailable(vitalsInfo.temp) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Temperature</Text><Text style={styles.ovValue}>{vitalsInfo.temp} °F</Text></View>}
-                                                    {isValAvailable(vitalsInfo.spo2) && <View style={styles.ovCard}><Text style={styles.ovLabel}>SpO2</Text><Text style={styles.ovValue}>{vitalsInfo.spo2}%</Text></View>}
-                                                </>
-                                            );
-                                        })()}
+                                        {/* Full Web Vitals & Clinical Cards */}
+                                        {isValAvailable(vitalsInfo.height) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Height</Text><Text style={styles.ovValue}>{vitalsInfo.height} cm</Text></View>}
+                                        {isValAvailable(vitalsInfo.weight) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Weight</Text><Text style={styles.ovValue}>{vitalsInfo.weight} kg</Text></View>}
+                                        {isValAvailable(vitalsInfo.bmi) && <View style={styles.ovCard}><Text style={styles.ovLabel}>BMI</Text><Text style={styles.ovValue}>{vitalsInfo.bmi}</Text></View>}
+                                        {isValAvailable(vitalsInfo.bp) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Blood Pressure</Text><Text style={styles.ovValue}>{vitalsInfo.bp}</Text></View>}
+                                        {isValAvailable(vitalsInfo.pulse) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Pulse Rate</Text><Text style={styles.ovValue}>{vitalsInfo.pulse} bpm</Text></View>}
+                                        {isValAvailable(vitalsInfo.rr) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Respiratory Rate</Text><Text style={styles.ovValue}>{vitalsInfo.rr} breaths/min</Text></View>}
+                                        {isValAvailable(vitalsInfo.temp) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Temperature</Text><Text style={styles.ovValue}>{vitalsInfo.temp} °F</Text></View>}
+                                        {isValAvailable(vitalsInfo.spo2) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Oxygen Saturation (SpO₂)</Text><Text style={styles.ovValue}>{vitalsInfo.spo2}%</Text></View>}
+                                        {isValAvailable(vitalsInfo.bloodSugar) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Blood Sugar</Text><Text style={styles.ovValue}>{vitalsInfo.bloodSugar}</Text></View>}
+                                        {isValAvailable(vitalsInfo.heartRate) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Heart Rate</Text><Text style={styles.ovValue}>{vitalsInfo.heartRate} bpm</Text></View>}
+                                        {isValAvailable(vitalsInfo.painScale) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Pain Scale</Text><Text style={styles.ovValue}>{vitalsInfo.painScale} / 10</Text></View>}
+                                        {isValAvailable(vitalsInfo.allergies) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Allergies</Text><Text style={styles.ovValue}>{vitalsInfo.allergies}</Text></View>}
+                                        {isValAvailable(vitalsInfo.medications) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Current Medications</Text><Text style={styles.ovValue}>{vitalsInfo.medications}</Text></View>}
+                                        {isValAvailable(vitalsInfo.history) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Medical History</Text><Text style={styles.ovValue}>{vitalsInfo.history}</Text></View>}
+                                        
                                         <View style={styles.ovCard}><Text style={styles.ovLabel}>Address</Text><Text style={styles.ovValue}>{patient.address || profile.address || '-'}</Text></View>
                                         <View style={styles.ovCard}><Text style={styles.ovLabel}>Reason for Visit</Text><Text style={styles.ovValue}>{profile.reasonForVisit || intakeData.reasonForVisit || '-'}</Text></View>
                                     </View>
+
+                                    {/* Partner / Spouse Quick Info (Web 1:1 Parity) */}
+                                    {(profile.partnerFirstName || intakeData.partnerFirstName) && (
+                                        <View style={styles.partnerQuick}>
+                                            <Text style={styles.partnerTitle}>👫 Spouse/Partner Info</Text>
+                                            <View style={styles.overviewGrid}>
+                                                <View style={styles.ovCard}>
+                                                    <Text style={styles.ovLabel}>Partner Name</Text>
+                                                    <Text style={styles.ovValue}>
+                                                        {profile.partnerFirstName || intakeData.partnerFirstName || '-'} {profile.partnerLastName || intakeData.partnerLastName || ''}
+                                                    </Text>
+                                                </View>
+                                                <View style={styles.ovCard}>
+                                                    <Text style={styles.ovLabel}>Partner Phone</Text>
+                                                    <Text style={styles.ovValue}>{profile.partnerMobile || intakeData.partnerMobile || '-'}</Text>
+                                                </View>
+                                                <View style={styles.ovCard}>
+                                                    <Text style={styles.ovLabel}>Partner Age</Text>
+                                                    <Text style={styles.ovValue}>{profile.partnerAge || intakeData.partnerAge || profile.husbandAge || intakeData.husbandAge || '-'}</Text>
+                                                </View>
+                                                <View style={styles.ovCard}>
+                                                    <Text style={styles.ovLabel}>Partner Blood Group</Text>
+                                                    <Text style={styles.ovValue}>{profile.partnerBloodGroup || intakeData.partnerBloodGroup || '-'}</Text>
+                                                </View>
+                                            </View>
+                                        </View>
+                                    )}
                                 </View>
                             )}
                             
+                            {/* PAST VISITS TAB */}
                             {activeTab === 'history' && (
                                 <View style={styles.tabPanel}>
-                                    <Text style={styles.panelTitle}>📜 Previous Consultations ({history.length})</Text>
-                                    {history.length === 0 ? (
-                                        <View style={styles.emptyHist}><Text style={styles.emptyHistText}>No previous visits recorded.</Text></View>
+                                    <Text style={styles.panelTitle}>📜 Previous Consultations ({filteredHistory.length})</Text>
+                                    {filteredHistory.length === 0 ? (
+                                        <View style={styles.emptyHist}>
+                                            <Text style={styles.emptyHistText}>No previous visits recorded in this department context.</Text>
+                                        </View>
                                     ) : (
                                         <View style={styles.historyList}>
-                                            {history.map(h => (
-                                                <TouchableOpacity key={h._id} style={[styles.historyCard, h._id === appointmentId && styles.historyCardCurrent, viewingPastSession?._id === h._id && styles.historyCardViewing]} onPress={() => {
-                                                    if (h._id === appointmentId) setViewingPastSession(null);
-                                                    else setViewingPastSession(viewingPastSession?._id === h._id ? null : h);
-                                                }}>
+                                            {filteredHistory.map(h => (
+                                                <TouchableOpacity 
+                                                    key={h._id} 
+                                                    style={[
+                                                        styles.historyCard, 
+                                                        h._id === appointmentId && styles.historyCardCurrent, 
+                                                        viewingPastSession?._id === h._id && styles.historyCardViewing
+                                                    ]} 
+                                                    onPress={() => {
+                                                        if (h._id === appointmentId) setViewingPastSession(null);
+                                                        else setViewingPastSession(viewingPastSession?._id === h._id ? null : h);
+                                                    }}
+                                                >
                                                     {viewingPastSession?._id === h._id && (
-                                                        <View style={styles.viewingBadge}><Text style={styles.viewingBadgeText}>👁️ Viewing Right Now</Text></View>
+                                                        <View style={styles.viewingBadge}>
+                                                            <Text style={styles.viewingBadgeText}>👁️ Viewing Right Now</Text>
+                                                        </View>
                                                     )}
                                                     <View style={styles.histTop}>
-                                                        <Text style={styles.histDate}>{new Date(h.appointmentDate || h.visitDate || h.createdAt).toLocaleDateString()}</Text>
-                                                        <View style={[styles.apptStatus, styles[`status_${h.status}`] || styles.status_pending]}><Text style={[styles.apptStatusText, styles[`statusText_${h.status}`] || styles.statusText_pending]}>{h.status}</Text></View>
+                                                        <Text style={styles.histDate}>
+                                                            {new Date(h.appointmentDate || h.visitDate || h.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                                        </Text>
+                                                        <View style={[styles.apptStatus, styles[`status_${h.status}`] || styles.status_pending]}>
+                                                            <Text style={[styles.apptStatusText, styles[`statusText_${h.status}`] || styles.statusText_pending]}>{h.status}</Text>
+                                                        </View>
                                                     </View>
-                                                    <Text style={styles.histDiagnosis}><Text style={{fontWeight: 'bold'}}>Diagnosis: </Text>{h.doctorConsultation?.diagnosis?.length > 0 ? h.doctorConsultation.diagnosis.join(', ') : (h.diagnosis || 'None')}</Text>
+                                                    <Text style={styles.histDiagnosis}>
+                                                        <Text style={{ fontWeight: 'bold' }}>Diagnosis: </Text>
+                                                        {h.doctorConsultation?.diagnosis?.length > 0 ? h.doctorConsultation.diagnosis.join(', ') : (h.diagnosis || 'No diagnosis recorded')}
+                                                    </Text>
+                                                    {(h.doctorConsultation?.clinicalNotes || h.doctorNotes) && (
+                                                        <Text style={styles.histNotesText}>
+                                                            <Text style={{ fontWeight: 'bold' }}>Notes: </Text>
+                                                            {h.doctorConsultation?.clinicalNotes || h.doctorNotes}
+                                                        </Text>
+                                                    )}
+                                                    {((h.doctorConsultation?.prescription?.filter(isValidMedicineRecord) || []).length > 0 || (h.pharmacy?.filter(isValidMedicineRecord) || []).length > 0) && (
+                                                        <Text style={[styles.histNotesText, { color: '#059669' }]}>
+                                                            <Text style={{ fontWeight: 'bold' }}>💊 Medicines: </Text>
+                                                            {(h.doctorConsultation?.prescription?.filter(isValidMedicineRecord) || []).length > 0
+                                                                ? h.doctorConsultation.prescription.filter(isValidMedicineRecord).map(p => `${p.medicine || p.medicineName} (${p.dosage || p.frequency || '-'}, ${p.duration || p.days || '-'})`).join(' · ')
+                                                                : (h.pharmacy || []).filter(isValidMedicineRecord).map(p => `${p.medicineName || p.medicine} (${p.frequency || p.dose || '-'}, ${p.duration || p.days || '-'} days)`).join(' · ')}
+                                                        </Text>
+                                                    )}
+                                                    {(h.doctorConsultation?.labTests?.length > 0 || h.labTests?.length > 0) && (
+                                                        <Text style={[styles.histNotesText, { color: '#2563eb' }]}>
+                                                            <Text style={{ fontWeight: 'bold' }}>🧪 Lab Tests: </Text>
+                                                            {h.doctorConsultation?.labTests?.length > 0
+                                                                ? h.doctorConsultation.labTests.join(', ')
+                                                                : (h.labTests || []).join(', ')}
+                                                        </Text>
+                                                    )}
                                                     {h._id === appointmentId && <View style={styles.currentBadge}><Text style={styles.currentBadgeText}>📌 Current Session</Text></View>}
                                                 </TouchableOpacity>
                                             ))}
@@ -1035,6 +1144,7 @@ const DoctorPatientDetails = () => {
                                 </View>
                             )}
 
+                            {/* IPD / ADMISSION ORDERS TAB */}
                             {activeTab === 'ipd_orders' && (
                                 <DoctorIPDOrdersPanel
                                     patientId={id || patient?._id}
@@ -1044,6 +1154,7 @@ const DoctorPatientDetails = () => {
                                 />
                             )}
 
+                            {/* REPORTS & FILES TAB */}
                             {activeTab === 'reports' && (
                                 <AppointmentReports appointmentId={appointment?._id} prescriptions={appointment?.prescriptions} />
                             )}
@@ -1061,11 +1172,11 @@ const DoctorPatientDetails = () => {
                                         />
                                         {!isLocked && (
                                             <TouchableOpacity 
-                                                style={{ marginTop: 16, backgroundColor: '#2563eb', padding: 12, borderRadius: 8, alignItems: 'center' }} 
+                                                style={styles.saveSectionBtn} 
                                                 onPress={handleSaveProfile} 
                                                 disabled={saving}
                                             >
-                                                <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 13 }}>
+                                                <Text style={styles.saveSectionBtnText}>
                                                     {saving ? 'Saving...' : `💾 Save ${dTab.label} Data`}
                                                 </Text>
                                             </TouchableOpacity>
@@ -1083,8 +1194,13 @@ const DoctorPatientDetails = () => {
                                 <>
                                     <View style={[styles.rightHeader, { backgroundColor: '#eff6ff', borderBottomColor: '#bfdbfe' }]}>
                                         <View>
-                                            <Text style={[styles.rightHeaderTitle, { color: '#1e3a8a' }]}>🕰️ Past Session</Text>
-                                            <Text style={[styles.rightSubtitle, { color: '#3b82f6' }]}>Viewing notes from {new Date(viewingPastSession.appointmentDate).toLocaleDateString()}</Text>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                                <Text style={[styles.rightHeaderTitle, { color: '#1e3a8a' }]}>🕰️ Past Session</Text>
+                                                <View style={styles.tmReadOnlyBadge}><Text style={styles.tmReadOnlyBadgeText}>Read-only</Text></View>
+                                            </View>
+                                            <Text style={[styles.rightSubtitle, { color: '#3b82f6' }]}>
+                                                Viewing notes from {new Date(viewingPastSession.appointmentDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                            </Text>
                                         </View>
                                         <TouchableOpacity onPress={() => setViewingPastSession(null)} style={styles.exitTmBtn}>
                                             <Text style={styles.exitTmBtnText}>✕ Exit Time Machine</Text>
@@ -1094,24 +1210,24 @@ const DoctorPatientDetails = () => {
                                     <ScrollView style={styles.rightContent}>
                                         <View style={styles.sessionField}>
                                             <Text style={styles.fieldLabel}>🔍 Diagnosis at the time</Text>
-                                            <View style={styles.tmFieldBox}><Text style={styles.tmFieldText}>{viewingPastSession.diagnosis || 'No diagnosis'}</Text></View>
+                                            <View style={styles.tmFieldBox}><Text style={styles.tmFieldText}>{viewingPastSession.diagnosis || 'No diagnosis recorded'}</Text></View>
                                         </View>
                                         <View style={styles.sessionField}>
                                             <Text style={styles.fieldLabel}>📋 Clinical Notes</Text>
-                                            <View style={styles.tmFieldBox}><Text style={styles.tmFieldText}>{viewingPastSession.doctorNotes || 'No notes'}</Text></View>
+                                            <View style={styles.tmFieldBox}><Text style={styles.tmFieldText}>{viewingPastSession.doctorNotes || 'No notes recorded'}</Text></View>
                                         </View>
                                         <View style={styles.sessionField}>
                                             <Text style={styles.fieldLabel}>💊 Prescription Given</Text>
                                             <View style={styles.tmFieldBox}>
                                                 {viewingPastSession.pharmacy?.length > 0 ? viewingPastSession.pharmacy.map((p, i) => (
                                                     <Text key={i} style={styles.tmFieldText}>• {p.medicineName}</Text>
-                                                )) : <Text style={styles.tmFieldText}>No prescription</Text>}
+                                                )) : <Text style={styles.tmFieldText}>No prescription recorded</Text>}
                                             </View>
                                         </View>
                                         <View style={styles.sessionField}>
                                             <Text style={styles.fieldLabel}>🧪 Lab Tests Ordered</Text>
                                             <View style={styles.tmFieldBox}>
-                                                <Text style={styles.tmFieldText}>{(viewingPastSession.labTests || []).join(', ') || 'None'}</Text>
+                                                <Text style={styles.tmFieldText}>{(viewingPastSession.labTests || []).join(', ') || 'No lab tests ordered'}</Text>
                                             </View>
                                         </View>
                                     </ScrollView>
@@ -1122,12 +1238,21 @@ const DoctorPatientDetails = () => {
                                                 ...prev,
                                                 diagnosis: viewingPastSession.diagnosis || '',
                                                 notes: viewingPastSession.doctorNotes || '',
+                                                medicines: (viewingPastSession.pharmacy || []).filter(isValidMedicineRecord).map(p => ({
+                                                    medicineName: p.medicineName || '',
+                                                    saltName: '',
+                                                    dose: p.frequency || '',
+                                                    days: p.duration || '7'
+                                                })).filter(m => m.medicineName && !isDocumentFileName(m.medicineName)),
                                                 labTests: (viewingPastSession.labTests || []).join(', ')
                                             }));
                                             setViewingPastSession(null);
                                             Alert.alert('Success', 'Historical data copied into your Current Session editor!');
                                         }}>
                                             <Text style={styles.copyTmBtnText}>📋 Copy to Current Session</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity style={[styles.btnFinish, { backgroundColor: '#64748b' }]} onPress={() => setViewingPastSession(null)}>
+                                            <Text style={styles.btnFinishText}>Return to Current Editing</Text>
                                         </TouchableOpacity>
                                     </View>
                                 </>
@@ -1138,28 +1263,8 @@ const DoctorPatientDetails = () => {
                                             <Text style={styles.rightHeaderTitle}>📝 Current Session</Text>
                                             <Text style={styles.rightSubtitle}>Record diagnosis, notes & prescription</Text>
                                         </View>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                                            <TouchableOpacity
-                                                style={styles.previewBtn}
-                                                onPress={() => {
-                                                    setPrescriptionMode('slip');
-                                                    setShowPrescriptionModal(true);
-                                                }}
-                                            >
-                                                <Text style={styles.previewBtnText}>📄 Preview Rx</Text>
-                                            </TouchableOpacity>
-                                            <TouchableOpacity
-                                                style={[styles.previewBtn, { backgroundColor: '#eff6ff', borderColor: '#bfdbfe', borderWidth: 1 }]}
-                                                onPress={() => {
-                                                    setPrescriptionMode('cumulative');
-                                                    setShowPrescriptionModal(true);
-                                                }}
-                                            >
-                                                <Text style={[styles.previewBtnText, { color: '#2563eb' }]}>📜 Cumulative</Text>
-                                            </TouchableOpacity>
-                                            <View style={[styles.apptStatus, styles[`status_${appointment.status}`] || styles.status_pending]}>
-                                                <Text style={[styles.apptStatusText, styles[`statusText_${appointment.status}`] || styles.statusText_pending]}>{appointment.status}</Text>
-                                            </View>
+                                        <View style={[styles.apptStatus, styles[`status_${appointment.status}`] || styles.status_pending]}>
+                                            <Text style={[styles.apptStatusText, styles[`statusText_${appointment.status}`] || styles.statusText_pending]}>{appointment.status}</Text>
                                         </View>
                                     </View>
 
@@ -1169,16 +1274,19 @@ const DoctorPatientDetails = () => {
                                             <TextInput
                                                 style={[styles.input, styles.diagInput]}
                                                 placeholder="Enter diagnosis..."
+                                                placeholderTextColor="#94a3b8"
                                                 value={sessionData.diagnosis}
                                                 onChangeText={(text) => !isLocked && setSessionData(prev => ({ ...prev, diagnosis: text }))}
                                                 editable={!isLocked}
                                             />
                                         </View>
+
                                         <View style={styles.sessionField}>
                                             <Text style={styles.fieldLabel}>📋 Clinical Notes</Text>
                                             <TextInput
                                                 style={styles.textArea}
-                                                placeholder="Write detailed clinical notes..."
+                                                placeholder="Write detailed clinical notes, observations, examination findings..."
+                                                placeholderTextColor="#94a3b8"
                                                 multiline={true}
                                                 textAlignVertical="top"
                                                 value={sessionData.notes}
@@ -1187,32 +1295,69 @@ const DoctorPatientDetails = () => {
                                             />
                                         </View>
 
+                                        {/* Operation & Referral Box */}
                                         {!isLocked && (
                                             <View style={styles.referralBanner}>
+                                                {/* Referral Banner for incoming referred doctor */}
+                                                {patientReferrals.filter(r => r.status === 'REFERRED' && (r.referredToDoctorId?._id === user?._id || r.referredToDoctorId === user?._id)).length > 0 && (
+                                                    <View style={styles.incomingReferralBanner}>
+                                                        <Text style={styles.incomingReferralTitle}>📋 Surgery Referral Pending</Text>
+                                                        {patientReferrals.filter(r => r.status === 'REFERRED' && (r.referredToDoctorId?._id === user?._id || r.referredToDoctorId === user?._id)).map(ref => (
+                                                            <View key={ref._id} style={{ marginBottom: 8 }}>
+                                                                <Text style={styles.incomingReferralText}>
+                                                                    <Text style={{ fontWeight: 'bold' }}>From: </Text>{ref.referringDoctorId?.name || 'Unknown'} &nbsp;|&nbsp;
+                                                                    <Text style={{ fontWeight: 'bold' }}>Reason: </Text>{ref.reason}
+                                                                </Text>
+                                                                <TouchableOpacity 
+                                                                    style={styles.reviewReferralBtn}
+                                                                    onPress={() => { setActiveReferralForReview(ref); setShowReferralReviewModal(true); }}
+                                                                >
+                                                                    <Text style={styles.reviewReferralBtnText}>Review Referral</Text>
+                                                                </TouchableOpacity>
+                                                            </View>
+                                                        ))}
+                                                    </View>
+                                                )}
+
                                                 <Text style={styles.referralLabel}>🔪 Operation Required?</Text>
                                                 <View style={styles.radioGroup}>
                                                     <TouchableOpacity style={styles.radioBtn} onPress={() => setOperationRequired(false)}>
-                                                        <View style={[styles.radioOuter, !operationRequired && styles.radioOuterActive]}><View style={!operationRequired && styles.radioInner}/></View>
+                                                        <View style={[styles.radioOuter, !operationRequired && styles.radioOuterActive]}>
+                                                            {!operationRequired && <View style={styles.radioInner}/>}
+                                                        </View>
                                                         <Text style={styles.radioText}>No</Text>
                                                     </TouchableOpacity>
                                                     <TouchableOpacity style={styles.radioBtn} onPress={() => setOperationRequired(true)}>
-                                                        <View style={[styles.radioOuter, operationRequired && styles.radioOuterActive]}><View style={operationRequired && styles.radioInner}/></View>
+                                                        <View style={[styles.radioOuter, operationRequired && styles.radioOuterActive]}>
+                                                            {operationRequired && <View style={styles.radioInner}/>}
+                                                        </View>
                                                         <Text style={styles.radioText}>Yes</Text>
                                                     </TouchableOpacity>
                                                 </View>
+
                                                 {operationRequired && (
                                                     <View style={styles.surgeryActions}>
-                                                        <TouchableOpacity style={styles.surgeryBtn} onPress={() => {
-                                                            setSurgeryPlanData(prev => ({ ...prev, diagnosis: sessionData.diagnosis, surgeonId: user?._id || '' }));
-                                                            setShowSurgeryPlanModal(true);
-                                                        }}>
-                                                            <Text style={styles.surgeryBtnText}>+ Create Surgery Plan</Text>
+                                                        <TouchableOpacity 
+                                                            style={styles.surgeryBtn} 
+                                                            onPress={() => {
+                                                                setSurgeryPlanData(prev => ({ 
+                                                                    ...prev, 
+                                                                    diagnosis: sessionData.diagnosis || prev.diagnosis || '',
+                                                                    surgeonId: prev.surgeonId || user?._id || user?.id || ''
+                                                                }));
+                                                                setShowSurgeryPlanModal(true);
+                                                            }}
+                                                        >
+                                                            <Text style={styles.surgeryBtnText}>+ Create Surgery Plan (Self / Direct)</Text>
                                                         </TouchableOpacity>
-                                                        <TouchableOpacity style={styles.referralBtn} onPress={() => {
-                                                            setReferralData(prev => ({ ...prev, reason: sessionData.diagnosis }));
-                                                            setShowReferralModal(true);
-                                                        }}>
-                                                            <Text style={styles.referralBtnText}>🔄 Refer for Surgery</Text>
+                                                        <TouchableOpacity 
+                                                            style={styles.referralBtn} 
+                                                            onPress={() => {
+                                                                setReferralData(prev => ({ ...prev, reason: sessionData.diagnosis || '' }));
+                                                                setShowReferralModal(true);
+                                                            }}
+                                                        >
+                                                            <Text style={styles.referralBtnText}>🔄 Refer for Surgery (To Another Doctor)</Text>
                                                         </TouchableOpacity>
                                                     </View>
                                                 )}
@@ -1221,9 +1366,45 @@ const DoctorPatientDetails = () => {
 
                                         <View style={styles.sessionField}>
                                             {!isLocked && (
-                                                <TouchableOpacity style={styles.prescribeBtn} onPress={() => setShowPrescribeModal(true)}>
-                                                    <Text style={styles.prescribeBtnText}>💊 / 🧪 Prescribe Medicines & Lab Tests</Text>
-                                                </TouchableOpacity>
+                                                <>
+                                                    <TouchableOpacity 
+                                                        style={styles.prescribeBtn} 
+                                                        onPress={() => setShowPrescribeModal(true)}
+                                                        activeOpacity={0.8}
+                                                    >
+                                                        <Text style={styles.prescribeBtnText}>💊 / 🧪 Prescribe Medicines & Lab Tests</Text>
+                                                    </TouchableOpacity>
+
+                                                    <TouchableOpacity
+                                                        style={styles.ipdOrdersQuickBtn}
+                                                        onPress={() => setActiveTab('ipd_orders')}
+                                                        activeOpacity={0.8}
+                                                    >
+                                                        <Text style={styles.ipdOrdersQuickBtnText}>🏥 Hospitalization & IPD Orders</Text>
+                                                    </TouchableOpacity>
+                                                </>
+                                            )}
+
+                                            {((sessionData.medicines || []).filter(m => m.medicineName?.trim() && !isDocumentFileName(m.medicineName)).length > 0 || sessionData.labTests || (isLocked && (appointment?.pharmacy || []).filter(isValidMedicineRecord).length > 0)) && (
+                                                <View style={styles.includedSummaryBox}>
+                                                    {((sessionData.medicines || []).filter(m => m.medicineName?.trim() && !isDocumentFileName(m.medicineName)).length > 0 || (isLocked && (appointment?.pharmacy || []).filter(isValidMedicineRecord).length > 0)) && (
+                                                        <Text style={styles.includedSummaryTitle}>
+                                                            ✅ Medicines included ({(sessionData.medicines || []).filter(m => m.medicineName?.trim() && !isDocumentFileName(m.medicineName)).length || (appointment?.pharmacy || []).filter(isValidMedicineRecord).length || 0})
+                                                        </Text>
+                                                    )}
+                                                    {(sessionData.labTests || (isLocked && (appointment?.labTests?.length > 0))) && (
+                                                        <Text style={styles.includedSummaryTitle}>
+                                                            ✅ Lab Tests included
+                                                        </Text>
+                                                    )}
+                                                    {!isLocked ? (
+                                                        <TouchableOpacity onPress={() => setShowPrescribeModal(true)}>
+                                                            <Text style={styles.includedSummaryLink}>Click above button to view/edit details.</Text>
+                                                        </TouchableOpacity>
+                                                    ) : (
+                                                        <Text style={styles.includedSummaryHint}>Check the Consultation Report (PDF) for full history.</Text>
+                                                    )}
+                                                </View>
                                             )}
                                         </View>
                                     </ScrollView>
@@ -1249,15 +1430,6 @@ const DoctorPatientDetails = () => {
                                                 >
                                                     <Text style={styles.btnReprintText}>📄 Reprint Prescription</Text>
                                                 </TouchableOpacity>
-                                                <TouchableOpacity
-                                                    style={[styles.btnReprint, { borderColor: '#93c5fd', backgroundColor: '#eff6ff' }]}
-                                                    onPress={() => {
-                                                        setPrescriptionMode('cumulative');
-                                                        setShowPrescriptionModal(true);
-                                                    }}
-                                                >
-                                                    <Text style={[styles.btnReprintText, { color: '#1d4ed8' }]}>📜 Cumulative Record</Text>
-                                                </TouchableOpacity>
                                                 <TouchableOpacity style={[styles.btnFinish, { backgroundColor: '#64748b' }]} onPress={() => navigation.navigate('DoctorPatients')}>
                                                     <Text style={styles.btnFinishText}>← Back to Queue</Text>
                                                 </TouchableOpacity>
@@ -1271,111 +1443,375 @@ const DoctorPatientDetails = () => {
                 </View>
             </ScrollView>
 
-            {/* PRESCRIBE MODAL */}
-            <Modal visible={showPrescribeModal} animationType="slide" transparent={true}>
+            {/* PRESCRIBE MEDICINES & LAB TESTS MODAL (1:1 Web Source Parity) */}
+            <Modal visible={showPrescribeModal} animationType="fade" transparent={true}>
                 <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
+                    <View style={styles.modalContentLarge}>
                         <View style={styles.modalHeader}>
                             <Text style={styles.modalTitle}>⚕️ Prescribe Medicines & Lab Tests</Text>
-                            <TouchableOpacity onPress={() => setShowPrescribeModal(false)} style={styles.modalCloseBtn}><Text style={styles.modalCloseText}>✕</Text></TouchableOpacity>
+                            <TouchableOpacity onPress={() => setShowPrescribeModal(false)} style={styles.modalCloseBtn}>
+                                <Text style={styles.modalCloseText}>✕</Text>
+                            </TouchableOpacity>
                         </View>
                         <ScrollView style={styles.modalBody}>
                             
-                            {/* Medicine Details - Simplified for Mobile layout */}
+                            {/* Medicines Section */}
                             <Text style={styles.modalSectionTitle}>💊 Medicines Prescribed</Text>
-                            <TextInput style={styles.input} placeholder="Search medicine..." value={medSearch} onChangeText={text => setMedSearch(text)} />
                             
-                            {medSearch.length > 0 && (
+                            {/* Quick search from inventory */}
+                            <Text style={styles.fieldSublabel}>Search Medicine From Inventory</Text>
+                            <TextInput 
+                                style={styles.input} 
+                                placeholder="Search medicine by name..." 
+                                placeholderTextColor="#94a3b8"
+                                value={medSearch} 
+                                onChangeText={setMedSearch} 
+                            />
+                            
+                            {medSearch.trim().length > 0 && (
                                 <View style={styles.searchList}>
-                                    {catalogMedicines.filter(m => m.name.toLowerCase().includes(medSearch.toLowerCase())).map(med => (
-                                        <TouchableOpacity key={med._id} style={styles.searchItem} onPress={() => {
-                                            setSessionData(prev => ({ ...prev, medicines: [...prev.medicines, { medicineName: med.name, saltName: '', dose: '', days: '7' }] }));
-                                            setMedSearch('');
-                                        }}>
-                                            <Text style={styles.searchItemTitle}>{med.name}</Text>
-                                            <Text style={styles.searchItemSub}>{med.genericName || 'Inventory'}</Text>
-                                        </TouchableOpacity>
-                                    ))}
+                                    {catalogMedicines
+                                        .filter(m => m?.name && !isDocumentFileName(m.name) && m.name.toLowerCase().includes(medSearch.toLowerCase()))
+                                        .map(med => {
+                                            const exists = sessionData.medicines.some(m => m.medicineName === med.name);
+                                            return (
+                                                <TouchableOpacity 
+                                                    key={med._id || med.name} 
+                                                    style={styles.searchItem} 
+                                                    onPress={() => {
+                                                        if (!exists) {
+                                                            setSessionData(prev => ({ 
+                                                                ...prev, 
+                                                                medicines: [...prev.medicines, { medicineName: med.name, saltName: '', dose: '', days: '7' }] 
+                                                            }));
+                                                        }
+                                                        setMedSearch('');
+                                                    }}
+                                                >
+                                                    <Text style={styles.searchItemTitle}>{med.name}</Text>
+                                                    <Text style={styles.searchItemSub}>{med.genericName || 'Inventory'}</Text>
+                                                </TouchableOpacity>
+                                            );
+                                        })}
+                                    {catalogMedicines.filter(m => m?.name && !isDocumentFileName(m.name) && m.name.toLowerCase().includes(medSearch.toLowerCase())).length === 0 && (
+                                        <View style={{ padding: 12, alignItems: 'center' }}>
+                                            <Text style={{ color: '#94a3b8', fontSize: 13 }}>No medicines found.</Text>
+                                        </View>
+                                    )}
                                 </View>
                             )}
 
-                            {sessionData.medicines.map((med, idx) => (
-                                <View key={idx} style={styles.medicineRow}>
-                                    <View style={styles.medHeaderRow}>
-                                        <TextInput style={[styles.input, {flex: 1}]} value={med.medicineName} placeholder="Medicine Name" onChangeText={text => {
-                                            const m = [...sessionData.medicines]; m[idx].medicineName = text; setSessionData(prev => ({ ...prev, medicines: m }));
-                                        }} />
-                                        <TouchableOpacity style={styles.medDelete} onPress={() => setSessionData(prev => ({ ...prev, medicines: prev.medicines.filter((_, i) => i !== idx) }))}><Text style={styles.medDeleteText}>✕</Text></TouchableOpacity>
+                            {/* Structured Medicine Table (Web 1:1 Layout) */}
+                            <View style={styles.webTableWrapper}>
+                                <ScrollView horizontal showsHorizontalScrollIndicator={true} nestedScrollEnabled={true}>
+                                    <View style={styles.webTableContent}>
+                                        {/* Table Header */}
+                                        <View style={styles.tableHeaderRow}>
+                                            <Text style={[styles.tableHeaderCell, { width: 220 }]}>Medicine Name</Text>
+                                            <Text style={[styles.tableHeaderCell, { width: 170 }]}>Dose / Frequency</Text>
+                                            <Text style={[styles.tableHeaderCell, { width: 190 }]}>Food / Timing Instructions</Text>
+                                            <Text style={[styles.tableHeaderCell, { width: 70, textAlign: 'center' }]}>Days</Text>
+                                            <Text style={[styles.tableHeaderCell, { width: 40, textAlign: 'center' }]}></Text>
+                                        </View>
+
+                                        {/* Table Body Rows */}
+                                        {sessionData.medicines.map((med, idx) => (
+                                            <View key={idx} style={[styles.tableBodyRow, { backgroundColor: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }]}>
+                                                <View style={{ width: 220, paddingRight: 8 }}>
+                                                    <TextInput 
+                                                        style={styles.tableInput} 
+                                                        value={med.medicineName} 
+                                                        placeholder="Paracetamol 500mg"
+                                                        placeholderTextColor="#94a3b8"
+                                                        onChangeText={text => {
+                                                            const m = [...sessionData.medicines];
+                                                            m[idx] = { ...m[idx], medicineName: text };
+                                                            setSessionData(prev => ({ ...prev, medicines: m }));
+                                                        }} 
+                                                    />
+                                                </View>
+
+                                                <View style={{ width: 170, paddingRight: 8 }}>
+                                                    <View style={styles.tablePickerBox}>
+                                                        <Picker 
+                                                            selectedValue={med.dose} 
+                                                            onValueChange={val => {
+                                                                const m = [...sessionData.medicines];
+                                                                m[idx] = { ...m[idx], dose: val };
+                                                                setSessionData(prev => ({ ...prev, medicines: m }));
+                                                            }}
+                                                            style={styles.tablePicker}
+                                                        >
+                                                            <Picker.Item label="-- Select Dose --" value="" />
+                                                            {doseOptions.map(opt => <Picker.Item key={opt} label={opt} value={opt} />)}
+                                                        </Picker>
+                                                    </View>
+                                                </View>
+
+                                                <View style={{ width: 190, paddingRight: 8 }}>
+                                                    <View style={styles.tablePickerBox}>
+                                                        <Picker 
+                                                            selectedValue={med.saltName} 
+                                                            onValueChange={val => {
+                                                                const m = [...sessionData.medicines];
+                                                                m[idx] = { ...m[idx], saltName: val };
+                                                                setSessionData(prev => ({ ...prev, medicines: m }));
+                                                            }}
+                                                            style={styles.tablePicker}
+                                                        >
+                                                            <Picker.Item label="-- Select Timing --" value="" />
+                                                            {timingOptions.map(opt => <Picker.Item key={opt} label={opt} value={opt} />)}
+                                                        </Picker>
+                                                    </View>
+                                                </View>
+
+                                                <View style={{ width: 70, paddingRight: 8 }}>
+                                                    <TextInput 
+                                                        style={[styles.tableInput, { textAlign: 'center' }]} 
+                                                        value={med.days} 
+                                                        placeholder="e.g. 7"
+                                                        placeholderTextColor="#94a3b8"
+                                                        keyboardType="numeric"
+                                                        onChangeText={text => {
+                                                            const m = [...sessionData.medicines];
+                                                            m[idx] = { ...m[idx], days: text };
+                                                            setSessionData(prev => ({ ...prev, medicines: m }));
+                                                        }} 
+                                                    />
+                                                </View>
+
+                                                <View style={{ width: 40, alignItems: 'center', justifyContent: 'center' }}>
+                                                    <TouchableOpacity 
+                                                        style={styles.tableDeleteBtn} 
+                                                        onPress={() => setSessionData(prev => ({ ...prev, medicines: prev.medicines.filter((_, i) => i !== idx) }))}
+                                                    >
+                                                        <Text style={styles.tableDeleteBtnText}>✕</Text>
+                                                    </TouchableOpacity>
+                                                </View>
+                                            </View>
+                                        ))}
+
+                                        {sessionData.medicines.length === 0 && (
+                                            <View style={styles.emptyMedTableRow}>
+                                                <Text style={styles.emptyMedText}>No medicines added yet. Use quick-add above or click "+ Add Row".</Text>
+                                            </View>
+                                        )}
                                     </View>
-                                    <View style={styles.pickerContainer}>
-                                        <Picker selectedValue={med.dose} onValueChange={val => {
-                                            const m = [...sessionData.medicines]; m[idx].dose = val; setSessionData(prev => ({ ...prev, medicines: m }));
-                                        }}>
-                                            <Picker.Item label="-- Dose --" value="" />
-                                            {doseOptions.map(opt => <Picker.Item key={opt} label={opt} value={opt} />)}
-                                        </Picker>
-                                    </View>
-                                    <View style={styles.pickerContainer}>
-                                        <Picker selectedValue={med.saltName} onValueChange={val => {
-                                            const m = [...sessionData.medicines]; m[idx].saltName = val; setSessionData(prev => ({ ...prev, medicines: m }));
-                                        }}>
-                                            <Picker.Item label="-- Timing --" value="" />
-                                            {timingOptions.map(opt => <Picker.Item key={opt} label={opt} value={opt} />)}
-                                        </Picker>
-                                    </View>
-                                    <TextInput style={styles.input} value={med.days} placeholder="Days (e.g. 7)" onChangeText={text => {
-                                        const m = [...sessionData.medicines]; m[idx].days = text; setSessionData(prev => ({ ...prev, medicines: m }));
-                                    }} />
-                                </View>
-                            ))}
-                            <TouchableOpacity style={styles.addMedBtn} onPress={() => setSessionData(prev => ({ ...prev, medicines: [...prev.medicines, { medicineName: '', saltName: '', dose: '', days: '' }] }))}>
-                                <Text style={styles.addMedBtnText}>+ Add Medicine</Text>
+                                </ScrollView>
+                            </View>
+
+                            <TouchableOpacity 
+                                style={styles.addMedBtn} 
+                                onPress={() => setSessionData(prev => ({ 
+                                    ...prev, 
+                                    medicines: [...prev.medicines, { medicineName: '', saltName: '', dose: '', days: '' }] 
+                                }))}
+                            >
+                                <Text style={styles.addMedBtnText}>+ Add Row</Text>
                             </TouchableOpacity>
 
                             <View style={styles.divider} />
 
-                            <Text style={styles.modalSectionTitle}>🧪 Lab Tests Ordered</Text>
-                            <TextInput style={styles.input} placeholder="Comma separated tests..." value={sessionData.labTests} onChangeText={text => setSessionData(prev => ({ ...prev, labTests: text }))} />
+                            {/* Lab Tests Section */}
+                            <Text style={styles.modalSectionTitle}>🧪 Select Lab Tests</Text>
+                            <View style={styles.labGrid}>
+                                {catalogTests.length > 0 ? (
+                                    catalogTests.filter(t => t.isActive !== false).map(test => {
+                                        const currentList = sessionData.labTests ? sessionData.labTests.split(',').map(s => s.trim()) : [];
+                                        const isChecked = currentList.includes(test.name);
+                                        return (
+                                            <TouchableOpacity
+                                                key={test._id || test.name}
+                                                style={[styles.labTestCard, isChecked && styles.labTestCardActive]}
+                                                onPress={() => {
+                                                    let list = sessionData.labTests ? sessionData.labTests.split(',').map(s => s.trim()).filter(Boolean) : [];
+                                                    if (isChecked) {
+                                                        list = list.filter(t => t !== test.name);
+                                                    } else {
+                                                        list.push(test.name);
+                                                    }
+                                                    setSessionData(prev => ({ ...prev, labTests: list.join(', ') }));
+                                                }}
+                                            >
+                                                <View style={[styles.labCheckCircle, isChecked && styles.labCheckCircleActive]}>
+                                                    {isChecked && <Text style={styles.labCheckmark}>✓</Text>}
+                                                </View>
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={[styles.labTestNameText, isChecked && { color: '#1d4ed8' }]}>{test.name}</Text>
+                                                    {test.category ? <Text style={styles.labTestCatText}>{test.category}</Text> : null}
+                                                </View>
+                                            </TouchableOpacity>
+                                        );
+                                    })
+                                ) : (
+                                    <Text style={{ color: '#94a3b8', fontSize: 13, padding: 12 }}>No lab tests defined by Super Admin.</Text>
+                                )}
+                            </View>
+
+                            <Text style={[styles.fieldSublabel, { marginTop: 14 }]}>Edit Final Lab Tests (Comma separated):</Text>
+                            <TextInput 
+                                style={styles.input} 
+                                placeholder="CBC, LFT, KFT..." 
+                                placeholderTextColor="#94a3b8"
+                                value={sessionData.labTests} 
+                                onChangeText={text => setSessionData(prev => ({ ...prev, labTests: text }))} 
+                            />
                             
                         </ScrollView>
+
                         <View style={styles.modalFooter}>
+                            <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setShowPrescribeModal(false)}>
+                                <Text style={styles.modalCancelBtnText}>Close</Text>
+                            </TouchableOpacity>
                             <TouchableOpacity style={styles.modalActionBtn} onPress={() => setShowPrescribeModal(false)}>
-                                <Text style={styles.modalActionBtnText}>Save & Close</Text>
+                                <Text style={styles.modalActionBtnText}>Save Selections & Resume Note</Text>
                             </TouchableOpacity>
                         </View>
                     </View>
                 </View>
             </Modal>
 
-            {/* SURGERY PLAN MODAL */}
-            <Modal visible={showSurgeryPlanModal} animationType="slide" transparent={true}>
+            {/* SURGERY PLAN MODAL (Web 1:1 Parity) */}
+            <Modal visible={showSurgeryPlanModal} animationType="fade" transparent={true}>
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
                         <View style={styles.modalHeader}>
                             <Text style={styles.modalTitle}>🔪 Create Surgery Plan</Text>
-                            <TouchableOpacity onPress={() => setShowSurgeryPlanModal(false)} style={styles.modalCloseBtn}><Text style={styles.modalCloseText}>✕</Text></TouchableOpacity>
+                            <TouchableOpacity onPress={() => setShowSurgeryPlanModal(false)} style={styles.modalCloseBtn}>
+                                <Text style={styles.modalCloseText}>✕</Text>
+                            </TouchableOpacity>
                         </View>
                         <ScrollView style={styles.modalBody}>
+                            <View style={styles.patientSummaryCard}>
+                                <Text style={styles.patientSummaryText}>
+                                    <Text style={{ fontWeight: 'bold' }}>Patient: </Text>{intakeData?.name || appointment?.userId?.name || appointment?.patientId || 'N/A'}
+                                </Text>
+                                <Text style={styles.patientSummaryText}>
+                                    <Text style={{ fontWeight: 'bold' }}>MRN / Age / Gender: </Text>{intakeData?.patientUid || appointment?.userId?.patientId || '-'} / {intakeData?.age || '-'} / {intakeData?.gender || '-'}
+                                </Text>
+                            </View>
+
+                            {surgeryPlanData.referralId ? (
+                                <View style={styles.referredCaseBadge}>
+                                    <Text style={styles.referredCaseBadgeText}>🔄 Referred Surgery Case (Referral linked to this Surgery Plan)</Text>
+                                </View>
+                            ) : null}
+
                             <View style={styles.sessionField}>
                                 <Text style={styles.fieldLabel}>Surgery / Procedure *</Text>
-                                <TextInput style={styles.input} value={surgeryPlanData.surgery} onChangeText={text => setSurgeryPlanData(prev => ({...prev, surgery: text}))} />
+                                <TextInput 
+                                    style={styles.input} 
+                                    placeholder="e.g. Laparoscopic Appendectomy" 
+                                    placeholderTextColor="#94a3b8"
+                                    value={surgeryPlanData.surgery} 
+                                    onChangeText={text => setSurgeryPlanData(prev => ({...prev, surgery: text}))} 
+                                />
                             </View>
+
                             <View style={styles.sessionField}>
                                 <Text style={styles.fieldLabel}>Diagnosis / Reason</Text>
-                                <TextInput style={styles.input} value={surgeryPlanData.diagnosis} onChangeText={text => setSurgeryPlanData(prev => ({...prev, diagnosis: text}))} />
+                                <TextInput 
+                                    style={styles.input} 
+                                    placeholder="Diagnosis or indication"
+                                    placeholderTextColor="#94a3b8"
+                                    value={surgeryPlanData.diagnosis} 
+                                    onChangeText={text => setSurgeryPlanData(prev => ({...prev, diagnosis: text}))} 
+                                />
                             </View>
+
                             <View style={styles.sessionField}>
                                 <Text style={styles.fieldLabel}>Surgeon *</Text>
                                 <View style={styles.pickerContainer}>
-                                    <Picker selectedValue={surgeryPlanData.surgeonId} onValueChange={val => setSurgeryPlanData(prev => ({...prev, surgeonId: val}))}>
+                                    <Picker 
+                                        selectedValue={surgeryPlanData.surgeonId} 
+                                        onValueChange={val => setSurgeryPlanData(prev => ({...prev, surgeonId: val}))}
+                                    >
                                         <Picker.Item label="-- Select Surgeon --" value="" />
-                                        {surgeonsList.map(s => <Picker.Item key={s._id} label={`Dr. ${s.name}`} value={s._id || s.userId} />)}
+                                        {surgeonsList.map(s => {
+                                            const sId = s.userId?._id || s.userId || s._id;
+                                            const docName = s.name || s.userId?.name || 'Doctor';
+                                            return (
+                                                <Picker.Item key={s._id || sId} label={`Dr. ${docName.replace(/^Dr\.?\s*/i, '')} ${s.specialty ? `(${s.specialty})` : ''}`} value={sId} />
+                                            );
+                                        })}
                                     </Picker>
                                 </View>
                             </View>
+
+                            <View style={styles.formRow}>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.fieldLabel}>Preferred Date *</Text>
+                                    <TextInput 
+                                        style={styles.input} 
+                                        placeholder="YYYY-MM-DD" 
+                                        placeholderTextColor="#94a3b8"
+                                        value={surgeryPlanData.preferredDate} 
+                                        onChangeText={text => setSurgeryPlanData(prev => ({...prev, preferredDate: text}))} 
+                                    />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.fieldLabel}>Preferred Time *</Text>
+                                    <TextInput 
+                                        style={styles.input} 
+                                        placeholder="HH:MM (e.g. 09:30)" 
+                                        placeholderTextColor="#94a3b8"
+                                        value={surgeryPlanData.preferredTime} 
+                                        onChangeText={text => setSurgeryPlanData(prev => ({...prev, preferredTime: text}))} 
+                                    />
+                                </View>
+                            </View>
+
+                            <TouchableOpacity 
+                                style={styles.checkboxRow} 
+                                onPress={() => setSurgeryPlanData(prev => ({...prev, admissionRequired: !prev.admissionRequired}))}
+                            >
+                                <View style={[styles.checkboxBox, surgeryPlanData.admissionRequired && styles.checkboxBoxActive]}>
+                                    {surgeryPlanData.admissionRequired && <Text style={styles.checkboxCheck}>✓</Text>}
+                                </View>
+                                <Text style={styles.checkboxLabel}>Admission Required</Text>
+                            </TouchableOpacity>
+
+                            {surgeryPlanData.admissionRequired && (
+                                <View style={styles.sessionField}>
+                                    <Text style={styles.fieldLabel}>Admission Date *</Text>
+                                    <TextInput 
+                                        style={styles.input} 
+                                        placeholder="YYYY-MM-DD" 
+                                        placeholderTextColor="#94a3b8"
+                                        value={surgeryPlanData.admissionDate} 
+                                        onChangeText={text => setSurgeryPlanData(prev => ({...prev, admissionDate: text}))} 
+                                    />
+                                </View>
+                            )}
+
+                            <TouchableOpacity 
+                                style={styles.checkboxRow} 
+                                onPress={() => setSurgeryPlanData(prev => ({...prev, preOpRequired: !prev.preOpRequired}))}
+                            >
+                                <View style={[styles.checkboxBox, surgeryPlanData.preOpRequired && styles.checkboxBoxActive]}>
+                                    {surgeryPlanData.preOpRequired && <Text style={styles.checkboxCheck}>✓</Text>}
+                                </View>
+                                <Text style={styles.checkboxLabel}>Pre-Operative Preparation Required</Text>
+                            </TouchableOpacity>
+
+                            <View style={styles.sessionField}>
+                                <Text style={styles.fieldLabel}>Notes</Text>
+                                <TextInput 
+                                    style={[styles.input, { minHeight: 70, textAlignVertical: 'top' }]} 
+                                    placeholder="Any specific requirements..." 
+                                    placeholderTextColor="#94a3b8"
+                                    multiline 
+                                    value={surgeryPlanData.notes} 
+                                    onChangeText={text => setSurgeryPlanData(prev => ({...prev, notes: text}))} 
+                                />
+                            </View>
                         </ScrollView>
+
                         <View style={styles.modalFooter}>
-                            <TouchableOpacity style={styles.modalActionBtn} onPress={handleCreateSurgeryPlan}>
+                            <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setShowSurgeryPlanModal(false)}>
+                                <Text style={styles.modalCancelBtnText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.modalActionBtn, { backgroundColor: '#10b981' }]} onPress={handleCreateSurgeryPlan}>
                                 <Text style={styles.modalActionBtnText}>Save Surgery Plan</Text>
                             </TouchableOpacity>
                         </View>
@@ -1383,31 +1819,81 @@ const DoctorPatientDetails = () => {
                 </View>
             </Modal>
 
-            {/* REFERRAL MODAL */}
-            <Modal visible={showReferralModal} animationType="slide" transparent={true}>
+            {/* REFERRAL MODAL (Web 1:1 Parity) */}
+            <Modal visible={showReferralModal} animationType="fade" transparent={true}>
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
                         <View style={styles.modalHeader}>
                             <Text style={styles.modalTitle}>🔄 Refer for Surgery</Text>
-                            <TouchableOpacity onPress={() => setShowReferralModal(false)} style={styles.modalCloseBtn}><Text style={styles.modalCloseText}>✕</Text></TouchableOpacity>
+                            <TouchableOpacity onPress={() => setShowReferralModal(false)} style={styles.modalCloseBtn}>
+                                <Text style={styles.modalCloseText}>✕</Text>
+                            </TouchableOpacity>
                         </View>
                         <ScrollView style={styles.modalBody}>
+                            <View style={styles.patientSummaryCard}>
+                                <Text style={styles.patientSummaryText}><Text style={{ fontWeight: 'bold' }}>Patient: </Text>{intakeData?.name || appointment?.userId?.name || 'N/A'}</Text>
+                                <Text style={styles.patientSummaryText}><Text style={{ fontWeight: 'bold' }}>MRN: </Text>{intakeData?.patientUid || appointment?.userId?.patientId || '-'}</Text>
+                            </View>
+
+                            <View style={styles.referringDoctorCard}>
+                                <Text style={styles.referringDoctorText}>
+                                    <Text style={{ fontWeight: 'bold' }}>Referring Doctor: </Text>{user?.name || 'Current Doctor'} (You)
+                                </Text>
+                            </View>
+
                             <View style={styles.sessionField}>
-                                <Text style={styles.fieldLabel}>Refer To Doctor *</Text>
+                                <Text style={styles.fieldLabel}>Refer To Doctor / Surgeon *</Text>
                                 <View style={styles.pickerContainer}>
-                                    <Picker selectedValue={referralData.referredToDoctorId} onValueChange={val => setReferralData(prev => ({...prev, referredToDoctorId: val}))}>
+                                    <Picker 
+                                        selectedValue={referralData.referredToDoctorId} 
+                                        onValueChange={val => setReferralData(prev => ({...prev, referredToDoctorId: val}))}
+                                    >
                                         <Picker.Item label="-- Select Doctor --" value="" />
-                                        {surgeonsList.filter(s => s._id !== user?._id).map(s => <Picker.Item key={s._id} label={`Dr. ${s.name}`} value={s._id || s.userId} />)}
+                                        {surgeonsList
+                                            .filter(s => {
+                                                const docUserId = (s.userId?._id || s.userId || s._id)?.toString();
+                                                const currentUserId = (user?._id || user?.id)?.toString();
+                                                return docUserId !== currentUserId;
+                                            })
+                                            .map(s => {
+                                                const sId = s.userId?._id || s.userId || s._id;
+                                                const docName = s.name || s.userId?.name || 'Doctor';
+                                                return (
+                                                    <Picker.Item key={s._id || sId} label={`Dr. ${docName.replace(/^Dr\.?\s*/i, '')} ${s.specialty ? `(${s.specialty})` : ''}`} value={sId} />
+                                                );
+                                            })}
                                     </Picker>
                                 </View>
                             </View>
+
                             <View style={styles.sessionField}>
                                 <Text style={styles.fieldLabel}>Reason for Referral *</Text>
-                                <TextInput style={styles.input} value={referralData.reason} onChangeText={text => setReferralData(prev => ({...prev, reason: text}))} />
+                                <TextInput 
+                                    style={styles.input} 
+                                    placeholder="e.g. Appendectomy required" 
+                                    placeholderTextColor="#94a3b8"
+                                    value={referralData.reason} 
+                                    onChangeText={text => setReferralData(prev => ({...prev, reason: text}))} 
+                                />
+                            </View>
+
+                            <View style={styles.sessionField}>
+                                <Text style={styles.fieldLabel}>Notes (Optional)</Text>
+                                <TextInput 
+                                    style={[styles.input, { minHeight: 65, textAlignVertical: 'top' }]} 
+                                    placeholder="Any additional information..." 
+                                    placeholderTextColor="#94a3b8"
+                                    multiline 
+                                    value={referralData.notes} 
+                                    onChangeText={text => setReferralData(prev => ({...prev, notes: text}))} 
+                                />
                             </View>
                         </ScrollView>
                         <View style={styles.modalFooter}>
-                            <TouchableOpacity style={[styles.modalActionBtn, {backgroundColor: '#8b5cf6'}]} onPress={handleCreateReferral}>
+                            <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setShowReferralModal(false)}>
+                                <Text style={styles.modalCancelBtnText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.modalActionBtn, { backgroundColor: '#8b5cf6' }]} onPress={handleCreateReferral}>
                                 <Text style={styles.modalActionBtnText}>Create Referral</Text>
                             </TouchableOpacity>
                         </View>
@@ -1415,8 +1901,69 @@ const DoctorPatientDetails = () => {
                 </View>
             </Modal>
 
+            {/* REFERRAL REVIEW MODAL (Web 1:1 Parity) */}
+            {showReferralReviewModal && activeReferralForReview && (
+                <Modal visible={showReferralReviewModal} animationType="fade" transparent={true}>
+                    <View style={styles.modalOverlay}>
+                        <View style={styles.modalContent}>
+                            <View style={styles.modalHeader}>
+                                <Text style={styles.modalTitle}>📋 Review Referral</Text>
+                                <TouchableOpacity 
+                                    onPress={() => { setShowReferralReviewModal(false); setActiveReferralForReview(null); }} 
+                                    style={styles.modalCloseBtn}
+                                >
+                                    <Text style={styles.modalCloseText}>✕</Text>
+                                </TouchableOpacity>
+                            </View>
+                            <View style={styles.modalBody}>
+                                <View style={styles.patientSummaryCard}>
+                                    <Text style={styles.patientSummaryText}><Text style={{ fontWeight: 'bold' }}>Patient: </Text>{activeReferralForReview.patientId?.name || 'N/A'}</Text>
+                                    <Text style={styles.patientSummaryText}><Text style={{ fontWeight: 'bold' }}>MRN: </Text>{activeReferralForReview.patientId?.patientId || activeReferralForReview.patientId?.mrn || '-'}</Text>
+                                </View>
+                                
+                                <View style={styles.referralReviewDetailsBox}>
+                                    <Text style={styles.referralReviewDetailItem}><Text style={{ fontWeight: 'bold' }}>Referred By: </Text>{activeReferralForReview.referringDoctorId?.name || 'N/A'}</Text>
+                                    <Text style={styles.referralReviewDetailItem}><Text style={{ fontWeight: 'bold' }}>Reason: </Text>{activeReferralForReview.reason}</Text>
+                                    {activeReferralForReview.notes && <Text style={styles.referralReviewDetailItem}><Text style={{ fontWeight: 'bold' }}>Notes: </Text>{activeReferralForReview.notes}</Text>}
+                                    <Text style={styles.referralReviewDetailItem}><Text style={{ fontWeight: 'bold' }}>Date: </Text>{new Date(activeReferralForReview.referralDate).toLocaleDateString()}</Text>
+                                </View>
+
+                                <Text style={[styles.fieldLabel, { fontSize: 15, color: '#1e293b', marginTop: 14 }]}>Surgery Required?</Text>
+                                <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
+                                    <TouchableOpacity
+                                        style={[styles.modalActionBtn, { flex: 1, backgroundColor: '#fee2e2', borderWidth: 2, borderColor: '#fecaca' }]}
+                                        onPress={() => handleReviewReferral(activeReferralForReview._id, 'NOT_REQUIRED', 'Surgery not required after evaluation')}
+                                    >
+                                        <Text style={{ color: '#991b1b', fontWeight: 'bold', fontSize: 13 }}>❌ No — Not Required</Text>
+                                    </TouchableOpacity>
+                                    
+                                    <TouchableOpacity
+                                        style={[styles.modalActionBtn, { flex: 1, backgroundColor: '#dcfce7', borderWidth: 2, borderColor: '#bbf7d0' }]}
+                                        onPress={() => {
+                                            handleReviewReferral(activeReferralForReview._id, 'ACCEPTED', 'Surgery confirmed after evaluation').then(() => {
+                                                setSurgeryPlanData(prev => ({
+                                                    ...prev,
+                                                    surgery: activeReferralForReview.reason || prev.surgery || '',
+                                                    diagnosis: activeReferralForReview.reason || '',
+                                                    surgeonId: user?._id || '',
+                                                    referralId: activeReferralForReview._id,
+                                                    referringDoctorId: activeReferralForReview.referringDoctorId?._id || ''
+                                                }));
+                                                setShowSurgeryPlanModal(true);
+                                            });
+                                        }}
+                                    >
+                                        <Text style={{ color: '#166534', fontWeight: 'bold', fontSize: 13 }}>✅ Yes — Create Surgery Plan</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        </View>
+                    </View>
+                </Modal>
+            )}
+
             {/* PRESCRIPTION PREVIEW & PRINT MODAL */}
-            <Modal visible={showPrescriptionModal} animationType="slide" transparent={true}>
+            <Modal visible={showPrescriptionModal} animationType="fade" transparent={true}>
                 <View style={styles.pdfModalOverlay}>
                     <View style={styles.pdfModalContent}>
                         <View style={styles.pdfHeader}>
@@ -1425,25 +1972,6 @@ const DoctorPatientDetails = () => {
                             </Text>
                             <TouchableOpacity onPress={() => setShowPrescriptionModal(false)} style={styles.modalCloseBtn}>
                                 <Text style={styles.modalCloseText}>✕</Text>
-                            </TouchableOpacity>
-                        </View>
-
-                        <View style={styles.pdfToggleBar}>
-                            <TouchableOpacity
-                                style={[styles.pdfToggleBtn, prescriptionMode === 'slip' && styles.pdfToggleBtnActive]}
-                                onPress={() => setPrescriptionMode('slip')}
-                            >
-                                <Text style={[styles.pdfToggleText, prescriptionMode === 'slip' && styles.pdfToggleTextActive]}>
-                                    Prescription Slip
-                                </Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[styles.pdfToggleBtn, prescriptionMode === 'cumulative' && styles.pdfToggleBtnActive]}
-                                onPress={() => setPrescriptionMode('cumulative')}
-                            >
-                                <Text style={[styles.pdfToggleText, prescriptionMode === 'cumulative' && styles.pdfToggleTextActive]}>
-                                    Cumulative Record
-                                </Text>
                             </TouchableOpacity>
                         </View>
 
@@ -1478,66 +2006,46 @@ const DoctorPatientDetails = () => {
                                     <Text style={[styles.pdfInfoVal, { fontWeight: 'bold' }]}>{sessionData.diagnosis || appointment?.diagnosis || '-'}</Text>
                                 </View>
 
-                                {prescriptionMode === 'slip' ? (
-                                    <>
-                                        <Text style={styles.pdfSectionHead}>💊 Prescribed Medicines</Text>
-                                        {(sessionData.medicines || []).filter(m => m.medicineName?.trim()).length > 0 ? (
-                                            (sessionData.medicines || []).filter(m => m.medicineName?.trim()).map((m, idx) => (
-                                                <View key={idx} style={styles.pdfMedItem}>
-                                                    <Text style={{ fontWeight: 'bold', color: '#0f172a' }}>{idx + 1}. {m.medicineName}</Text>
-                                                    <Text style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
-                                                        Dose: {m.dose || 'Standard'} &bull; Timing: {m.saltName || 'As directed'} &bull; Duration: {m.days ? `${m.days} days` : 'Ongoing'}
-                                                    </Text>
-                                                </View>
-                                            ))
-                                        ) : (
-                                            <Text style={{ color: '#94a3b8', fontSize: 12, marginVertical: 4 }}>No medicines prescribed.</Text>
-                                        )}
-
-                                        <Text style={styles.pdfSectionHead}>🧪 Lab Tests Ordered</Text>
-                                        {sessionData.labTests ? (
-                                            <Text style={{ color: '#0f172a', fontSize: 13, marginBottom: 8 }}>{sessionData.labTests}</Text>
-                                        ) : (
-                                            <Text style={{ color: '#94a3b8', fontSize: 12, marginVertical: 4 }}>No lab tests ordered.</Text>
-                                        )}
-
-                                        {sessionData.notes ? (
-                                            <>
-                                                <Text style={styles.pdfSectionHead}>📋 Clinical Notes</Text>
-                                                <Text style={{ color: '#334155', fontSize: 13, lineHeight: 18 }}>{sessionData.notes}</Text>
-                                            </>
-                                        ) : null}
-                                    </>
+                                <Text style={styles.pdfSectionHead}>💊 Prescribed Medicines</Text>
+                                {(sessionData.medicines || []).filter(m => m.medicineName?.trim()).length > 0 ? (
+                                    (sessionData.medicines || []).filter(m => m.medicineName?.trim()).map((m, idx) => (
+                                        <View key={idx} style={styles.pdfMedItem}>
+                                            <Text style={{ fontWeight: 'bold', color: '#0f172a' }}>{idx + 1}. {m.medicineName}</Text>
+                                            <Text style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                                                Dose: {m.dose || 'Standard'} &bull; Timing: {m.saltName || 'As directed'} &bull; Duration: {m.days ? `${m.days} days` : 'Ongoing'}
+                                            </Text>
+                                        </View>
+                                    ))
                                 ) : (
-                                    <>
-                                        <Text style={styles.pdfSectionHead}>📜 Past Visits ({history.length})</Text>
-                                        {history.length > 0 ? history.map((h, i) => (
-                                            <View key={h._id || i} style={styles.pdfMedItem}>
-                                                <Text style={{ fontWeight: 'bold', color: '#1e40af' }}>
-                                                    {new Date(h.appointmentDate || h.visitDate || h.createdAt).toLocaleDateString()} — {h.status}
-                                                </Text>
-                                                <Text style={{ fontSize: 12, color: '#334155', marginTop: 2 }}>
-                                                    Diagnosis: {h.doctorConsultation?.diagnosis?.join(', ') || h.diagnosis || 'None'}
-                                                </Text>
-                                            </View>
-                                        )) : (
-                                            <Text style={{ color: '#94a3b8', fontSize: 12, marginVertical: 4 }}>No previous visits on record.</Text>
-                                        )}
-                                    </>
+                                    <Text style={{ color: '#94a3b8', fontSize: 12, marginVertical: 4 }}>No medicines prescribed.</Text>
                                 )}
+
+                                <Text style={styles.pdfSectionHead}>🧪 Lab Tests Ordered</Text>
+                                {sessionData.labTests ? (
+                                    <Text style={{ color: '#0f172a', fontSize: 13, marginBottom: 8 }}>{sessionData.labTests}</Text>
+                                ) : (
+                                    <Text style={{ color: '#94a3b8', fontSize: 12, marginVertical: 4 }}>No lab tests ordered.</Text>
+                                )}
+
+                                {sessionData.notes ? (
+                                    <>
+                                        <Text style={styles.pdfSectionHead}>📋 Clinical Notes</Text>
+                                        <Text style={{ color: '#334155', fontSize: 13, lineHeight: 18 }}>{sessionData.notes}</Text>
+                                    </>
+                                ) : null}
                             </View>
                         </ScrollView>
 
                         <View style={styles.pdfFooterBar}>
                             <TouchableOpacity
                                 style={[styles.modalActionBtn, { backgroundColor: '#10b981', flexDirection: 'row', alignItems: 'center', gap: 6 }]}
-                                onPress={() => handlePrintPrescription(prescriptionMode === 'cumulative')}
+                                onPress={() => handlePrintPrescription(false)}
                             >
                                 <Text style={styles.modalActionBtnText}>🖨️ Print / Save PDF</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
                                 style={[styles.modalActionBtn, { backgroundColor: '#3b82f6', flexDirection: 'row', alignItems: 'center', gap: 6 }]}
-                                onPress={() => handleDownloadPrescriptionPDF(prescriptionMode === 'cumulative')}
+                                onPress={() => handleDownloadPrescriptionPDF(false)}
                             >
                                 <Text style={styles.modalActionBtnText}>📤 Export / Share</Text>
                             </TouchableOpacity>
@@ -1549,21 +2057,18 @@ const DoctorPatientDetails = () => {
     );
 };
 
-const { width } = Dimensions.get('window');
-const isTablet = width > 768;
-
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#f0f4ff' },
     containerScroll: { flex: 1 },
-    containerGrid: { flexDirection: isTablet ? 'row' : 'column', flex: 1, minHeight: '100%' },
+    containerGrid: { flexDirection: 'row', flex: 1, minHeight: '100%' },
     containerGridJr: { flexDirection: 'column', flex: 1 },
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f0f4ff' },
     loadingText: { marginTop: 16, color: '#64748b', fontSize: 16 },
     backBtn: { marginTop: 16, padding: 12, backgroundColor: '#3b82f6', borderRadius: 8 },
     backBtnText: { color: 'white', fontWeight: 'bold' },
     
-    leftPanel: { flex: isTablet ? 0.45 : 1, borderRightWidth: isTablet ? 1 : 0, borderColor: '#e2e8f0', backgroundColor: '#f8fafc' },
-    rightPanel: { flex: isTablet ? 0.55 : 1, backgroundColor: '#ffffff' },
+    leftPanel: { flex: 0.45, borderRightWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#f8fafc' },
+    rightPanel: { flex: 0.55, backgroundColor: '#ffffff' },
     rightPanelTimeMachine: { borderLeftWidth: 4, borderColor: '#3b82f6', backgroundColor: '#f8fafc' },
     
     patientHeader: { padding: 20, backgroundColor: '#0f172a' },
@@ -1575,12 +2080,12 @@ const styles = StyleSheet.create({
     patientMeta: { flex: 1 },
     patientName: { color: '#60a5fa', fontSize: 20, fontWeight: 'bold', marginBottom: 8 },
     patientTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-    tag: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, fontSize: 11, overflow: 'hidden' },
-    tagMrn: { backgroundColor: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa' },
-    tagPhone: { backgroundColor: 'rgba(16, 185, 129, 0.15)', color: '#34d399' },
-    tagAge: { backgroundColor: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24' },
-    tagGender: { backgroundColor: 'rgba(236, 72, 153, 0.15)', color: '#f472b6' },
-    tagBlood: { backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#f87171' },
+    tag: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, overflow: 'hidden' },
+    tagMrn: { backgroundColor: 'rgba(59, 130, 246, 0.15)' }, tagMrnText: { color: '#60a5fa', fontSize: 11, fontWeight: '600' },
+    tagPhone: { backgroundColor: 'rgba(16, 185, 129, 0.15)' }, tagPhoneText: { color: '#34d399', fontSize: 11, fontWeight: '600' },
+    tagAge: { backgroundColor: 'rgba(245, 158, 11, 0.15)' }, tagAgeText: { color: '#fbbf24', fontSize: 11, fontWeight: '600' },
+    tagGender: { backgroundColor: 'rgba(236, 72, 153, 0.15)' }, tagGenderText: { color: '#f472b6', fontSize: 11, fontWeight: '600' },
+    tagBlood: { backgroundColor: 'rgba(239, 68, 68, 0.15)' }, tagBloodText: { color: '#f87171', fontSize: 11, fontWeight: '600' },
     
     apptInfo: { flexDirection: 'row', flexWrap: 'wrap', backgroundColor: '#f0f4ff', padding: 12, borderRadius: 12, gap: 10 },
     apptItem: { width: '48%', marginBottom: 6 },
@@ -1593,125 +2098,194 @@ const styles = StyleSheet.create({
     status_cancelled: { backgroundColor: 'rgba(239,68,68,0.2)' }, statusText_cancelled: { color: '#dc2626' },
     status_pending: { backgroundColor: 'rgba(245,158,11,0.2)' }, statusText_pending: { color: '#b45309' },
 
-    tabsContainer: { backgroundColor: 'white', borderBottomWidth: 1, borderColor: '#e2e8f0', flexGrow: 0 },
-    tabsNav: { padding: 12, flexDirection: 'row', gap: 6 },
-    tabBtn: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, backgroundColor: '#f1f5f9', borderRadius: 8, marginRight: 8 },
+    openAiBtn: {
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        borderRadius: 8,
+        backgroundColor: '#6366f1',
+        alignItems: 'center',
+        justifyContent: 'center',
+        elevation: 2,
+        shadowColor: '#4f46e5',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 6,
+    },
+    openAiBtnText: { color: '#ffffff', fontWeight: '700', fontSize: 12.5 },
+
+    tabsContainerWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ffffff', borderBottomWidth: 1, borderColor: '#e2e8f0' },
+    tabScrollBtn: { paddingHorizontal: 10, paddingVertical: 10, justifyContent: 'center', alignItems: 'center' },
+    tabScrollBtnText: { fontSize: 18, color: '#64748b', fontWeight: 'bold' },
+    tabsContainer: { flex: 1 },
+    tabsNav: { paddingVertical: 10, paddingHorizontal: 8, flexDirection: 'row', gap: 6 },
+    tabBtn: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#f1f5f9', borderRadius: 8, marginRight: 6 },
     tabBtnActive: { backgroundColor: '#3b82f6' },
-    tabIcon: { marginRight: 6, fontSize: 14 },
-    tabLabel: { fontSize: 13, color: '#64748b', fontWeight: '600' },
-    tabLabelActive: { color: 'white' },
+    tabIcon: { marginRight: 6, fontSize: 13 },
+    tabLabel: { fontSize: 12.5, color: '#64748b', fontWeight: '600' },
+    tabLabelActive: { color: '#ffffff', fontWeight: '700' },
 
-    tabContent: { padding: 20 },
+    tabContent: { padding: 18 },
     tabPanel: { flex: 1 },
-    panelTitle: { fontSize: 18, fontWeight: 'bold', color: '#0f172a', borderBottomWidth: 2, borderColor: '#e2e8f0', paddingBottom: 8, marginBottom: 20 },
-    overviewGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
-    ovCard: { width: '48%', backgroundColor: 'white', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 12, padding: 14, marginBottom: 12 },
-    ovLabel: { fontSize: 11, color: '#94a3b8', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: 4 },
-    ovValue: { fontSize: 14, color: '#1e293b', fontWeight: '600' },
+    panelTitle: { fontSize: 17, fontWeight: 'bold', color: '#0f172a', borderBottomWidth: 2, borderColor: '#e2e8f0', paddingBottom: 8, marginBottom: 16 },
+    overviewGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10 },
+    ovCard: { width: '48%', backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 12, padding: 12 },
+    ovLabel: { fontSize: 10.5, color: '#94a3b8', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: 3 },
+    ovValue: { fontSize: 13.5, color: '#1e293b', fontWeight: '600' },
 
-    emptyHist: { padding: 40, alignItems: 'center', borderWidth: 2, borderColor: '#e2e8f0', borderStyle: 'dashed', borderRadius: 14 },
-    emptyHistText: { color: '#94a3b8' },
+    partnerQuick: { marginTop: 18, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
+    partnerTitle: { fontSize: 15, fontWeight: '700', color: '#0f172a', marginBottom: 12 },
+
+    emptyHist: { padding: 30, alignItems: 'center', borderWidth: 2, borderColor: '#e2e8f0', borderStyle: 'dashed', borderRadius: 14 },
+    emptyHistText: { color: '#94a3b8', fontSize: 13 },
     historyList: { gap: 12 },
-    historyCard: { backgroundColor: 'white', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 14, padding: 16, marginBottom: 12 },
+    historyCard: { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 14, padding: 14, marginBottom: 10 },
     historyCardCurrent: { borderColor: '#3b82f6', borderWidth: 2, backgroundColor: '#eff6ff' },
     historyCardViewing: { borderColor: '#3b82f6', borderWidth: 2 },
-    histTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
-    histDate: { fontWeight: 'bold', color: '#1e40af', fontSize: 14 },
-    histDiagnosis: { fontSize: 14, color: '#334155', marginBottom: 6 },
-    currentBadge: { backgroundColor: '#3b82f6', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, alignSelf: 'flex-start', marginTop: 8 },
-    currentBadgeText: { color: 'white', fontSize: 11, fontWeight: 'bold' },
-    viewingBadge: { backgroundColor: '#3b82f6', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, alignSelf: 'flex-start', marginBottom: 8 },
-    viewingBadgeText: { color: 'white', fontSize: 11, fontWeight: 'bold' },
+    histTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+    histDate: { fontWeight: 'bold', color: '#1e40af', fontSize: 13.5 },
+    histDiagnosis: { fontSize: 13, color: '#334155', marginBottom: 4 },
+    histNotesText: { fontSize: 12.5, color: '#475569', marginBottom: 4 },
+    currentBadge: { backgroundColor: '#3b82f6', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, alignSelf: 'flex-start', marginTop: 6 },
+    currentBadgeText: { color: '#ffffff', fontSize: 10.5, fontWeight: 'bold' },
+    viewingBadge: { backgroundColor: '#3b82f6', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, alignSelf: 'flex-start', marginBottom: 6 },
+    viewingBadgeText: { color: '#ffffff', fontSize: 10.5, fontWeight: 'bold' },
 
-    rightHeader: { padding: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#fafbff' },
-    rightHeaderTitle: { fontSize: 18, fontWeight: 'bold', color: '#0f172a' },
-    rightSubtitle: { fontSize: 13, color: '#94a3b8', marginTop: 4 },
-    exitTmBtn: { backgroundColor: '#3b82f6', paddingHorizontal: 14, paddingVertical: 6, borderRadius: 8 },
-    exitTmBtnText: { color: 'white', fontWeight: 'bold' },
+    saveSectionBtn: { marginTop: 16, backgroundColor: '#2563eb', padding: 12, borderRadius: 8, alignItems: 'center' },
+    saveSectionBtnText: { color: '#ffffff', fontWeight: '800', fontSize: 13 },
 
-    rightContent: { padding: 20 },
+    rightHeader: { padding: 18, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#fafbff' },
+    rightHeaderTitle: { fontSize: 17, fontWeight: 'bold', color: '#0f172a' },
+    rightSubtitle: { fontSize: 12.5, color: '#94a3b8', marginTop: 2 },
+    tmReadOnlyBadge: { backgroundColor: '#dbeafe', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 10 },
+    tmReadOnlyBadgeText: { fontSize: 11, color: '#1e40af', fontWeight: 'bold' },
+    exitTmBtn: { backgroundColor: '#3b82f6', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
+    exitTmBtnText: { color: '#ffffff', fontWeight: 'bold', fontSize: 12 },
+
+    rightContent: { padding: 18 },
     sessionField: { marginBottom: 16 },
-    fieldLabel: { fontSize: 13, fontWeight: 'bold', color: '#334155', marginBottom: 8 },
-    input: { borderWidth: 2, borderColor: '#e2e8f0', borderRadius: 10, padding: 12, fontSize: 14, color: '#1e293b', backgroundColor: 'white' },
-    diagInput: { fontWeight: 'bold', fontSize: 16, borderColor: '#bfdbfe', backgroundColor: '#eff6ff' },
-    textArea: { borderWidth: 2, borderColor: '#e2e8f0', borderRadius: 10, padding: 16, fontSize: 14, color: '#1e293b', backgroundColor: 'white', minHeight: 140 },
-    tmFieldBox: { padding: 12, backgroundColor: 'rgba(255,255,255,0.7)', borderWidth: 1, borderColor: '#cbd5e1', borderStyle: 'dashed', borderRadius: 8 },
-    tmFieldText: { color: '#334155', fontSize: 14 },
+    fieldLabel: { fontSize: 12.5, fontWeight: 'bold', color: '#334155', marginBottom: 6 },
+    fieldSublabel: { fontSize: 11.5, fontWeight: '700', color: '#64748b', marginBottom: 4 },
+    input: { borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, padding: 10, fontSize: 13, color: '#1e293b', backgroundColor: '#ffffff' },
+    diagInput: { fontWeight: '600', fontSize: 14, borderColor: '#bfdbfe', backgroundColor: '#eff6ff' },
+    textArea: { borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, padding: 12, fontSize: 13, color: '#1e293b', backgroundColor: '#ffffff', minHeight: 120 },
+    tmFieldBox: { padding: 12, backgroundColor: 'rgba(255,255,255,0.8)', borderWidth: 1, borderColor: '#cbd5e1', borderStyle: 'dashed', borderRadius: 8 },
+    tmFieldText: { color: '#334155', fontSize: 13 },
 
-    referralBanner: { backgroundColor: '#f8fafc', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 16 },
-    referralLabel: { fontWeight: 'bold', color: '#1e293b', marginBottom: 12 },
-    radioGroup: { flexDirection: 'row', gap: 16, marginBottom: 16 },
+    referralBanner: { backgroundColor: '#f8fafc', padding: 14, borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 16 },
+    incomingReferralBanner: { backgroundColor: '#fef3c7', padding: 12, borderRadius: 10, borderWidth: 2, borderColor: '#f59e0b', marginBottom: 14 },
+    incomingReferralTitle: { fontWeight: 'bold', color: '#92400e', fontSize: 13.5, marginBottom: 4 },
+    incomingReferralText: { fontSize: 12.5, color: '#78350f', marginBottom: 6 },
+    reviewReferralBtn: { alignSelf: 'flex-start', paddingHorizontal: 14, paddingVertical: 6, backgroundColor: '#f59e0b', borderRadius: 6 },
+    reviewReferralBtnText: { color: '#ffffff', fontWeight: 'bold', fontSize: 11.5 },
+    referralLabel: { fontWeight: 'bold', color: '#1e293b', marginBottom: 10, fontSize: 13 },
+    radioGroup: { flexDirection: 'row', gap: 16, marginBottom: 12 },
     radioBtn: { flexDirection: 'row', alignItems: 'center', marginRight: 16 },
-    radioOuter: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: '#cbd5e1', justifyContent: 'center', alignItems: 'center', marginRight: 8 },
+    radioOuter: { width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: '#cbd5e1', justifyContent: 'center', alignItems: 'center', marginRight: 8 },
     radioOuterActive: { borderColor: '#3b82f6' },
-    radioInner: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#3b82f6' },
-    radioText: { fontSize: 14, color: '#475569' },
-    surgeryActions: { gap: 10 },
-    surgeryBtn: { backgroundColor: '#2563eb', padding: 12, borderRadius: 8, alignItems: 'center', marginBottom: 10 },
-    surgeryBtnText: { color: 'white', fontWeight: 'bold' },
-    referralBtn: { backgroundColor: '#7c3aed', padding: 12, borderRadius: 8, alignItems: 'center' },
-    referralBtnText: { color: 'white', fontWeight: 'bold' },
+    radioInner: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#3b82f6' },
+    radioText: { fontSize: 13, color: '#475569' },
+    surgeryActions: { gap: 8, marginTop: 6 },
+    surgeryBtn: { backgroundColor: '#2563eb', padding: 11, borderRadius: 8, alignItems: 'center' },
+    surgeryBtnText: { color: '#ffffff', fontWeight: 'bold', fontSize: 13 },
+    referralBtn: { backgroundColor: '#7c3aed', padding: 11, borderRadius: 8, alignItems: 'center' },
+    referralBtnText: { color: '#ffffff', fontWeight: 'bold', fontSize: 13 },
 
-    prescribeBtn: { backgroundColor: '#4f46e5', padding: 14, borderRadius: 10, alignItems: 'center', elevation: 4 },
-    prescribeBtnText: { color: 'white', fontWeight: 'bold', fontSize: 15 },
+    prescribeBtn: { backgroundColor: '#4f46e5', padding: 13, borderRadius: 10, alignItems: 'center', elevation: 2 },
+    prescribeBtnText: { color: '#ffffff', fontWeight: 'bold', fontSize: 14 },
+    ipdOrdersQuickBtn: { backgroundColor: '#0284c7', padding: 11, borderRadius: 10, alignItems: 'center', marginTop: 8 },
+    ipdOrdersQuickBtnText: { color: '#ffffff', fontWeight: 'bold', fontSize: 13 },
+    includedSummaryBox: { padding: 12, backgroundColor: '#f8fafc', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', marginTop: 10 },
+    includedSummaryTitle: { fontSize: 12.5, fontWeight: '700', color: '#334155', marginBottom: 3 },
+    includedSummaryLink: { fontSize: 11.5, color: '#2563eb', fontWeight: '700', marginTop: 4 },
+    includedSummaryHint: { fontSize: 11, color: '#64748b', marginTop: 4, fontStyle: 'italic' },
+    
+    labGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+    labTestCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, padding: 10, minWidth: '47%', flex: 1 },
+    labTestCardActive: { backgroundColor: '#eff6ff', borderColor: '#93c5fd' },
+    labCheckCircle: { width: 18, height: 18, borderRadius: 4, borderWidth: 1.5, borderColor: '#cbd5e1', marginRight: 8, justifyContent: 'center', alignItems: 'center', backgroundColor: '#ffffff' },
+    labCheckCircleActive: { backgroundColor: '#2563eb', borderColor: '#2563eb' },
+    labCheckmark: { color: '#ffffff', fontSize: 12, fontWeight: 'bold' },
+    labTestNameText: { fontSize: 12.5, fontWeight: '700', color: '#0f172a' },
+    labTestCatText: { fontSize: 11, color: '#64748b', marginTop: 1 },
 
-    rightFooter: { padding: 16, flexDirection: 'row', gap: 12, borderTopWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#fafbff' },
-    btnSaveDraft: { padding: 14, backgroundColor: 'white', borderWidth: 2, borderColor: '#e2e8f0', borderRadius: 12, flex: 1, alignItems: 'center' },
-    btnSaveDraftText: { color: '#475569', fontWeight: 'bold' },
-    btnFinish: { padding: 14, backgroundColor: '#10b981', borderRadius: 12, flex: 1, alignItems: 'center', elevation: 2 },
-    btnFinishText: { color: 'white', fontWeight: 'bold' },
-    copyTmBtn: { padding: 14, borderWidth: 1, borderColor: '#3b82f6', borderRadius: 8, flex: 1, alignItems: 'center' },
-    copyTmBtnText: { color: '#3b82f6', fontWeight: 'bold' },
+    rightFooter: { padding: 16, flexDirection: 'row', gap: 10, borderTopWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#fafbff' },
+    btnSaveDraft: { padding: 12, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 10, flex: 1, alignItems: 'center' },
+    btnSaveDraftText: { color: '#475569', fontWeight: 'bold', fontSize: 13 },
+    btnFinish: { padding: 12, backgroundColor: '#10b981', borderRadius: 10, flex: 1, alignItems: 'center', elevation: 2 },
+    btnFinishText: { color: '#ffffff', fontWeight: 'bold', fontSize: 13 },
+    btnReprint: { padding: 12, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 10, flex: 1, alignItems: 'center' },
+    btnReprintText: { color: '#334155', fontWeight: 'bold', fontSize: 12.5 },
+    copyTmBtn: { padding: 12, borderWidth: 1, borderColor: '#3b82f6', borderRadius: 8, flex: 1, alignItems: 'center' },
+    copyTmBtnText: { color: '#3b82f6', fontWeight: 'bold', fontSize: 12.5 },
 
+    // Modals
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 16 },
-    modalContent: { backgroundColor: 'white', borderRadius: 16, width: '100%', maxWidth: 850, maxHeight: '90%', overflow: 'hidden' },
-    modalHeader: { padding: 20, borderBottomWidth: 1, borderColor: '#e2e8f0', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    modalTitle: { fontSize: 20, fontWeight: 'bold', color: '#0f172a' },
+    modalContent: { backgroundColor: '#ffffff', borderRadius: 16, width: '100%', maxWidth: 580, maxHeight: '90%', overflow: 'hidden' },
+    modalContentLarge: { backgroundColor: '#ffffff', borderRadius: 16, width: '100%', maxWidth: 850, maxHeight: '90%', overflow: 'hidden' },
+    modalHeader: { padding: 18, borderBottomWidth: 1, borderColor: '#e2e8f0', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#0f172a' },
     modalCloseBtn: { backgroundColor: '#f1f5f9', width: 32, height: 32, borderRadius: 16, justifyContent: 'center', alignItems: 'center' },
-    modalCloseText: { color: '#475569', fontWeight: 'bold' },
-    modalBody: { padding: 20 },
-    modalSectionTitle: { fontSize: 16, fontWeight: 'bold', color: '#1e293b', marginBottom: 12, marginTop: 10 },
-    searchList: { maxHeight: 150, borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, marginBottom: 16 },
-    searchItem: { padding: 10, borderBottomWidth: 1, borderColor: '#f1f5f9' },
-    searchItemTitle: { fontWeight: 'bold', color: '#1e293b' },
+    modalCloseText: { color: '#475569', fontWeight: 'bold', fontSize: 15 },
+    modalBody: { padding: 18 },
+    modalSectionTitle: { fontSize: 15, fontWeight: 'bold', color: '#1e293b', marginBottom: 10, marginTop: 6 },
+    searchList: { maxHeight: 160, borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, marginBottom: 14 },
+    searchItem: { padding: 10, borderBottomWidth: 1, borderColor: '#f1f5f9', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    searchItemTitle: { fontWeight: '600', color: '#1e293b', fontSize: 13 },
     searchItemSub: { fontSize: 11, color: '#94a3b8' },
     
-    medicineRow: { backgroundColor: '#f8fafc', padding: 12, borderRadius: 8, marginBottom: 12, borderWidth: 1, borderColor: '#e2e8f0' },
-    medHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-    medDelete: { marginLeft: 10, backgroundColor: '#fee2e2', width: 30, height: 30, borderRadius: 15, justifyContent: 'center', alignItems: 'center' },
-    medDeleteText: { color: '#dc2626', fontWeight: 'bold' },
-    pickerContainer: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, marginBottom: 8, backgroundColor: 'white', overflow: 'hidden' },
-    addMedBtn: { padding: 10, backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#86efac', borderStyle: 'dashed', borderRadius: 8, alignItems: 'center', marginBottom: 20 },
-    addMedBtnText: { color: '#16a34a', fontWeight: 'bold' },
+    // Web Table Styling
+    webTableWrapper: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', marginBottom: 10, backgroundColor: '#ffffff' },
+    webTableContent: { minWidth: 690 },
+    tableHeaderRow: { backgroundColor: '#f1f5f9', flexDirection: 'row', borderBottomWidth: 1, borderColor: '#e2e8f0', paddingVertical: 8, paddingHorizontal: 10 },
+    tableHeaderCell: { fontSize: 13, fontWeight: '700', color: '#374151' },
+    tableBodyRow: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderColor: '#f1f5f9', paddingVertical: 6, paddingHorizontal: 10 },
+    tableInput: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 5, paddingHorizontal: 8, paddingVertical: 6, fontSize: 12, backgroundColor: '#ffffff', color: '#1e293b' },
+    tablePickerBox: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 5, backgroundColor: '#ffffff', overflow: 'hidden', height: 38, justifyContent: 'center' },
+    tablePicker: { height: 38, fontSize: 12, color: '#1e293b' },
+    tableDeleteBtn: { backgroundColor: '#fee2e2', borderRadius: 4, width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
+    tableDeleteBtnText: { color: '#dc2626', fontWeight: 'bold', fontSize: 14 },
+    emptyMedTableRow: { padding: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: '#ffffff' },
+
+    emptyMedBox: { padding: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' },
+    emptyMedText: { color: '#94a3b8', fontSize: 12.5, textAlign: 'center' },
+    addMedBtn: { padding: 9, backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#86efac', borderStyle: 'dashed', borderRadius: 8, alignItems: 'center', marginBottom: 16 },
+    addMedBtnText: { color: '#16a34a', fontWeight: '700', fontSize: 12.5 },
     divider: { height: 1, backgroundColor: '#e2e8f0', marginVertical: 10, borderStyle: 'dashed' },
 
-    modalFooter: { padding: 16, borderTopWidth: 1, borderColor: '#e2e8f0', flexDirection: 'row', justifyContent: 'flex-end' },
-    modalActionBtn: { backgroundColor: '#3b82f6', paddingVertical: 12, paddingHorizontal: 24, borderRadius: 10, alignItems: 'center' },
-    modalActionBtnText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+    modalFooter: { padding: 14, borderTopWidth: 1, borderColor: '#e2e8f0', flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
+    modalCancelBtn: { paddingHorizontal: 16, paddingVertical: 10, backgroundColor: '#f1f5f9', borderRadius: 8 },
+    modalCancelBtnText: { color: '#475569', fontWeight: 'bold', fontSize: 13 },
+    modalActionBtn: { backgroundColor: '#3b82f6', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8, alignItems: 'center' },
+    modalActionBtnText: { color: '#ffffff', fontWeight: 'bold', fontSize: 13.5 },
 
-    previewBtn: { backgroundColor: '#eff6ff', borderWidth: 1, borderColor: '#93c5fd', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, flexDirection: 'row', alignItems: 'center' },
-    previewBtnText: { color: '#1d4ed8', fontWeight: '600', fontSize: 12 },
-    btnReprint: { padding: 12, backgroundColor: '#f8fafc', borderWidth: 1.5, borderColor: '#cbd5e1', borderRadius: 10, flex: 1, alignItems: 'center' },
-    btnReprintText: { color: '#334155', fontWeight: 'bold', fontSize: 12 },
+    patientSummaryCard: { background: '#f8fafc', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 12 },
+    patientSummaryText: { fontSize: 13, color: '#334155', lineHeight: 18 },
+    referringDoctorCard: { backgroundColor: '#f0fdf4', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#bbf7d0', marginBottom: 12 },
+    referringDoctorText: { fontSize: 13, color: '#166534' },
+    referredCaseBadge: { backgroundColor: '#f5f3ff', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#ddd6fe', marginBottom: 12 },
+    referredCaseBadgeText: { fontSize: 12.5, color: '#5b21b6', fontWeight: '600' },
+    formRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
+    checkboxRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+    checkboxBox: { width: 18, height: 18, borderRadius: 4, borderWidth: 1.5, borderColor: '#cbd5e1', justifyContent: 'center', alignItems: 'center', backgroundColor: '#ffffff' },
+    checkboxBoxActive: { backgroundColor: '#2563eb', borderColor: '#2563eb' },
+    checkboxCheck: { color: '#ffffff', fontSize: 12, fontWeight: 'bold' },
+    checkboxLabel: { fontSize: 13, fontWeight: '600', color: '#475569' },
+    referralReviewDetailsBox: { backgroundColor: '#fffbeb', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#fde68a', marginVertical: 10 },
+    referralReviewDetailItem: { fontSize: 13, color: '#92400e', marginBottom: 4 },
 
     pdfModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 16 },
-    pdfModalContent: { backgroundColor: 'white', borderRadius: 16, width: '100%', maxWidth: 700, maxHeight: '90%', overflow: 'hidden' },
+    pdfModalContent: { backgroundColor: '#ffffff', borderRadius: 16, width: '100%', maxWidth: 680, maxHeight: '90%', overflow: 'hidden' },
     pdfHeader: { padding: 16, borderBottomWidth: 1, borderColor: '#e2e8f0', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc' },
-    pdfTitle: { fontSize: 18, fontWeight: 'bold', color: '#0f172a' },
-    pdfToggleBar: { flexDirection: 'row', backgroundColor: '#e2e8f0', padding: 4, borderRadius: 8, marginHorizontal: 16, marginTop: 12 },
-    pdfToggleBtn: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 6 },
-    pdfToggleBtnActive: { backgroundColor: '#ffffff' },
-    pdfToggleText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
-    pdfToggleTextActive: { color: '#0f172a', fontWeight: '700' },
+    pdfTitle: { fontSize: 17, fontWeight: 'bold', color: '#0f172a' },
     pdfBody: { padding: 16 },
-    pdfCard: { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 12, padding: 16, marginBottom: 14 },
+    pdfCard: { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 12, padding: 16 },
     pdfHospitalName: { fontSize: 18, fontWeight: '800', textAlign: 'center', color: '#0f172a' },
     pdfHospitalSub: { fontSize: 11, textAlign: 'center', color: '#64748b', marginTop: 2 },
     pdfDivider: { height: 2, backgroundColor: '#16a34a', marginVertical: 12 },
     pdfInfoRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
     pdfInfoLabel: { fontSize: 12, fontWeight: 'bold', color: '#475569' },
     pdfInfoVal: { fontSize: 12, color: '#0f172a' },
-    pdfSectionHead: { fontSize: 14, fontWeight: 'bold', color: '#0f172a', marginTop: 12, marginBottom: 8, borderBottomWidth: 1, borderColor: '#e2e8f0', paddingBottom: 4 },
+    pdfSectionHead: { fontSize: 13.5, fontWeight: 'bold', color: '#0f172a', marginTop: 12, marginBottom: 8, borderBottomWidth: 1, borderColor: '#e2e8f0', paddingBottom: 4 },
     pdfMedItem: { backgroundColor: '#f8fafc', padding: 8, borderRadius: 6, marginBottom: 6, borderWidth: 1, borderColor: '#e2e8f0' },
     pdfFooterBar: { padding: 16, borderTopWidth: 1, borderColor: '#e2e8f0', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', gap: 10 },
 });

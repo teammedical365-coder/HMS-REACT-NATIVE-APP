@@ -1,18 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { 
     View, Text, TouchableOpacity, ScrollView, Image, TextInput, 
-    StyleSheet, ActivityIndicator, Alert, Modal, Dimensions
+    StyleSheet, ActivityIndicator, Alert, Modal, Dimensions, Linking, Platform 
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
-import { doctorAPI, receptionAPI, otAPI, adminEntitiesAPI, admissionAPI, bedAPI } from '../../utils/api';
 import { Picker } from '@react-native-picker/picker';
+import { Feather, FontAwesome5 } from '@expo/vector-icons';
+import { doctorAPI, receptionAPI, otAPI, adminEntitiesAPI, admissionAPI, bedAPI } from '../../utils/api';
 
 const { width } = Dimensions.get('window');
 
 const PatientProfile = () => {
     const route = useRoute();
     const navigation = useNavigation();
-    const { patientId } = route.params || {};
+    
+    // Robust extraction supporting patientId, id, or nested patient object
+    const patientId = route.params?.patientId || route.params?.id || route.params?.patient?._id || route.params?.patient?.patientId;
     
     const [patient, setPatient] = useState(null);
     const [appointments, setAppointments] = useState([]);
@@ -44,25 +47,31 @@ const PatientProfile = () => {
     });
 
     useEffect(() => {
-        if (patientId) fetchProfile();
+        if (patientId) {
+            fetchProfile();
+        } else {
+            setLoading(false);
+            setError('No patient identifier provided');
+        }
     }, [patientId]);
 
     const fetchProfile = async () => {
         setLoading(true);
+        setError(null);
         try {
             const res = await doctorAPI.getFullPatientProfile(patientId);
-            if (res.success) {
+            if (res && res.success) {
                 setPatient(res.patient);
                 setAppointments(res.appointments || []);
                 setLabReports(res.labReports || []);
                 setPharmacyOrders(res.pharmacyOrders || []);
             } else {
-                setError(res.message || 'Failed to load profile');
+                setError(res?.message || 'Failed to load profile');
             }
 
             try {
                 const spRes = await otAPI.getPatientSurgeryPlans(patientId);
-                if (spRes.success) {
+                if (spRes && spRes.success) {
                     setSurgeryPlans(spRes.data || []);
                 }
             } catch (err) {
@@ -71,7 +80,7 @@ const PatientProfile = () => {
 
             try {
                 const resAuto = await receptionAPI.getFollowupStatus(patientId, 'auto');
-                if (resAuto.success) {
+                if (resAuto && resAuto.success) {
                     setCurrentFollowupStatus(resAuto);
                 }
             } catch (err) {
@@ -89,11 +98,15 @@ const PatientProfile = () => {
         const fetchExtras = async () => {
             try {
                 const sRes = await adminEntitiesAPI.getDoctors();
-                if (sRes.success) setSurgeonsList(sRes.data || []);
+                if (sRes && sRes.success) setSurgeonsList(sRes.data || []);
             } catch (e) {}
             try {
                 const rRes = await otAPI.getRooms();
-                if (rRes.success) setOtRoomsList(rRes.rooms.filter(r => r.status !== 'Maintenance' && r.status !== 'MAINTENANCE') || []);
+                if (rRes && rRes.success) {
+                    setOtRoomsList(
+                        (rRes.rooms || []).filter(r => r.status !== 'Maintenance' && r.status !== 'MAINTENANCE')
+                    );
+                }
             } catch (e) {}
         };
         fetchExtras();
@@ -116,7 +129,7 @@ const PatientProfile = () => {
             const isEdit = surgeryPlans.find(s => s._id === scheduleData.id)?.status === 'SCHEDULED';
             const apiCall = isEdit ? otAPI.updateScheduledSurgery : otAPI.scheduleSurgery;
             const res = await apiCall(scheduleData.id, scheduleData);
-            if (res.success) {
+            if (res && res.success) {
                 Alert.alert('Success', res.message || 'Surgery scheduled successfully');
                 setShowScheduleModal(false);
                 fetchProfile();
@@ -129,7 +142,7 @@ const PatientProfile = () => {
     const handleWorkflowTransition = async (id, status) => {
         try {
             const res = await otAPI.updateSurgeryWorkflow(id, { status });
-            if (res.success) {
+            if (res && res.success) {
                 Alert.alert('Success', res.message || `Status updated to ${status}`);
                 fetchProfile();
             }
@@ -143,7 +156,7 @@ const PatientProfile = () => {
         setWorkflowActionType(type);
         try {
             const res = await bedAPI.getBeds({ status: 'AVAILABLE' });
-            if (res.success) setWorkflowBeds(res.beds || []);
+            if (res && res.success) setWorkflowBeds(res.beds || []);
             setShowWorkflowModal(true);
         } catch (err) {
             Alert.alert('Error', 'Failed to fetch available beds');
@@ -165,7 +178,7 @@ const PatientProfile = () => {
                     admissionDate: new Date().toISOString().split('T')[0],
                     admissionTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
                 });
-                if (admRes.success) {
+                if (admRes && admRes.success) {
                     await otAPI.updateSurgeryWorkflow(activeSurgeryId, { status: 'ADMITTED' });
                     Alert.alert('Success', 'Patient admitted successfully');
                 }
@@ -180,7 +193,7 @@ const PatientProfile = () => {
                         transferDate: new Date().toISOString().split('T')[0],
                         transferTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
                     });
-                    if (transRes.success) {
+                    if (transRes && transRes.success) {
                         await otAPI.updateSurgeryWorkflow(activeSurgeryId, { status: 'POST_OP' });
                         Alert.alert('Success', 'Patient transferred successfully');
                     }
@@ -208,7 +221,7 @@ const PatientProfile = () => {
                     onPress: async () => {
                         try {
                             const res = await otAPI.cancelSurgery(id);
-                            if (res.success) {
+                            if (res && res.success) {
                                 Alert.alert('Success', res.message || 'Surgery cancelled');
                                 fetchProfile();
                             }
@@ -222,17 +235,25 @@ const PatientProfile = () => {
     };
 
     const fp = patient?.fertilityProfile || {};
-    const vitals = fp.vitals || {};
+    const vitals = fp.vitals || patient?.vitals || {};
 
     const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A';
-    const age = patient?.dob ? Math.floor((Date.now() - new Date(patient.dob).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : null;
+    const age = patient?.dob ? Math.floor((Date.now() - new Date(patient.dob).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : (patient?.age || null);
+
+    const handleBack = () => {
+        if (navigation.canGoBack()) {
+            navigation.goBack();
+        } else {
+            navigation.navigate('DoctorPatients');
+        }
+    };
 
     if (loading) {
         return (
             <View style={styles.page}>
                 <View style={styles.loadWrap}>
                     <ActivityIndicator size="large" color="#3b82f6" />
-                    <Text style={{ marginTop: 14, color: '#94a3b8' }}>Loading patient profile...</Text>
+                    <Text style={{ marginTop: 14, color: '#94a3b8', fontSize: 14 }}>Loading patient profile...</Text>
                 </View>
             </View>
         );
@@ -242,14 +263,23 @@ const PatientProfile = () => {
         return (
             <View style={styles.page}>
                 <View style={styles.topbar}>
-                    <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+                    <TouchableOpacity style={styles.backBtn} onPress={handleBack}>
                         <Text style={styles.backBtnText}>← Back</Text>
                     </TouchableOpacity>
+                    <View style={{ flex: 1, marginLeft: 14 }}>
+                        <Text style={{ color: '#f8fafc', fontSize: 16, fontWeight: '800' }}>Patient Profile</Text>
+                    </View>
                 </View>
                 <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 28 }}>
                     <Text style={{ fontSize: 48, marginBottom: 12 }}>⚠️</Text>
-                    <Text style={{ color: '#f8fafc', fontSize: 24, fontWeight: 'bold', marginBottom: 8 }}>Patient Not Found</Text>
-                    <Text style={{ color: '#64748b' }}>{error || 'Unable to load patient data.'}</Text>
+                    <Text style={{ color: '#f8fafc', fontSize: 22, fontWeight: 'bold', marginBottom: 8 }}>Patient Not Found</Text>
+                    <Text style={{ color: '#64748b', textAlign: 'center', fontSize: 14 }}>{error || 'Unable to load patient data.'}</Text>
+                    <TouchableOpacity 
+                        style={[styles.actionBtn, { backgroundColor: '#3b82f6', marginTop: 20, paddingHorizontal: 20, paddingVertical: 10 }]}
+                        onPress={handleBack}
+                    >
+                        <Text style={styles.actionBtnText}>Return to Patients</Text>
+                    </TouchableOpacity>
                 </View>
             </View>
         );
@@ -267,7 +297,7 @@ const PatientProfile = () => {
     ];
 
     const renderField = (label, value) => (
-        <View style={styles.fieldGroup}>
+        <View key={label} style={styles.fieldGroup}>
             <Text style={styles.fieldLabel}>{label}</Text>
             <Text style={styles.fieldValue}>{value || '—'}</Text>
         </View>
@@ -304,21 +334,21 @@ const PatientProfile = () => {
 
         return (
             <View>
-                {/* Quick Stats */}
+                {/* Quick Stats & Followup Card */}
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
                     {[
-                        { label: 'Total Visits', value: appointments.length, icon: '📅', g: ['#3b82f6', '#6366f1'] },
-                        { label: 'Completed', value: appointments.filter(a => a.status === 'completed').length, icon: '✅', g: ['#10b981', '#059669'] },
-                        { label: 'Lab Tests', value: labReports.length, icon: '🧪', g: ['#f59e0b', '#d97706'] },
-                        { label: 'Prescriptions', value: pharmacyOrders.length, icon: '💊', g: ['#ef4444', '#dc2626'] },
+                        { label: 'Total Visits', value: appointments.length, icon: '📅', g: '#3b82f6' },
+                        { label: 'Completed', value: appointments.filter(a => a.status === 'completed').length, icon: '✅', g: '#10b981' },
+                        { label: 'Lab Tests', value: labReports.length, icon: '🧪', g: '#f59e0b' },
+                        { label: 'Prescriptions', value: pharmacyOrders.length, icon: '💊', g: '#ef4444' },
                     ].map((s, i) => (
                         <View key={i} style={[styles.card, { flexDirection: 'row', alignItems: 'center', padding: 18, marginRight: 14, minWidth: 160 }]}>
-                            <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: s.g[0], alignItems: 'center', justifyContent: 'center', marginRight: 14 }}>
+                            <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: s.g, alignItems: 'center', justifyContent: 'center', marginRight: 14 }}>
                                 <Text style={{ fontSize: 20 }}>{s.icon}</Text>
                             </View>
                             <View>
-                                <Text style={{ color: '#f8fafc', fontSize: 24, fontWeight: '900' }}>{s.value}</Text>
-                                <Text style={{ color: '#64748b', fontSize: 12, fontWeight: '600' }}>{s.label}</Text>
+                                <Text style={{ color: '#f8fafc', fontSize: 24, fontWeight: '800' }}>{s.value}</Text>
+                                <Text style={{ color: '#64748b', fontSize: 12, fontWeight: '600', marginTop: 2 }}>{s.label}</Text>
                             </View>
                         </View>
                     ))}
@@ -334,14 +364,14 @@ const PatientProfile = () => {
                         borderRadius: 16,
                         justifyContent: 'center',
                         marginRight: 14,
-                        minWidth: 160
+                        minWidth: 170
                     }}>
-                        <Text style={{ color: isFollowupActive ? '#166534' : '#991b1b', fontSize: 12, textTransform: 'uppercase', fontWeight: 'bold' }}>Follow-up</Text>
-                        <Text style={{ color: isFollowupActive ? '#15803d' : '#b91c1c', fontSize: 18, fontWeight: '900', marginTop: 4 }}>
+                        <Text style={{ color: isFollowupActive ? '#166534' : '#991b1b', fontSize: 11, textTransform: 'uppercase', fontWeight: 'bold', letterSpacing: 0.5 }}>Follow-up</Text>
+                        <Text style={{ color: isFollowupActive ? '#15803d' : '#b91c1c', fontSize: 18, fontWeight: '800', marginTop: 4 }}>
                             {isFollowupActive ? 'Active' : (isNewPatient ? 'New Patient' : 'Expired')}
                         </Text>
                         {currentFollowupStatus && !isNewPatient && (
-                            <Text style={{ fontSize: 12, color: isFollowupActive ? '#166534' : '#7f1d1d', marginTop: 4, fontWeight: '500' }}>
+                            <Text style={{ fontSize: 11, color: isFollowupActive ? '#166534' : '#7f1d1d', marginTop: 4, fontWeight: '500' }}>
                                 {isFollowupActive 
                                     ? `Valid: ${Math.max(0, Math.ceil((new Date(currentFollowupStatus.validUntil).getTime() - new Date().getTime()) / (1000 * 3600 * 24)))} Days`
                                     : (() => {
@@ -355,7 +385,7 @@ const PatientProfile = () => {
                     </View>
                 </ScrollView>
 
-                {/* Demographics */}
+                {/* Demographics Card */}
                 <View style={styles.card}>
                     <Text style={styles.cardTitle}>👤 Demographics</Text>
                     <View style={styles.grid4}>
@@ -383,10 +413,10 @@ const PatientProfile = () => {
                         appointments.slice(0, 5).map((apt, i) => {
                             const badge = getStatusStyle(apt.status);
                             return (
-                                <View key={apt._id} style={styles.timelineCard}>
+                                <View key={apt._id || i} style={styles.timelineCard}>
                                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                                            <Text style={{ color: '#3b82f6', fontWeight: '900', fontSize: 13 }}>#{i + 1}</Text>
+                                            <Text style={{ color: '#3b82f6', fontWeight: '800', fontSize: 13 }}>#{i + 1}</Text>
                                             <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>{formatDate(apt.appointmentDate)}</Text>
                                             <Text style={{ color: '#94a3b8', fontSize: 13 }}>at {apt.appointmentTime}</Text>
                                         </View>
@@ -394,10 +424,10 @@ const PatientProfile = () => {
                                             <Text style={[styles.badgeText, { color: badge.c }]}>{apt.status}</Text>
                                         </View>
                                     </View>
-                                    <View style={{ flexDirection: 'row', gap: 24, flexWrap: 'wrap' }}>
+                                    <View style={{ flexDirection: 'row', gap: 20, flexWrap: 'wrap', alignItems: 'center' }}>
                                         <Text style={{ color: '#94a3b8', fontSize: 13 }}>👨‍⚕️ Dr. {apt.doctorId?.name || apt.doctorName || 'N/A'}</Text>
                                         <Text style={{ color: '#94a3b8', fontSize: 13 }}>📋 {apt.serviceName || 'Consultation'}</Text>
-                                        {apt.diagnosis && <Text style={{ color: '#94a3b8', fontSize: 13 }}>🩺 {apt.diagnosis}</Text>}
+                                        {apt.diagnosis && <Text style={{ color: '#e2e8f0', fontSize: 13 }}>🩺 {apt.diagnosis}</Text>}
                                     </View>
                                 </View>
                             );
@@ -433,7 +463,7 @@ const PatientProfile = () => {
                                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
                                     <View>
                                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                            <Text style={{ fontSize: 18, fontWeight: '900', color: '#f8fafc' }}>{sp.surgery}</Text>
+                                            <Text style={{ fontSize: 18, fontWeight: '800', color: '#f8fafc' }}>{sp.surgery}</Text>
                                             {sp.planId && (
                                                 <View style={{ backgroundColor: '#e0e7ff', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
                                                     <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#3730a3' }}>{sp.planId}</Text>
@@ -543,7 +573,12 @@ const PatientProfile = () => {
                                     {sp.surgeryCost > 0 && (
                                         <View style={{ minWidth: 150, flex: 1 }}>
                                             <Text style={{ color: '#94a3b8', fontSize: 13 }}>Surgery Fee: </Text>
-                                            <Text style={{ color: '#38bdf8', fontWeight: 'bold' }}>₹{Number(sp.surgeryCost).toLocaleString('en-IN')} <Text style={{ fontSize: 12, color: sp.paymentStatus === 'PAID' ? '#4ade80' : (sp.paymentStatus === 'PARTIALLY PAID' ? '#fbbf24' : '#f87171') }}>[{sp.paymentStatus || 'UNPAID'}]</Text></Text>
+                                            <Text style={{ color: '#38bdf8', fontWeight: 'bold' }}>
+                                                ₹{Number(sp.surgeryCost).toLocaleString('en-IN')} 
+                                                <Text style={{ fontSize: 11, color: sp.paymentStatus === 'PAID' ? '#4ade80' : (sp.paymentStatus === 'PARTIALLY PAID' ? '#fbbf24' : '#f87171') }}>
+                                                    {' '}[{sp.paymentStatus || 'UNPAID'}]
+                                                </Text>
+                                            </Text>
                                         </View>
                                     )}
 
@@ -576,13 +611,16 @@ const PatientProfile = () => {
                 {renderField('Weight', vitals.weight ? `${vitals.weight} kg` : null)}
                 {renderField('Height', vitals.height ? `${vitals.height} cm` : null)}
                 {renderField('BMI', vitals.bmi)}
-                {renderField('Blood Pressure', vitals.bloodPressure || fp.historyBp)}
-                {renderField('Pulse', vitals.pulse ? `${vitals.pulse} bpm` : (fp.historyPulse ? `${fp.historyPulse}` : null))}
+                {renderField('Blood Pressure', vitals.bloodPressure || vitals.bp || fp.historyBp)}
+                {renderField('Pulse', vitals.pulse ? `${vitals.pulse} bpm` : (fp.historyPulse ? `${fp.historyPulse}` : (vitals.pulseRate ? `${vitals.pulseRate} bpm` : null)))}
                 {renderField('Chest Exam', fp.chestExam)}
                 {renderField('CVS Exam', fp.cvsExam)}
                 {renderField('Temperature', vitals.temperature ? `${vitals.temperature} °F` : null)}
                 {renderField('SpO₂', vitals.spo2 ? `${vitals.spo2}%` : null)}
                 {renderField('Resp. Rate', vitals.respiratoryRate ? `${vitals.respiratoryRate}/min` : null)}
+                {vitals.bloodSugar && renderField('Blood Sugar', `${vitals.bloodSugar} mg/dL`)}
+                {vitals.heartRate && renderField('Heart Rate', `${vitals.heartRate} bpm`)}
+                {vitals.painScale && renderField('Pain Scale', `${vitals.painScale}/10`)}
             </View>
         </View>
     );
@@ -593,6 +631,7 @@ const PatientProfile = () => {
             <View>
                 {surgeryPlans && surgeryPlans.length > 0 && renderSurgeryPlans()}
 
+                {/* Obstetric History */}
                 <View style={styles.card}>
                     <Text style={styles.cardTitle}>🤰 Obstetric History</Text>
                     <View style={styles.grid3}>
@@ -615,6 +654,7 @@ const PatientProfile = () => {
                     )}
                 </View>
 
+                {/* Menstrual History */}
                 <View style={styles.card}>
                     <Text style={styles.cardTitle}>📅 Menstrual History</Text>
                     <View style={styles.grid3}>
@@ -629,6 +669,7 @@ const PatientProfile = () => {
                     </View>
                 </View>
 
+                {/* Chronic Conditions & Habits */}
                 <View style={styles.card}>
                     <Text style={styles.cardTitle}>🏥 Chronic Conditions & Habits</Text>
                     <View style={styles.grid3}>
@@ -636,18 +677,19 @@ const PatientProfile = () => {
                         {renderField('Hypertension', h.hypertension)}
                         {renderField('Thyroid', h.thyroid)}
                         {renderField('Tuberculosis', h.tb)}
-                        {renderField('Allergies', h.allergies)}
+                        {renderField('Allergies', h.allergies || patient.allergies)}
                         {renderField('Smoking', h.smoking)}
                         {renderField('Alcohol', h.alcohol)}
                         {renderField('Previous Surgery', h.previousSurgery)}
                     </View>
                 </View>
 
+                {/* Male Factor / Partner Details */}
                 <View style={styles.card}>
                     <Text style={styles.cardTitle}>👨 Male Factor / Partner Details</Text>
                     <View style={styles.grid3}>
-                        {renderField('Spouse Name', h.spouseName)}
-                        {renderField('Spouse Age', h.spouseAge)}
+                        {renderField('Spouse Name', h.spouseName || patient.spouseName || patient.partnerName)}
+                        {renderField('Spouse Age', h.spouseAge || patient.spouseAge || patient.partnerAge)}
                         {renderField('Spouse Occupation', h.spouseOccupation)}
                         {renderField('Semen Analysis', h.semenAnalysis)}
                         {renderField('Male Factor', h.maleFactor)}
@@ -655,6 +697,7 @@ const PatientProfile = () => {
                     </View>
                 </View>
 
+                {/* Treatment History */}
                 <View style={styles.card}>
                     <Text style={styles.cardTitle}>💉 Previous Treatment History</Text>
                     <View style={styles.grid2}>
@@ -673,31 +716,31 @@ const PatientProfile = () => {
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                 <View style={{ minWidth: 800 }}>
                     <View style={styles.tableHeaderRow}>
-                        <Text style={[styles.th, { width: 40 }]}>#</Text>
-                        <Text style={[styles.th, { flex: 1 }]}>Date</Text>
+                        <Text style={[styles.th, { width: 45 }]}>#</Text>
+                        <Text style={[styles.th, { flex: 1.2 }]}>Date</Text>
                         <Text style={[styles.th, { flex: 1 }]}>Time</Text>
-                        <Text style={[styles.th, { flex: 1.5 }]}>Doctor</Text>
+                        <Text style={[styles.th, { flex: 1.8 }]}>Doctor</Text>
                         <Text style={[styles.th, { flex: 1.5 }]}>Service</Text>
                         <Text style={[styles.th, { flex: 1.5 }]}>Diagnosis</Text>
-                        <Text style={[styles.th, { flex: 1 }]}>Status</Text>
+                        <Text style={[styles.th, { flex: 1.2 }]}>Status</Text>
                         <Text style={[styles.th, { flex: 2 }]}>Notes</Text>
                     </View>
                     {appointments.length === 0 ? (
                         <View style={{ padding: 40, alignItems: 'center' }}>
-                            <Text style={{ color: '#64748b' }}>No visits recorded</Text>
+                            <Text style={{ color: '#64748b', fontSize: 14 }}>No visits recorded</Text>
                         </View>
                     ) : (
                         appointments.map((apt, i) => {
                             const badge = getStatusStyle(apt.status);
                             return (
-                                <View key={apt._id} style={styles.tableRow}>
-                                    <Text style={[styles.td, { width: 40, color: '#64748b', fontWeight: 'bold' }]}>{i + 1}</Text>
-                                    <Text style={[styles.td, { flex: 1, color: '#f8fafc', fontWeight: 'bold' }]}>{formatDate(apt.appointmentDate)}</Text>
+                                <View key={apt._id || i} style={styles.tableRow}>
+                                    <Text style={[styles.td, { width: 45, color: '#64748b', fontWeight: 'bold' }]}>{i + 1}</Text>
+                                    <Text style={[styles.td, { flex: 1.2, color: '#f8fafc', fontWeight: 'bold' }]}>{formatDate(apt.appointmentDate)}</Text>
                                     <Text style={[styles.td, { flex: 1, color: '#94a3b8' }]}>{apt.appointmentTime}</Text>
-                                    <Text style={[styles.td, { flex: 1.5, color: '#e2e8f0', fontWeight: 'bold' }]}>Dr. {apt.doctorId?.name || apt.doctorName || 'N/A'}</Text>
+                                    <Text style={[styles.td, { flex: 1.8, color: '#e2e8f0', fontWeight: 'bold' }]}>Dr. {apt.doctorId?.name || apt.doctorName || 'N/A'}</Text>
                                     <Text style={[styles.td, { flex: 1.5, color: '#94a3b8' }]}>{apt.serviceName || 'Consultation'}</Text>
                                     <Text style={[styles.td, { flex: 1.5, color: '#e2e8f0' }]}>{apt.diagnosis || '—'}</Text>
-                                    <View style={[styles.td, { flex: 1 }]}>
+                                    <View style={[styles.td, { flex: 1.2 }]}>
                                         <View style={[styles.badge, { backgroundColor: badge.b, alignSelf: 'flex-start' }]}>
                                             <Text style={[styles.badgeText, { color: badge.c }]}>{apt.status}</Text>
                                         </View>
@@ -715,10 +758,10 @@ const PatientProfile = () => {
     const renderLabs = () => (
         <View style={styles.tableWrap}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <View style={{ minWidth: 900 }}>
+                <View style={{ minWidth: 920 }}>
                     <View style={styles.tableHeaderRow}>
-                        <Text style={[styles.th, { width: 40 }]}>#</Text>
-                        <Text style={[styles.th, { flex: 1 }]}>Date</Text>
+                        <Text style={[styles.th, { width: 45 }]}>#</Text>
+                        <Text style={[styles.th, { flex: 1.2 }]}>Date</Text>
                         <Text style={[styles.th, { flex: 2 }]}>Tests</Text>
                         <Text style={[styles.th, { flex: 1 }]}>Status</Text>
                         <Text style={[styles.th, { flex: 1 }]}>Report</Text>
@@ -729,7 +772,7 @@ const PatientProfile = () => {
                     </View>
                     {labReports.length === 0 ? (
                         <View style={{ padding: 40, alignItems: 'center' }}>
-                            <Text style={{ color: '#64748b' }}>No lab reports found</Text>
+                            <Text style={{ color: '#64748b', fontSize: 14 }}>No lab reports found</Text>
                         </View>
                     ) : (
                         labReports.map((lr, i) => {
@@ -738,9 +781,9 @@ const PatientProfile = () => {
                             const payBadge = getStatusStyle(lr.paymentStatus);
                             
                             return (
-                                <View key={lr._id} style={styles.tableRow}>
-                                    <Text style={[styles.td, { width: 40, color: '#64748b', fontWeight: 'bold' }]}>{i + 1}</Text>
-                                    <Text style={[styles.td, { flex: 1, color: '#f8fafc', fontWeight: 'bold' }]}>{formatDate(lr.createdAt)}</Text>
+                                <View key={lr._id || i} style={styles.tableRow}>
+                                    <Text style={[styles.td, { width: 45, color: '#64748b', fontWeight: 'bold' }]}>{i + 1}</Text>
+                                    <Text style={[styles.td, { flex: 1.2, color: '#f8fafc', fontWeight: 'bold' }]}>{formatDate(lr.createdAt)}</Text>
                                     <View style={[styles.td, { flex: 2, flexDirection: 'row', flexWrap: 'wrap', gap: 4 }]}>
                                         {(lr.testNames || []).map((t, j) => (
                                             <View key={j} style={{ backgroundColor: 'rgba(59,130,246,0.15)', paddingHorizontal: 10, paddingVertical: 2, borderRadius: 12 }}>
@@ -749,24 +792,36 @@ const PatientProfile = () => {
                                         ))}
                                     </View>
                                     <View style={[styles.td, { flex: 1 }]}>
-                                        <View style={[styles.badge, { backgroundColor: testBadge.b, alignSelf: 'flex-start' }]}><Text style={[styles.badgeText, { color: testBadge.c }]}>{lr.testStatus}</Text></View>
+                                        <View style={[styles.badge, { backgroundColor: testBadge.b, alignSelf: 'flex-start' }]}>
+                                            <Text style={[styles.badgeText, { color: testBadge.c }]}>{lr.testStatus}</Text>
+                                        </View>
                                     </View>
                                     <View style={[styles.td, { flex: 1 }]}>
-                                        <View style={[styles.badge, { backgroundColor: repBadge.b, alignSelf: 'flex-start' }]}><Text style={[styles.badgeText, { color: repBadge.c }]}>{lr.reportStatus}</Text></View>
+                                        <View style={[styles.badge, { backgroundColor: repBadge.b, alignSelf: 'flex-start' }]}>
+                                            <Text style={[styles.badgeText, { color: repBadge.c }]}>{lr.reportStatus}</Text>
+                                        </View>
                                     </View>
                                     <View style={[styles.td, { flex: 1 }]}>
-                                        <View style={[styles.badge, { backgroundColor: payBadge.b, alignSelf: 'flex-start' }]}><Text style={[styles.badgeText, { color: payBadge.c }]}>{lr.paymentStatus}</Text></View>
+                                        <View style={[styles.badge, { backgroundColor: payBadge.b, alignSelf: 'flex-start' }]}>
+                                            <Text style={[styles.badgeText, { color: payBadge.c }]}>{lr.paymentStatus}</Text>
+                                        </View>
                                     </View>
                                     <Text style={[styles.td, { flex: 1, color: '#f8fafc', fontWeight: 'bold' }]}>{lr.amount ? `₹${lr.amount}` : '—'}</Text>
                                     <Text style={[styles.td, { flex: 1.5, color: '#94a3b8' }]}>{lr.notes || '—'}</Text>
                                     <View style={[styles.td, { flex: 1, alignItems: 'center' }]}>
-                                        {lr.reportFile?.url && (
+                                        {lr.reportFile?.url ? (
                                             <TouchableOpacity 
-                                                onPress={() => Alert.alert('Open File', 'Requires Native PDF Viewer implementation.')}
+                                                onPress={() => {
+                                                    Linking.openURL(lr.reportFile.url).catch(err => {
+                                                        Alert.alert('Report File', 'Could not open file URL: ' + err.message);
+                                                    });
+                                                }}
                                                 style={{ backgroundColor: 'rgba(59, 130, 246, 0.15)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: 'rgba(59, 130, 246, 0.3)' }}
                                             >
                                                 <Text style={{ color: '#60a5fa', fontSize: 11, fontWeight: 'bold' }}>👁️ View</Text>
                                             </TouchableOpacity>
+                                        ) : (
+                                            <Text style={{ color: '#64748b', fontSize: 12 }}>—</Text>
                                         )}
                                     </View>
                                 </View>
@@ -783,17 +838,17 @@ const PatientProfile = () => {
             {pharmacyOrders.length === 0 ? (
                 <View style={styles.emptyState}>
                     <Text style={{ fontSize: 40, marginBottom: 8 }}>💊</Text>
-                    <Text style={{ color: '#64748b' }}>No prescriptions found.</Text>
+                    <Text style={{ color: '#64748b', fontSize: 14 }}>No prescriptions found.</Text>
                 </View>
             ) : (
                 pharmacyOrders.map((order, i) => {
                     const oBadge = getStatusStyle(order.orderStatus || 'pending');
                     const pBadge = getStatusStyle(order.paymentStatus || 'PENDING');
                     return (
-                        <View key={order._id} style={styles.timelineCard}>
-                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+                        <View key={order._id || i} style={styles.timelineCard}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
                                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                                    <Text style={{ color: '#3b82f6', fontWeight: 'bold' }}>Rx #{i + 1}</Text>
+                                    <Text style={{ color: '#3b82f6', fontWeight: 'bold', fontSize: 14 }}>Rx #{i + 1}</Text>
                                     <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>{formatDate(order.createdAt)}</Text>
                                 </View>
                                 <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -810,8 +865,8 @@ const PatientProfile = () => {
                                 {(order.items || []).map((item, j) => (
                                     <View key={j} style={styles.tableRow}>
                                         <Text style={[styles.td, { flex: 2, color: '#f8fafc', fontWeight: 'bold' }]}>{item.medicineName}</Text>
-                                        <Text style={[styles.td, { flex: 1.5, color: '#94a3b8' }]}>{item.frequency || '—'}</Text>
-                                        <Text style={[styles.td, { flex: 1, color: '#94a3b8' }]}>{item.duration || '—'}</Text>
+                                        <Text style={[styles.td, { flex: 1.5, color: '#94a3b8' }]}>{item.frequency || item.dosage || '—'}</Text>
+                                        <Text style={[styles.td, { flex: 1, color: '#94a3b8' }]}>{item.duration || (item.days ? `${item.days} days` : '—')}</Text>
                                     </View>
                                 ))}
                             </View>
@@ -868,15 +923,29 @@ const PatientProfile = () => {
 
     return (
         <View style={styles.page}>
-            {/* Top Bar */}
+            {/* Top Bar matching Web topbar */}
             <View style={styles.topbar}>
-                <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+                <TouchableOpacity style={styles.backBtn} onPress={handleBack}>
                     <Text style={styles.backBtnText}>← Back</Text>
                 </TouchableOpacity>
                 <View style={{ flex: 1, marginLeft: 14 }}>
-                    <Text style={{ color: '#f8fafc', fontSize: 16, fontWeight: '900' }}>Patient Profile</Text>
+                    <Text style={{ color: '#f8fafc', fontSize: 16, fontWeight: '800' }}>Patient Profile</Text>
                 </View>
-                <Text style={{ color: '#64748b', fontSize: 12 }}>MRN: <Text style={{ color: '#e2e8f0', fontWeight: 'bold' }}>{patient.patientId || 'N/A'}</Text></Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                    <TouchableOpacity 
+                        style={styles.headerActionBtn}
+                        onPress={() => navigation.navigate('DoctorPatientDetails', { patientId, patient })}
+                    >
+                        <Text style={styles.headerActionText}>🩺 Consult</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                        style={[styles.headerActionBtn, { backgroundColor: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.3)' }]}
+                        onPress={() => navigation.navigate('AIAssistant', { patientId })}
+                    >
+                        <Text style={[styles.headerActionText, { color: '#a5b4fc' }]}>🤖 AI</Text>
+                    </TouchableOpacity>
+                    <Text style={{ color: '#64748b', fontSize: 12 }}>MRN: <Text style={{ color: '#e2e8f0', fontWeight: 'bold' }}>{patient.patientId || 'N/A'}</Text></Text>
+                </View>
             </View>
 
             <ScrollView contentContainerStyle={styles.container}>
@@ -892,22 +961,38 @@ const PatientProfile = () => {
                     <View style={styles.idInfo}>
                         <Text style={styles.idName}>{patient.name}</Text>
                         <View style={styles.idMeta}>
-                            <View style={[styles.idBadge, { backgroundColor: 'rgba(59,130,246,0.15)' }]}><Text style={[styles.idBadgeText, { color: '#93c5fd' }]}>📞 {patient.phone || 'No Phone'}</Text></View>
-                            {patient.gender && <View style={[styles.idBadge, { backgroundColor: 'rgba(139,92,246,0.15)' }]}><Text style={[styles.idBadgeText, { color: '#c4b5fd' }]}>{patient.gender === 'male' ? '♂️' : '♀️'} {patient.gender}</Text></View>}
-                            {age && <View style={[styles.idBadge, { backgroundColor: 'rgba(16,185,129,0.15)' }]}><Text style={[styles.idBadgeText, { color: '#6ee7b7' }]}>{age} years</Text></View>}
-                            {patient.bloodGroup && <View style={[styles.idBadge, { backgroundColor: 'rgba(239,68,68,0.15)' }]}><Text style={[styles.idBadgeText, { color: '#fca5a5' }]}>{patient.bloodGroup}</Text></View>}
-                            <View style={[styles.idBadge, { backgroundColor: 'rgba(255,255,255,0.06)' }]}><Text style={[styles.idBadgeText, { color: '#94a3b8' }]}>Since {formatDate(patient.createdAt)}</Text></View>
+                            <View style={[styles.idBadge, { backgroundColor: 'rgba(59,130,246,0.15)' }]}>
+                                <Text style={[styles.idBadgeText, { color: '#93c5fd' }]}>📞 {patient.phone || 'No Phone'}</Text>
+                            </View>
+                            {patient.gender && (
+                                <View style={[styles.idBadge, { backgroundColor: 'rgba(139,92,246,0.15)' }]}>
+                                    <Text style={[styles.idBadgeText, { color: '#c4b5fd' }]}>{patient.gender === 'male' ? '♂️' : '♀️'} {patient.gender}</Text>
+                                </View>
+                            )}
+                            {age && (
+                                <View style={[styles.idBadge, { backgroundColor: 'rgba(16,185,129,0.15)' }]}>
+                                    <Text style={[styles.idBadgeText, { color: '#6ee7b7' }]}>{age} years</Text>
+                                </View>
+                            )}
+                            {patient.bloodGroup && (
+                                <View style={[styles.idBadge, { backgroundColor: 'rgba(239,68,68,0.15)' }]}>
+                                    <Text style={[styles.idBadgeText, { color: '#fca5a5' }]}>{patient.bloodGroup}</Text>
+                                </View>
+                            )}
+                            <View style={[styles.idBadge, { backgroundColor: 'rgba(255,255,255,0.06)' }]}>
+                                <Text style={[styles.idBadgeText, { color: '#94a3b8' }]}>Since {formatDate(patient.createdAt)}</Text>
+                            </View>
                         </View>
                         <View style={styles.idGrid}>
                             {renderField('Email', patient.email)}
                             {renderField('Address', patient.address)}
                             {renderField('City', patient.city)}
-                            {renderField('Aadhaar', patient.isAadhaarVerified ? '✅ Verified' : 'Not Verified')}
+                            {renderField('Aadhaar', patient.isAadhaarVerified ? '✅ Verified' : (patient.aadhaarNumber ? `****${patient.aadhaarNumber.slice(-4)}` : 'Not Verified'))}
                         </View>
                     </View>
                 </View>
 
-                {/* Tabs */}
+                {/* Tabs Bar */}
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, marginBottom: 20 }}>
                     <View style={styles.tabsBar}>
                         {tabs.map(t => {
@@ -948,10 +1033,18 @@ const PatientProfile = () => {
                                 <Picker
                                     selectedValue={scheduleData.surgeonId}
                                     onValueChange={(val) => setScheduleData({ ...scheduleData, surgeonId: val })}
+                                    dropdownIconColor="#94a3b8"
                                     style={styles.picker}
                                 >
                                     <Picker.Item label="Select Surgeon" value="" color="#94a3b8" />
-                                    {surgeonsList.map(s => <Picker.Item key={s._id} label={`Dr. ${s.name || `${s.firstName} ${s.lastName || ''}`}`} value={s._id} />)}
+                                    {surgeonsList.map(s => (
+                                        <Picker.Item 
+                                            key={s._id} 
+                                            label={`Dr. ${s.name || `${s.firstName} ${s.lastName || ''}`}`} 
+                                            value={s._id} 
+                                            color={Platform.OS === 'android' ? '#000' : '#fff'}
+                                        />
+                                    ))}
                                 </Picker>
                             </View>
 
@@ -960,10 +1053,18 @@ const PatientProfile = () => {
                                 <Picker
                                     selectedValue={scheduleData.otRoomId}
                                     onValueChange={(val) => setScheduleData({ ...scheduleData, otRoomId: val })}
+                                    dropdownIconColor="#94a3b8"
                                     style={styles.picker}
                                 >
                                     <Picker.Item label="Select OT Room" value="" color="#94a3b8" />
-                                    {otRoomsList.map(r => <Picker.Item key={r._id} label={`${r.name} (${r.roomNumber || ''})`} value={r._id} />)}
+                                    {otRoomsList.map(r => (
+                                        <Picker.Item 
+                                            key={r._id} 
+                                            label={`${r.name} (${r.roomNumber || ''})`} 
+                                            value={r._id} 
+                                            color={Platform.OS === 'android' ? '#000' : '#fff'}
+                                        />
+                                    ))}
                                 </Picker>
                             </View>
 
@@ -972,7 +1073,7 @@ const PatientProfile = () => {
                                 style={styles.modalInput}
                                 value={scheduleData.surgeryDate}
                                 onChangeText={(t) => setScheduleData({ ...scheduleData, surgeryDate: t })}
-                                placeholder="e.g. 2025-05-12"
+                                placeholder="e.g. 2026-05-12"
                                 placeholderTextColor="#64748b"
                             />
 
@@ -1002,7 +1103,7 @@ const PatientProfile = () => {
 
                         <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
                             <TouchableOpacity onPress={() => setShowScheduleModal(false)} style={[styles.actionBtn, { backgroundColor: 'transparent', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' }]}>
-                                <Text style={{ color: '#94a3b8' }}>Cancel</Text>
+                                <Text style={{ color: '#94a3b8', fontWeight: 'bold' }}>Cancel</Text>
                             </TouchableOpacity>
                             <TouchableOpacity onPress={handleScheduleSubmit} style={[styles.actionBtn, { backgroundColor: '#7c3aed' }]}>
                                 <Text style={styles.actionBtnText}>Confirm Schedule</Text>
@@ -1025,18 +1126,24 @@ const PatientProfile = () => {
                             <Picker
                                 selectedValue={selectedBedId}
                                 onValueChange={(val) => setSelectedBedId(val)}
+                                dropdownIconColor="#94a3b8"
                                 style={styles.picker}
                             >
                                 <Picker.Item label="Choose Bed" value="" color="#94a3b8" />
                                 {workflowBeds.map(b => (
-                                    <Picker.Item key={b._id} label={`${b.ward} - Bed ${b.bedNumber} (${b.bedType})`} value={b._id} />
+                                    <Picker.Item 
+                                        key={b._id} 
+                                        label={`${b.ward} - Bed ${b.bedNumber} (${b.bedType})`} 
+                                        value={b._id} 
+                                        color={Platform.OS === 'android' ? '#000' : '#fff'}
+                                    />
                                 ))}
                             </Picker>
                         </View>
 
                         <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
                             <TouchableOpacity onPress={() => setShowWorkflowModal(false)} style={[styles.actionBtn, { backgroundColor: 'transparent', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' }]}>
-                                <Text style={{ color: '#94a3b8' }}>Cancel</Text>
+                                <Text style={{ color: '#94a3b8', fontWeight: 'bold' }}>Cancel</Text>
                             </TouchableOpacity>
                             <TouchableOpacity onPress={handleWorkflowModalSubmit} style={[styles.actionBtn, { backgroundColor: '#3b82f6' }]}>
                                 <Text style={styles.actionBtnText}>Confirm</Text>
@@ -1070,12 +1177,25 @@ const styles = StyleSheet.create({
         borderColor: 'rgba(255,255,255,0.1)',
         borderRadius: 10,
         paddingVertical: 8,
-        paddingHorizontal: 16,
+        paddingHorizontal: 14,
     },
     backBtnText: {
         color: '#94a3b8',
         fontWeight: '600',
         fontSize: 13,
+    },
+    headerActionBtn: {
+        backgroundColor: 'rgba(59,130,246,0.15)',
+        borderWidth: 1,
+        borderColor: 'rgba(59,130,246,0.3)',
+        borderRadius: 8,
+        paddingVertical: 6,
+        paddingHorizontal: 10,
+    },
+    headerActionText: {
+        color: '#60a5fa',
+        fontSize: 12,
+        fontWeight: 'bold',
     },
     container: {
         padding: 20,
@@ -1103,7 +1223,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#6366f1',
         justifyContent: 'center',
         alignItems: 'center',
-        elevation: 10,
+        elevation: 8,
         shadowColor: '#6366f1',
         shadowOffset: { width: 0, height: 8 },
         shadowOpacity: 0.3,
@@ -1112,33 +1232,34 @@ const styles = StyleSheet.create({
     avatarText: {
         color: '#fff',
         fontSize: 36,
-        fontWeight: '900',
+        fontWeight: '800',
     },
     idInfo: {
         flex: 1,
         alignItems: width > 600 ? 'flex-start' : 'center',
+        width: '100%',
     },
     idName: {
         fontSize: 24,
-        fontWeight: '900',
+        fontWeight: '800',
         color: '#f8fafc',
         marginBottom: 8,
     },
     idMeta: {
         flexDirection: 'row',
-        gap: 12,
+        gap: 10,
         flexWrap: 'wrap',
         marginBottom: 16,
         justifyContent: width > 600 ? 'flex-start' : 'center',
     },
     idBadge: {
         paddingVertical: 4,
-        paddingHorizontal: 14,
+        paddingHorizontal: 12,
         borderRadius: 20,
     },
     idBadgeText: {
         fontSize: 11,
-        fontWeight: 'bold',
+        fontWeight: '700',
     },
     idGrid: {
         flexDirection: 'row',
@@ -1156,19 +1277,19 @@ const styles = StyleSheet.create({
     },
     tab: {
         paddingVertical: 10,
-        paddingHorizontal: 20,
+        paddingHorizontal: 18,
         borderRadius: 10,
     },
     tabActive: {
         backgroundColor: '#3b82f6',
-        elevation: 5,
+        elevation: 4,
         shadowColor: '#3b82f6',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.3,
-        shadowRadius: 10,
+        shadowRadius: 8,
     },
     tabText: {
-        fontWeight: 'bold',
+        fontWeight: '700',
         fontSize: 12,
         color: '#94a3b8',
     },
@@ -1185,7 +1306,7 @@ const styles = StyleSheet.create({
     },
     cardTitle: {
         fontSize: 16,
-        fontWeight: 'bold',
+        fontWeight: '700',
         color: '#f8fafc',
         marginBottom: 16,
     },
@@ -1216,14 +1337,15 @@ const styles = StyleSheet.create({
     fieldLabel: {
         color: '#64748b',
         fontSize: 10,
-        fontWeight: 'bold',
+        fontWeight: '700',
         textTransform: 'uppercase',
         marginBottom: 4,
+        letterSpacing: 0.5,
     },
     fieldValue: {
         color: '#e2e8f0',
         fontSize: 13,
-        fontWeight: 'bold',
+        fontWeight: '600',
     },
     tableWrap: {
         backgroundColor: 'rgba(255,255,255,0.03)',
@@ -1242,8 +1364,9 @@ const styles = StyleSheet.create({
         padding: 12,
         color: '#64748b',
         fontSize: 11,
-        fontWeight: 'bold',
+        fontWeight: '700',
         textTransform: 'uppercase',
+        letterSpacing: 0.6,
     },
     tableRow: {
         flexDirection: 'row',
@@ -1272,7 +1395,7 @@ const styles = StyleSheet.create({
     },
     badgeText: {
         fontSize: 11,
-        fontWeight: 'bold',
+        fontWeight: '700',
         textTransform: 'capitalize',
     },
     actionBtn: {
@@ -1316,6 +1439,7 @@ const styles = StyleSheet.create({
         color: '#94a3b8',
         marginBottom: 4,
         marginTop: 10,
+        fontWeight: '600',
     },
     pickerWrap: {
         backgroundColor: '#0f172a',
@@ -1337,6 +1461,7 @@ const styles = StyleSheet.create({
         color: '#fff',
         padding: 10,
         height: 44,
+        fontSize: 13,
     }
 });
 

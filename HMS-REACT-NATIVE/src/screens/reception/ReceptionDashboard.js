@@ -13,6 +13,7 @@ import * as Print from 'expo-print';
 import socket from '../../utils/socket';
 import { receptionAPI, hospitalAPI, publicAPI, bedAPI, admissionAPI, uploadAPI } from '../../utils/api';
 import { getSubdomain } from '../../utils/subdomain';
+import SlotPicker from '../../components/SlotPicker';
 
 const { width } = Dimensions.get('window');
 
@@ -46,6 +47,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
     const [availableBeds, setAvailableBeds] = useState([]);
     const [doctorsList, setDoctorsList] = useState([]);
     const [hospitalContext, setHospitalContext] = useState(null);
+    const [selectedPatientId, setSelectedPatientId] = useState(null);
     const [stats, setStats] = useState(null);
     const [saving, setSaving] = useState(false);
     const [pendingDownload, setPendingDownload] = useState(null);
@@ -67,6 +69,11 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
     const [searching, setSearching] = useState(false);
     const searchDebounceRef = useRef(null);
 
+    // Bed & Ward live view states
+    const [bedSearch, setBedSearch] = useState('');
+    const [wardFilter, setWardFilter] = useState('all');
+    const [bedStatusFilter, setBedStatusFilter] = useState('all');
+
     // Queue filter
     const [queueSearch, setQueueSearch] = useState('');
 
@@ -83,6 +90,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
     const [patientPhoto, setPatientPhoto] = useState(null);
     const [paymentScreenshot, setPaymentScreenshot] = useState(null);
     const [followupStatus, setFollowupStatus] = useState(null);
+    const [intakePolicyAgreed, setIntakePolicyAgreed] = useState(true);
 
     // Intake Form State
     const [intakeForm, setIntakeForm] = useState({
@@ -98,7 +106,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
 
         // Step 3: Vitals & Clinical Intake
         height: '', weight: '', bmi: '', bloodGroup: 'B+',
-        consultationFee: '500', referralType: 'Walk In', reasonForVisit: '',
+        consultationFee: '500', referralType: 'Walk In', reasonForVisit: '', bio: '',
 
         // Step 4: Doctor & Slot
         department: '', doctor: '', visitDate: new Date().toISOString().split('T')[0], visitTime: '',
@@ -112,8 +120,13 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
     const [hospitalizeModal, setHospitalizeModal] = useState({ open: false, appointment: null });
     const [hospitalizeForm, setHospitalizeForm] = useState({
         ward: 'General', bedId: '', admissionDate: new Date().toISOString().split('T')[0],
-        admissionTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }), notes: ''
+        provisionalDiagnosis: '', advancePayment: '0', notes: ''
     });
+
+    const [vitalsModal, setVitalsModal] = useState({ open: false, appointment: null });
+    const [vitalsForm, setVitalsForm] = useState({ bp: '', pulse: '', temp: '', spo2: '', weight: '', notes: '' });
+
+    const [detailsModal, setDetailsModal] = useState({ open: false, item: null, type: 'appointment' });
 
     const [transferModal, setTransferModal] = useState({
         open: false, admission: null, newWard: 'General', newBedId: '',
@@ -155,13 +168,34 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
     const fetchData = useCallback(async () => {
         setLoading(true);
         try {
-            const sub = getSubdomain();
-            if (sub && sub !== 'null') {
-                const res = await hospitalAPI.resolveHospital(sub);
-                if (res?.success) {
-                    setHospitalContext(res.hospital);
-                    fetchDoctors(res.hospital._id);
+            let hosp = null;
+            try {
+                const myHospRes = await hospitalAPI.getMyHospital();
+                if (myHospRes?.success && myHospRes.hospital) {
+                    hosp = myHospRes.hospital;
                 }
+            } catch (e) {}
+
+            if (!hosp) {
+                const sub = getSubdomain();
+                if (sub && sub !== 'null') {
+                    const res = await hospitalAPI.resolveHospital(sub);
+                    if (res?.success && res.hospital) hosp = res.hospital;
+                }
+            }
+
+            if (hosp) {
+                setHospitalContext(hosp);
+                fetchDoctors(hosp._id);
+                try {
+                    const deptUpiRes = await hospitalAPI.getDepartmentUpiByRole('Reception');
+                    if (deptUpiRes?.success && deptUpiRes.departmentUpi) {
+                        setUpiOptions([{ label: deptUpiRes.departmentUpi.label, upiId: deptUpiRes.departmentUpi.upiId }]);
+                    } else {
+                        const upiRes = await hospitalAPI.getUpiIds();
+                        if (upiRes?.success && upiRes.upiIds) setUpiOptions(upiRes.upiIds);
+                    }
+                } catch (e) {}
             }
         } catch (err) {
             console.warn('Failed to resolve hospital:', err);
@@ -288,12 +322,72 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
 
     const fetchDoctors = async (hospitalId) => {
         try {
-            const res = await publicAPI.getDoctors(null, hospitalId);
-            if (res.success) setDoctorsList(res.doctors || []);
+            const hid = hospitalId || hospitalContext?._id || '';
+            const res = await publicAPI.getDoctors(null, hid);
+            if (res?.success && Array.isArray(res.doctors)) setDoctorsList(res.doctors);
         } catch (err) {
-            console.error(err);
+            console.error('Failed to fetch doctors:', err);
         }
     };
+
+    const validateDoctorAvailability = (doctorId, dateStr) => {
+        if (!doctorId || !dateStr) return true;
+        const selectedDoc = doctorsList.find(d => (d._id === doctorId || d.id === doctorId));
+        if (selectedDoc && selectedDoc.availability) {
+            const daysOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+            const [year, month, day] = dateStr.split('-');
+            const dateObj = new Date(Number(year), Number(month) - 1, Number(day));
+            const dayName = daysOfWeek[dateObj.getDay()];
+            const isAvailable = selectedDoc.availability[dayName] && selectedDoc.availability[dayName].available === true;
+            if (!isAvailable) {
+                const capitalizedDay = dayName.charAt(0).toUpperCase() + dayName.slice(1);
+                Alert.alert(
+                    'Doctor Unavailable',
+                    `Doctor ${selectedDoc.name} is not scheduled on ${capitalizedDay}s. Please select another date before assigning this doctor.`
+                );
+                return false;
+            }
+        }
+        return true;
+    };
+
+    // Web 1:1 Followup Status Sync
+    useEffect(() => {
+        if (!intakeForm.department) {
+            setFollowupStatus(null);
+            return;
+        }
+        if (!selectedPatientId && !isPatientPortal) {
+            return;
+        }
+        const fetchStatus = async () => {
+            try {
+                const pId = selectedPatientId || '';
+                const res = isPatientPortal
+                    ? await patientAuthAPI.getFollowupStatus(intakeForm.department, intakeForm.visitDate)
+                    : await receptionAPI.getFollowupStatus(pId, intakeForm.department, intakeForm.visitDate);
+                if (res?.success) {
+                    setFollowupStatus(res);
+                    if (res.active) {
+                        setIntakeForm(prev => ({ 
+                            ...prev, 
+                            consultationFee: '0',
+                            splitPayments: [{ method: prev.splitPayments?.[0]?.method || 'Cash', amount: '0' }]
+                        }));
+                    } else if (res.fee !== undefined) {
+                        setIntakeForm(prev => ({ 
+                            ...prev, 
+                            consultationFee: String(res.fee),
+                            splitPayments: [{ method: prev.splitPayments?.[0]?.method || 'Cash', amount: String(res.fee) }]
+                        }));
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to fetch followup status", err);
+            }
+        };
+        fetchStatus();
+    }, [selectedPatientId, intakeForm.department, intakeForm.visitDate, isPatientPortal]);
 
     const fetchBookedSlots = async (doctorId, date) => {
         try {
@@ -339,23 +433,21 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         searchDebounceRef.current = setTimeout(async () => {
             try {
                 const res = await receptionAPI.searchPatients(text.trim());
-                if (res?.success) {
-                    setSearchResults(res.patients || []);
-                } else {
-                    setSearchResults([]);
-                }
-            } catch (err) {
-                console.error('Search error:', err);
-                setSearchResults([]);
+                if (res?.success) setSearchResults(res.patients || []);
+            } catch (e) {
+                console.warn('Patient search error:', e);
             } finally {
                 setSearching(false);
             }
         }, 300);
     };
 
-    const handleSelectPatientForBooking = async (patient) => {
+    // Quick fill from search result
+    const handleSelectPatient = async (patient) => {
         setSearchResults([]);
         setSearchQuery('');
+        const pId = patient._id || patient.patientId;
+        setSelectedPatientId(pId);
         const nameParts = (patient.name || '').split(' ');
         setIntakeForm(prev => ({
             ...prev,
@@ -393,8 +485,48 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         setViewMode('intake');
     };
 
-    // Form field updater with BMI calculation
+    // Form field updater with Web 1:1 downstream dependencies
     const handleFormChange = (field, value) => {
+        if (field === 'department') {
+            if (followupStatus?.active) return;
+            const defaultFee = hospitalContext?.departmentFees?.[value] ?? hospitalContext?.appointmentFee ?? 500;
+            setIntakeForm(prev => ({
+                ...prev,
+                department: value,
+                consultationFee: String(defaultFee),
+                doctor: '',
+                visitTime: '',
+                splitPayments: [{ method: prev.splitPayments[0]?.method || 'Cash', amount: String(defaultFee) }]
+            }));
+            setAvailabilityCheck(prev => ({ ...prev, doctorId: '', bookedSlots: [] }));
+            return;
+        }
+
+        if (field === 'doctor') {
+            if (followupStatus?.active) return;
+            if (intakeForm.visitDate) {
+                const ok = validateDoctorAvailability(value, intakeForm.visitDate);
+                if (!ok) return;
+            }
+            setIntakeForm(prev => ({ ...prev, doctor: value, visitTime: '' }));
+            setAvailabilityCheck(prev => ({ ...prev, doctorId: value }));
+            return;
+        }
+
+        if (field === 'visitDate') {
+            if (value < todayStr) {
+                Alert.alert('Invalid Date', 'Appointment date cannot be in the past.');
+                return;
+            }
+            if (intakeForm.doctor) {
+                const ok = validateDoctorAvailability(intakeForm.doctor, value);
+                if (!ok) return;
+            }
+            setIntakeForm(prev => ({ ...prev, visitDate: value, visitTime: '' }));
+            setAvailabilityCheck(prev => ({ ...prev, date: value }));
+            return;
+        }
+
         setIntakeForm(prev => {
             const updated = { ...prev, [field]: value };
 
@@ -550,6 +682,11 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
 
     // ─── FINAL SUBMISSION: REGISTER + BOOK APPOINTMENT ───────────────────────
     const handleRegisterAndBook = async () => {
+        if (!intakePolicyAgreed) {
+            Alert.alert("Policy Agreement", "Please agree to the hospital policies and terms of service before registering.");
+            return;
+        }
+
         const fee = Number(intakeForm.consultationFee) || 0;
         const totalSplit = intakeForm.splitPayments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
 
@@ -560,7 +697,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
 
         setSaving(true);
         try {
-            // 1. Register Patient
+            // 1. Register Patient (Web 1:1 Payload Parity)
             const regPayload = {
                 name: `${intakeForm.firstName || ''} ${intakeForm.lastName || ''}`.trim(),
                 phone: intakeForm.mobile,
@@ -573,10 +710,12 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                 partnerLastName: intakeForm.partnerLastName,
                 partnerMobile: intakeForm.partnerMobile,
                 relationToPatient: intakeForm.relationToPatient,
+                referralType: intakeForm.referralType || 'Walk In',
                 bloodGroup: intakeForm.bloodGroup,
                 height: intakeForm.height,
                 weight: intakeForm.weight,
-                bmi: intakeForm.bmi
+                bmi: intakeForm.bmi,
+                bio: intakeForm.reasonForVisit || ''
             };
 
             const regRes = await receptionAPI.registerPatient(regPayload);
@@ -607,40 +746,88 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
 
             // 3. Document Download Notice
             const pName = `${intakeForm.firstName} ${intakeForm.lastName}`.trim();
-            setPendingDownload({
-                title: 'OPD Slip & Receipt',
-                filename: `OPD_${pName.replace(/\s+/g, '_')}_${todayStr}.pdf`
-            });
-
             const docName = doctorsList.find(d => d._id === intakeForm.doctor)?.name || 'Consultant';
             const allocatedToken = bookingRes?.appointment?.tokenNumber || nextToken;
+            const hName = hospitalContext?.name || 'Care Medical Hospital & Health Center';
+            const hAddr = [hospitalContext?.address, hospitalContext?.city, hospitalContext?.state].filter(Boolean).join(', ');
+            const hPhone = hospitalContext?.phone || '';
+            const hEmail = hospitalContext?.email || '';
+            const issuedBy = currentUser?.name || 'Reception Desk';
+            const paymentMethodsStr = intakeForm.splitPayments.map(p => `${p.method} (₹${p.amount})`).join(' + ');
+
             Alert.alert(
                 "Registration Completed!",
                 `Patient ${pName} has been successfully registered and queued for Dr. ${docName}.${allocatedToken ? ` Allocated Token: #${allocatedToken}` : ''}`,
                 [
                     { text: "View Desk Queue", onPress: () => { setViewMode('desk'); fetchData(); } },
                     { 
-                        text: "🖨️ Print OPD Slip", 
+                        text: "🖨️ Print Registration Slip", 
                         onPress: async () => {
                             try {
                                 const html = `
+                                    <!DOCTYPE html>
                                     <html>
-                                        <body style="font-family: Arial, sans-serif; padding: 24px; color: #1e293b; text-align: center;">
-                                            <h2>OPD REGISTRATION SLIP & RECEIPT</h2>
-                                            <p style="color: #64748b; font-size: 12px;">Date: ${intakeForm.visitDate}</p>
-                                            ${allocatedToken ? `<div style="margin: 16px auto; padding: 12px; border: 2px dashed #0d9488; border-radius: 8px; width: 140px;"><span style="font-size: 12px; color: #0d9488; font-weight: bold;">TOKEN</span><h1 style="margin: 4px 0; color: #0f766e;">#${allocatedToken}</h1></div>` : ''}
-                                            <div style="text-align: left; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 16px 0;">
-                                                <p style="margin: 4px 0;"><strong>Patient:</strong> ${pName} (${intakeForm.gender}, ${intakeForm.age} yrs)</p>
-                                                <p style="margin: 4px 0;"><strong>Doctor:</strong> Dr. ${docName}</p>
-                                                <p style="margin: 4px 0;"><strong>Department:</strong> ${intakeForm.department || 'General'}</p>
-                                                <p style="margin: 4px 0;"><strong>Consultation Fee:</strong> ₹${fee} (Paid via ${intakeForm.splitPayments[0]?.method || 'Cash'})</p>
-                                            </div>
-                                            <p style="font-size: 11px; color: #94a3b8;">Medical365 Hospital Management System</p>
-                                        </body>
+                                    <head>
+                                        <meta charset="utf-8">
+                                        <title>Registration Slip - ${pName}</title>
+                                        <style>
+                                            body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 30px; color: #1e293b; line-height: 1.5; background: #ffffff; }
+                                            .header { text-align: center; border-bottom: 2px solid #2980b9; padding-bottom: 14px; margin-bottom: 18px; }
+                                            .h-name { font-size: 22px; font-weight: 800; color: #0f172a; }
+                                            .h-addr { font-size: 11px; color: #64748b; margin-top: 3px; }
+                                            .h-contact { font-size: 10px; color: #64748b; margin-top: 2px; }
+                                            .slip-title { font-size: 14px; font-weight: 800; color: #2980b9; margin-top: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+                                            ${allocatedToken ? `
+                                            .token-box { margin: 14px auto; padding: 8px 18px; background: #fef3c7; border: 2px dashed #f59e0b; border-radius: 8px; width: 150px; text-align: center; }
+                                            .token-label { font-size: 10px; font-weight: 800; color: #b45309; text-transform: uppercase; }
+                                            .token-num { font-size: 28px; font-weight: 900; color: #d97706; margin: 2px 0; }
+                                            ` : ''}
+                                            table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 12px; }
+                                            td { padding: 9px 12px; border: 1px solid #e2e8f0; }
+                                            td.label { font-weight: bold; color: #334155; width: 35%; background: #f8fafc; }
+                                            td.value { color: #0f172a; }
+                                            .footer { margin-top: 26px; border-top: 1px solid #cbd5e1; padding-top: 10px; display: flex; justify-content: space-between; font-size: 10px; color: #64748b; }
+                                            .thanks { text-align: center; margin-top: 14px; font-size: 11px; color: #64748b; font-style: italic; }
+                                        </style>
+                                    </head>
+                                    <body>
+                                        <div class="header">
+                                            <div class="h-name">${hName}</div>
+                                            ${hAddr ? `<div class="h-addr">${hAddr}</div>` : ''}
+                                            ${hPhone || hEmail ? `<div class="h-contact">${[hPhone && `Ph: ${hPhone}`, hEmail && `Email: ${hEmail}`].filter(Boolean).join('  |  ')}</div>` : ''}
+                                            <div class="slip-title">Registration Slip / Consultation Receipt</div>
+                                        </div>
+
+                                        ${allocatedToken ? `
+                                        <div class="token-box">
+                                            <div class="token-label">Queue Token</div>
+                                            <div class="token-num">#${allocatedToken}</div>
+                                        </div>
+                                        ` : ''}
+
+                                        <table>
+                                            <tr><td class="label">Patient Name</td><td class="value"><strong>${pName}</strong> (${intakeForm.gender}, ${intakeForm.age} yrs)</td></tr>
+                                            <tr><td class="label">MRN / Patient ID</td><td class="value">${bookingRes?.appointment?.patientId || patientId || 'N/A'}</td></tr>
+                                            <tr><td class="label">Phone Contact</td><td class="value">${intakeForm.mobile || '-'}</td></tr>
+                                            <tr><td class="label">Aadhaar Verification</td><td class="value">${intakeForm.isAadhaarVerified ? 'YES — Verified' : 'NO'}</td></tr>
+                                            <tr><td class="label">Department</td><td class="value">${intakeForm.department || 'General'}</td></tr>
+                                            <tr><td class="label">Consulting Doctor</td><td class="value">Dr. ${docName}</td></tr>
+                                            <tr><td class="label">Appointment / Slot</td><td class="value">${intakeForm.visitDate}${isTokenMode ? ` (Token #${allocatedToken || '?'})` : ` @ ${intakeForm.visitTime}`}</td></tr>
+                                            <tr><td class="label">Consultation Fee</td><td class="value"><strong>₹${Number(fee).toLocaleString('en-IN')}</strong></td></tr>
+                                            <tr><td class="label">Payment Method</td><td class="value">${paymentMethodsStr || 'Cash'}</td></tr>
+                                            <tr><td class="label">Payment Status</td><td class="value" style="color: #16a34a; font-weight: bold;">PAID ✓</td></tr>
+                                        </table>
+
+                                        <div class="footer">
+                                            <span>Issued by: ${issuedBy}</span>
+                                            <span>Generated: ${new Date().toLocaleString('en-IN')}</span>
+                                        </div>
+                                        <div class="thanks">Thank you for choosing ${hName}</div>
+                                    </body>
                                     </html>
                                 `;
                                 await Print.printAsync({ html });
-                            } catch (e) { console.warn('OPD print error', e); }
+                            } catch (e) { console.warn('Registration slip print error', e); }
                             setViewMode('desk');
                             fetchData();
                         } 
@@ -945,7 +1132,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
 
                     {!isMobile && (
                         <View style={styles.wHeroArt}>
-                            <Svg viewBox="0 0 260 160" width={175} height={110} fill="none">
+                            <Svg viewBox="0 0 260 160" width={190} height={120} fill="none">
                                 <Defs>
                                     <LinearGradient id="wDeskGrad" x1="0" y1="0" x2="0" y2="1"><Stop offset="0%" stopColor="#6366f1" /><Stop offset="100%" stopColor="#4f46e5" /></LinearGradient>
                                     <LinearGradient id="wScreenGrad" x1="0" y1="0" x2="0" y2="1"><Stop offset="0%" stopColor="#1e293b" /><Stop offset="100%" stopColor="#334155" /></LinearGradient>
@@ -969,43 +1156,6 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                             </Svg>
                         </View>
                     )}
-
-                    {/* 2. Hero Action Controls — 3 Mini Action Chips */}
-                    <View style={[styles.wHeroActions, isMobile && { width: '100%', marginTop: 8 }]}>
-                        <TouchableOpacity 
-                            style={styles.wActionChip} 
-                            activeOpacity={0.85} 
-                            onPress={() => { fetchTransactions(); setViewMode('transactions'); }}
-                        >
-                            <View style={[styles.wChipIcon, styles.wChipIconPurple]}>
-                                <FontAwesome5 name="rupee-sign" size={14} color="#7c3aed" />
-                            </View>
-                            <View style={styles.wChipInfo}>
-                                <Text style={styles.wChipTitle}>Transactions</Text>
-                                <Text style={styles.wChipSub}>View all</Text>
-                            </View>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity style={styles.wActionChip} activeOpacity={0.85} onPress={() => navigation.navigate('PatientBillingProfile')}>
-                            <View style={[styles.wChipIcon, styles.wChipIconTeal]}>
-                                <Feather name="file-text" size={15} color="#0d9488" />
-                            </View>
-                            <View style={styles.wChipInfo}>
-                                <Text style={styles.wChipTitle}>Patient Billing</Text>
-                                <Text style={styles.wChipSub}>Manage</Text>
-                            </View>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity style={styles.wActionChip} activeOpacity={0.85} onPress={() => setViewMode('intake')}>
-                            <View style={[styles.wChipIcon, styles.wChipIconBlue]}>
-                                <Feather name="user-plus" size={15} color="#2563eb" />
-                            </View>
-                            <View style={styles.wChipInfo}>
-                                <Text style={styles.wChipTitle}>New Registration</Text>
-                                <Text style={styles.wChipSub}>Add Patient</Text>
-                            </View>
-                        </TouchableOpacity>
-                    </View>
                 </ExpoLinearGradient>
                 {/* Search Bar — Web: radius 16, border #e2e8f0 */}
                 <View style={styles.wSearchWrap}>
@@ -1474,77 +1624,138 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
 
     // ─── 2. PATIENT REGISTRATION & INTAKE (SLICE 3 CORE) ─────────────────────
     const renderIntake = () => {
+        const isMobile = width < 768;
         const isTokenMode = hospitalContext?.appointmentMode === 'token';
-        const filteredDocs = intakeForm.department 
-            ? doctorsList.filter(d => (d.departments || []).includes(intakeForm.department))
-            : doctorsList;
+        const availableDepartments = [...new Set([
+            ...(hospitalContext?.departments || []),
+            ...doctorsList.flatMap(d => (d.departments && d.departments.length > 0 ? d.departments : (d.department ? [d.department] : [])))
+        ])].filter(Boolean);
+        const deptsToDisplay = availableDepartments.length > 0
+            ? availableDepartments
+            : ['General Medicine', 'Gynecology', 'Obstetrics', 'Pediatrics', 'Orthopedics', 'Cardiology', 'Dermatology', 'Neurology', 'ENT'];
 
-        const availableSlots = timeSlots.filter(t => !availabilityCheck.bookedSlots.includes(t));
+        const filteredDocs = doctorsList.filter(doc => {
+            if (!intakeForm.department) return true;
+            if (doc.departments && doc.departments.length > 0) {
+                return doc.departments.includes(intakeForm.department);
+            }
+            return doc.department === intakeForm.department;
+        });
 
         return (
             <View style={styles.intakeContainer}>
-                {/* Stepper Header */}
-                <View style={styles.intakeTopHeader}>
-                    <TouchableOpacity onPress={() => setViewMode('desk')} style={styles.backBtn}>
-                        <Feather name="arrow-left" size={18} color="#2563eb" style={{ marginRight: 6 }} />
-                        <Text style={styles.backBtnText}>Exit</Text>
-                    </TouchableOpacity>
-                    <Text style={styles.headerTitle}>Patient Registration & Walk-in</Text>
+                {/* Centered Heading with Prominent Right Close Button — Web 1:1 */}
+                <View style={styles.regHeadingRow}>
+                    <View style={styles.regHeadingPlaceholder} />
+                    <View style={styles.regHeadingCenter}>
+                        <Text style={styles.regTitleGradient}>
+                            {isPatientPortal ? (followupStatus?.active ? 'Re-Book Appointment' : 'Book Appointment') : 'New Patient Registration'}
+                        </Text>
+                        <ExpoLinearGradient colors={['#38bdf8', '#6366f1', '#a855f7']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.regTitleGlowAccent} />
+                    </View>
+                    <View style={styles.regHeadingRight}>
+                        <TouchableOpacity 
+                            style={styles.regBtnCloseProminent}
+                            onPress={() => setViewMode('welcome')}
+                            activeOpacity={0.8}
+                        >
+                            <Text style={styles.regBtnCloseText}>✕ Close</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
 
-                {/* 5-Step Progress Stepper */}
-                <View style={styles.stepperContainer}>
-                    {[
-                        { step: 1, label: 'Identity', icon: 'user' },
-                        { step: 2, label: 'Relative', icon: 'users' },
-                        { step: 3, label: 'Vitals', icon: 'heart' },
-                        { step: 4, label: 'Doctor', icon: 'calendar' },
-                        { step: 5, label: 'Payment', icon: 'credit-card' },
-                    ].map(item => {
-                        const isActive = currentStep === item.step;
-                        const isDone = currentStep > item.step;
-                        return (
-                            <TouchableOpacity 
-                                key={item.step} 
-                                style={[styles.stepItem, isActive && styles.stepItemActive]}
-                                onPress={() => {
-                                    if (item.step < currentStep) setCurrentStep(item.step);
-                                }}
-                            >
-                                <View style={[styles.stepCircle, isActive && styles.stepCircleActive, isDone && styles.stepCircleDone]}>
-                                    {isDone ? (
-                                        <Feather name="check" size={12} color="#ffffff" />
-                                    ) : (
-                                        <Text style={[styles.stepNum, (isActive || isDone) && styles.stepNumActive]}>0{item.step}</Text>
+                {/* Workspace: Left Steps Sidebar on Desktop + Form Cards */}
+                <View style={[styles.regWorkspace, isMobile && { flexDirection: 'column' }]}>
+                    {!isMobile ? (
+                        <View style={styles.regStepsSidebar}>
+                            <Text style={styles.regStepsTitle}>REGISTRATION FLOW</Text>
+                            {[
+                                { step: 1, title: 'Patient Identity', sub: 'KYC & relative' },
+                                { step: 2, title: 'Address & Source', sub: 'Address & referral' },
+                                { step: 3, title: 'Vitals', sub: 'Health measurements' },
+                                { step: 4, title: 'Assignment', sub: 'Doctor & consultant' },
+                                { step: 5, title: 'Payment', sub: 'Registration fee' },
+                            ].map(item => {
+                                const isActive = currentStep === item.step;
+                                return (
+                                    <TouchableOpacity 
+                                        key={item.step} 
+                                        style={[styles.regStepItem, isActive && styles.regStepItemActive]}
+                                        onPress={() => setCurrentStep(item.step)}
+                                        activeOpacity={0.8}
+                                    >
+                                        <View style={[styles.regStepNumBox, isActive && styles.regStepNumBoxActive]}>
+                                            <Text style={[styles.regStepNumText, isActive && styles.regStepNumTextActive]}>0{item.step}</Text>
+                                        </View>
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={[styles.regStepItemTitle, isActive && styles.regStepItemTitleActive]}>{item.title}</Text>
+                                            <Text style={styles.regStepItemSub}>{item.sub}</Text>
+                                        </View>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                            <View style={styles.regStepsAiBox}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                    <View style={styles.regScanIcon}><Text style={{ color: '#4f46e5', fontWeight: '900', fontSize: 13 }}>✦</Text></View>
+                                    <Text style={{ fontSize: 12, fontWeight: '800', color: '#1e293b' }}>AI Verification</Text>
+                                </View>
+                                <View style={styles.regScanLine}>
+                                    <ExpoLinearGradient colors={['#06b6d4', '#4f46e5']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ width: '50%', height: '100%', borderRadius: 10 }} />
+                                </View>
+                            </View>
+                        </View>
+                    ) : (
+                        <View style={styles.stepperContainer}>
+                            {[
+                                { step: 1, label: 'Identity' },
+                                { step: 2, label: 'Address' },
+                                { step: 3, label: 'Vitals' },
+                                { step: 4, label: 'Doctor' },
+                                { step: 5, label: 'Payment' },
+                            ].map(item => {
+                                const isActive = currentStep === item.step;
+                                const isDone = currentStep > item.step;
+                                return (
+                                    <TouchableOpacity 
+                                        key={item.step} 
+                                        style={[styles.stepItem, isActive && styles.stepItemActive]}
+                                        onPress={() => setCurrentStep(item.step)}
+                                    >
+                                        <View style={[styles.stepCircle, isActive && styles.stepCircleActive, isDone && styles.stepCircleDone]}>
+                                            {isDone ? (
+                                                <Feather name="check" size={12} color="#ffffff" />
+                                            ) : (
+                                                <Text style={[styles.stepNum, (isActive || isDone) && styles.stepNumActive]}>0{item.step}</Text>
+                                            )}
+                                        </View>
+                                        <Text style={[styles.stepLabel, isActive && styles.stepLabelActive]}>{item.label}</Text>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
+                    )}
+
+                    <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.formScroll} showsVerticalScrollIndicator={true}>
+                        {/* ──── STEP 1: IDENTITY & DEMOGRAPHICS ──── */}
+                        {currentStep === 1 && (
+                            <View style={styles.stepCard}>
+                                <View style={styles.cardHeaderRow}>
+                                    <View style={styles.cardHeaderLeft}>
+                                        <View style={[styles.stepIconWrap, { backgroundColor: '#ccfbf1' }]}>
+                                            <Feather name="user" size={16} color="#0d9488" />
+                                        </View>
+                                        <View>
+                                            <Text style={styles.stepTitle}>Patient Identity & KYC</Text>
+                                            <Text style={styles.stepSub}>Secure demographic identification</Text>
+                                        </View>
+                                    </View>
+                                    {intakeForm.isAadhaarVerified && (
+                                        <View style={styles.verifiedTag}>
+                                            <Feather name="check-circle" size={12} color="#15803d" />
+                                            <Text style={styles.verifiedTagText}>AADHAAR VERIFIED</Text>
+                                        </View>
                                     )}
                                 </View>
-                                <Text style={[styles.stepLabel, isActive && styles.stepLabelActive]}>{item.label}</Text>
-                            </TouchableOpacity>
-                        );
-                    })}
-                </View>
-
-                <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.formScroll} showsVerticalScrollIndicator={true}>
-                    {/* ──── STEP 1: IDENTITY & DEMOGRAPHICS ──── */}
-                    {currentStep === 1 && (
-                        <View style={styles.stepCard}>
-                            <View style={styles.cardHeaderRow}>
-                                <View style={styles.cardHeaderLeft}>
-                                    <View style={[styles.stepIconWrap, { backgroundColor: '#ccfbf1' }]}>
-                                        <Feather name="user" size={16} color="#0d9488" />
-                                    </View>
-                                    <div>
-                                        <Text style={styles.stepTitle}>Patient Identity & KYC</Text>
-                                        <Text style={styles.stepSub}>Secure demographic identification</Text>
-                                    </div>
-                                </View>
-                                {intakeForm.isAadhaarVerified && (
-                                    <View style={styles.verifiedTag}>
-                                        <Feather name="check-circle" size={12} color="#15803d" />
-                                        <Text style={styles.verifiedTagText}>AADHAAR VERIFIED</Text>
-                                    </View>
-                                )}
-                            </View>
 
                             {/* Patient Photo Capture & Upload */}
                             <View style={styles.photoRow}>
@@ -1704,39 +1915,9 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                 />
                             </View>
 
-                            {/* Residential Address */}
-                            <Text style={[styles.fieldLabel, { marginTop: 10 }]}>Residential Address</Text>
-                            <TextInput 
-                                style={[styles.formInput, { marginBottom: 8 }]} 
-                                placeholder="House No / Building / Street" 
-                                value={intakeForm.houseNo} 
-                                onChangeText={t => handleFormChange('houseNo', t)} 
-                            />
-                            <View style={styles.formRow3}>
-                                <TextInput style={[styles.formInput, styles.col3]} placeholder="City" value={intakeForm.city} onChangeText={t => handleFormChange('city', t)} />
-                                <TextInput style={[styles.formInput, styles.col3]} placeholder="State" value={intakeForm.state} onChangeText={t => handleFormChange('state', t)} />
-                                <TextInput style={[styles.formInput, styles.col3]} placeholder="Pincode" keyboardType="numeric" value={intakeForm.zipCode} onChangeText={t => handleFormChange('zipCode', t)} />
-                            </View>
-                        </View>
-                    )}
-
-                    {/* ──── STEP 2: RELATIVE / PARTNER ──── */}
-                    {currentStep === 2 && (
-                        <View style={styles.stepCard}>
-                            <View style={styles.cardHeaderRow}>
-                                <View style={styles.cardHeaderLeft}>
-                                    <View style={[styles.stepIconWrap, { backgroundColor: '#eff6ff' }]}>
-                                        <Feather name="users" size={16} color="#2563eb" />
-                                    </View>
-                                    <div>
-                                        <Text style={styles.stepTitle}>Relative & Emergency Contact</Text>
-                                        <Text style={styles.stepSub}>Companion and next of kin information</Text>
-                                    </div>
-                                </View>
-                            </View>
-
-                            <View style={styles.fieldBlock}>
-                                <Text style={styles.fieldLabel}>Relationship to Patient</Text>
+                            {/* Relative & Companion Details */}
+                            <View style={[styles.fieldBlock, { marginTop: 10 }]}>
+                                <Text style={styles.fieldLabel}>Relation To Patient</Text>
                                 <View style={styles.pillSelector}>
                                     {['Spouse', 'Father', 'Mother', 'Son', 'Daughter', 'Sibling', 'Other'].map(r => (
                                         <TouchableOpacity 
@@ -1785,6 +1966,73 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                         </View>
                     )}
 
+                    {/* ──── STEP 2: ADDRESS & SOURCE INFORMATION ──── */}
+                    {currentStep === 2 && (
+                        <View style={styles.stepCard}>
+                            <View style={styles.cardHeaderRow}>
+                                <View style={styles.cardHeaderLeft}>
+                                    <View style={[styles.stepIconWrap, { backgroundColor: '#eff6ff' }]}>
+                                        <Feather name="map-pin" size={16} color="#2563eb" />
+                                    </View>
+                                    <View>
+                                        <Text style={styles.stepTitle}>Address & Referral Source</Text>
+                                        <Text style={styles.stepSub}>Patient residential and acquisition details</Text>
+                                    </View>
+                                </View>
+                            </View>
+
+                            <View style={styles.fieldBlock}>
+                                <Text style={styles.fieldLabel}>House No / Flat / Building Name</Text>
+                                <TextInput 
+                                    style={styles.formInput} 
+                                    placeholder="House No / Flat / Building Name" 
+                                    value={intakeForm.houseNo} 
+                                    onChangeText={t => handleFormChange('houseNo', t)} 
+                                />
+                            </View>
+
+                            <View style={styles.fieldBlock}>
+                                <Text style={styles.fieldLabel}>Street / Area / Locality</Text>
+                                <TextInput 
+                                    style={styles.formInput} 
+                                    placeholder="Street / Area / Locality" 
+                                    value={intakeForm.street} 
+                                    onChangeText={t => handleFormChange('street', t)} 
+                                />
+                            </View>
+
+                            <View style={styles.formRow3}>
+                                <View style={styles.col3}>
+                                    <Text style={styles.fieldLabel}>City</Text>
+                                    <TextInput style={styles.formInput} placeholder="City" value={intakeForm.city} onChangeText={t => handleFormChange('city', t)} />
+                                </View>
+                                <View style={styles.col3}>
+                                    <Text style={styles.fieldLabel}>State</Text>
+                                    <TextInput style={styles.formInput} placeholder="State" value={intakeForm.state} onChangeText={t => handleFormChange('state', t)} />
+                                </View>
+                                <View style={styles.col3}>
+                                    <Text style={styles.fieldLabel}>Pincode</Text>
+                                    <TextInput style={styles.formInput} placeholder="Pincode" keyboardType="numeric" value={intakeForm.zipCode} onChangeText={t => handleFormChange('zipCode', t)} />
+                                </View>
+                            </View>
+
+                            <View style={[styles.fieldBlock, { marginTop: 10 }]}>
+                                <Text style={styles.fieldLabel}>Patient Source / Referral Type</Text>
+                                <View style={styles.pillSelector}>
+                                    {['Walk In', 'Doctor Referral', 'Hospital Referral', 'Online', 'Social Media', 'Google/Website', 'Friend/Relative', 'Other'].map(ref => (
+                                        <TouchableOpacity 
+                                            key={ref} 
+                                            style={[styles.miniPill, intakeForm.referralType === ref && styles.miniPillActive]}
+                                            onPress={() => handleFormChange('referralType', ref)}
+                                        >
+                                            <Text style={[styles.miniPillText, intakeForm.referralType === ref && styles.miniPillTextActive]}>{ref}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                            </View>
+                        </View>
+                    )}
+
                     {/* ──── STEP 3: VITALS & CLINICAL INTAKE ──── */}
                     {currentStep === 3 && (
                         <View style={styles.stepCard}>
@@ -1793,10 +2041,10 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                     <View style={[styles.stepIconWrap, { backgroundColor: '#fff7ed' }]}>
                                         <Feather name="heart" size={16} color="#ea580c" />
                                     </View>
-                                    <div>
+                                    <View>
                                         <Text style={styles.stepTitle}>Vitals & Clinical Measurements</Text>
                                         <Text style={styles.stepSub}>Preliminary triage vitals calculation</Text>
-                                    </div>
+                                    </View>
                                 </View>
                                 <View style={styles.smartBadge}>
                                     <Text style={styles.smartBadgeText}>SMART BMI</Text>
@@ -1847,36 +2095,10 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                 </View>
                             </View>
 
-                            <View style={styles.formRow2}>
-                                <View style={styles.col1}>
-                                    <Text style={styles.fieldLabel}>Referral Source</Text>
-                                    <View style={styles.pillSelector}>
-                                        {['Walk In', 'Doctor Referral', 'Online', 'Other'].map(ref => (
-                                            <TouchableOpacity 
-                                                key={ref} 
-                                                style={[styles.miniPill, intakeForm.referralType === ref && styles.miniPillActive]}
-                                                onPress={() => handleFormChange('referralType', ref)}
-                                            >
-                                                <Text style={[styles.miniPillText, intakeForm.referralType === ref && styles.miniPillTextActive]}>{ref}</Text>
-                                            </TouchableOpacity>
-                                        ))}
-                                    </View>
-                                </View>
-                                <View style={styles.col2}>
-                                    <Text style={styles.fieldLabel}>Consultation Fee (₹)</Text>
-                                    <TextInput 
-                                        style={[styles.formInput, { fontWeight: '800', color: '#15803d' }]} 
-                                        keyboardType="numeric" 
-                                        value={intakeForm.consultationFee} 
-                                        onChangeText={t => handleFormChange('consultationFee', t)} 
-                                    />
-                                </View>
-                            </View>
-
                             <View style={styles.fieldBlock}>
                                 <Text style={styles.fieldLabel}>Chief Complaint / Reason for Visit</Text>
                                 <TextInput 
-                                    style={[styles.formInput, { height: 60 }]} 
+                                    style={[styles.formInput, { height: 70 }]} 
                                     multiline 
                                     placeholder="e.g. High fever, routine follow-up, consultation..." 
                                     value={intakeForm.reasonForVisit} 
@@ -1894,27 +2116,34 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                     <View style={[styles.stepIconWrap, { backgroundColor: '#f5f3ff' }]}>
                                         <Feather name="calendar" size={16} color="#7c3aed" />
                                     </View>
-                                    <div>
+                                    <View>
                                         <Text style={styles.stepTitle}>Doctor Assignment & Scheduling</Text>
                                         <Text style={styles.stepSub}>Choose clinic specialist and appointment slot</Text>
-                                    </div>
+                                    </View>
                                 </View>
                             </View>
 
                             {/* Department Selection */}
                             <View style={styles.fieldBlock}>
-                                <Text style={styles.fieldLabel}>Select Department *</Text>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                                    <Text style={styles.fieldLabel}>Select Department *</Text>
+                                    {followupStatus?.active && (
+                                        <Text style={{ fontSize: 10, fontWeight: '700', color: '#15803d' }}>READ ONLY (Active Follow-up)</Text>
+                                    )}
+                                </View>
                                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row', gap: 8 }}>
-                                    {[...new Set(doctorsList.flatMap(d => d.departments || ['General']))].map(dept => {
+                                    {deptsToDisplay.map(dept => {
                                         const isSel = intakeForm.department === dept;
                                         return (
                                             <TouchableOpacity 
                                                 key={dept} 
-                                                style={[styles.chipPill, isSel && styles.chipPillActive]}
-                                                onPress={() => {
-                                                    handleFormChange('department', dept);
-                                                    handleFormChange('doctor', '');
-                                                }}
+                                                disabled={followupStatus?.active}
+                                                style={[
+                                                    styles.chipPill, 
+                                                    isSel && styles.chipPillActive,
+                                                    followupStatus?.active && { opacity: 0.6 }
+                                                ]}
+                                                onPress={() => handleFormChange('department', dept)}
                                             >
                                                 <Text style={[styles.chipPillText, isSel && styles.chipPillTextActive]}>{dept}</Text>
                                             </TouchableOpacity>
@@ -1925,80 +2154,110 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
 
                             {/* Doctor Selection */}
                             <View style={styles.fieldBlock}>
-                                <Text style={styles.fieldLabel}>Select Specialist *</Text>
-                                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row', gap: 8 }}>
-                                    {filteredDocs.map(doc => {
-                                        const isSel = intakeForm.doctor === doc._id;
-                                        return (
-                                            <TouchableOpacity 
-                                                key={doc._id} 
-                                                style={[styles.doctorCardChip, isSel && styles.doctorCardChipActive]}
-                                                onPress={() => {
-                                                    handleFormChange('doctor', doc._id);
-                                                    setAvailabilityCheck(p => ({ ...p, doctorId: doc._id }));
-                                                }}
-                                            >
-                                                <View style={[styles.docAvatar, { backgroundColor: isSel ? '#0d9488' : '#e2e8f0' }]}>
-                                                    <Text style={[styles.docAvatarText, { color: isSel ? '#ffffff' : '#334155' }]}>
-                                                        {doc.name?.replace('Dr. ', '').substring(0, 2).toUpperCase()}
-                                                    </Text>
-                                                </View>
-                                                <View>
-                                                    <Text style={[styles.doctorChipName, isSel && { color: '#0d9488' }]}>{doc.name}</Text>
-                                                    <Text style={styles.doctorChipDept}>{(doc.departments || ['General'])[0]}</Text>
-                                                </View>
-                                            </TouchableOpacity>
-                                        );
-                                    })}
-                                </ScrollView>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                                    <Text style={styles.fieldLabel}>Select Specialist *</Text>
+                                    {followupStatus?.active && (
+                                        <Text style={{ fontSize: 10, fontWeight: '700', color: '#15803d' }}>READ ONLY</Text>
+                                    )}
+                                </View>
+                                {!intakeForm.department ? (
+                                    <View style={{ padding: 14, backgroundColor: '#f8fafc', borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0', alignItems: 'center' }}>
+                                        <Text style={{ fontSize: 12, color: '#64748b' }}>Please select a department above to view available specialists.</Text>
+                                    </View>
+                                ) : filteredDocs.length === 0 ? (
+                                    <View style={{ padding: 14, backgroundColor: '#fff7ed', borderRadius: 10, borderWidth: 1, borderColor: '#fed7aa', alignItems: 'center' }}>
+                                        <Text style={{ fontSize: 12, color: '#c2410c' }}>No specialists currently assigned to {intakeForm.department}.</Text>
+                                    </View>
+                                ) : (
+                                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row', gap: 8 }}>
+                                        {filteredDocs.map(doc => {
+                                            const isSel = intakeForm.doctor === doc._id;
+                                            return (
+                                                <TouchableOpacity 
+                                                    key={doc._id} 
+                                                    disabled={followupStatus?.active}
+                                                    style={[
+                                                        styles.doctorCardChip, 
+                                                        isSel && styles.doctorCardChipActive,
+                                                        followupStatus?.active && { opacity: 0.6 }
+                                                    ]}
+                                                    onPress={() => handleFormChange('doctor', doc._id)}
+                                                >
+                                                    <View style={[styles.docAvatar, { backgroundColor: isSel ? '#0d9488' : '#e2e8f0' }]}>
+                                                        <Text style={[styles.docAvatarText, { color: isSel ? '#ffffff' : '#334155' }]}>
+                                                            {doc.name?.replace('Dr. ', '').substring(0, 2).toUpperCase()}
+                                                        </Text>
+                                                    </View>
+                                                    <View>
+                                                        <Text style={[styles.doctorChipName, isSel && { color: '#0d9488' }]}>{doc.name}</Text>
+                                                        <Text style={styles.doctorChipDept}>{(doc.departments || [doc.department || 'General'])[0]}</Text>
+                                                    </View>
+                                                </TouchableOpacity>
+                                            );
+                                        })}
+                                    </ScrollView>
+                                )}
                             </View>
 
                             {/* Appointment Date */}
                             <View style={styles.fieldBlock}>
                                 <Text style={styles.fieldLabel}>Appointment Date *</Text>
-                                <TextInput 
-                                    style={styles.formInput} 
-                                    placeholder="YYYY-MM-DD" 
-                                    value={intakeForm.visitDate} 
-                                    onChangeText={t => {
-                                        handleFormChange('visitDate', t);
-                                        setAvailabilityCheck(p => ({ ...p, date: t }));
-                                    }} 
-                                />
+                                <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                                    <TextInput 
+                                        style={[styles.formInput, { flex: 1 }]} 
+                                        placeholder="YYYY-MM-DD" 
+                                        value={intakeForm.visitDate} 
+                                        onChangeText={t => handleFormChange('visitDate', t)} 
+                                    />
+                                    <TouchableOpacity 
+                                        style={[styles.miniPill, intakeForm.visitDate === todayStr && styles.miniPillActive]}
+                                        onPress={() => handleFormChange('visitDate', todayStr)}
+                                    >
+                                        <Text style={[styles.miniPillText, intakeForm.visitDate === todayStr && styles.miniPillTextActive]}>Today</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity 
+                                        style={[styles.miniPill, intakeForm.visitDate === (() => {
+                                            const tom = new Date();
+                                            tom.setDate(tom.getDate() + 1);
+                                            return tom.toISOString().split('T')[0];
+                                        })() && styles.miniPillActive]}
+                                        onPress={() => {
+                                            const tom = new Date();
+                                            tom.setDate(tom.getDate() + 1);
+                                            handleFormChange('visitDate', tom.toISOString().split('T')[0]);
+                                        }}
+                                    >
+                                        <Text style={styles.miniPillText}>Tomorrow</Text>
+                                    </TouchableOpacity>
+                                </View>
                             </View>
 
                             {/* Token Mode vs Slot Picker */}
-                            {isTokenMode ? (
-                                <View style={styles.tokenModeBox}>
-                                    <Text style={{ fontSize: 32 }}>🎟️</Text>
-                                    <View style={{ flex: 1 }}>
-                                        <Text style={styles.tokenModeTitle}>Daily Token Mode Active</Text>
-                                        <Text style={styles.tokenModeSub}>
-                                            {nextToken ? `Next Available Token: #${nextToken}` : 'Token will be allocated on queue registration.'}
-                                        </Text>
+                            {intakeForm.doctor ? (
+                                isTokenMode ? (
+                                    <View style={styles.tokenModeBox}>
+                                        <Text style={{ fontSize: 32 }}>🎟️</Text>
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={styles.tokenModeTitle}>Daily Token Mode Active</Text>
+                                            <Text style={styles.tokenModeSub}>
+                                                {nextToken ? `Next Available Token: #${nextToken}` : 'Token will be allocated on queue registration.'}
+                                            </Text>
+                                            <Text style={{ fontSize: 11, color: '#92400e', marginTop: 2, opacity: 0.8 }}>Tokens reset daily at midnight</Text>
+                                        </View>
                                     </View>
-                                </View>
+                                ) : (
+                                    <View style={{ marginTop: 8 }}>
+                                        <SlotPicker
+                                            doctorId={intakeForm.doctor}
+                                            date={intakeForm.visitDate}
+                                            selectedTime={intakeForm.visitTime}
+                                            onSelectTime={(time) => handleFormChange('visitTime', time)}
+                                        />
+                                    </View>
+                                )
                             ) : (
-                                <View style={styles.fieldBlock}>
-                                    <Text style={styles.fieldLabel}>Available Consultation Time Slots *</Text>
-                                    <View style={styles.slotGrid}>
-                                        {timeSlots.map(time => {
-                                            const isBooked = availabilityCheck.bookedSlots.includes(time);
-                                            const isSel = intakeForm.visitTime === time;
-                                            return (
-                                                <TouchableOpacity 
-                                                    key={time} 
-                                                    disabled={isBooked}
-                                                    onPress={() => handleFormChange('visitTime', time)}
-                                                    style={[styles.slotBtn, isBooked && styles.slotBtnBooked, isSel && styles.slotBtnSelected]}
-                                                >
-                                                    <Text style={[styles.slotBtnText, isBooked && styles.slotBtnTextBooked, isSel && styles.slotBtnTextSelected]}>
-                                                        {time}
-                                                    </Text>
-                                                </TouchableOpacity>
-                                            );
-                                        })}
-                                    </View>
+                                <View style={{ padding: 14, backgroundColor: '#f8fafc', borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0', alignItems: 'center' }}>
+                                    <Text style={{ fontSize: 12, color: '#64748b' }}>Select a specialist above to check available consultation slots.</Text>
                                 </View>
                             )}
                         </View>
@@ -2012,10 +2271,10 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                     <View style={[styles.stepIconWrap, { backgroundColor: '#ecfdf5' }]}>
                                         <FontAwesome5 name="rupee-sign" size={16} color="#059669" />
                                     </View>
-                                    <div>
+                                    <View>
                                         <Text style={styles.stepTitle}>Payment & Billing Settlement</Text>
                                         <Text style={styles.stepSub}>Collect consultation fees and finalize appointment</Text>
-                                    </div>
+                                    </View>
                                 </View>
                             </View>
 
@@ -2150,6 +2409,54 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                     </View>
                                 );
                             })()}
+
+                            {/* Patient Notes / Bio */}
+                            <View style={[styles.fieldBlock, { marginTop: 14 }]}>
+                                <Text style={styles.fieldLabel}>Patient Notes / Clinical Bio</Text>
+                                <TextInput
+                                    style={[styles.formInput, { height: 60 }]}
+                                    multiline
+                                    placeholder="Patient's profile bio or initial clinical observations..."
+                                    value={intakeForm.bio || ''}
+                                    onChangeText={val => handleFormChange('bio', val)}
+                                />
+                            </View>
+
+                            {/* Hospital Policy Agreement Checkbox (1:1 Web) */}
+                            <TouchableOpacity 
+                                style={{
+                                    marginTop: 14,
+                                    padding: 12,
+                                    backgroundColor: '#f8fafc',
+                                    borderRadius: 10,
+                                    borderWidth: 1,
+                                    borderColor: '#e2e8f0',
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 10
+                                }}
+                                activeOpacity={0.8}
+                                onPress={() => setIntakePolicyAgreed(!intakePolicyAgreed)}
+                            >
+                                <View style={{
+                                    width: 20,
+                                    height: 20,
+                                    borderRadius: 4,
+                                    borderWidth: 1.5,
+                                    borderColor: intakePolicyAgreed ? '#2563eb' : '#cbd5e1',
+                                    backgroundColor: intakePolicyAgreed ? '#2563eb' : '#ffffff',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                }}>
+                                    {intakePolicyAgreed && <Feather name="check" size={14} color="#ffffff" />}
+                                </View>
+                                <Text style={{ flex: 1, fontSize: 12, color: '#334155', lineHeight: 18 }}>
+                                    I have read, understood, and agree to the{' '}
+                                    <Text style={{ color: '#2563eb', fontWeight: '700' }}>Hospital Policies</Text>,{' '}
+                                    <Text style={{ color: '#2563eb', fontWeight: '700' }}>Consent to Treatment</Text>, and{' '}
+                                    <Text style={{ color: '#2563eb', fontWeight: '700' }}>Privacy Notice</Text>.
+                                </Text>
+                            </TouchableOpacity>
                         </View>
                     )}
 
@@ -2186,8 +2493,9 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                     </View>
                 </ScrollView>
             </View>
-        );
-    };
+        </View>
+    );
+};
 
     // ─── TRANSACTIONS LEDGER (1:1 Web Parity Lines 2699-2801) ─────────────
     const handlePrintTransactionReceipt = async (t) => {
@@ -2824,12 +3132,12 @@ const styles = StyleSheet.create({
     wDocBannerText: { color: '#065f46', fontWeight: '600', fontSize: 14, flex: 1 },
     wDocBannerBtn: { backgroundColor: '#059669', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, marginLeft: 12 },
     wDocBannerBtnText: { color: '#ffffff', fontWeight: '700', fontSize: 13 },
-    wHeroCard: { borderRadius: 22, paddingVertical: 32, paddingHorizontal: 36, minHeight: 220, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, borderWidth: 1, borderColor: '#e0e7ff', elevation: 2, shadowColor: '#6366f1', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 20, overflow: 'hidden' },
+    wHeroCard: { borderRadius: 22, paddingVertical: 32, paddingHorizontal: 36, minHeight: 220, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, borderWidth: 1.5, borderColor: '#dbeafe', elevation: 2, shadowColor: '#3b82f6', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.06, shadowRadius: 24, overflow: 'hidden' },
     wHeroLeft: { flex: 1, paddingRight: 20, gap: 10 },
-    wBadgePill: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#0d9488', paddingVertical: 6, paddingHorizontal: 16, borderRadius: 20, alignSelf: 'flex-start', marginBottom: 4, elevation: 3, shadowColor: '#0d9488', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 12 },
-    wBadgePillText: { fontSize: 11, fontWeight: '800', color: '#ffffff', letterSpacing: 0.7 },
+    wBadgePill: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#bfdbfe', paddingVertical: 6, paddingHorizontal: 14, borderRadius: 999, alignSelf: 'flex-start', marginBottom: 4, elevation: 2, shadowColor: '#3b82f6', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 6 },
+    wBadgePillText: { fontSize: 11.5, fontWeight: '800', color: '#1e40af', letterSpacing: 0.7 },
     wHeroTitle: { fontSize: 26, fontWeight: '800', color: '#0f172a', lineHeight: 34, letterSpacing: -0.3, marginTop: 4 },
-    wNameHighlight: { color: '#0d9488', fontWeight: '800' },
+    wNameHighlight: { color: '#4f46e5', fontWeight: '900' },
     wHeroSubtitle: { fontSize: 14.5, color: '#64748b', fontWeight: '500', lineHeight: 21 },
     wHeroArt: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
     wHeroActions: { gap: 10, justifyContent: 'center', flexShrink: 0 },
@@ -2967,6 +3275,29 @@ const styles = StyleSheet.create({
 
     // ─── STEPPER STYLES (SLICE 3) ───────────────────────────────────────────
     intakeContainer: { flex: 1, backgroundColor: '#f8fafc', minHeight: 0 },
+    regHeadingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, paddingVertical: 14, backgroundColor: '#ffffff', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+    regHeadingPlaceholder: { width: 90 },
+    regHeadingCenter: { alignItems: 'center', flex: 1 },
+    regTitleGradient: { fontSize: 22, fontWeight: '800', color: '#4f46e5', letterSpacing: -0.4 },
+    regTitleGlowAccent: { width: 60, height: 3, borderRadius: 2, marginTop: 4 },
+    regHeadingRight: { width: 90, alignItems: 'flex-end' },
+    regBtnCloseProminent: { paddingVertical: 7, paddingHorizontal: 16, borderRadius: 10, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#cbd5e1' },
+    regBtnCloseText: { fontSize: 13, fontWeight: '700', color: '#475569' },
+    regWorkspace: { flex: 1, flexDirection: 'row', backgroundColor: '#f8fafc' },
+    regStepsSidebar: { width: 250, backgroundColor: '#ffffff', borderRightWidth: 1, borderRightColor: '#e2e8f0', padding: 16, gap: 8 },
+    regStepsTitle: { fontSize: 11, fontWeight: '800', color: '#8796aa', letterSpacing: 1, marginBottom: 8 },
+    regStepItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: 'transparent' },
+    regStepItemActive: { backgroundColor: '#eff6ff', borderColor: '#c7d2fe' },
+    regStepNumBox: { width: 32, height: 32, borderRadius: 8, backgroundColor: '#f1f5fa', alignItems: 'center', justifyContent: 'center' },
+    regStepNumBoxActive: { backgroundColor: '#4f46e5' },
+    regStepNumText: { fontSize: 11, fontWeight: '800', color: '#71819a' },
+    regStepNumTextActive: { color: '#ffffff' },
+    regStepItemTitle: { fontSize: 13, fontWeight: '700', color: '#1e293b' },
+    regStepItemTitleActive: { color: '#4f46e5' },
+    regStepItemSub: { fontSize: 11, color: '#94a3b8', marginTop: 1 },
+    regStepsAiBox: { marginTop: 18, padding: 14, borderRadius: 14, backgroundColor: '#f4f0ff', borderWidth: 1, borderColor: '#e9d5ff' },
+    regScanIcon: { width: 24, height: 24, borderRadius: 6, backgroundColor: '#ffffff', alignItems: 'center', justifyContent: 'center' },
+    regScanLine: { height: 4, borderRadius: 10, backgroundColor: '#e2e8f0', marginTop: 10, overflow: 'hidden' },
     intakeTopHeader: { flexDirection: 'row', alignItems: 'center', padding: 18, backgroundColor: '#ffffff', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
     backBtn: { flexDirection: 'row', alignItems: 'center', marginRight: 14 },
     backBtnText: { fontSize: 14, fontWeight: '700', color: '#2563eb' },

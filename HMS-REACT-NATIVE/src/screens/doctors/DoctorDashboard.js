@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,12 +9,15 @@ import {
   Image,
   ImageBackground,
   Platform,
+  RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../../store/hooks';
+import { doctorAPI } from '../../utils/api';
 
 const DoctorDashboard = () => {
   const navigation = useNavigation();
@@ -24,6 +27,10 @@ const DoctorDashboard = () => {
 
   const { user: authUser } = useAuth();
   const [localUser, setLocalUser] = useState({});
+  const [stats, setStats] = useState({ today: 0, pending: 0, completed: 0, total: 0 });
+  const [appointments, setAppointments] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -44,7 +51,7 @@ const DoctorDashboard = () => {
 
   const user = authUser || localUser || {};
 
-  // Time-based greeting (Morning, Afternoon, Evening)
+  // Time-based greeting (Morning, Afternoon, Evening) matching Web 1:1
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
     if (hour >= 5 && hour < 12) return 'Good morning,';
@@ -52,12 +59,73 @@ const DoctorDashboard = () => {
     return 'Good evening,';
   }, []);
 
-  // Doctor display name
+  // Doctor display name matching Web 1:1
   const doctorDisplayName = useMemo(() => {
     const rawName = user.name || 'Doctor';
     return rawName.replace(/^Dr\.?\s*/i, '');
   }, [user.name]);
 
+  const fetchDoctorStats = useCallback(async (isPullRefresh = false) => {
+    try {
+      if (isPullRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+
+      const aptRes = await doctorAPI.getAppointments();
+      if (aptRes && aptRes.success) {
+        const apts = aptRes.appointments || [];
+        setAppointments(apts);
+
+        const todayStr = new Date().toISOString().split('T')[0];
+        const todayApts = apts.filter(a => a.appointmentDate && String(a.appointmentDate).startsWith(todayStr));
+        const pendingApts = apts.filter(a => ['pending', 'confirmed', 'scheduled', 'in_progress'].includes(a.status));
+        const completedApts = apts.filter(a => a.status === 'completed');
+
+        setStats({
+          today: todayApts.length,
+          pending: pendingApts.length,
+          completed: completedApts.length,
+          total: apts.length,
+        });
+      }
+    } catch (err) {
+      console.error("Error fetching doctor stats:", err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchDoctorStats();
+  }, [fetchDoctorStats]);
+
+  const onRefresh = () => {
+    fetchDoctorStats(true);
+  };
+
+  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
+  const todayAppointments = useMemo(() => {
+    return appointments.filter(a => a.appointmentDate && String(a.appointmentDate).startsWith(todayStr));
+  }, [appointments, todayStr]);
+
+  const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A';
+
+  const getStatusBadge = (s) => {
+    const m = {
+      confirmed: { b: '#dcfce7', c: '#166534' },
+      completed: { b: '#dbeafe', c: '#1e40af' },
+      cancelled: { b: '#fee2e2', c: '#991b1b' },
+      pending: { b: '#fef3c7', c: '#92400e' },
+      in_progress: { b: '#e0e7ff', c: '#3730a3' },
+      scheduled: { b: '#f0fdf4', c: '#15803d' },
+    };
+    return m[s] || { b: '#f1f5f9', c: '#475569' };
+  };
+
+  // Permission items matching Web 1:1
   const permissionItems = [
     {
       id: 'ai_assistant',
@@ -121,9 +189,12 @@ const DoctorDashboard = () => {
         }
       ]}
       showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#3b82f6" colors={['#3b82f6']} />
+      }
     >
       <View style={styles.innerWrapper}>
-        {/* 1. HERO BANNER SECTION */}
+        {/* 1. HERO BANNER SECTION (Full Width, Sleek Dark Navy Theme, Seamlessly Blended Doctor AI Graphic) */}
         <View style={styles.heroBannerContainer}>
           <ImageBackground
             source={require('../../../assets/doctor_ai_neural_banner.png')}
@@ -167,7 +238,73 @@ const DoctorDashboard = () => {
           </ImageBackground>
         </View>
 
-        {/* 2. QUICK ACCESS SECTION */}
+        {/* 2. STATS OVERVIEW CARDS (Real dynamic counts calculated from doctorAPI.getAppointments) */}
+        <View style={styles.sectionBlock}>
+          <View style={styles.sectionHeader}>
+            <Feather name="activity" size={15} color="#64748b" style={{ marginRight: 7 }} />
+            <Text style={styles.sectionTitle}>WORKFLOW OVERVIEW</Text>
+          </View>
+
+          <View style={styles.statsGrid}>
+            <TouchableOpacity 
+              style={styles.statCard} 
+              activeOpacity={0.85}
+              onPress={() => navigation.navigate('DoctorPatients')}
+            >
+              <View style={[styles.statIconWrap, { backgroundColor: '#eff6ff' }]}>
+                <Feather name="calendar" size={20} color="#2563eb" />
+              </View>
+              <View>
+                <Text style={styles.statValue}>{loading ? '...' : stats.today}</Text>
+                <Text style={styles.statLabel}>Today's Visits</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.statCard} 
+              activeOpacity={0.85}
+              onPress={() => navigation.navigate('DoctorPatients')}
+            >
+              <View style={[styles.statIconWrap, { backgroundColor: '#fffbeb' }]}>
+                <Feather name="clock" size={20} color="#d97706" />
+              </View>
+              <View>
+                <Text style={styles.statValue}>{loading ? '...' : stats.pending}</Text>
+                <Text style={styles.statLabel}>Pending / Queue</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.statCard} 
+              activeOpacity={0.85}
+              onPress={() => navigation.navigate('DoctorPatients')}
+            >
+              <View style={[styles.statIconWrap, { backgroundColor: '#ecfdf5' }]}>
+                <Feather name="check-circle" size={20} color="#059669" />
+              </View>
+              <View>
+                <Text style={styles.statValue}>{loading ? '...' : stats.completed}</Text>
+                <Text style={styles.statLabel}>Completed Visits</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.statCard} 
+              activeOpacity={0.85}
+              onPress={() => navigation.navigate('DoctorPatients')}
+            >
+              <View style={[styles.statIconWrap, { backgroundColor: '#f5f3ff' }]}>
+                <Feather name="users" size={20} color="#7c3aed" />
+              </View>
+              <View>
+                <Text style={styles.statValue}>{loading ? '...' : stats.total}</Text>
+                <Text style={styles.statLabel}>Total Patients</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* 3. QUICK ACCESS SECTION */}
         <View style={styles.sectionBlock}>
           <View style={styles.sectionHeader}>
             <Feather name="zap" size={15} color="#64748b" style={{ marginRight: 7 }} />
@@ -244,7 +381,64 @@ const DoctorDashboard = () => {
           </View>
         </View>
 
-        {/* 3. YOUR PERMISSIONS SECTION */}
+        {/* 4. TODAY'S APPOINTMENTS / PATIENT QUEUE (Preview with direct session launcher) */}
+        {todayAppointments.length > 0 && (
+          <View style={styles.sectionBlock}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View style={styles.sectionHeader}>
+                <Feather name="calendar" size={15} color="#64748b" style={{ marginRight: 7 }} />
+                <Text style={styles.sectionTitle}>TODAY'S SCHEDULE & QUEUE ({todayAppointments.length})</Text>
+              </View>
+              <TouchableOpacity onPress={() => navigation.navigate('DoctorPatients')}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: '#2563eb' }}>View All →</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.appointmentsContainer}>
+              {todayAppointments.slice(0, 4).map((apt, i) => {
+                const badge = getStatusBadge(apt.status);
+                const ptName = apt.userId?.name || apt.patientName || 'Patient';
+                const ptId = apt.userId?.patientId || apt.patientId || 'Pending';
+                return (
+                  <View key={apt._id || i} style={styles.appointmentRow}>
+                    <View style={styles.appointmentTimeCol}>
+                      <Text style={styles.appointmentTimeText}>{apt.appointmentTime || 'Today'}</Text>
+                      <Text style={styles.appointmentDateText}>{formatDate(apt.appointmentDate)}</Text>
+                    </View>
+
+                    <View style={styles.appointmentPatientCol}>
+                      <Text style={styles.appointmentPatientName} numberOfLines={1}>{ptName}</Text>
+                      <Text style={styles.appointmentPatientId}>MRN: {ptId}</Text>
+                    </View>
+
+                    <View style={styles.appointmentServiceCol}>
+                      <Text style={styles.appointmentServiceText} numberOfLines={1}>{apt.serviceName || 'Consultation'}</Text>
+                    </View>
+
+                    <View style={styles.appointmentStatusCol}>
+                      <View style={[styles.statusBadge, { backgroundColor: badge.b }]}>
+                        <Text style={[styles.statusBadgeText, { color: badge.c }]}>{apt.status}</Text>
+                      </View>
+                    </View>
+
+                    <TouchableOpacity
+                      style={styles.appointmentActionBtn}
+                      onPress={() => navigation.navigate('DoctorPatientDetails', {
+                        appointmentId: apt._id,
+                        patientId: apt.userId?._id || apt.userId?.patientId || apt.patientId
+                      })}
+                    >
+                      <Text style={styles.appointmentActionText}>Consult</Text>
+                      <Feather name="arrow-right" size={13} color="#2563eb" />
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
+        {/* 5. YOUR PERMISSIONS SECTION (Display-Only / Non-Clickable Badges matching Web 1:1) */}
         <View style={styles.sectionBlock}>
           <View style={styles.sectionHeader}>
             <Feather name="lock" size={15} color="#64748b" style={{ marginRight: 7 }} />
@@ -300,7 +494,7 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 1600,
     alignSelf: 'center',
-    gap: 16,
+    gap: 18,
   },
 
   // ── 1. Hero Banner ──
@@ -373,9 +567,52 @@ const styles = StyleSheet.create({
     color: '#cbd5e1',
   },
 
-  // ── 2. Section Headers ──
+  // ── 2. Workflow Overview Stats ──
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  statCard: {
+    flex: 1,
+    minWidth: 140,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 16,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.02,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 8,
+    elevation: 1,
+  },
+  statIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statValue: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#0f172a',
+    lineHeight: 26,
+  },
+  statLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748b',
+    marginTop: 2,
+  },
+
+  // ── 3. Section Headers ──
   sectionBlock: {
-    gap: 8,
+    gap: 10,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -389,7 +626,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
 
-  // ── 3. Quick Access Cards ──
+  // ── 4. Quick Access Cards ──
   quickAccessGrid: {
     gap: 16,
     width: '100%',
@@ -503,7 +740,91 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
 
-  // ── 4. Your Permissions Container ──
+  // ── 5. Today's Appointments List ──
+  appointmentsContainer: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOpacity: 0.02,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 8,
+    elevation: 1,
+  },
+  appointmentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+    gap: 12,
+  },
+  appointmentTimeCol: {
+    width: 75,
+  },
+  appointmentTimeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  appointmentDateText: {
+    fontSize: 10,
+    color: '#94a3b8',
+    marginTop: 2,
+  },
+  appointmentPatientCol: {
+    flex: 1.5,
+  },
+  appointmentPatientName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  appointmentPatientId: {
+    fontSize: 11,
+    color: '#64748b',
+    marginTop: 2,
+  },
+  appointmentServiceCol: {
+    flex: 1,
+  },
+  appointmentServiceText: {
+    fontSize: 12,
+    color: '#64748b',
+  },
+  appointmentStatusCol: {
+    width: 85,
+  },
+  statusBadge: {
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+  },
+  statusBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'capitalize',
+  },
+  appointmentActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#eff6ff',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    gap: 4,
+  },
+  appointmentActionText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#2563eb',
+  },
+
+  // ── 6. Your Permissions Container ──
   permissionsContainer: {
     backgroundColor: '#ffffff',
     borderWidth: 1.5,

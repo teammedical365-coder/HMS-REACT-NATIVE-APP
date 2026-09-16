@@ -18,6 +18,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { billingAPI, admissionAPI, patientAPI, uploadAPI, hospitalAPI, receptionAPI } from '../../utils/api';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 
 const { width } = Dimensions.get('window');
@@ -102,6 +103,24 @@ const PatientBillingProfile = () => {
 
     // Proof viewer modal
     const [viewProofUrl, setViewProofUrl] = useState('');
+    const [hospitalInfo, setHospitalInfo] = useState(null);
+    const [selectedTxnForBill, setSelectedTxnForBill] = useState(null);
+    const [downloadingBill, setDownloadingBill] = useState(false);
+
+    // Load Hospital Information
+    useEffect(() => {
+        const fetchHospital = async () => {
+            try {
+                const res = await hospitalAPI.getMyHospital();
+                if (res?.success && res.hospital) {
+                    setHospitalInfo(res.hospital);
+                }
+            } catch (err) {
+                console.warn('Failed to fetch hospital info:', err);
+            }
+        };
+        fetchHospital();
+    }, []);
 
     // Load Department UPI Options
     useEffect(() => {
@@ -419,104 +438,155 @@ const PatientBillingProfile = () => {
         );
     };
 
-    // Print Consolidated Bill
+    // Universal PDF Print / Download Handler (Web + Native)
+    const handleDownloadOrPrintPdf = async (html, title = 'Invoice') => {
+        try {
+            setDownloadingBill(true);
+            if (Platform.OS === 'web') {
+                await Print.printAsync({ html });
+            } else {
+                const { uri } = await Print.printToFileAsync({ html });
+                if (await Sharing.isAvailableAsync()) {
+                    await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+                } else {
+                    await Print.printAsync({ html });
+                }
+            }
+        } catch (err) {
+            console.error('PDF error:', err);
+            Alert.alert('Error', 'Failed to generate PDF document.');
+        } finally {
+            setDownloadingBill(false);
+        }
+    };
+
+    // Print / Download Consolidated Bill (Real Data Parity)
     const handlePrintConsolidatedBill = async () => {
         if (!patient || !billing) return;
+
+        const hName = hospitalInfo?.name || 'Care Medical Hospital & Health Center';
+        const hAddr = [hospitalInfo?.address, hospitalInfo?.city, hospitalInfo?.state].filter(Boolean).join(', ');
+        const hPhone = hospitalInfo?.phone || '';
+        const hEmail = hospitalInfo?.email || '';
+        const hGst = hospitalInfo?.gstNo || hospitalInfo?.taxNumber || '';
+        const pName = patient.name || 'Patient';
+        const pMrn = patient.mrn || patient.patientId || 'N/A';
+        const pPhone = patient.phone || '-';
+        const pAgeGender = [patient.fertilityProfile?.age || patient.age ? `${patient.fertilityProfile?.age || patient.age} Yrs` : null, patient.gender].filter(Boolean).join(' / ') || '-';
+        const invoiceNum = `INV-CONS-${(patient._id || '').slice(-6).toUpperCase()}-${new Date().getFullYear()}`;
 
         const html = `
             <!DOCTYPE html>
             <html>
             <head>
                 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no" />
+                <title>${invoiceNum} - Consolidated Bill</title>
                 <style>
-                    body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 25px; color: #1e293b; }
-                    .header { display: flex; justify-content: space-between; border-bottom: 2px solid #0f766e; padding-bottom: 15px; margin-bottom: 20px; }
-                    .hospital-name { font-size: 24px; font-weight: bold; color: #0f766e; }
-                    .hospital-sub { font-size: 12px; color: #64748b; }
-                    .bill-title { font-size: 18px; font-weight: bold; text-align: right; color: #0f172a; }
-                    .patient-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin-bottom: 20px; }
-                    .patient-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px; }
+                    body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 30px; color: #1e293b; background: #ffffff; line-height: 1.4; }
+                    .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0f766e; padding-bottom: 16px; margin-bottom: 20px; }
+                    .hospital-name { font-size: 24px; font-weight: 800; color: #0f766e; }
+                    .hospital-sub { font-size: 11px; color: #64748b; margin-top: 3px; }
+                    .invoice-title { font-size: 18px; font-weight: 800; text-align: right; color: #0f172a; text-transform: uppercase; }
+                    .invoice-meta { font-size: 11px; color: #64748b; text-align: right; margin-top: 4px; }
+                    .patient-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 18px; margin-bottom: 24px; }
+                    .patient-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; font-size: 12px; }
+                    .patient-field { display: flex; }
+                    .patient-field strong { color: #475569; width: 110px; }
                     table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 12px; }
-                    th { background: #f1f5f9; padding: 8px; text-align: left; border-bottom: 1.5px solid #cbd5e1; color: #334155; }
-                    td { padding: 8px; border-bottom: 1px solid #f1f5f9; }
-                    .total-box { display: flex; justify-content: flex-end; margin-top: 15px; }
-                    .total-table { width: 260px; font-size: 13px; }
-                    .total-table td { padding: 4px 8px; }
-                    .grand-total { font-size: 16px; font-weight: bold; color: #0f766e; border-top: 2px solid #0f766e; }
+                    th { background: #0f766e; color: #ffffff; padding: 8px 10px; text-align: left; font-weight: 700; font-size: 11px; text-transform: uppercase; }
+                    td { padding: 9px 10px; border-bottom: 1px solid #f1f5f9; color: #334155; }
+                    tr:nth-child(even) { background: #f8fafc; }
+                    .status-paid { color: #16a34a; font-weight: bold; }
+                    .status-pending { color: #d97706; font-weight: bold; }
+                    .total-box { display: flex; justify-content: flex-end; margin-top: 20px; }
+                    .total-table { width: 300px; font-size: 13px; }
+                    .total-table td { padding: 6px 10px; border-bottom: 1px solid #e2e8f0; }
+                    .grand-total { font-size: 16px; font-weight: 800; color: #0f766e; border-top: 2px solid #0f766e; }
                     .paid-row { color: #16a34a; font-weight: bold; }
                     .due-row { color: #dc2626; font-weight: bold; }
-                    .footer { text-align: center; margin-top: 35px; font-size: 11px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; }
+                    .footer { text-align: center; margin-top: 40px; font-size: 11px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 16px; }
+                    .disclaimer { font-size: 10px; color: #94a3b8; margin-top: 6px; }
                 </style>
             </head>
             <body>
                 <div class="header">
                     <div>
-                        <div class="hospital-name">CIT-MEDICAL 365</div>
-                        <div class="hospital-sub">Comprehensive Healthcare & Hospital Management</div>
+                        <div class="hospital-name">${hName}</div>
+                        ${hAddr ? `<div class="hospital-sub">${hAddr}</div>` : ''}
+                        ${hPhone || hEmail ? `<div class="hospital-sub">${[hPhone && `Tel: ${hPhone}`, hEmail && `Email: ${hEmail}`].filter(Boolean).join(' | ')}</div>` : ''}
+                        ${hGst ? `<div class="hospital-sub">GST / Tax ID: ${hGst}</div>` : ''}
                     </div>
                     <div>
-                        <div class="bill-title">CONSOLIDATED INVOICE</div>
-                        <div style="font-size: 11px; color: #64748b; text-align: right;">Date: ${new Date().toLocaleDateString('en-IN')}</div>
+                        <div class="invoice-title">CONSOLIDATED PATIENT INVOICE</div>
+                        <div class="invoice-meta"><strong>Invoice No:</strong> ${invoiceNum}</div>
+                        <div class="invoice-meta"><strong>Date:</strong> ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
+                        <div class="invoice-meta"><strong>Time:</strong> ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>
                     </div>
                 </div>
 
-                <div class="patient-box">
+                <div class="patient-card">
                     <div class="patient-grid">
-                        <div><strong>Patient Name:</strong> ${patient.name || 'Unknown'}</div>
-                        <div><strong>MRN / UID:</strong> ${patient.mrn || patient.patientId || 'CIT-NEW'}</div>
-                        <div><strong>Contact Phone:</strong> ${patient.phone || '-'}</div>
-                        <div><strong>Gender / Age:</strong> ${patient.gender || '-'} / ${patient.fertilityProfile?.age || '-'} yrs</div>
+                        <div class="patient-field"><strong>Patient Name:</strong> <span>${pName}</span></div>
+                        <div class="patient-field"><strong>MRN / Patient ID:</strong> <span>${pMrn}</span></div>
+                        <div class="patient-field"><strong>Phone Contact:</strong> <span>${pPhone}</span></div>
+                        <div class="patient-field"><strong>Age / Gender:</strong> <span>${pAgeGender}</span></div>
                     </div>
                 </div>
 
                 <table>
                     <thead>
-                        <tr><th>#</th><th>Description & Category</th><th>Date</th><th style="text-align: right;">Status</th><th style="text-align: right;">Amount</th></tr>
+                        <tr>
+                            <th style="width: 35px;">#</th>
+                            <th>Service Description & Itemization</th>
+                            <th style="width: 110px;">Date</th>
+                            <th style="width: 90px; text-align: center;">Status</th>
+                            <th style="width: 100px; text-align: right;">Amount (₹)</th>
+                        </tr>
                     </thead>
                     <tbody>
                         ${(billing.appointments || []).map((a, i) => `
                             <tr>
                                 <td>${i + 1}</td>
-                                <td><strong>Consultation</strong> - ${a.serviceName || 'OPD'} (Dr. ${a.doctorName || 'Assigned'})</td>
+                                <td><strong>Doctor Consultation</strong> — ${a.serviceName || 'OPD'} (Dr. ${a.doctorName || 'Consultant'})</td>
                                 <td>${fmtDate(a.appointmentDate)}</td>
-                                <td style="text-align: right;">${a.paymentStatus || 'Pending'}</td>
-                                <td style="text-align: right;">₹${a.amount || 0}</td>
+                                <td style="text-align: center;" class="${isPaid(a.paymentStatus) ? 'status-paid' : 'status-pending'}">${a.paymentStatus || 'Pending'}</td>
+                                <td style="text-align: right; font-weight: 600;">₹${Number(a.amount || 0).toLocaleString('en-IN')}</td>
                             </tr>
                         `).join('')}
                         ${(billing.labReports || []).map((l, i) => `
                             <tr>
-                                <td>${i + 1}</td>
-                                <td><strong>Lab Test</strong> - ${Array.isArray(l.testNames) ? l.testNames.join(', ') : (l.testName || 'Diagnostics')}</td>
+                                <td>${(billing.appointments?.length || 0) + i + 1}</td>
+                                <td><strong>Laboratory Diagnostics</strong> — ${Array.isArray(l.testNames) ? l.testNames.join(', ') : (l.testName || 'Pathology')}</td>
                                 <td>${fmtDate(l.createdAt)}</td>
-                                <td style="text-align: right;">${l.paymentStatus || 'Pending'}</td>
-                                <td style="text-align: right;">₹${l.amount || l.price || 0}</td>
+                                <td style="text-align: center;" class="${isPaid(l.paymentStatus) ? 'status-paid' : 'status-pending'}">${l.paymentStatus || 'Pending'}</td>
+                                <td style="text-align: right; font-weight: 600;">₹${Number(l.amount || l.price || 0).toLocaleString('en-IN')}</td>
                             </tr>
                         `).join('')}
                         ${(billing.pharmacyOrders || []).map((p, i) => `
                             <tr>
-                                <td>${i + 1}</td>
-                                <td><strong>Pharmacy Order</strong> (${p.items?.length || 0} items)</td>
+                                <td>${(billing.appointments?.length || 0) + (billing.labReports?.length || 0) + i + 1}</td>
+                                <td><strong>Pharmacy Dispense</strong> (${p.items?.length || 0} prescription items)</td>
                                 <td>${fmtDate(p.createdAt)}</td>
-                                <td style="text-align: right;">${p.paymentStatus || 'Pending'}</td>
-                                <td style="text-align: right;">₹${getPharmacyTotal(p)}</td>
+                                <td style="text-align: center;" class="${isPaid(p.paymentStatus) ? 'status-paid' : 'status-pending'}">${p.paymentStatus || 'Pending'}</td>
+                                <td style="text-align: right; font-weight: 600;">₹${Number(getPharmacyTotal(p)).toLocaleString('en-IN')}</td>
                             </tr>
                         `).join('')}
                         ${(billing.facilityCharges || []).map((f, i) => `
                             <tr>
-                                <td>${i + 1}</td>
-                                <td><strong>Facility / ICU</strong> - ${f.facilityName}</td>
+                                <td>${(billing.appointments?.length || 0) + (billing.labReports?.length || 0) + (billing.pharmacyOrders?.length || 0) + i + 1}</td>
+                                <td><strong>Facility / ICU Services</strong> — ${f.facilityName} (${f.daysUsed || f.days || 1} day(s))</td>
                                 <td>${fmtDate(f.createdAt)}</td>
-                                <td style="text-align: right;">${f.paymentStatus || 'Pending'}</td>
-                                <td style="text-align: right;">₹${f.totalAmount || 0}</td>
+                                <td style="text-align: center;" class="${isPaid(f.paymentStatus) ? 'status-paid' : 'status-pending'}">${f.paymentStatus || 'Pending'}</td>
+                                <td style="text-align: right; font-weight: 600;">₹${Number(f.totalAmount || 0).toLocaleString('en-IN')}</td>
                             </tr>
                         `).join('')}
                         ${(billing.admissions || []).map((adm, i) => `
                             <tr>
-                                <td>${i + 1}</td>
-                                <td><strong>Hospitalization</strong> (Ward: ${adm.ward || '-'}, Bed: ${adm.bedNumber || '-'})</td>
+                                <td>${(billing.appointments?.length || 0) + (billing.labReports?.length || 0) + (billing.pharmacyOrders?.length || 0) + (billing.facilityCharges?.length || 0) + i + 1}</td>
+                                <td><strong>Inpatient Hospitalization</strong> (Ward: ${adm.ward || '-'}, Bed: ${adm.bedNumber || '-'})</td>
                                 <td>${fmtDate(adm.admissionDate)}</td>
-                                <td style="text-align: right;">${adm.paymentStatus || 'Pending'}</td>
-                                <td style="text-align: right;">₹${adm.totalAmount || 0}</td>
+                                <td style="text-align: center;" class="${isPaid(adm.paymentStatus) ? 'status-paid' : 'status-pending'}">${adm.paymentStatus || 'Pending'}</td>
+                                <td style="text-align: right; font-weight: 600;">₹${Number(adm.totalAmount || 0).toLocaleString('en-IN')}</td>
                             </tr>
                         `).join('')}
                     </tbody>
@@ -524,24 +594,138 @@ const PatientBillingProfile = () => {
 
                 <div class="total-box">
                     <table class="total-table">
-                        <tr><td>Grand Total:</td><td style="text-align: right;"><strong>${fmt(grandTotalBill())}</strong></td></tr>
+                        <tr><td>Subtotal / Gross Bill:</td><td style="text-align: right;"><strong>${fmt(grandTotalBill())}</strong></td></tr>
                         <tr class="paid-row"><td>Total Paid:</td><td style="text-align: right;">${fmt(totalPaidBill())}</td></tr>
-                        <tr class="due-row"><td>Balance Due:</td><td style="text-align: right;">${fmt(pendingTotal())}</td></tr>
+                        <tr class="due-row"><td>Net Balance Due:</td><td style="text-align: right;">${fmt(pendingTotal())}</td></tr>
                     </table>
                 </div>
 
                 <div class="footer">
-                    Thank you for choosing CIT-Medical 365. This is a computer generated document.
+                    <div>Thank you for choosing ${hName}.</div>
+                    <div class="disclaimer">This is a computer-generated official billing document and requires no physical signature. Generated on ${new Date().toLocaleString('en-IN')}.</div>
                 </div>
             </body>
             </html>
         `;
 
-        try {
-            await Print.printAsync({ html });
-        } catch (err) {
-            Alert.alert('Print Error', 'Could not open print preview.');
-        }
+        await handleDownloadOrPrintPdf(html, invoiceNum);
+    };
+
+    // Download Single Transaction Bill / Receipt (Real Data Parity)
+    const handleDownloadTransactionBill = async (pt) => {
+        if (!pt) return;
+
+        const hName = hospitalInfo?.name || 'Care Medical Hospital & Health Center';
+        const hAddr = [hospitalInfo?.address, hospitalInfo?.city, hospitalInfo?.state].filter(Boolean).join(', ');
+        const hPhone = hospitalInfo?.phone || '';
+        const hEmail = hospitalInfo?.email || '';
+        const hGst = hospitalInfo?.gstNo || hospitalInfo?.taxNumber || '';
+        const pName = patient?.name || pt.userId?.name || 'Patient';
+        const pMrn = patient?.mrn || patient?.patientId || pt.userId?.patientId || 'N/A';
+        const pPhone = patient?.phone || pt.userId?.phone || '-';
+        const invoiceNum = `INV-REC-${(pt.transactionId || pt._id || '').slice(-8).toUpperCase()}`;
+        const isPaidStatus = isPaid(pt.paymentStatus || pt.status);
+        const paymentMethod = pt.splitPayments?.length > 1
+            ? pt.splitPayments.map(s => `${s.method}: ₹${s.amount}`).join(', ')
+            : (pt.paymentMode || pt.method || 'Cash');
+
+        const html = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no" />
+                <title>${invoiceNum} - Receipt</title>
+                <style>
+                    body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 30px; color: #1e293b; background: #ffffff; line-height: 1.5; }
+                    .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0f766e; padding-bottom: 16px; margin-bottom: 20px; }
+                    .hospital-name { font-size: 22px; font-weight: 800; color: #0f766e; }
+                    .hospital-sub { font-size: 11px; color: #64748b; margin-top: 3px; }
+                    .invoice-title { font-size: 18px; font-weight: 800; text-align: right; color: #0f172a; text-transform: uppercase; }
+                    .invoice-meta { font-size: 11px; color: #64748b; text-align: right; margin-top: 3px; }
+                    .badge-paid { display: inline-block; background: #dcfce7; color: #166534; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 800; }
+                    .patient-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 18px; margin-bottom: 24px; }
+                    .patient-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; font-size: 12px; }
+                    .patient-field { display: flex; }
+                    .patient-field strong { color: #475569; width: 120px; }
+                    .bill-details-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 12px; }
+                    .bill-details-table th { background: #0f766e; color: #ffffff; padding: 8px 12px; text-align: left; font-weight: 700; font-size: 11px; text-transform: uppercase; }
+                    .bill-details-table td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; color: #334155; }
+                    .total-box { margin-top: 24px; padding: 16px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
+                    .total-amount { font-size: 24px; font-weight: 800; color: #0f766e; }
+                    .signatory-row { margin-top: 45px; display: flex; justify-content: space-between; align-items: flex-end; padding: 0 10px; }
+                    .signatory-line { width: 180px; border-top: 1px solid #94a3b8; text-align: center; font-size: 11px; color: #64748b; padding-top: 4px; }
+                    .footer { text-align: center; margin-top: 35px; font-size: 11px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 14px; }
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <div>
+                        <div class="hospital-name">${hName}</div>
+                        ${hAddr ? `<div class="hospital-sub">${hAddr}</div>` : ''}
+                        ${hPhone || hEmail ? `<div class="hospital-sub">${[hPhone && `Tel: ${hPhone}`, hEmail && `Email: ${hEmail}`].filter(Boolean).join(' | ')}</div>` : ''}
+                        ${hGst ? `<div class="hospital-sub">GST / Tax ID: ${hGst}</div>` : ''}
+                    </div>
+                    <div>
+                        <div class="invoice-title">OFFICIAL PAYMENT RECEIPT</div>
+                        <div class="invoice-meta"><strong>Receipt No:</strong> ${invoiceNum}</div>
+                        <div class="invoice-meta"><strong>Date:</strong> ${fmtDate(pt.paymentDate || pt.createdAt)}</div>
+                        <div class="invoice-meta" style="margin-top: 6px;"><span class="badge-paid">${isPaidStatus ? 'PAID ✓' : 'RECORDED'}</span></div>
+                    </div>
+                </div>
+
+                <div class="patient-card">
+                    <div class="patient-grid">
+                        <div class="patient-field"><strong>Patient Name:</strong> <span>${pName}</span></div>
+                        <div class="patient-field"><strong>MRN / ID:</strong> <span>${pMrn}</span></div>
+                        <div class="patient-field"><strong>Phone Contact:</strong> <span>${pPhone}</span></div>
+                        <div class="patient-field"><strong>Payment Method:</strong> <span>${paymentMethod}</span></div>
+                        <div class="patient-field"><strong>Txn Reference / ID:</strong> <span>${pt.transactionId || pt.upiId || pt.bankReference || 'N/A'}</span></div>
+                        <div class="patient-field"><strong>Status:</strong> <span style="color: #16a34a; font-weight: bold;">${pt.paymentStatus || 'Paid'}</span></div>
+                    </div>
+                </div>
+
+                <table class="bill-details-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Description of Billed Item</th>
+                            <th style="width: 120px; text-align: right;">Amount (₹)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>1</td>
+                            <td>
+                                <strong>${pt.description || 'Hospital Healthcare Settlement'}</strong>
+                                ${pt.billedItems ? `<div style="font-size: 11px; color: #64748b; margin-top: 3px;">Includes itemized hospital charges cleared under transaction #${(pt._id || '').slice(-6)}</div>` : ''}
+                            </td>
+                            <td style="text-align: right; font-weight: bold;">${fmt(pt.amount)}</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="total-box">
+                    <div>
+                        <span style="font-size: 13px; font-weight: bold; color: #475569;">Total Amount Settled:</span>
+                        <div style="font-size: 11px; color: #64748b;">Paid in full via ${paymentMethod}</div>
+                    </div>
+                    <span class="total-amount">${fmt(pt.amount)}</span>
+                </div>
+
+                <div class="signatory-row">
+                    <div class="signatory-line">Billing Executive / Cashier</div>
+                    <div class="signatory-line">Authorized Signatory</div>
+                </div>
+
+                <div class="footer">
+                    <div>Thank you for choosing ${hName}.</div>
+                    <div style="font-size: 10px; color: #94a3b8; margin-top: 4px;">System generated bill receipt • ${new Date().toLocaleString('en-IN')}</div>
+                </div>
+            </body>
+            </html>
+        `;
+
+        await handleDownloadOrPrintPdf(html, invoiceNum);
     };
 
     // Filtered Transactions for Transactions Ledger
@@ -1336,40 +1520,64 @@ const PatientBillingProfile = () => {
                                     <ScrollView horizontal showsHorizontalScrollIndicator={true}>
                                         <View style={styles.tableWrapper}>
                                             <View style={styles.tableRowHeader}>
-                                                <Text style={[styles.thCell, { width: 130 }]}>Date</Text>
-                                                <Text style={[styles.thCell, { width: 150 }]}>Mode / Split</Text>
-                                                <Text style={[styles.thCell, { width: 150 }]}>Txn ID / Ref</Text>
-                                                <Text style={[styles.thCell, { width: 180 }]}>Description</Text>
-                                                <Text style={[styles.thCell, { width: 120, textAlign: 'right' }]}>Amount</Text>
-                                                <Text style={[styles.thCell, { width: 100, textAlign: 'center' }]}>Status</Text>
+                                                <Text style={[styles.thCell, { width: 120 }]}>Date</Text>
+                                                <Text style={[styles.thCell, { width: 140 }]}>Mode / Split</Text>
+                                                <Text style={[styles.thCell, { width: 140 }]}>Txn ID / Ref</Text>
+                                                <Text style={[styles.thCell, { width: 170 }]}>Description</Text>
+                                                <Text style={[styles.thCell, { width: 110, textAlign: 'right' }]}>Amount</Text>
+                                                <Text style={[styles.thCell, { width: 90, textAlign: 'center' }]}>Status</Text>
+                                                <Text style={[styles.thCell, { width: 60, textAlign: 'center' }]}>View</Text>
+                                                <Text style={[styles.thCell, { width: 110, textAlign: 'center' }]}>Download</Text>
                                             </View>
                                             {billing.paymentTransactions.map(pt => (
                                                 <View key={pt._id} style={styles.tableRow}>
-                                                    <View style={[styles.tdCell, { width: 130 }]}>
+                                                    <View style={[styles.tdCell, { width: 120 }]}>
                                                         <Text style={styles.tdTextBold}>{fmtDate(pt.paymentDate || pt.createdAt)}</Text>
                                                     </View>
-                                                    <View style={[styles.tdCell, { width: 150 }]}>
+                                                    <View style={[styles.tdCell, { width: 140 }]}>
                                                         <Text style={styles.tdTextBold}>
                                                             {pt.splitPayments?.length > 1
                                                                 ? pt.splitPayments.map(sp => sp.method).join(' + ')
                                                                 : (pt.paymentMode || pt.method || 'Cash')}
                                                         </Text>
                                                     </View>
-                                                    <View style={[styles.tdCell, { width: 150 }]}>
+                                                    <View style={[styles.tdCell, { width: 140 }]}>
                                                         <Text style={styles.tdTextSub}>{pt.transactionId || pt.upiId || pt.bankReference || '—'}</Text>
                                                     </View>
-                                                    <View style={[styles.tdCell, { width: 180 }]}>
+                                                    <View style={[styles.tdCell, { width: 170 }]}>
                                                         <Text style={styles.tdTextRegular}>{pt.description || 'General Settlement'}</Text>
                                                     </View>
-                                                    <View style={[styles.tdCell, { width: 120, alignItems: 'flex-end' }]}>
+                                                    <View style={[styles.tdCell, { width: 110, alignItems: 'flex-end' }]}>
                                                         <Text style={styles.tdAmountText}>{fmt(pt.amount)}</Text>
                                                     </View>
-                                                    <View style={[styles.tdCell, { width: 100, alignItems: 'center' }]}>
+                                                    <View style={[styles.tdCell, { width: 90, alignItems: 'center' }]}>
                                                         <View style={[styles.statusBadge, isPaid(pt.paymentStatus || pt.status) ? styles.statusBadgePaid : styles.statusBadgePending]}>
                                                             <Text style={[styles.statusBadgeText, isPaid(pt.paymentStatus || pt.status) ? { color: '#059669' } : { color: '#d97706' }]}>
                                                                 {pt.paymentStatus || pt.status || 'Paid'}
                                                             </Text>
                                                         </View>
+                                                    </View>
+                                                    <View style={[styles.tdCell, { width: 60, alignItems: 'center', justifyContent: 'center' }]}>
+                                                        <TouchableOpacity
+                                                            onPress={() => setSelectedTxnForBill(pt)}
+                                                            style={{ padding: 6, borderRadius: 6, backgroundColor: '#eff6ff' }}
+                                                            title="View Bill Details"
+                                                            activeOpacity={0.7}
+                                                        >
+                                                            <Feather name="eye" size={15} color="#2563eb" />
+                                                        </TouchableOpacity>
+                                                    </View>
+                                                    <View style={[styles.tdCell, { width: 110, alignItems: 'center', justifyContent: 'center' }]}>
+                                                        <TouchableOpacity
+                                                            onPress={() => handleDownloadTransactionBill(pt)}
+                                                            disabled={downloadingBill}
+                                                            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 5, paddingHorizontal: 9, borderRadius: 6, backgroundColor: '#ecfdf5', borderWidth: 1, borderColor: '#a7f3d0' }}
+                                                            title="Download Bill PDF"
+                                                            activeOpacity={0.7}
+                                                        >
+                                                            <Feather name="download" size={13} color="#059669" />
+                                                            <Text style={{ fontSize: 11, fontWeight: '700', color: '#059669' }}>Download</Text>
+                                                        </TouchableOpacity>
                                                     </View>
                                                 </View>
                                             ))}
@@ -1380,6 +1588,118 @@ const PatientBillingProfile = () => {
                         </View>
                     )}
                 </View>
+            )}
+
+            {/* Bill Details Modal — 1:1 Preview & Action Parity */}
+            {selectedTxnForBill && (
+                <Modal visible={true} transparent={true} animationType="fade" onRequestClose={() => setSelectedTxnForBill(null)}>
+                    <View style={{ flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.65)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+                        <View style={{ width: '100%', maxWidth: 540, backgroundColor: '#ffffff', borderRadius: 16, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.25, shadowRadius: 20, elevation: 10 }}>
+                            {/* Modal Header */}
+                            <View style={{ backgroundColor: '#0f766e', padding: 18, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                                    <Feather name="file-text" size={20} color="#ffffff" />
+                                    <View>
+                                        <Text style={{ fontSize: 16, fontWeight: '800', color: '#ffffff' }}>Bill & Invoice Details</Text>
+                                        <Text style={{ fontSize: 11, color: '#ccfbf1', marginTop: 1 }}>
+                                            Receipt #{((selectedTxnForBill.transactionId || selectedTxnForBill._id || '').slice(-8)).toUpperCase()}
+                                        </Text>
+                                    </View>
+                                </View>
+                                <TouchableOpacity onPress={() => setSelectedTxnForBill(null)} style={{ padding: 6, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.15)' }}>
+                                    <Feather name="x" size={18} color="#ffffff" />
+                                </TouchableOpacity>
+                            </View>
+
+                            {/* Modal Body */}
+                            <View style={{ padding: 20 }}>
+                                {/* Hospital & Patient Info */}
+                                <View style={{ backgroundColor: '#f8fafc', borderRadius: 10, padding: 14, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 16 }}>
+                                    <Text style={{ fontSize: 14, fontWeight: '800', color: '#0f766e', marginBottom: 4 }}>
+                                        {hospitalInfo?.name || 'Care Medical Hospital'}
+                                    </Text>
+                                    <Text style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>
+                                        {[hospitalInfo?.address, hospitalInfo?.city].filter(Boolean).join(', ')}
+                                    </Text>
+                                    <View style={{ height: 1, backgroundColor: '#e2e8f0', marginVertical: 6 }} />
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
+                                        <Text style={{ fontSize: 12, color: '#334155' }}>
+                                            <Text style={{ fontWeight: '700' }}>Patient: </Text>{patient?.name || 'Patient'}
+                                        </Text>
+                                        <Text style={{ fontSize: 12, color: '#64748b' }}>
+                                            MRN: {patient?.mrn || patient?.patientId || 'N/A'}
+                                        </Text>
+                                    </View>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
+                                        <Text style={{ fontSize: 12, color: '#334155' }}>
+                                            <Text style={{ fontWeight: '700' }}>Date: </Text>{fmtDate(selectedTxnForBill.paymentDate || selectedTxnForBill.createdAt)}
+                                        </Text>
+                                        <Text style={{ fontSize: 12, color: '#059669', fontWeight: '700' }}>
+                                            Status: {selectedTxnForBill.paymentStatus || 'PAID'}
+                                        </Text>
+                                    </View>
+                                </View>
+
+                                {/* Service Item Details */}
+                                <View style={{ borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, overflow: 'hidden', marginBottom: 16 }}>
+                                    <View style={{ backgroundColor: '#f1f5f9', paddingVertical: 8, paddingHorizontal: 12, flexDirection: 'row', justifyContent: 'space-between' }}>
+                                        <Text style={{ fontSize: 11, fontWeight: '700', color: '#475569', textTransform: 'uppercase' }}>Description</Text>
+                                        <Text style={{ fontSize: 11, fontWeight: '700', color: '#475569', textTransform: 'uppercase' }}>Amount</Text>
+                                    </View>
+                                    <View style={{ paddingVertical: 12, paddingHorizontal: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <View style={{ flex: 1, paddingRight: 10 }}>
+                                            <Text style={{ fontSize: 13, fontWeight: '700', color: '#1e293b' }}>
+                                                {selectedTxnForBill.description || 'Hospital Healthcare Consultation & Services'}
+                                            </Text>
+                                            <Text style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                                                Payment Method: {selectedTxnForBill.paymentMode || selectedTxnForBill.method || 'Cash'}
+                                                {selectedTxnForBill.transactionId ? ` (Ref: ${selectedTxnForBill.transactionId})` : ''}
+                                            </Text>
+                                        </View>
+                                        <Text style={{ fontSize: 16, fontWeight: '800', color: '#0f766e' }}>
+                                            {fmt(selectedTxnForBill.amount)}
+                                        </Text>
+                                    </View>
+                                </View>
+
+                                {/* Action Buttons */}
+                                <View style={{ flexDirection: 'row', gap: 10, marginTop: 6 }}>
+                                    <TouchableOpacity
+                                        style={{ flex: 1, backgroundColor: '#0f766e', borderRadius: 8, paddingVertical: 12, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6 }}
+                                        onPress={() => handleDownloadTransactionBill(selectedTxnForBill)}
+                                        disabled={downloadingBill}
+                                    >
+                                        {downloadingBill ? (
+                                            <ActivityIndicator size="small" color="#ffffff" />
+                                        ) : (
+                                            <>
+                                                <Feather name="download" size={16} color="#ffffff" />
+                                                <Text style={{ color: '#ffffff', fontWeight: '700', fontSize: 13 }}>Download Bill (PDF)</Text>
+                                            </>
+                                        )}
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                        style={{ flex: 1, backgroundColor: '#eff6ff', borderWidth: 1, borderColor: '#bfdbfe', borderRadius: 8, paddingVertical: 12, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6 }}
+                                        onPress={() => handleDownloadTransactionBill(selectedTxnForBill)}
+                                    >
+                                        <Feather name="printer" size={16} color="#2563eb" />
+                                        <Text style={{ color: '#2563eb', fontWeight: '700', fontSize: 13 }}>Print Bill</Text>
+                                    </TouchableOpacity>
+                                </View>
+
+                                {selectedTxnForBill.proofUrl && (
+                                    <TouchableOpacity
+                                        style={{ marginTop: 10, paddingVertical: 10, borderRadius: 8, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', alignItems: 'center' }}
+                                        onPress={() => setViewProofUrl(selectedTxnForBill.proofUrl)}
+                                    >
+                                        <Text style={{ fontSize: 12, fontWeight: '600', color: '#6366f1' }}>📎 View Attached Proof Screenshot</Text>
+                                    </TouchableOpacity>
+                                )}
+                            </View>
+                        </View>
+                    </View>
+                </Modal>
             )}
         </ScrollView>
     );

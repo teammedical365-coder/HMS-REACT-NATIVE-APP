@@ -85,15 +85,15 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
     const { user } = useSelector(state => state.auth);
     const dispatch = useDispatch();
     const { branding } = useBranding();
-    const rawRole = (typeof user?.role === 'object' ? user?.role?.name : user?.role) || (Platform.OS === 'web' && typeof window !== 'undefined' ? (localStorage.getItem('role') || (() => { try { return JSON.parse(localStorage.getItem('user') || '{}')?.role; } catch(e){ return ''; } })()) : '') || '';
+    const rawRole = (typeof user?.role === 'object' ? user?.role?.name : user?.role) || (Platform.OS === 'web' && typeof window !== 'undefined' ? (localStorage.getItem('role') || (() => { try { return JSON.parse(localStorage.getItem('user') || '{}')?.role; } catch (e) { return ''; } })()) : '') || '';
     const role = (typeof rawRole === 'object' ? rawRole?.name : rawRole || '').toLowerCase();
-    
+
     const navigation = useNavigation();
     const route = useRoute();
-    const currentPath = route.name; 
+    const currentPath = route.name;
 
     const isCentralAdmin = (role === 'centraladmin' || role === 'superadmin');
-    
+
     const getMenu = () => {
         if (isCentralAdmin) {
             return [
@@ -222,7 +222,7 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
 
     return (
         <View style={[
-            styles.erpSidebar, 
+            styles.erpSidebar,
             isOpen ? styles.erpSidebarOpen : styles.erpSidebarCollapsed,
             isMobile && !isOpen && styles.erpSidebarMobileHidden,
             isMobile && isOpen && styles.erpSidebarMobileVisible
@@ -239,14 +239,14 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
                         />
                     )}
                 </View>
-                
+
                 {isMobile && isOpen && (
                     <TouchableOpacity style={styles.mobileCloseBtn} onPress={() => setOpen(false)}>
                         <Feather name="x" size={24} color="#64748b" />
                     </TouchableOpacity>
                 )}
             </View>
-            
+
             <ScrollView style={styles.sidebarNav} showsVerticalScrollIndicator={false}>
                 {menuItems.map((item, idx) => {
                     const isActive = currentPath === item.path;
@@ -258,14 +258,14 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
                         { bg: styles.themePurpleActive, text: styles.themePurpleTextActive },
                         { bg: styles.themePinkActive, text: styles.themePinkTextActive }
                     ];
-                    
+
                     const themeObj = isCentralAdmin ? caThemes[idx % caThemes.length] : null;
 
                     return (
-                        <Pressable 
-                            key={idx} 
+                        <Pressable
+                            key={idx}
                             style={({ pressed, hovered }) => [
-                                styles.sidebarLink, 
+                                styles.sidebarLink,
                                 !isOpen && styles.sidebarLinkCollapsed,
                                 isCentralAdmin && styles.caSidebarLink,
                                 isActive && !isCentralAdmin && styles.sidebarLinkActive,
@@ -287,10 +287,10 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
                             <View style={[styles.sidebarLinkIcon, isActive && isCentralAdmin && themeObj.text]}>
                                 {React.cloneElement(item.icon, { color: (isActive && isCentralAdmin) ? themeObj.text.color : '#64748b' })}
                             </View>
-                            
+
                             {isOpen && (
                                 <Text style={[
-                                    styles.sidebarLinkText, 
+                                    styles.sidebarLinkText,
                                     isCentralAdmin && styles.caSidebarLinkText,
                                     isActive && !isCentralAdmin && styles.sidebarLinkTextActive,
                                     isActive && isCentralAdmin && themeObj.text
@@ -302,7 +302,7 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
                     );
                 })}
 
-                {(isCentralAdmin || role === 'hospitaladmin' || role === 'doctor' || role === 'clinic doctor' || isDoctorRoute) && isOpen && (
+                {(isCentralAdmin || role === 'hospitaladmin' || role === 'doctor' || role === 'clinic doctor' || Boolean(currentPath && (currentPath === 'DoctorDashboard' || currentPath === 'DoctorPatients' || currentPath === 'DoctorPatientDetails' || currentPath === 'AIAssistant' || currentPath === 'LabReports'))) && isOpen && (
                     <Pressable
                         style={({ pressed, hovered }) => [
                             Platform.select({ web: { transition: 'all 0.2s ease', cursor: 'pointer' } }),
@@ -325,9 +325,9 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
             </ScrollView>
 
             <View style={{ borderTopWidth: 1, borderTopColor: '#e2e8f0', paddingVertical: 10, paddingHorizontal: isOpen ? 10 : 0 }}>
-                <Pressable 
+                <Pressable
                     style={({ pressed, hovered }) => [
-                        styles.sidebarLink, 
+                        styles.sidebarLink,
                         !isOpen && styles.sidebarLinkCollapsed,
                         Platform.select({ web: { transition: 'all 0.2s ease', cursor: 'pointer' } }),
                         hovered && {
@@ -337,7 +337,7 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
                         pressed && {
                             transform: [{ scale: 0.98 }],
                         }
-                    ]} 
+                    ]}
                     onPress={async () => {
                         try {
                             if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -381,9 +381,9 @@ const TopBar = ({ toggleSidebar, sidebarOpen, isMobile }) => {
     const { user } = useSelector(state => state.auth);
     const dispatch = useDispatch();
     const route = useRoute();
-    const currentPath = route.name; 
+    const currentPath = route.name;
 
-    const rawRole = (typeof user?.role === 'object' ? user?.role?.name : user?.role) || (Platform.OS === 'web' && typeof window !== 'undefined' ? (localStorage.getItem('role') || (() => { try { return JSON.parse(localStorage.getItem('user') || '{}')?.role; } catch(e){ return ''; } })()) : '') || '';
+    const rawRole = (typeof user?.role === 'object' ? user?.role?.name : user?.role) || (Platform.OS === 'web' && typeof window !== 'undefined' ? (localStorage.getItem('role') || (() => { try { return JSON.parse(localStorage.getItem('user') || '{}')?.role; } catch (e) { return ''; } })()) : '') || '';
     const role = (typeof rawRole === 'object' ? rawRole?.name : rawRole || '').toLowerCase();
     const isCentralAdmin = (role === 'centraladmin' || role === 'superadmin');
 
@@ -395,7 +395,7 @@ const TopBar = ({ toggleSidebar, sidebarOpen, isMobile }) => {
         try {
             await AsyncStorage.removeItem('token');
             await AsyncStorage.removeItem('user');
-        } catch (e) {}
+        } catch (e) { }
     };
 
     const formatLastLogin = (dateVal) => {
@@ -514,7 +514,7 @@ const TopBar = ({ toggleSidebar, sidebarOpen, isMobile }) => {
                     </TouchableOpacity>
                 )}
 
-                <TouchableOpacity 
+                <TouchableOpacity
                     style={styles.caUserProfileCircleBtn}
                     onPress={() => setDropdownVisible(!dropdownVisible)}
                     activeOpacity={0.8}
@@ -556,8 +556,8 @@ const TopBar = ({ toggleSidebar, sidebarOpen, isMobile }) => {
                                 </ExpoLinearGradient>
                                 <View style={styles.caAvatarShieldBadge}>
                                     <Svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                        <Path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-                                        <Path d="M9 12l2 2 4-4"/>
+                                        <Path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                                        <Path d="M9 12l2 2 4-4" />
                                     </Svg>
                                 </View>
                             </View>
@@ -637,12 +637,12 @@ const DashboardLayout = ({ children }) => {
     return (
         <View style={styles.erpLayout}>
             <DashboardSidebar isOpen={sidebarOpen} setOpen={setSidebarOpen} isMobile={isMobileView} />
-            
+
             {isMobileView && sidebarOpen && (
-                <TouchableOpacity 
-                    style={styles.sidebarOverlay} 
-                    activeOpacity={1} 
-                    onPress={() => setSidebarOpen(false)} 
+                <TouchableOpacity
+                    style={styles.sidebarOverlay}
+                    activeOpacity={1}
+                    onPress={() => setSidebarOpen(false)}
                 />
             )}
 

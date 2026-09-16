@@ -162,6 +162,7 @@ export const DoctorApp = () => (
         <Stack.Screen name="NurseDashboard" component={withLayout(NurseDashboard)} />
         <Stack.Screen name="LabReports" component={withLayout(LabReports)} />
         <Stack.Screen name="UnifiedPatientProfile" component={withLayout(UnifiedPatientProfile)} />
+        <Stack.Screen name="DoctorPatientProfile" component={withLayout(UnifiedPatientProfile)} />
         <Stack.Screen name="PatientBillingProfile" component={withLayout(PatientBillingProfile)} />
         <Stack.Screen name="OTDashboard" component={withLayout(OTDashboard)} />
         <Stack.Screen name="OTSchedulePage" component={withLayout(OTSchedulePage)} />

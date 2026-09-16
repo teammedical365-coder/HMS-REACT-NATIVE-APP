@@ -1,15 +1,45 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
     View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, 
     ActivityIndicator, Alert, Modal, KeyboardAvoidingView, Platform, 
-    Dimensions, Keyboard 
+    Dimensions, Keyboard, Linking, Image 
 } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import { useRoute, useNavigation } from '@react-navigation/native';
+import { Feather, FontAwesome5 } from '@expo/vector-icons';
+import { Picker } from '@react-native-picker/picker';
 import { reportAPI, patientAPI, doctorAPI, aiWalletAPI } from '../../utils/api';
 import VoiceScribe from '../../components/voicescribe/VoiceScribe';
 
 const { width } = Dimensions.get('window');
-const isTablet = width > 768;
+const isTablet = width >= 768;
+
+// ── AI Credits & Status Helpers matching Web ──
+const formatCredits = (amount) => {
+    const num = Number(amount) || 0;
+    return `${num.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} Credits`;
+};
+
+const getWalletStatusInfo = (status) => {
+    switch (status) {
+        case 'LOW':           return { label: 'Low Balance', color: '#f59e0b', bgColor: '#fef3c7', icon: '⚠️' };
+        case 'CRITICAL':      return { label: 'Critical', color: '#f97316', bgColor: '#ffedd5', icon: '🔶' };
+        case 'VERY_CRITICAL': return { label: 'Very Low', color: '#ef4444', bgColor: '#fee2e2', icon: '🔴' };
+        case 'EXHAUSTED':     return { label: 'Exhausted', color: '#dc2626', bgColor: '#fecaca', icon: '🚫' };
+        default:              return { label: 'Active', color: '#16a34a', bgColor: '#dcfce7', icon: '✅' };
+    }
+};
+
+const isImageMime = (mime, url = '') => {
+    if (mime && mime.startsWith('image/')) return true;
+    if (url && (url.endsWith('.jpg') || url.endsWith('.jpeg') || url.endsWith('.png') || url.endsWith('.webp'))) return true;
+    return false;
+};
+
+const isPdfMime = (mime, url = '') => {
+    if (mime === 'application/pdf') return true;
+    if (url && url.endsWith('.pdf')) return true;
+    return false;
+};
 
 const HighlightKeyword = ({ text, keyword }) => {
     if (!keyword || !text) return <Text style={styles.resultText}>{text}</Text>;
@@ -28,397 +58,491 @@ const HighlightKeyword = ({ text, keyword }) => {
 };
 
 const AIAssistant = () => {
+    const route = useRoute();
+    const navigation = useNavigation();
+    
+    // Extract route parameters matching Web location.state
+    const { 
+        patientId: routePatientId, 
+        appointmentId: routeAppointmentId, 
+        appointment: routeAppointment,
+        tab: routeTab 
+    } = route.params || {};
+
+    const [activeAIMode, setActiveAIMode] = useState(routeTab === 'voice_scribe' ? 'voice_scribe' : 'reports');
+
+    // ── Patient State ──
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState([]);
+    const [allPatients, setAllPatients] = useState([]);
+    const [isFetchingPatients, setIsFetchingPatients] = useState(true);
+    const [selectedPatient, setSelectedPatient] = useState(null);
+    const [showPatientDetails, setShowPatientDetails] = useState(false);
 
-    // ── AI Mode Switcher ──
-    const [activeAIMode, setActiveAIMode] = useState('reports'); // 'reports' | 'voice_scribe'
+    // ── Reports State ──
+    const [reports, setReports] = useState([]);
+    const [reportFilterQuery, setReportFilterQuery] = useState('');
+    const [selectedReport, setSelectedReport] = useState(null);
+    const [isReportsLoading, setIsReportsLoading] = useState(false);
+    const [isReportSearchOpen, setIsReportSearchOpen] = useState(false);
 
-    // ── AI Wallet State ──
+    // ── Document Preview Modal State ──
+    const [previewDoc, setPreviewDoc] = useState(null);
+
+    // ── AI Summary State ──
+    const [summary, setSummary] = useState(null);
+    const [isSummaryLoading, setIsSummaryLoading] = useState(false);
+    const [summaryError, setSummaryError] = useState(null);
+
+    // ── Inside Report Search State ──
+    const [insideSearchQuery, setInsideSearchQuery] = useState('');
+    const [insideSearchResults, setInsideSearchResults] = useState([]);
+    const [isSearchingInside, setIsSearchingInside] = useState(false);
+    const [insideSearchMessage, setInsideSearchMessage] = useState(null);
+
+    // ── Compare Reports State ──
+    const [compareReport1, setCompareReport1] = useState('');
+    const [compareReport2, setCompareReport2] = useState('');
+    const [comparisonResult, setComparisonResult] = useState(null);
+    const [isComparing, setIsComparing] = useState(false);
+    const [compareError, setCompareError] = useState(null);
+
+    // ── AI Wallet & Credit State ──
     const [wallet, setWallet] = useState(null);
-    const [walletStatus, setWalletStatus] = useState('ACTIVE');
+    const [isWalletOpen, setIsWalletOpen] = useState(false);
+    const [walletLogs, setWalletLogs] = useState([]);
     const [isWalletLoading, setIsWalletLoading] = useState(false);
 
+    // ── Chat State ──
+    const [chatMessages, setChatMessages] = useState([
+        {
+            role: 'ai',
+            text: "Hello! I'm your AI Assistant.\nYou can ask me anything about this patient's reports, labs, medications or health trends.\nHow can I help you today?",
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }
+    ]);
+    const [chatInput, setChatInput] = useState('');
+    const [isChatLoading, setIsChatLoading] = useState(false);
+    const chatEndRef = useRef(null);
+
+    // Fetch initial wallet & patients
+    useEffect(() => {
+        fetchWalletData();
+        fetchDoctorPatients();
+    }, []);
+
     const fetchWalletData = async () => {
-        setIsWalletLoading(true);
         try {
-            const res = await aiWalletAPI.getWallet();
-            if (res && res.success && res.data) {
-                setWallet(res.data);
-                setWalletStatus(res.data.status || 'ACTIVE');
+            if (aiWalletAPI && aiWalletAPI.getWallet) {
+                const res = await aiWalletAPI.getWallet();
+                if (res && res.success && res.wallet) {
+                    setWallet(res.wallet);
+                    return;
+                }
+            }
+            if (reportAPI && reportAPI.getAIUsageStats) {
+                const statsRes = await reportAPI.getAIUsageStats();
+                if (statsRes && statsRes.success) {
+                    setWallet(statsRes.stats);
+                }
             }
         } catch (err) {
-            console.warn("Could not fetch AI wallet:", err);
+            console.warn("Could not fetch AI wallet data:", err?.message);
+        }
+    };
+
+    const fetchWalletModalData = async () => {
+        setIsWalletLoading(true);
+        try {
+            let w = null;
+            let logs = [];
+            if (aiWalletAPI && aiWalletAPI.getWallet) {
+                const wRes = await aiWalletAPI.getWallet();
+                if (wRes && wRes.success && wRes.wallet) w = wRes.wallet;
+            }
+            if (aiWalletAPI && aiWalletAPI.getUsageHistory) {
+                const hRes = await aiWalletAPI.getUsageHistory(30);
+                if (hRes && hRes.success) logs = hRes.logs || [];
+            } else if (reportAPI && reportAPI.getAIUsageHistory) {
+                const hRes = await reportAPI.getAIUsageHistory(30);
+                if (hRes && hRes.success) logs = hRes.logs || [];
+            }
+            if (w) setWallet(w);
+            setWalletLogs(logs);
+        } catch (err) {
+            console.error("Error fetching AI wallet analytics:", err);
         } finally {
             setIsWalletLoading(false);
         }
     };
 
-    useEffect(() => {
-        fetchWalletData();
-    }, []);
-
-    const getWalletStatusInfo = (status) => {
-        switch (status) {
-            case 'LOW':           return { label: 'Low Balance', color: '#f59e0b', bgColor: '#fef3c7', icon: '⚠️' };
-            case 'CRITICAL':      return { label: 'Critical', color: '#f97316', bgColor: '#ffedd5', icon: '🔶' };
-            case 'VERY_CRITICAL': return { label: 'Very Low', color: '#ef4444', bgColor: '#fee2e2', icon: '🔴' };
-            case 'EXHAUSTED':     return { label: 'Exhausted', color: '#dc2626', bgColor: '#fecaca', icon: '🚫' };
-            default:              return { label: 'Active', color: '#16a34a', bgColor: '#dcfce7', icon: '✅' };
-        }
-    };
-
-    const [allPatients, setAllPatients] = useState([]);
-    const [isFetchingPatients, setIsFetchingPatients] = useState(true);
-
-    const [selectedPatient, setSelectedPatient] = useState(null);
-    const [reports, setReports] = useState([]);
-    const [isReportsLoading, setIsReportsLoading] = useState(false);
-
-    const [selectedReport, setSelectedReport] = useState(null);
-    const [summary, setSummary] = useState(null);
-    const [summaryUsage, setSummaryUsage] = useState(null);
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState(null);
-
-    const [reportSearchQuery, setReportSearchQuery] = useState('');
-    const [reportSearchResults, setReportSearchResults] = useState(null);
-    const [reportSearchError, setReportSearchError] = useState(null);
-
-    const [comparison, setComparison] = useState(null);
-    const [isComparing, setIsComparing] = useState(false);
-    const [compareError, setCompareError] = useState(null);
-
-    const [historySummary, setHistorySummary] = useState(null);
-    const [isHistoryLoading, setIsHistoryLoading] = useState(false);
-    const [historyError, setHistoryError] = useState(null);
-
-    // ── AI Token Tracker Modal State ──
-    const [isTrackerOpen, setIsTrackerOpen] = useState(false);
-    const [trackerStats, setTrackerStats] = useState(null);
-    const [trackerLogs, setTrackerLogs] = useState([]);
-    const [isTrackerLoading, setIsTrackerLoading] = useState(false);
-
-    const fetchTrackerData = async () => {
-        setIsTrackerLoading(true);
+    const fetchDoctorPatients = async () => {
+        setIsFetchingPatients(true);
         try {
-            const [statsRes, historyRes] = await Promise.all([
-                reportAPI.getAIUsageStats(),
-                reportAPI.getAIUsageHistory(30)
-            ]);
-            if (statsRes && statsRes.success) setTrackerStats(statsRes.stats);
-            if (historyRes && historyRes.success) setTrackerLogs(historyRes.logs || []);
-        } catch (err) {
-            console.error("Error fetching AI usage tracker data:", err);
-        } finally {
-            setIsTrackerLoading(false);
-        }
-    };
-
-    const handleOpenTracker = () => {
-        setIsTrackerOpen(true);
-        fetchTrackerData();
-    };
-
-    // ── AI Clinical Chat state (session-only) ──
-    const [chatMessages, setChatMessages] = useState([]);
-    const [chatInput, setChatInput] = useState('');
-    const [isChatLoading, setIsChatLoading] = useState(false);
-    const chatScrollViewRef = useRef(null);
-
-    const CHAT_SUGGESTIONS = [
-        'Explain this report',
-        'Summarize abnormalities',
-        'Show important findings',
-        'Explain medical terms',
-        'Compare latest report',
-    ];
-
-    const handleChatSend = async (overrideText) => {
-        if (walletStatus === 'EXHAUSTED' || wallet?.status === 'EXHAUSTED') {
-            Alert.alert('AI Credits Exhausted', 'Your AI credit balance is exhausted. Please recharge your AI Wallet from Hospital Admin to continue using AI services.');
-            return;
-        }
-        const text = (overrideText || chatInput).trim();
-        if (!text || !selectedPatient) return;
-
-        Keyboard.dismiss();
-
-        const doctorMsg = { role: 'doctor', text, timestamp: new Date() };
-        setChatMessages(prev => [...prev, doctorMsg]);
-        setChatInput('');
-        setIsChatLoading(true);
-        
-        setTimeout(() => chatScrollViewRef.current?.scrollToEnd({ animated: true }), 100);
-
-        try {
-            const patientContext = selectedPatient ? `Context: Patient name is ${selectedPatient.name}, age ${selectedPatient.profile?.age || 'unknown'}, gender ${selectedPatient.profile?.gender || 'unknown'}. ` : '';
-            
-            // Build message history for the AI
-            const apiMessages = chatMessages.map(m => ({
-                role: m.role === 'ai' ? 'assistant' : 'user',
-                content: m.text
-            }));
-            
-            // Append the new message with patient context
-            apiMessages.push({ role: 'user', content: patientContext + text });
-
-            const res = await reportAPI.chatWithAssistant(apiMessages);
-            if (res.success && res.reply) {
-                const aiMsg = { 
-                    role: 'ai', 
-                    text: res.reply, 
-                    usage: res.usage || null,
-                    timestamp: new Date() 
+            const res = await doctorAPI.getPatients();
+            if (res && res.success && Array.isArray(res.patients) && res.patients.length > 0) {
+                setAllPatients(res.patients);
+                const targetPatientId = routePatientId;
+                const matchedPatient = targetPatientId 
+                    ? res.patients.find(pt => String(pt._id) === String(targetPatientId))
+                    : null;
+                const p = matchedPatient || res.patients[0];
+                const patientObj = {
+                    _id: p._id,
+                    name: p.name || 'Patient',
+                    status: 'Active',
+                    profile: {
+                        mrn: p.profile?.mrn || p.patientId || p.mrn || 'CIT-' + String(p._id).slice(-4),
+                        gender: p.profile?.gender || p.gender || 'Not specified',
+                        age: p.profile?.age || p.age || '--',
+                        phone: p.phone || p.mobile || 'Not available'
+                    }
                 };
-                setChatMessages(prev => [...prev, aiMsg]);
+                setSelectedPatient(patientObj);
+                loadPatientDocuments(p._id);
+            } else if (routePatientId) {
+                try {
+                    const singleRes = await patientAPI.getPatient(routePatientId);
+                    if (singleRes && singleRes.patient) {
+                        const p = singleRes.patient;
+                        const patientObj = {
+                            _id: p._id,
+                            name: p.name || 'Patient',
+                            status: 'Active',
+                            profile: {
+                                mrn: p.patientId || p.mrn || 'CIT-' + String(p._id).slice(-4),
+                                gender: p.gender || 'Not specified',
+                                age: p.age || '--',
+                                phone: p.phone || 'Not available'
+                            }
+                        };
+                        setSelectedPatient(patientObj);
+                        setAllPatients([p]);
+                        loadPatientDocuments(p._id);
+                    }
+                } catch (e) {
+                    setAllPatients([]);
+                    setSelectedPatient(null);
+                    setReports([]);
+                }
             } else {
-                throw new Error(res.message || "Failed to get AI response.");
+                setAllPatients([]);
+                setSelectedPatient(null);
+                setReports([]);
             }
         } catch (err) {
-            console.error("AI Chat Error:", err);
-            const errorMsg = { role: 'ai', text: `Sorry, I encountered an error: ${err.message || "Failed to get response."}`, timestamp: new Date() };
-            setChatMessages(prev => [...prev, errorMsg]);
+            console.error("Error fetching patients:", err);
+            setAllPatients([]);
         } finally {
-            setIsChatLoading(false);
-            setTimeout(() => chatScrollViewRef.current?.scrollToEnd({ animated: true }), 100);
+            setIsFetchingPatients(false);
         }
     };
 
-    // Fetch only the doctor's department patients on mount
-    useEffect(() => {
-        const fetchDoctorPatients = async () => {
-            try {
-                const res = await doctorAPI.getPatients();
-                if (res && res.success && res.patients) {
-                    setAllPatients(res.patients);
-                }
-            } catch (err) {
-                console.error("Error fetching doctor's patients:", err);
-            } finally {
-                setIsFetchingPatients(false);
-            }
-        };
-        fetchDoctorPatients();
-    }, []);
+    const isReportSelected = (r) => {
+        if (!selectedReport || !r) return false;
+        if (selectedReport._id && r._id) return String(selectedReport._id) === String(r._id);
+        if (selectedReport.url && r.url) return selectedReport.url === r.url;
+        if (selectedReport.fileUrl && r.fileUrl) return selectedReport.fileUrl === r.fileUrl;
+        if (selectedReport.fileName && r.fileName) return selectedReport.fileName === r.fileName;
+        if (selectedReport.name && r.name) return selectedReport.name === r.name;
+        return false;
+    };
 
-    // Local filter based on name, MRN or patientId
+    const loadPatientDocuments = async (patientId) => {
+        setIsReportsLoading(true);
+        setSummary(null);
+        setSelectedReport(null);
+        setInsideSearchResults([]);
+        setInsideSearchMessage(null);
+        setComparisonResult(null);
+
+        try {
+            const res = await patientAPI.getDocuments(patientId);
+            if (res && res.success && Array.isArray(res.documents) && res.documents.length > 0) {
+                setReports(res.documents);
+                setSelectedReport(null);
+                if (res.documents.length >= 2) {
+                    setCompareReport1(res.documents[0].url || res.documents[0]._id || '');
+                    setCompareReport2(res.documents[1].url || res.documents[1]._id || '');
+                } else if (res.documents.length === 1) {
+                    setCompareReport1(res.documents[0].url || res.documents[0]._id || '');
+                    setCompareReport2(res.documents[0].url || res.documents[0]._id || '');
+                }
+            } else {
+                setReports([]);
+                setSelectedReport(null);
+                setCompareReport1('');
+                setCompareReport2('');
+            }
+        } catch (err) {
+            console.warn("Error loading patient documents:", err?.message);
+            setReports([]);
+            setSelectedReport(null);
+        } finally {
+            setIsReportsLoading(false);
+        }
+    };
+
+    // Patient autocomplete search
     useEffect(() => {
-        if (!searchQuery || searchQuery.trim().length < 2) {
+        if (!searchQuery || searchQuery.trim().length < 1) {
             setSearchResults([]);
             return;
         }
         const q = searchQuery.toLowerCase().trim();
         const filtered = allPatients.filter(p => {
             const nameMatch = p.name && p.name.toLowerCase().includes(q);
-            const idMatch = p.patientId && p.patientId.toLowerCase().includes(q);
-            const mrnMatch = p.profile?.mrn && p.profile.mrn.toLowerCase().includes(q);
-            return nameMatch || idMatch || mrnMatch;
+            const mrnMatch = (p.profile?.mrn || p.patientId || '').toLowerCase().includes(q);
+            const phoneMatch = p.phone && String(p.phone).includes(q);
+            return nameMatch || mrnMatch || phoneMatch;
         });
         setSearchResults(filtered);
     }, [searchQuery, allPatients]);
 
-    const handleSelectPatient = async (patient) => {
-        setSelectedPatient(patient);
-        setSearchResults([]);
+    const handleSelectPatient = (p) => {
+        const patientObj = {
+            _id: p._id,
+            name: p.name || 'Patient',
+            status: 'Active',
+            profile: {
+                mrn: p.profile?.mrn || p.patientId || p.mrn || 'CIT-' + String(p._id).slice(-4),
+                gender: p.profile?.gender || p.gender || 'Not specified',
+                age: p.profile?.age || p.age || '--',
+                phone: p.phone || p.mobile || 'Not available'
+            }
+        };
+        setSelectedPatient(patientObj);
         setSearchQuery('');
-        setSelectedReport(null);
+        setSearchResults([]);
         setSummary(null);
-        setError(null);
-        setComparison(null);
-        setCompareError(null);
-        setHistorySummary(null);
-        setHistoryError(null);
-
-        // Fetch reports for the selected patient
-        setIsReportsLoading(true);
-        setReports([]);
-        try {
-            const res = await patientAPI.getDocuments(patient._id);
-            if (res && res.success && res.documents) {
-                setReports(res.documents);
-            } else if (res && res.success && res.data) {
-                setReports(res.data);
-            }
-        } catch (err) {
-            console.error("Error fetching patient documents:", err);
-        } finally {
-            setIsReportsLoading(false);
-        }
+        loadPatientDocuments(p._id);
     };
 
+    // Generate Summary handler matching Web 1:1
     const handleGenerateSummary = async () => {
-        if (!selectedReport) {
-            setError("Please select a report first.");
-            return;
-        }
-        if (walletStatus === 'EXHAUSTED' || wallet?.status === 'EXHAUSTED') {
-            Alert.alert('AI Credits Exhausted', 'Your AI credit balance is exhausted. Please recharge your AI Wallet from Hospital Admin to continue using AI services.');
-            return;
-        }
-
-        setIsLoading(true);
-        setError(null);
-        setSummary(null);
-        setSummaryUsage(null);
+        if (!selectedReport || isExhausted) return;
+        setIsSummaryLoading(true);
+        setSummaryError(null);
 
         try {
-            const res = await reportAPI.generateAISummary(selectedReport.url, selectedReport.mimeType || selectedReport.mimetype || 'application/pdf');
-            if (res.success) {
-                setSummary(res.summary);
-                if (res.usage) setSummaryUsage(res.usage);
+            const fileUrl = selectedReport.url || selectedReport.fileUrl;
+            const mimeType = selectedReport.mimeType || 'application/pdf';
+            const fileName = selectedReport.fileName || selectedReport.name || 'Medical Report';
+
+            if (!fileUrl) {
+                throw new Error("Selected report does not have a valid file URL.");
+            }
+
+            const res = await reportAPI.generateAISummary(fileUrl, mimeType, fileName);
+            if (res && res.success && res.summary) {
+                const s = res.summary;
+                if (typeof s === 'string') {
+                    setSummary(s);
+                } else {
+                    let formatted = `### 📋 ${s.ReportType || s.ContentType || 'Clinical Report Summary'}\n\n`;
+                    if (s.OverallSummary) formatted += `**Summary:** ${s.OverallSummary}\n\n`;
+                    if (Array.isArray(s.ImportantFindings) && s.ImportantFindings.length > 0) {
+                        formatted += `#### 🔎 Key Findings\n${s.ImportantFindings.map(f => `- ${f}`).join('\n')}\n\n`;
+                    }
+                    if (Array.isArray(s.AbnormalValues) && s.AbnormalValues.length > 0) {
+                        formatted += `#### ⚠️ Abnormal Values\n${s.AbnormalValues.map(a => `- **${a.parameter || a}**: \`${a.value || ''}\` (${a.interpretation || 'Review clinically'})`).join('\n')}\n\n`;
+                    }
+                    if (Array.isArray(s.VisibleObservations) && s.VisibleObservations.length > 0) {
+                        formatted += `#### 👁️ Observations\n${s.VisibleObservations.map(o => `- ${o}`).join('\n')}\n`;
+                    }
+                    setSummary(formatted.trim());
+                }
+
+                if (res.wallet) setWallet(prev => ({ ...prev, ...res.wallet }));
+                else if (res.usage?.wallet) setWallet(prev => ({ ...prev, ...res.usage.wallet }));
             } else {
-                setError(res.message || "Unable to generate summary. Please try again.");
+                throw new Error(res?.message || "Failed to generate summary");
             }
         } catch (err) {
-            console.error("AI Summary error:", err);
-            setError("Unable to generate summary. Please try again.");
+            console.error("Summary error:", err);
+            const errMsg = err.response?.data?.message || err.message || "Failed to generate summary";
+            if (err.response?.status === 402) {
+                if (err.response?.data?.wallet) setWallet(prev => ({ ...prev, ...err.response.data.wallet }));
+            }
+            setSummaryError(errMsg);
         } finally {
-            setIsLoading(false);
+            setIsSummaryLoading(false);
         }
     };
 
-    const handleCompareReports = async () => {
-        if (walletStatus === 'EXHAUSTED' || wallet?.status === 'EXHAUSTED') {
-            Alert.alert('AI Credits Exhausted', 'Your AI credit balance is exhausted. Please recharge your AI Wallet from Hospital Admin to continue using AI services.');
-            return;
-        }
-        const sortedReports = reports ? [...reports].sort((a, b) => new Date(b.uploadedAt || b.date) - new Date(a.uploadedAt || a.date)) : [];
-        if (sortedReports.length < 2) {
-            setCompareError("At least two reports are required for comparison.");
-            return;
-        }
+    // Inside Report Search handler matching Web 1:1
+    const handleInsideSearch = async () => {
+        const query = insideSearchQuery.trim();
+        if (!query || !selectedPatient) return;
 
-        const latestReport = sortedReports[0];
-        const previousReport = sortedReports[1];
+        setIsSearchingInside(true);
+        setInsideSearchMessage(null);
+        setInsideSearchResults([]);
 
+        try {
+            const res = await reportAPI.searchReports(selectedPatient._id, query);
+            if (res && res.success && Array.isArray(res.results)) {
+                setInsideSearchResults(res.results);
+                if (res.results.length === 0) {
+                    setInsideSearchMessage(`No matches found for "${query}" in this patient's reports.`);
+                }
+            } else {
+                setInsideSearchMessage(res?.message || `No matches found for "${query}".`);
+            }
+        } catch (err) {
+            console.error("Search inside error:", err);
+            setInsideSearchMessage(err.response?.data?.message || "Error searching inside reports.");
+        } finally {
+            setIsSearchingInside(false);
+        }
+    };
+
+    // Compare Reports handler matching Web 1:1
+    const handleCompare = async () => {
+        if (!compareReport1 || !compareReport2 || isExhausted) return;
         setIsComparing(true);
         setCompareError(null);
-        setComparison(null);
+        setComparisonResult(null);
 
         try {
+            const r1 = reports.find(r => (r.url || r._id) === compareReport1);
+            const r2 = reports.find(r => (r.url || r._id) === compareReport2);
+
+            if (!r1 || !r2 || !r1.url || !r2.url) {
+                throw new Error("Please select two valid reports to compare.");
+            }
+
             const res = await reportAPI.compareReports(
-                latestReport.url, latestReport.mimeType || 'application/pdf',
-                previousReport.url, previousReport.mimeType || 'application/pdf'
+                r1.url,
+                r1.mimeType || 'application/pdf',
+                r2.url,
+                r2.mimeType || 'application/pdf',
+                selectedPatient?._id
             );
-            if (res.success) {
-                setComparison({
-                    latestDate: latestReport.uploadedAt || latestReport.date,
-                    previousDate: previousReport.uploadedAt || previousReport.date,
-                    data: res.comparison,
-                    usage: res.usage || null
-                });
+
+            if (res && res.success && res.comparison) {
+                setComparisonResult(res.comparison);
+                if (res.wallet) setWallet(prev => ({ ...prev, ...res.wallet }));
+                else if (res.usage?.wallet) setWallet(prev => ({ ...prev, ...res.usage.wallet }));
             } else {
-                setCompareError(res.message || "Unable to compare reports.");
+                throw new Error(res?.message || "Unable to compare these reports right now. Please try again.");
             }
         } catch (err) {
-            console.error("Compare Reports error:", err);
-            setCompareError("Unable to compare reports. Please try again.");
+            console.error("Compare error:", err);
+            setCompareError(err.response?.data?.message || err.message || "Unable to compare these reports right now. Please try again.");
         } finally {
             setIsComparing(false);
         }
     };
 
-    const generateHistorySummary = async () => {
-        if (!selectedPatient) return;
-        setIsHistoryLoading(true);
-        setHistoryError(null);
-        setHistorySummary(null);
+    // Context-Aware Chat Send matching Web 1:1
+    const handleChatSend = async (overridePrompt = null) => {
+        const text = (overridePrompt || chatInput).trim();
+        if (!text || isExhausted) return;
+
+        const doctorMsg = {
+            role: 'doctor',
+            text,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
+        setChatMessages(prev => [...prev, doctorMsg]);
+        if (!overridePrompt) setChatInput('');
+        setIsChatLoading(true);
+
+        setTimeout(() => chatEndRef.current?.scrollToEnd({ animated: true }), 100);
 
         try {
-            const patientId = selectedPatient._id || selectedPatient.patientUid || selectedPatient.patientId;
-            const res = await patientAPI.getFullHistory(patientId);
-            
-            if (res.success) {
-                const timeline = res.timeline || [];
-                const patient = res.patient || selectedPatient;
-                
-                const appointments = timeline.filter(item => item.type === 'appointment').map(i => i.data);
-                const totalVisits = appointments.length;
-                
-                let lastVisitDate = 'Not Available';
-                if (appointments.length > 0) {
-                    const dates = appointments.map(a => new Date(a.appointmentDate || a.createdAt).getTime()).filter(d => !isNaN(d));
-                    if (dates.length > 0) {
-                        lastVisitDate = new Date(Math.max(...dates)).toLocaleDateString();
-                    }
-                }
-                
-                const departments = [...new Set(appointments.map(a => a.department || a.serviceName).filter(Boolean))];
-                const reportsCount = reports ? reports.length : 0;
-                
-                let diagnoses = [...new Set(timeline.filter(item => item.type === 'appointment' || item.type === 'clinicalVisit').map(i => i.summary?.outcome || i.data?.diagnosis).filter(d => d && d !== 'Pending' && d !== 'Processing' && d !== '—'))];
-                
-                let allergies = patient.fertilityProfile?.allergies || patient.allergies || patient.profile?.allergies;
-                if (!allergies || allergies.trim() === '') allergies = 'Not Available';
-                
-                const currentMedicines = [];
-                appointments.forEach(a => {
-                    if (a.prescriptions && Array.isArray(a.prescriptions)) {
-                        a.prescriptions.forEach(p => {
-                            if (p.name && !currentMedicines.includes(p.name) && p.type !== 'lab_report') {
-                                currentMedicines.push(p.name);
-                            }
-                        });
-                    }
-                });
+            const apiMessages = chatMessages.map(m => ({
+                role: m.role === 'ai' ? 'assistant' : 'user',
+                content: m.text
+            }));
 
-                const recentLabReports = reports ? reports.slice(0, 3).map(r => r.fileName || r.name || 'Medical Report') : [];
-
-                if (totalVisits === 0 && reportsCount === 0) {
-                    setHistorySummary("No previous medical history available.");
-                } else {
-                    setHistorySummary({
-                        totalVisits,
-                        lastVisitDate,
-                        departmentsVisited: departments.length > 0 ? departments : ['Not Available'],
-                        reportsAvailable: reportsCount,
-                        previousDiagnoses: diagnoses.length > 0 ? diagnoses : ['Not Available'],
-                        knownAllergies: allergies,
-                        currentMedicines: currentMedicines.length > 0 ? currentMedicines : ['Not Available'],
-                        recentLabReports: recentLabReports.length > 0 ? recentLabReports : ['Not Available']
-                    });
+            let reportContext = '';
+            if (selectedReport) {
+                reportContext = `Current Selected Report: "${selectedReport.fileName || selectedReport.name || 'Medical Report'}". `;
+                if (summary) {
+                    reportContext += `Generated Summary Context: ${typeof summary === 'string' ? summary.substring(0, 500) : ''}. `;
                 }
+            }
+
+            const patientContext = selectedPatient 
+                ? `Patient: ${selectedPatient.name}, MRN: ${selectedPatient.profile.mrn}, Age: ${selectedPatient.profile.age}, Gender: ${selectedPatient.profile.gender}. ${reportContext}`
+                : reportContext;
+
+            apiMessages.push({ 
+                role: 'user', 
+                content: (patientContext ? `[Clinical Context: ${patientContext}]\n\n` : '') + text 
+            });
+
+            const mediaUrls = (selectedReport && selectedReport.url) ? [{
+                url: selectedReport.url,
+                mimeType: selectedReport.mimeType || 'application/pdf'
+            }] : [];
+
+            const res = await reportAPI.chatWithAssistant(apiMessages, mediaUrls);
+            if (res && res.success && res.reply) {
+                const aiMsg = {
+                    role: 'ai',
+                    text: res.reply,
+                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                };
+                setChatMessages(prev => [...prev, aiMsg]);
+                if (res.wallet) setWallet(prev => ({ ...prev, ...res.wallet }));
+                else if (res.usage?.wallet) setWallet(prev => ({ ...prev, ...res.usage.wallet }));
             } else {
-                setHistoryError(res.message || "Failed to fetch patient history.");
+                throw new Error(res?.message || "No reply received");
             }
         } catch (err) {
-            console.error("Generate History error:", err);
-            setHistoryError("Failed to fetch patient history.");
+            console.error("Chat error:", err);
+            if (err.response?.status === 402) {
+                if (err.response?.data?.wallet) setWallet(prev => ({ ...prev, ...err.response.data.wallet }));
+                const aiMsg = {
+                    role: 'ai',
+                    text: '⚠️ AI Credits Exhausted\n\nYour hospital\'s AI Credits have been fully used. Please contact your Hospital Administrator to recharge.',
+                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                };
+                setChatMessages(prev => [...prev, aiMsg]);
+            } else {
+                const aiMsg = {
+                    role: 'ai',
+                    text: `⚠️ Clinical Analysis Notice\n\nUnable to process this query right now. Please retry shortly.\n\nError: ${err.message}`,
+                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                };
+                setChatMessages(prev => [...prev, aiMsg]);
+            }
         } finally {
-            setIsHistoryLoading(false);
+            setIsChatLoading(false);
+            setTimeout(() => chatEndRef.current?.scrollToEnd({ animated: true }), 100);
         }
     };
 
-    const handleReportSearch = async () => {
-        if (!selectedPatient) {
-            setReportSearchError("Please select a patient first.");
-            return;
-        }
-        if (!reportSearchQuery.trim()) {
-            setReportSearchResults(null);
-            setReportSearchError(null);
-            return;
-        }
+    const handleClearChat = () => {
+        setChatMessages([]);
+    };
 
-        const keyword = reportSearchQuery.trim();
-        setReportSearchError(null);
-        setReportSearchResults(null);
-        Keyboard.dismiss();
+    // Filter reports
+    const filteredReports = reports.filter(r => 
+        (r.fileName || r.name || '').toLowerCase().includes(reportFilterQuery.toLowerCase())
+    );
 
-        try {
-            const res = await reportAPI.searchReports(selectedPatient._id || selectedPatient.patientId, keyword);
-            
-            if (res.success && res.results && res.results.length > 0) {
-                setReportSearchResults(res.results);
-            } else {
-                setReportSearchError(res.message || "No matching keyword found.");
-                setReportSearchResults(null);
-            }
-        } catch (err) {
-            console.error("Search inside reports error:", err);
-            setReportSearchError("Failed to search reports. No matching keyword found.");
-            setReportSearchResults(null);
+    // AI Credit Calculations matching Web
+    const remainingRupees = wallet ? Number(wallet.remainingAmount ?? wallet.balance) || 0 : 2000;
+    const budgetRupees = wallet ? Number(wallet.budgetAmount) || 2000 : 2000;
+    const usedRupees = wallet ? Number(wallet.usedAmount) || 0 : 0;
+    const usedPercent = budgetRupees > 0 ? Math.min(100, Math.round((usedRupees / budgetRupees) * 100)) : 0;
+    const walletStatus = wallet?.status || wallet?.warningLevel || 'ACTIVE';
+    const isExhausted = walletStatus === 'EXHAUSTED';
+    const statusInfo = getWalletStatusInfo(walletStatus);
+
+    const patientInitials = selectedPatient?.name
+        ? selectedPatient.name.split(' ').filter(Boolean).map(n => n[0]).join('').substring(0, 2).toUpperCase()
+        : 'PT';
+
+    const handleBack = () => {
+        if (navigation.canGoBack()) {
+            navigation.goBack();
+        } else {
+            navigation.navigate('DoctorDashboard');
         }
     };
 
@@ -427,646 +551,714 @@ const AIAssistant = () => {
             style={styles.container} 
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-            <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent}>
-                
-                <View style={styles.aiHeader}>
-                    <View style={styles.aiHeaderTop}>
-                        <View>
-                            <Text style={styles.aiHeaderTitle}>🤖 AI Assistant</Text>
-                            <Text style={styles.aiHeaderSubtitle}>Advanced clinical intelligence, voice ambient scribing & real-time analytics</Text>
+            <ScrollView 
+                style={styles.scrollContainer} 
+                contentContainerStyle={styles.scrollContent}
+                showsVerticalScrollIndicator={false}
+            >
+                {/* ── Top Header Card matching Web cca-exact-top-header-card ── */}
+                <View style={styles.topHeaderCard}>
+                    <View style={styles.headerLeft}>
+                        <TouchableOpacity style={styles.backBtn} onPress={handleBack}>
+                            <Text style={styles.backBtnText}>← Back</Text>
+                        </TouchableOpacity>
+                        <View style={styles.titleWrap}>
+                            <Text style={styles.titleText}>AI Assistant</Text>
+                            <View style={styles.aiPill}>
+                                <Text style={styles.aiPillText}>AI Powered</Text>
+                            </View>
                         </View>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: isTablet ? 0 : 10 }}>
-                            <TouchableOpacity 
-                                style={[styles.walletBadgeBtn, { backgroundColor: getWalletStatusInfo(walletStatus).bgColor, borderColor: getWalletStatusInfo(walletStatus).color }]}
-                                onPress={handleOpenTracker}
-                            >
-                                <Text style={[styles.walletBadgeBtnText, { color: getWalletStatusInfo(walletStatus).color }]}>
-                                    {getWalletStatusInfo(walletStatus).icon} {wallet?.balance !== undefined ? `${Number(wallet.balance).toFixed(1)} Credits` : 'AI Wallet'} ({getWalletStatusInfo(walletStatus).label})
-                                </Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.aiTokenTrackerBtn} onPress={handleOpenTracker}>
-                                <Text style={styles.aiTokenTrackerBtnText}>⚡ Tracker</Text>
-                            </TouchableOpacity>
-                        </View>
+                        <Text style={styles.headerSubtitle}>
+                            Intelligent clinical companion to analyze patient reports, abnormal values & medical trends.
+                        </Text>
                     </View>
 
-                    {/* Mode Switcher */}
-                    <View style={styles.modeTabsRow}>
-                        <TouchableOpacity
-                            style={[styles.modeTabBtn, activeAIMode === 'reports' && styles.modeTabBtnActive]}
-                            onPress={() => setActiveAIMode('reports')}
-                        >
-                            <Text style={[styles.modeTabBtnText, activeAIMode === 'reports' && styles.modeTabBtnTextActive]}>
-                                📄 Reports Analysis & Chat
-                            </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.modeTabBtn, activeAIMode === 'voice_scribe' && styles.modeTabBtnActive]}
-                            onPress={() => setActiveAIMode('voice_scribe')}
-                        >
-                            <Text style={[styles.modeTabBtnText, activeAIMode === 'voice_scribe' && styles.modeTabBtnTextActive]}>
-                                🎙️ VoiceScribe Clinical Scribe
-                            </Text>
-                        </TouchableOpacity>
-                    </View>
+                    {/* AI Credits Widget matching Web cca-exact-credits-header-box */}
+                    <TouchableOpacity 
+                        style={styles.creditsHeaderBox} 
+                        activeOpacity={0.85}
+                        onPress={() => { setIsWalletOpen(true); fetchWalletModalData(); }}
+                    >
+                        <View style={styles.cwTop}>
+                            <View style={styles.cwLeft}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                    <Text style={styles.cwLabel}>AI Credits</Text>
+                                    <Feather name="info" size={12} color="#64748b" />
+                                </View>
+                                <Text style={styles.cwAmount}>{formatCredits(remainingRupees)}</Text>
+                                <Text style={styles.cwSub}>of {formatCredits(budgetRupees)} total budget</Text>
+                            </View>
+                            <TouchableOpacity 
+                                style={styles.btnBuyCredits} 
+                                onPress={() => { setIsWalletOpen(true); fetchWalletModalData(); }}
+                            >
+                                <Text style={styles.btnBuyCreditsText}>Buy Credits</Text>
+                            </TouchableOpacity>
+                        </View>
+                        <View style={styles.cwProgressTrack}>
+                            <View style={[styles.cwProgressFill, { 
+                                width: `${usedPercent}%`,
+                                backgroundColor: isExhausted ? '#dc2626' : walletStatus === 'VERY_CRITICAL' ? '#ef4444' : walletStatus === 'CRITICAL' ? '#f97316' : walletStatus === 'LOW' ? '#f59e0b' : '#4f46e5'
+                            }]} />
+                        </View>
+                    </TouchableOpacity>
                 </View>
 
+                {/* ── AI Feature Mode Switcher (Reports vs Voice Scribe) matching Web ── */}
+                <View style={styles.aiModeNav}>
+                    <TouchableOpacity
+                        style={[styles.modeBtn, activeAIMode === 'reports' && styles.modeBtnActiveReports]}
+                        onPress={() => setActiveAIMode('reports')}
+                    >
+                        <Text style={[styles.modeBtnText, activeAIMode === 'reports' && styles.modeBtnTextActiveReports]}>
+                            📑 Document & Report Intelligence
+                        </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.modeBtn, activeAIMode === 'voice_scribe' && styles.modeBtnActiveScribe]}
+                        onPress={() => setActiveAIMode('voice_scribe')}
+                    >
+                        <Text style={[styles.modeBtnText, activeAIMode === 'voice_scribe' && styles.modeBtnTextActiveScribe]}>
+                            🎙️ AI Clinical Voice Scribe
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+
+                {/* ════════ RENDER: VOICE SCRIBE WORKSPACE ════════ */}
                 {activeAIMode === 'voice_scribe' ? (
-                    <VoiceScribe
-                        patientId={selectedPatient?._id || selectedPatient?.patientId}
-                        patient={selectedPatient}
-                    />
+                    <View style={styles.voiceScribeCard}>
+                        <VoiceScribe
+                            appointmentId={routeAppointmentId}
+                            patientId={selectedPatient?._id}
+                            patient={selectedPatient}
+                            appointment={routeAppointment}
+                            isLocked={false}
+                        />
+                    </View>
                 ) : (
-                <View style={styles.aiGrid}>
-                    {/* Left Column */}
-                    <View style={styles.aiColLeft}>
-                        {/* Patient Selection Card */}
-                        <View style={styles.aiCard}>
-                            <View style={styles.aiCardTitleContainer}>
-                                <Feather name="user" size={16} color="#0f172a" />
-                                <Text style={styles.aiCardTitle}>Select Patient</Text>
-                            </View>
+                    /* ════════ RENDER: 2-COLUMN MAIN WORKSPACE (REPORTS INTELLIGENCE) ════════ */
+                    <View style={[styles.mainGrid, { flexDirection: isTablet ? 'row' : 'column' }]}>
+                        
+                        {/* ════════ LEFT COLUMN: Patient Row, Uploaded Reports, Summary, Inside Search & Compare ════════ */}
+                        <View style={[styles.leftCol, isTablet && { width: '52%', marginRight: 18 }]}>
                             
-                            <View style={styles.searchInputWrapper}>
-                                <Feather name="search" size={16} color="#475569" style={styles.searchIcon} />
-                                <TextInput 
-                                    style={styles.searchInput}
-                                    placeholder={isFetchingPatients ? "Loading your patients..." : "Search patient name, ID, or MRN..."}
-                                    placeholderTextColor="#94a3b8"
-                                    value={searchQuery}
-                                    onChangeText={setSearchQuery}
-                                    editable={!isFetchingPatients}
-                                />
-                                {searchQuery.length > 0 && (
-                                    <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearSearchBtn}>
-                                        <Text style={styles.clearSearchText}>✕</Text>
-                                    </TouchableOpacity>
-                                )}
-                            </View>
-
-                            {searchQuery.trim().length >= 2 && searchResults.length === 0 && !isFetchingPatients && (
-                                <Text style={styles.errorText}>No patient found in your department.</Text>
-                            )}
-
-                            {searchResults.length > 0 && (
-                                <View style={styles.searchResultsContainer}>
-                                    {searchResults.map(p => (
-                                        <TouchableOpacity 
-                                            key={p._id}
-                                            style={styles.searchResultItem}
-                                            onPress={() => handleSelectPatient(p)}
-                                        >
-                                            <Text style={styles.searchResultName}>{p.name}</Text>
-                                            <Text style={styles.searchResultSub}>{p.patientId} {p.profile?.mrn ? `| ${p.profile.mrn}` : ''}</Text>
+                            {/* 1. Patient Search Bar & Selected Patient Card */}
+                            <View style={styles.patientSearchRowUnified}>
+                                <View style={styles.searchBox}>
+                                    <Feather name="search" size={16} color="#64748b" style={{ marginRight: 8 }} />
+                                    <TextInput 
+                                        style={styles.searchInput}
+                                        placeholder="Search patient by name, MRN, phone..."
+                                        placeholderTextColor="#94a3b8"
+                                        value={searchQuery}
+                                        onChangeText={setSearchQuery}
+                                    />
+                                    {searchQuery.length > 0 && (
+                                        <TouchableOpacity onPress={() => { setSearchQuery(''); setSearchResults([]); }}>
+                                            <Feather name="x" size={16} color="#64748b" />
                                         </TouchableOpacity>
-                                    ))}
+                                    )}
                                 </View>
-                            )}
 
-                            <View style={styles.aiPatientInfo}>
-                                <View style={styles.aiInfoRow}>
-                                    <Text style={styles.aiInfoLabel}>Name</Text>
-                                    <Text style={styles.aiInfoValue}>{selectedPatient ? selectedPatient.name : '-'}</Text>
-                                </View>
-                                <View style={styles.aiInfoRow}>
-                                    <Text style={styles.aiInfoLabel}>MRN / ID</Text>
-                                    <Text style={styles.aiInfoValue}>{selectedPatient ? (selectedPatient.profile?.mrn || selectedPatient.patientId || '-') : '-'}</Text>
-                                </View>
-                                <View style={styles.aiInfoRow}>
-                                    <Text style={styles.aiInfoLabel}>Age</Text>
-                                    <Text style={styles.aiInfoValue}>{selectedPatient && selectedPatient.profile?.age ? `${selectedPatient.profile.age} Yrs` : '-'}</Text>
-                                </View>
-                                <View style={styles.aiInfoRow}>
-                                    <Text style={styles.aiInfoLabel}>Gender</Text>
-                                    <Text style={styles.aiInfoValue}>{selectedPatient && selectedPatient.profile?.gender ? selectedPatient.profile.gender : '-'}</Text>
-                                </View>
-                            </View>
-                        </View>
-
-                        {/* Patient Reports Card */}
-                        <View style={styles.aiCard}>
-                            <View style={styles.aiCardTitleContainer}>
-                                <Feather name="file-text" size={16} color="#0f172a" />
-                                <Text style={styles.aiCardTitle}>Patient Reports</Text>
-                            </View>
-                            
-                            {!selectedPatient && (
-                                <Text style={styles.emptyStateText}>Please select a patient to view reports.</Text>
-                            )}
-
-                            {selectedPatient && isReportsLoading && (
-                                <Text style={styles.emptyStateText}>Loading reports...</Text>
-                            )}
-
-                            {selectedPatient && !isReportsLoading && reports.length === 0 && (
-                                <Text style={styles.emptyStateText}>No reports found for this patient.</Text>
-                            )}
-
-                            {selectedPatient && !isReportsLoading && reports.length > 0 && (
-                                <View style={styles.aiReportList}>
-                                    {reports.map((report) => {
-                                        const isSelected = selectedReport && (
-                                            (selectedReport._id && report._id && selectedReport._id === report._id) || 
-                                            (selectedReport.url && report.url && selectedReport.url === report.url)
-                                        );
-                                        
-                                        return (
-                                            <View 
-                                                key={report._id || report.url} 
-                                                style={[styles.aiReportItem, isSelected && styles.aiReportItemSelected]}
+                                {/* Autocomplete Dropdown */}
+                                {searchResults.length > 0 && (
+                                    <View style={styles.patientDropdown}>
+                                        {searchResults.map(p => (
+                                            <TouchableOpacity 
+                                                key={p._id} 
+                                                style={styles.dropdownItem} 
+                                                onPress={() => handleSelectPatient(p)}
                                             >
-                                                <View style={styles.aiReportInfo}>
-                                                    <Text style={styles.aiReportName} numberOfLines={1}>
-                                                        {report.fileName || report.name || 'Document'}
-                                                    </Text>
-                                                    <Text style={styles.aiReportDate}>
-                                                        {report.uploadedAt ? new Date(report.uploadedAt).toLocaleDateString() : (report.date || '')}
+                                                <View style={styles.ddAvatar}>
+                                                    <Text style={styles.ddAvatarText}>{(p.name || 'P').charAt(0)}</Text>
+                                                </View>
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={styles.ddName}>{p.name}</Text>
+                                                    <Text style={styles.ddSub}>
+                                                        {p.profile?.mrn || p.patientId || 'CIT-001'} • {p.profile?.gender || p.gender || 'Patient'} • {p.profile?.age || p.age || '--'} Y
                                                     </Text>
                                                 </View>
-                                                <TouchableOpacity 
-                                                    style={[styles.aiBtnView, isSelected && styles.aiBtnViewSelected]}
-                                                    onPress={() => isSelected ? setSelectedReport(null) : setSelectedReport(report)}
-                                                >
-                                                    <Text style={[styles.aiBtnViewText, isSelected && styles.aiBtnViewTextSelected]}>
-                                                        {isSelected ? 'Selected' : 'Select'}
-                                                    </Text>
-                                                </TouchableOpacity>
-                                            </View>
-                                        );
-                                    })}
-                                </View>
-                            )}
-                        </View>
-
-                        {/* Compare Reports Section */}
-                        <View style={styles.aiCard}>
-                            <View style={styles.aiCardTitleContainer}>
-                                <Text style={styles.aiCardTitle}>📊 Compare Reports</Text>
-                            </View>
-                            <Text style={styles.subText}>Compare the latest report with the previous one.</Text>
-                            
-                            <TouchableOpacity 
-                                style={[styles.aiBtnPrimary, (!reports || reports.length < 2) ? styles.btnDisabled : (isComparing ? styles.btnLoading : {})]} 
-                                onPress={handleCompareReports} 
-                                disabled={isComparing || !reports || reports.length < 2}
-                            >
-                                <Text style={styles.aiBtnPrimaryText}>{isComparing ? 'Comparing...' : 'Compare Latest with Previous'}</Text>
-                            </TouchableOpacity>
-
-                            {(!reports || reports.length < 2) && (
-                                <Text style={styles.hintText}>"At least two reports are required for comparison."</Text>
-                            )}
-
-                            {compareError && (
-                                <Text style={styles.errorTextLarge}>{compareError}</Text>
-                            )}
-
-                            {comparison && (
-                                <View style={styles.aiSummaryContent}>
-                                    <View style={styles.comparisonDatesBox}>
-                                        <View style={styles.compDateRow}>
-                                            <Text style={styles.compDateLabel}>Latest Report</Text>
-                                            <Text style={styles.compDateVal}>{comparison.latestDate ? new Date(comparison.latestDate).toLocaleDateString() : 'Unknown Date'}</Text>
-                                        </View>
-                                        <View style={styles.compDateRowBorder}>
-                                            <Text style={styles.compDateLabel}>Previous Report</Text>
-                                            <Text style={styles.compDateVal}>{comparison.previousDate ? new Date(comparison.previousDate).toLocaleDateString() : 'Unknown Date'}</Text>
-                                        </View>
+                                            </TouchableOpacity>
+                                        ))}
                                     </View>
-
-                                    {comparison.data.NewFindings && comparison.data.NewFindings.length > 0 && (
-                                        <View style={styles.compFindingsBox}>
-                                            <Text style={styles.compFindingsTitle}>New Findings</Text>
-                                            {comparison.data.NewFindings.map((finding, idx) => (
-                                                <Text key={idx} style={styles.compFindingsItem}>• {finding}</Text>
-                                            ))}
-                                        </View>
-                                    )}
-
-                                    {comparison.data.ChangedFindings && comparison.data.ChangedFindings.length > 0 && (
-                                        <View style={styles.compFindingsBox}>
-                                            <Text style={styles.compFindingsTitle}>Changed Findings</Text>
-                                            {comparison.data.ChangedFindings.map((finding, idx) => (
-                                                <Text key={idx} style={styles.compFindingsItem}>• {finding}</Text>
-                                            ))}
-                                        </View>
-                                    )}
-
-                                    {comparison.data.RemovedFindings && comparison.data.RemovedFindings.length > 0 && (
-                                        <View style={styles.compFindingsBox}>
-                                            <Text style={styles.compFindingsTitle}>Removed Findings</Text>
-                                            {comparison.data.RemovedFindings.map((finding, idx) => (
-                                                <Text key={idx} style={styles.compFindingsItem}>• {finding}</Text>
-                                            ))}
-                                        </View>
-                                    )}
-
-                                    {comparison.data.OverallChange && (
-                                        <View style={styles.overallChangeBox}>
-                                            <Text style={styles.overallChangeTitle}>Overall Change</Text>
-                                            <Text style={styles.overallChangeText}>{comparison.data.OverallChange}</Text>
-                                        </View>
-                                    )}
-
-                                    {comparison.usage && (
-                                        <View style={styles.aiTokenBadge}>
-                                            <Text style={styles.tokenBadgeText}>⚡ Tokens: <Text style={styles.boldText}>{comparison.usage.totalTokens}</Text> (In: {comparison.usage.promptTokens} | Out: {comparison.usage.candidateTokens})</Text>
-                                            <Text style={styles.tokenBadgeText}>• Est. Cost: <Text style={styles.boldText}>${comparison.usage.estimatedCostUsd?.toFixed(5) || '0.0001'}</Text></Text>
-                                        </View>
-                                    )}
-                                </View>
-                            )}
-                        </View>
-
-                        {/* Patient History Summary Section */}
-                        <View style={styles.aiCard}>
-                            <View style={styles.historySummaryHeader}>
-                                <Text style={styles.aiCardTitle}>📋 Patient History Summary</Text>
-                                <TouchableOpacity 
-                                    style={styles.aiBtnPrimarySmall} 
-                                    onPress={generateHistorySummary} 
-                                    disabled={isHistoryLoading || !selectedPatient}
-                                >
-                                    <Text style={styles.aiBtnPrimaryText}>{isHistoryLoading ? 'Loading...' : '🔄 Refresh Summary'}</Text>
-                                </TouchableOpacity>
-                            </View>
-
-                            {historyError && (
-                                <Text style={styles.errorTextLarge}>{historyError}</Text>
-                            )}
-
-                            {!historySummary && !isHistoryLoading && !historyError && (
-                                <Text style={styles.emptyStateText}>Click refresh to load patient history summary.</Text>
-                            )}
-
-                            {typeof historySummary === 'string' && (
-                                <Text style={styles.hintText}>{historySummary}</Text>
-                            )}
-
-                            {typeof historySummary === 'object' && historySummary !== null && (
-                                <View style={styles.aiSummaryContent}>
-                                    <View style={styles.summaryBlock}>
-                                        <Text style={styles.summaryBlockTitle}>Overview</Text>
-                                        <Text style={styles.summaryBlockItem}>• <Text style={styles.boldText}>Total Visits:</Text> {historySummary.totalVisits}</Text>
-                                        <Text style={styles.summaryBlockItem}>• <Text style={styles.boldText}>Last Visit:</Text> {historySummary.lastVisitDate}</Text>
-                                        <Text style={styles.summaryBlockItem}>• <Text style={styles.boldText}>Reports:</Text> {historySummary.reportsAvailable}</Text>
-                                    </View>
-
-                                    <View style={styles.summaryBlock}>
-                                        <Text style={styles.summaryBlockTitle}>Clinical Details</Text>
-                                        <Text style={styles.summaryBlockItem}>• <Text style={styles.boldText}>Allergies:</Text> {historySummary.knownAllergies}</Text>
-                                        <Text style={styles.summaryBlockItem}>• <Text style={styles.boldText}>Departments:</Text> {historySummary.departmentsVisited.join(', ')}</Text>
-                                    </View>
-
-                                    <View style={styles.summaryBlock}>
-                                        <Text style={styles.summaryBlockTitle}>Medical History</Text>
-                                        <Text style={styles.summaryBlockItem}>• <Text style={styles.boldText}>Diagnoses:</Text></Text>
-                                        {historySummary.previousDiagnoses.map((d, i) => <Text key={i} style={styles.nestedSummaryItem}>  - {d}</Text>)}
-                                        
-                                        <Text style={[styles.summaryBlockItem, {marginTop: 6}]}>• <Text style={styles.boldText}>Medicines:</Text></Text>
-                                        {historySummary.currentMedicines.map((m, i) => <Text key={i} style={styles.nestedSummaryItem}>  - {m}</Text>)}
-                                        
-                                        <Text style={[styles.summaryBlockItem, {marginTop: 6}]}>• <Text style={styles.boldText}>Lab Reports:</Text></Text>
-                                        {historySummary.recentLabReports.map((r, i) => <Text key={i} style={styles.nestedSummaryItem}>  - {r}</Text>)}
-                                    </View>
-                                </View>
-                            )}
-                        </View>
-                    </View>
-
-                    {/* Right Column */}
-                    <View style={styles.aiColRight}>
-                        {/* AI Summary Section */}
-                        <View style={styles.aiCard}>
-                            <View style={styles.aiCardTitleContainer}>
-                                <Text style={styles.aiCardTitle}>🤖 AI Report Summary</Text>
-                            </View>
-                            <TouchableOpacity 
-                                style={[styles.aiBtnPrimary, (isLoading || !selectedReport) && styles.btnDisabled]}
-                                onPress={handleGenerateSummary}
-                                disabled={isLoading || !selectedReport}
-                            >
-                                <Text style={styles.aiBtnPrimaryText}>{isLoading ? '⏳ Generating Summary...' : 'Generate Summary'}</Text>
-                            </TouchableOpacity>
-                            
-                            {error && (
-                                <Text style={styles.errorTextCenter}>{error}</Text>
-                            )}
-
-                            <View style={[styles.aiSummaryBox, summary && styles.aiSummaryBoxActive]}>
-                                {!summary && !isLoading && !error && (
-                                    <Text style={styles.emptySummaryText}>(No summary generated)</Text>
                                 )}
-                                
-                                {summary && (
-                                    <View style={styles.summaryContainer}>
-                                        
-                                        <View style={styles.summaryBlock}>
-                                            <Text style={styles.summaryBlockLabel}>Report Type</Text>
-                                            <Text style={styles.summaryBlockValueLarge}>{summary.ReportType}</Text>
-                                        </View>
 
-                                        <View style={styles.summaryBlock}>
-                                            <Text style={styles.summaryBlockLabel}>Overall Summary</Text>
-                                            <Text style={styles.summaryBlockValue}>{summary.OverallSummary}</Text>
+                                {/* Selected Patient Info */}
+                                {selectedPatient && (
+                                    <View style={styles.selectedPatientCard}>
+                                        <View style={styles.patientLeft}>
+                                            <View style={styles.avatarCircle}>
+                                                <Text style={styles.avatarText}>{patientInitials}</Text>
+                                            </View>
+                                            <View style={{ flex: 1 }}>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                                    <Text style={styles.patientName}>{selectedPatient.name}</Text>
+                                                    <View style={styles.activeTag}>
+                                                        <Text style={styles.activeTagText}>Active</Text>
+                                                    </View>
+                                                </View>
+                                                <Text style={styles.patientMeta}>MRN: {selectedPatient.profile?.mrn}</Text>
+                                            </View>
                                         </View>
+                                        <TouchableOpacity 
+                                            style={styles.btnViewDetails}
+                                            onPress={() => setShowPatientDetails(!showPatientDetails)}
+                                        >
+                                            <Text style={styles.btnViewDetailsText}>Profile</Text>
+                                            <Feather name={showPatientDetails ? "chevron-up" : "chevron-down"} size={13} color="#2563eb" />
+                                        </TouchableOpacity>
+                                    </View>
+                                )}
 
-                                        <View style={styles.summaryBlock}>
-                                            <Text style={styles.summaryBlockLabel}>Important Findings</Text>
-                                            {summary.ImportantFindings?.map((finding, idx) => (
-                                                <Text key={idx} style={styles.summaryListItem}>• {finding}</Text>
+                                {showPatientDetails && selectedPatient && (
+                                    <View style={styles.patientDetailsExpanded}>
+                                        <Text style={styles.detailItem}>👤 Gender: <Text style={styles.detailVal}>{selectedPatient.profile?.gender || '—'}</Text></Text>
+                                        <Text style={styles.detailItem}>🎂 Age: <Text style={styles.detailVal}>{selectedPatient.profile?.age ? `${selectedPatient.profile.age} Yrs` : '—'}</Text></Text>
+                                        <Text style={styles.detailItem}>📞 Phone: <Text style={styles.detailVal}>{selectedPatient.profile?.phone || '—'}</Text></Text>
+                                    </View>
+                                )}
+                            </View>
+
+                            {/* 2. Uploaded Reports Card matching Web */}
+                            <View style={styles.card}>
+                                <View style={styles.cardHeader}>
+                                    <View style={styles.cardTitleRow}>
+                                        <Text style={styles.cardIcon}>📑</Text>
+                                        <View>
+                                            <Text style={styles.cardHeading}>Uploaded Reports ({filteredReports.length})</Text>
+                                            <View style={styles.secPillBlue}>
+                                                <Text style={styles.secPillBlueText}>Patient Documents</Text>
+                                            </View>
+                                        </View>
+                                    </View>
+                                    {isReportSearchOpen ? (
+                                        <View style={styles.inlineSearchBox}>
+                                            <TextInput
+                                                style={styles.inlineSearchInput}
+                                                placeholder="Filter..."
+                                                placeholderTextColor="#94a3b8"
+                                                value={reportFilterQuery}
+                                                onChangeText={setReportFilterQuery}
+                                                autoFocus
+                                            />
+                                            <TouchableOpacity onPress={() => { setIsReportSearchOpen(false); setReportFilterQuery(''); }}>
+                                                <Feather name="x" size={14} color="#64748b" />
+                                            </TouchableOpacity>
+                                        </View>
+                                    ) : (
+                                        <TouchableOpacity style={styles.iconBtn} onPress={() => setIsReportSearchOpen(true)}>
+                                            <Feather name="search" size={16} color="#64748b" />
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
+
+                                {isReportsLoading ? (
+                                    <View style={{ padding: 24, alignItems: 'center' }}>
+                                        <ActivityIndicator size="small" color="#3b82f6" />
+                                        <Text style={{ marginTop: 8, color: '#64748b', fontSize: 13 }}>Loading reports...</Text>
+                                    </View>
+                                ) : filteredReports.length === 0 ? (
+                                    <View style={{ padding: 24, alignItems: 'center' }}>
+                                        <Feather name="file-text" size={28} color="#94a3b8" />
+                                        <Text style={{ color: '#64748b', fontSize: 13, marginTop: 6 }}>No uploaded reports for this patient.</Text>
+                                    </View>
+                                ) : (
+                                    <View style={{ gap: 8, marginTop: 8 }}>
+                                        {filteredReports.map((r, i) => {
+                                            const isSelected = isReportSelected(r);
+                                            return (
+                                                <TouchableOpacity 
+                                                    key={r._id || i}
+                                                    style={[styles.reportItem, isSelected && styles.reportItemActive]}
+                                                    onPress={() => setSelectedReport(r)}
+                                                >
+                                                    <View style={styles.reportIconWrap}>
+                                                        <Text style={{ fontSize: 18 }}>{isImageMime(r.mimeType, r.url || r.fileUrl) ? '🖼️' : '📄'}</Text>
+                                                    </View>
+                                                    <View style={{ flex: 1 }}>
+                                                        <Text style={styles.reportName} numberOfLines={1}>{r.fileName || r.name || 'Medical Document'}</Text>
+                                                        <Text style={styles.reportMeta}>
+                                                            {r.docType || (isPdfMime(r.mimeType, r.url) ? 'PDF' : 'Image')} • {r.date || (r.uploadedAt ? new Date(r.uploadedAt).toLocaleDateString('en-IN') : 'Uploaded')}
+                                                        </Text>
+                                                    </View>
+                                                    <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                                                        {isSelected ? (
+                                                            <View style={styles.selectedTag}>
+                                                                <Feather name="check" size={11} color="#059669" />
+                                                                <Text style={styles.selectedTagText}>Selected</Text>
+                                                            </View>
+                                                        ) : (
+                                                            <TouchableOpacity 
+                                                                style={styles.btnSelectReport}
+                                                                onPress={() => setSelectedReport(r)}
+                                                            >
+                                                                <Text style={styles.btnSelectReportText}>Select</Text>
+                                                            </TouchableOpacity>
+                                                        )}
+                                                        <TouchableOpacity 
+                                                            style={styles.btnViewDoc}
+                                                            onPress={() => setPreviewDoc(r)}
+                                                        >
+                                                            <Feather name="eye" size={12} color="#2563eb" />
+                                                            <Text style={styles.btnViewDocText}>View</Text>
+                                                        </TouchableOpacity>
+                                                    </View>
+                                                </TouchableOpacity>
+                                            );
+                                        })}
+                                    </View>
+                                )}
+                            </View>
+
+                            {/* 3. AI Report Summary Card matching Web */}
+                            <View style={styles.card}>
+                                <View style={styles.cardHeader}>
+                                    <View style={styles.cardTitleRow}>
+                                        <Text style={styles.cardIcon}>🤖</Text>
+                                        <View>
+                                            <Text style={styles.cardHeading}>AI Report Summary</Text>
+                                            <Text style={styles.targetReportHint}>
+                                                {selectedReport ? `Target: ${selectedReport.fileName || selectedReport.name}` : 'Select a report above'}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                    <TouchableOpacity 
+                                        style={[styles.btnGenerate, (!selectedReport || isSummaryLoading || isExhausted) && styles.btnDisabled]}
+                                        onPress={handleGenerateSummary}
+                                        disabled={!selectedReport || isSummaryLoading || isExhausted}
+                                    >
+                                        <Text style={styles.btnGenerateText}>
+                                            ✨ {isSummaryLoading ? 'Generating...' : 'Generate Summary'}
+                                        </Text>
+                                    </TouchableOpacity>
+                                </View>
+
+                                {summaryError && (
+                                    <View style={styles.errorBanner}>
+                                        <Feather name="alert-circle" size={14} color="#dc2626" />
+                                        <Text style={styles.errorBannerText}>{summaryError}</Text>
+                                    </View>
+                                )}
+
+                                {isSummaryLoading && (
+                                    <View style={{ padding: 24, alignItems: 'center' }}>
+                                        <ActivityIndicator size="small" color="#7c3aed" />
+                                        <Text style={{ marginTop: 8, color: '#7c3aed', fontSize: 13, fontWeight: '600' }}>
+                                            AI is analyzing report parameters and medical values...
+                                        </Text>
+                                    </View>
+                                )}
+
+                                {!isSummaryLoading && summary && (
+                                    <View style={styles.summaryResultBox}>
+                                        <Text style={styles.summaryResultText}>{summary}</Text>
+                                    </View>
+                                )}
+
+                                {!isSummaryLoading && !summary && (
+                                    <View style={{ padding: 24, alignItems: 'center' }}>
+                                        <Text style={{ fontSize: 24, marginBottom: 6 }}>📑</Text>
+                                        <Text style={{ fontSize: 14, fontWeight: '700', color: '#0f172a' }}>
+                                            {selectedReport ? `Ready to summarize "${selectedReport.fileName || selectedReport.name}"` : 'No report selected'}
+                                        </Text>
+                                        <Text style={{ fontSize: 12, color: '#64748b', marginTop: 4, textAlign: 'center' }}>
+                                            {selectedReport ? "Click 'Generate Summary' to analyze parameters and clinical observations." : "Select an uploaded report above to view AI generated summary"}
+                                        </Text>
+                                    </View>
+                                )}
+                            </View>
+
+                            {/* 4. Search Inside Reports Card matching Web */}
+                            <View style={styles.card}>
+                                <View style={styles.cardHeader}>
+                                    <View style={styles.cardTitleRow}>
+                                        <Text style={styles.cardIcon}>🔍</Text>
+                                        <View>
+                                            <Text style={styles.cardHeading}>Search Inside Reports</Text>
+                                            <View style={styles.secPillGreen}>
+                                                <Text style={styles.secPillGreenText}>Keyword Search</Text>
+                                            </View>
+                                        </View>
+                                    </View>
+                                </View>
+
+                                <View style={styles.insideSearchRow}>
+                                    <View style={styles.insideInputBox}>
+                                        <Feather name="search" size={14} color="#64748b" style={{ marginRight: 6 }} />
+                                        <TextInput 
+                                            style={styles.insideInput}
+                                            placeholder="Search keywords (e.g. Hemoglobin, TLC, Sugar)..."
+                                            placeholderTextColor="#94a3b8"
+                                            value={insideSearchQuery}
+                                            onChangeText={setInsideSearchQuery}
+                                            onSubmitEditing={handleInsideSearch}
+                                        />
+                                        {insideSearchQuery.length > 0 && (
+                                            <TouchableOpacity onPress={() => { setInsideSearchQuery(''); setInsideSearchResults([]); setInsideSearchMessage(null); }}>
+                                                <Feather name="x" size={14} color="#64748b" />
+                                            </TouchableOpacity>
+                                        )}
+                                    </View>
+                                    <TouchableOpacity 
+                                        style={[styles.btnInsideSearch, (isSearchingInside || !insideSearchQuery.trim() || !selectedPatient) && styles.btnDisabled]}
+                                        onPress={handleInsideSearch}
+                                        disabled={isSearchingInside || !insideSearchQuery.trim() || !selectedPatient}
+                                    >
+                                        <Text style={styles.btnInsideSearchText}>
+                                            {isSearchingInside ? '...' : 'Search'}
+                                        </Text>
+                                    </TouchableOpacity>
+                                </View>
+
+                                {insideSearchMessage && (
+                                    <Text style={styles.insideSearchMsg}>{insideSearchMessage}</Text>
+                                )}
+
+                                {insideSearchResults.length > 0 && (
+                                    <View style={{ gap: 8, marginTop: 10 }}>
+                                        {insideSearchResults.map((res, idx) => (
+                                            <View key={idx} style={styles.insideResultCard}>
+                                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                                                    <Text style={styles.insideResDoc}>📄 {res.reportName}</Text>
+                                                    <Text style={styles.insideResPage}>Page {res.pageNumber || 1}</Text>
+                                                </View>
+                                                <HighlightKeyword text={`"...${res.match}..."`} keyword={insideSearchQuery} />
+                                            </View>
+                                        ))}
+                                    </View>
+                                )}
+                            </View>
+
+                            {/* 5. Compare Reports Card matching Web */}
+                            <View style={styles.card}>
+                                <View style={styles.cardHeader}>
+                                    <View style={styles.cardTitleRow}>
+                                        <Text style={styles.cardIcon}>📊</Text>
+                                        <View>
+                                            <Text style={styles.cardHeading}>Compare Reports</Text>
+                                            <View style={styles.secPillOrange}>
+                                                <Text style={styles.secPillOrangeText}>Biomarker Trends</Text>
+                                            </View>
+                                        </View>
+                                    </View>
+                                </View>
+
+                                <View style={styles.compareControlsRow}>
+                                    <View style={styles.pickerBox}>
+                                        <Picker
+                                            selectedValue={compareReport1}
+                                            onValueChange={setCompareReport1}
+                                            style={styles.comparePicker}
+                                        >
+                                            {reports.map((r, i) => (
+                                                <Picker.Item key={r._id || i} label={r.fileName || r.name || `Report ${i + 1}`} value={r.url || r._id} />
                                             ))}
-                                        </View>
+                                        </Picker>
+                                    </View>
+                                    <Text style={styles.vsText}>vs</Text>
+                                    <View style={styles.pickerBox}>
+                                        <Picker
+                                            selectedValue={compareReport2}
+                                            onValueChange={setCompareReport2}
+                                            style={styles.comparePicker}
+                                        >
+                                            {reports.map((r, i) => (
+                                                <Picker.Item key={r._id || i} label={r.fileName || r.name || `Report ${i + 1}`} value={r.url || r._id} />
+                                            ))}
+                                        </Picker>
+                                    </View>
+                                    <TouchableOpacity 
+                                        style={[styles.btnCompare, (isComparing || isExhausted || reports.length < 2) && styles.btnDisabled]}
+                                        onPress={handleCompare}
+                                        disabled={isComparing || isExhausted || reports.length < 2}
+                                    >
+                                        <Text style={styles.btnCompareText}>
+                                            ⚡ {isComparing ? 'Comparing...' : 'Compare'}
+                                        </Text>
+                                    </TouchableOpacity>
+                                </View>
 
-                                        {summary.AbnormalValues && summary.AbnormalValues.length > 0 && (
-                                            <View style={styles.abnormalBlock}>
-                                                <Text style={styles.abnormalBlockLabel}>Abnormal Findings</Text>
-                                                {summary.AbnormalValues.map((val, idx) => (
-                                                    <Text key={idx} style={styles.abnormalListItem}>• {val}</Text>
+                                {compareError && (
+                                    <View style={styles.errorBanner}>
+                                        <Feather name="alert-circle" size={14} color="#dc2626" />
+                                        <Text style={styles.errorBannerText}>{compareError}</Text>
+                                    </View>
+                                )}
+
+                                {comparisonResult && (
+                                    <View style={styles.comparisonResultsBox}>
+                                        {comparisonResult.OverallChange && (
+                                            <View style={styles.compOverall}>
+                                                <Text style={styles.compOverallText}>
+                                                    <Text style={{ fontWeight: 'bold' }}>Overall Assessment:</Text> {comparisonResult.OverallChange}
+                                                </Text>
+                                            </View>
+                                        )}
+                                        {Array.isArray(comparisonResult.ChangedFindings) && comparisonResult.ChangedFindings.length > 0 && (
+                                            <View style={styles.compCardChanged}>
+                                                <Text style={styles.compCardTitle}>⚡ Changed Values & Trends</Text>
+                                                {comparisonResult.ChangedFindings.map((cf, i) => (
+                                                    <Text key={i} style={styles.compCardItem}>
+                                                        • {typeof cf === 'string' ? cf : `${cf.parameter || cf.name}: ${cf.previousValue || ''} ➔ ${cf.currentValue || ''}`}
+                                                    </Text>
                                                 ))}
                                             </View>
                                         )}
-
-                                        {/* Real-time Token Consumption Badge */}
-                                        {summaryUsage && (
-                                            <View style={styles.aiTokenBadge}>
-                                                <Text style={styles.tokenBadgeText}>⚡ Tokens: <Text style={styles.boldText}>{summaryUsage.totalTokens}</Text> (In: {summaryUsage.promptTokens} | Out: {summaryUsage.candidateTokens})</Text>
-                                                <Text style={styles.tokenBadgeText}>• Model: <Text style={styles.codeText}>{summaryUsage.modelName || 'gemini-1.5-flash'}</Text></Text>
-                                                <Text style={styles.tokenBadgeText}>• Est. Cost: <Text style={styles.boldText}>${summaryUsage.estimatedCostUsd?.toFixed(5) || '0.00008'}</Text> (~₹{summaryUsage.estimatedCostInr?.toFixed(3) || '0.007'})</Text>
+                                        {Array.isArray(comparisonResult.NewFindings) && comparisonResult.NewFindings.length > 0 && (
+                                            <View style={styles.compCardNew}>
+                                                <Text style={styles.compCardTitle}>🔎 New Findings</Text>
+                                                {comparisonResult.NewFindings.map((nf, i) => (
+                                                    <Text key={i} style={styles.compCardItem}>• {nf}</Text>
+                                                ))}
                                             </View>
                                         )}
                                     </View>
                                 )}
                             </View>
+
                         </View>
 
-
-                        {/* Search Inside Reports Section */}
-                        <View style={styles.aiCard}>
-                            <View style={styles.aiCardTitleContainer}>
-                                <Feather name="search" size={16} color="#0f172a" />
-                                <Text style={styles.aiCardTitle}>Search Inside Reports</Text>
-                            </View>
-                            
-                            <View style={styles.reportSearchInputWrapper}>
-                                <Feather name="search" size={18} color="#475569" style={styles.searchIconLarge} />
-                                <TextInput 
-                                    style={styles.reportSearchInput}
-                                    placeholder="Search inside patient's reports..."
-                                    placeholderTextColor="#94a3b8"
-                                    value={reportSearchQuery}
-                                    onChangeText={setReportSearchQuery}
-                                    onSubmitEditing={handleReportSearch}
-                                    editable={!!selectedPatient}
-                                />
-                                {reportSearchQuery.length > 0 && (
-                                    <TouchableOpacity onPress={() => setReportSearchQuery('')} style={styles.clearSearchBtnLarge}>
-                                        <Text style={styles.clearSearchTextLarge}>✕</Text>
-                                    </TouchableOpacity>
-                                )}
-                            </View>
-                            
-                            <View style={styles.reportSearchResultsWrapper}>
-                                {reportSearchError && (
-                                    <Text style={styles.reportSearchErrorText}>{reportSearchError}</Text>
-                                )}
-
-                                {!reportSearchResults && !reportSearchError && (
-                                    <Text style={styles.emptyStateText}>(No results)</Text>
-                                )}
-
-                                {reportSearchResults && reportSearchResults.length > 0 && (
-                                    <View>
-                                        <Text style={styles.reportSearchMatchTitle}>
-                                            Found matches for "{reportSearchQuery}"
-                                        </Text>
-                                        
-                                        <View style={styles.reportSearchList}>
-                                            {reportSearchResults.map((result, idx) => (
-                                                <View key={idx} style={styles.reportSearchResultCard}>
-                                                    <View style={styles.rsCardHeader}>
-                                                        <Text style={styles.rsCardName}>{result.reportName}</Text>
-                                                        <View style={styles.rsCardPageBadge}>
-                                                            <Text style={styles.rsCardPageText}>Page: {result.pageNumber}</Text>
-                                                        </View>
-                                                    </View>
-                                                    <View style={styles.rsCardBody}>
-                                                        <HighlightKeyword text={result.match} keyword={result.keyword} />
-                                                    </View>
+                        {/* ════════ RIGHT COLUMN: AI ASSISTANT CHAT PANEL matching Web 1:1 ════════ */}
+                        <View style={[styles.rightCol, isTablet && { flex: 1 }]}>
+                            <View style={styles.chatCard}>
+                                
+                                {/* Chat Header */}
+                                <View style={styles.chatHeader}>
+                                    <View style={styles.chatTitleGroup}>
+                                        <View style={styles.botIconCircle}>
+                                            <Text style={{ fontSize: 18 }}>🤖</Text>
+                                        </View>
+                                        <View style={{ flex: 1 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                                <Text style={styles.chatTitleText}>AI Assistant Chat</Text>
+                                                <View style={styles.liveBadge}>
+                                                    <Text style={styles.liveBadgeText}>Live Intelligence</Text>
                                                 </View>
-                                            ))}
+                                            </View>
+                                            <Text style={styles.chatSubtitle}>Get AI-driven insights and answers about this patient.</Text>
                                         </View>
                                     </View>
-                                )}
-                            </View>
-                        </View>
-
-                        {/* ── AI Clinical Assistant Chat ── */}
-                        <View style={styles.aiCard}>
-                            <View style={styles.aiCardTitleContainer}>
-                                <Text style={styles.aiCardTitle}>💬 AI Clinical Assistant</Text>
-                            </View>
-
-                            {!selectedPatient ? (
-                                <View style={styles.chatDisabledState}>
-                                    <Text style={styles.chatDisabledIcon}>🔒</Text>
-                                    <Text style={styles.chatDisabledText}>Please select a patient first.</Text>
+                                    <TouchableOpacity style={styles.btnClearChat} onPress={handleClearChat}>
+                                        <Feather name="trash-2" size={13} color="#64748b" />
+                                        <Text style={styles.btnClearChatText}>Clear</Text>
+                                    </TouchableOpacity>
                                 </View>
-                            ) : (
-                                <>
-                                    {/* Conversation Area */}
-                                    <ScrollView 
-                                        ref={chatScrollViewRef}
-                                        style={styles.chatMessagesArea}
-                                        contentContainerStyle={styles.chatMessagesContent}
-                                    >
-                                        {chatMessages.length === 0 && !isChatLoading && (
-                                            <View style={styles.chatEmptyState}>
-                                                <Text style={styles.chatEmptyIcon}>🤖</Text>
-                                                <Text style={styles.chatEmptyTitle}>Start a clinical conversation about your patient.</Text>
-                                                <Text style={styles.chatEmptySub}>AI answers based on selected patient data, reports & medical history only.</Text>
-                                            </View>
-                                        )}
 
-                                        {chatMessages.map((msg, idx) => (
-                                            <View key={idx} style={[styles.chatBubbleContainer, msg.role === 'doctor' ? styles.chatBubbleRight : styles.chatBubbleLeft]}>
-                                                <View style={styles.chatBubbleHeader}>
-                                                    <Text style={[styles.chatRoleTag, msg.role === 'doctor' ? styles.chatRoleTagDoctor : styles.chatRoleTagAI]}>
-                                                        {msg.role === 'doctor' ? '🩺 You' : '🤖 AI'}
-                                                    </Text>
-                                                    <Text style={styles.chatTimeTag}>{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
-                                                </View>
-                                                <Text style={[styles.chatBubbleText, msg.role === 'doctor' ? styles.chatBubbleTextDoctor : styles.chatBubbleTextAI]}>
-                                                    {msg.text}
+                                {/* Chat Messages Stream */}
+                                <ScrollView 
+                                    ref={chatEndRef}
+                                    style={styles.chatStream}
+                                    contentContainerStyle={{ padding: 14, gap: 12 }}
+                                    nestedScrollEnabled
+                                >
+                                    {chatMessages.map((msg, i) => (
+                                        <View 
+                                            key={i} 
+                                            style={[
+                                                styles.chatBubble, 
+                                                msg.role === 'doctor' ? styles.chatBubbleDoctor : styles.chatBubbleAI
+                                            ]}
+                                        >
+                                            <View style={styles.chatBubbleHead}>
+                                                <Text style={[styles.chatRoleTag, msg.role === 'doctor' ? styles.chatRoleDoctor : styles.chatRoleAI]}>
+                                                    {msg.role === 'doctor' ? '🩺 You' : '🤖 AI Assistant'}
                                                 </Text>
-                                                {msg.usage && (
-                                                    <Text style={styles.chatTokenTag}>
-                                                        ⚡ {msg.usage.totalTokens} tokens (${msg.usage.estimatedCostUsd?.toFixed(5) || '0.00005'})
-                                                    </Text>
-                                                )}
+                                                <Text style={styles.chatTime}>{msg.timestamp}</Text>
                                             </View>
-                                        ))}
+                                            <Text style={[styles.chatText, msg.role === 'doctor' ? styles.chatTextDoctor : styles.chatTextAI]}>
+                                                {msg.text}
+                                            </Text>
+                                        </View>
+                                    ))}
 
-                                        {isChatLoading && (
-                                            <View style={[styles.chatBubbleContainer, styles.chatBubbleLeft]}>
-                                                <View style={styles.chatBubbleHeader}>
-                                                    <Text style={[styles.chatRoleTag, styles.chatRoleTagAI]}>🤖 AI</Text>
-                                                </View>
-                                                <View style={styles.typingIndicator}>
-                                                    <View style={styles.typingDot} />
-                                                    <View style={styles.typingDot} />
-                                                    <View style={styles.typingDot} />
-                                                </View>
+                                    {isChatLoading && (
+                                        <View style={[styles.chatBubble, styles.chatBubbleAI]}>
+                                            <View style={styles.chatBubbleHead}>
+                                                <Text style={[styles.chatRoleTag, styles.chatRoleAI]}>🤖 AI Assistant</Text>
                                             </View>
-                                        )}
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 }}>
+                                                <ActivityIndicator size="small" color="#7c3aed" />
+                                                <Text style={{ fontSize: 13, color: '#7c3aed', fontWeight: '600' }}>Thinking...</Text>
+                                            </View>
+                                        </View>
+                                    )}
+                                </ScrollView>
+
+                                {/* Quick Clinical Chips */}
+                                <View style={styles.quickChipsBar}>
+                                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 12 }}>
+                                        <TouchableOpacity 
+                                            style={styles.quickChip}
+                                            onPress={() => handleChatSend('Iska ilaj kaise hoga? Give 2 to 3 standard evidence-based clinical treatment pathways and management options.')}
+                                            disabled={isChatLoading || isExhausted}
+                                        >
+                                            <Text style={styles.quickChipText}>🩺 Iska ilaj kaise hoga?</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity 
+                                            style={styles.quickChip}
+                                            onPress={() => handleChatSend('Analyze all abnormal values in this report and highlight critical parameters.')}
+                                            disabled={isChatLoading || isExhausted}
+                                        >
+                                            <Text style={styles.quickChipText}>⚠️ Abnormal Values</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity 
+                                            style={styles.quickChip}
+                                            onPress={() => handleChatSend('Provide recommended follow-up diagnostic tests and diet/lifestyle guidelines.')}
+                                            disabled={isChatLoading || isExhausted}
+                                        >
+                                            <Text style={styles.quickChipText}>🥗 Follow-up & Diet</Text>
+                                        </TouchableOpacity>
                                     </ScrollView>
+                                </View>
 
-                                    {/* Quick Suggestion Chips */}
-                                    <View style={styles.chatChipsContainer}>
-                                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chatChipsScroll}>
-                                            {CHAT_SUGGESTIONS.map((chip, i) => (
-                                                <TouchableOpacity key={i} style={styles.chatChip} onPress={() => handleChatSend(chip)}>
-                                                    <Text style={styles.chatChipText}>{chip}</Text>
-                                                </TouchableOpacity>
-                                            ))}
-                                        </ScrollView>
-                                    </View>
-
-                                    {/* Input Area */}
-                                    <View style={styles.chatInputArea}>
-                                        <TextInput
+                                {/* Chat Input Box */}
+                                <View style={styles.chatInputBox}>
+                                    <View style={styles.chatInputRow}>
+                                        <TextInput 
                                             style={styles.chatInput}
-                                            placeholder="Type your clinical question..."
+                                            placeholder={isExhausted ? 'AI Credits Exhausted — Contact Admin' : 'Ask anything, or "Iska ilaj kaise hoga?"...'}
                                             placeholderTextColor="#94a3b8"
                                             value={chatInput}
                                             onChangeText={setChatInput}
-                                            multiline={true}
+                                            multiline
+                                            editable={!isExhausted}
                                         />
-                                        <TouchableOpacity
-                                            style={[styles.chatSendBtn, (!chatInput.trim() || isChatLoading) && styles.btnDisabled]}
+                                        <TouchableOpacity 
+                                            style={[styles.btnSend, (!chatInput.trim() || isChatLoading || isExhausted) && styles.btnDisabled]}
                                             onPress={() => handleChatSend()}
-                                            disabled={!chatInput.trim() || isChatLoading}
+                                            disabled={!chatInput.trim() || isChatLoading || isExhausted}
                                         >
-                                            <Text style={styles.chatSendBtnText}>Send</Text>
+                                            <Feather name="send" size={16} color="#fff" />
                                         </TouchableOpacity>
                                     </View>
-                                </>
-                            )}
+                                    <Text style={styles.disclaimerText}>
+                                        ✨ Medical365 AI • Verified clinical algorithms. Please verify clinically.
+                                    </Text>
+                                </View>
+
+                            </View>
                         </View>
+
                     </View>
-                </View>
                 )}
             </ScrollView>
 
-            {/* ── AI Token Tracker & Analytics Modal ── */}
-            <Modal visible={isTrackerOpen} transparent={true} animationType="fade">
-                <View style={styles.modalOverlay}>
-                    <View style={styles.trackerModal}>
-                        <View style={styles.trackerHeader}>
-                            <View style={styles.trackerTitleContainer}>
-                                <Text style={styles.trackerTitle}>⚡ AI Token Usage & Cost Analytics</Text>
-                            </View>
-                            <TouchableOpacity style={styles.trackerCloseBtn} onPress={() => setIsTrackerOpen(false)}>
-                                <Text style={styles.trackerCloseBtnText}>✕</Text>
-                            </TouchableOpacity>
-                        </View>
-
-                        <ScrollView style={styles.trackerBody}>
-                            {isTrackerLoading && !trackerStats && (
-                                <Text style={styles.trackerLoadingText}>Loading live token analytics...</Text>
-                            )}
-
-                            {trackerStats && (
-                                <>
-                                    {/* KPI Summary Cards */}
-                                    <View style={styles.trackerKpiGrid}>
-                                        <View style={[styles.trackerKpiCard, styles.trackerKpiCardHighlight]}>
-                                            <Text style={styles.trackerKpiTitle}>Total Tokens Used</Text>
-                                            <Text style={styles.trackerKpiValue}>{trackerStats.totalTokens ? Number(trackerStats.totalTokens).toLocaleString() : '0'}</Text>
-                                            <Text style={styles.trackerKpiSub}>Prompt: {Number(trackerStats.totalPromptTokens || 0).toLocaleString()} | Candidate: {Number(trackerStats.totalCandidateTokens || 0).toLocaleString()}</Text>
-                                        </View>
-
-                                        <View style={styles.trackerKpiCard}>
-                                            <Text style={styles.trackerKpiTitle}>Total Estimated Cost</Text>
-                                            <Text style={[styles.trackerKpiValue, {color: '#16a34a'}]}>${trackerStats.totalCostUsd ? trackerStats.totalCostUsd.toFixed(4) : '0.0000'}</Text>
-                                            <Text style={styles.trackerKpiSub}>≈ ₹{trackerStats.totalCostInr ? trackerStats.totalCostInr.toFixed(2) : '0.00'} INR</Text>
-                                        </View>
-
-                                        <View style={styles.trackerKpiCard}>
-                                            <Text style={styles.trackerKpiTitle}>Today's Usage</Text>
-                                            <Text style={styles.trackerKpiValue}>{trackerStats.todayTokens ? Number(trackerStats.todayTokens).toLocaleString() : '0'}</Text>
-                                            <Text style={styles.trackerKpiSub}>{trackerStats.todayRequests || 0} requests today (${(trackerStats.todayCostUsd || 0).toFixed(4)})</Text>
-                                        </View>
-
-                                        <View style={styles.trackerKpiCard}>
-                                            <Text style={styles.trackerKpiTitle}>Total AI Calls</Text>
-                                            <Text style={styles.trackerKpiValue}>{trackerStats.totalRequests || 0}</Text>
-                                            <Text style={styles.trackerKpiSub}>Active model: gemini-1.5-flash</Text>
-                                        </View>
-                                    </View>
-
-                                    {/* Action Type Breakdown */}
-                                    {trackerStats.actionBreakdown && trackerStats.actionBreakdown.length > 0 && (
-                                        <View style={styles.trackerBreakdownBox}>
-                                            <Text style={styles.trackerBreakdownTitle}>Activity Breakdown</Text>
-                                            <View style={styles.trackerBreakdownTags}>
-                                                {trackerStats.actionBreakdown.map((item, i) => (
-                                                    <View key={i} style={styles.trackerBreakdownTag}>
-                                                        <Text style={styles.breakdownTagLabel}>{item.actionType.replace('_', ' ')}:</Text>
-                                                        <Text style={styles.breakdownTagVal}>{item.count} calls</Text>
-                                                        <Text style={styles.breakdownTagVal}>• {Number(item.tokens).toLocaleString()} tokens</Text>
-                                                        <Text style={styles.breakdownTagVal}>(${item.costUsd.toFixed(4)})</Text>
-                                                    </View>
-                                                ))}
-                                            </View>
-                                        </View>
+            {/* ── Document Preview Modal ── */}
+            {previewDoc && (
+                <Modal visible={!!previewDoc} transparent animationType="fade">
+                    <View style={styles.modalOverlay}>
+                        <View style={styles.previewModal}>
+                            <View style={styles.previewHeader}>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.previewTitle} numberOfLines={1}>{previewDoc.fileName || previewDoc.name || 'Document Preview'}</Text>
+                                    <Text style={styles.previewSub}>{previewDoc.docType || (isPdfMime(previewDoc.mimeType, previewDoc.url) ? 'PDF Document' : 'Medical Image')}</Text>
+                                </View>
+                                <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                                    {previewDoc.url && (
+                                        <TouchableOpacity 
+                                            style={styles.btnOpenExt}
+                                            onPress={() => {
+                                                Linking.openURL(previewDoc.url).catch(err => {
+                                                    Alert.alert('Error', 'Could not open URL: ' + err.message);
+                                                });
+                                            }}
+                                        >
+                                            <Feather name="external-link" size={14} color="#2563eb" />
+                                            <Text style={styles.btnOpenExtText}>Open</Text>
+                                        </TouchableOpacity>
                                     )}
+                                    <TouchableOpacity onPress={() => setPreviewDoc(null)}>
+                                        <Feather name="x" size={20} color="#64748b" />
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
 
-                                    {/* Recent Activity Log Table (Simulated for Mobile) */}
-                                    <View>
-                                        <View style={styles.trackerTableTitleRow}>
-                                            <Text style={styles.trackerTableTitle}>Recent AI Invocations</Text>
-                                            <TouchableOpacity style={styles.trackerRefreshBtn} onPress={fetchTrackerData}>
-                                                <Text style={styles.trackerRefreshBtnText}>🔄 Refresh</Text>
-                                            </TouchableOpacity>
-                                        </View>
-
-                                        <View style={styles.trackerTableContainer}>
-                                            {trackerLogs.length === 0 ? (
-                                                <Text style={styles.trackerEmptyTableText}>No AI requests recorded yet. Generate a summary or ask a chat question to see live tokens!</Text>
-                                            ) : (
-                                                trackerLogs.map((log) => {
-                                                    let badgeStyle = styles.aiActionSummary;
-                                                    let badgeTextStyle = styles.aiActionSummaryText;
-                                                    if (log.actionType === 'CLINICAL_CHAT') { badgeStyle = styles.aiActionChat; badgeTextStyle = styles.aiActionChatText; }
-                                                    if (log.actionType === 'REPORT_COMPARISON') { badgeStyle = styles.aiActionCompare; badgeTextStyle = styles.aiActionCompareText; }
-                                                    if (log.actionType === 'OCR_EXTRACTION') { badgeStyle = styles.aiActionOcr; badgeTextStyle = styles.aiActionOcrText; }
-
-                                                    return (
-                                                        <View key={log._id} style={styles.trackerTableRow}>
-                                                            <View style={styles.trackerTableRowTop}>
-                                                                <Text style={styles.trackerLogTime}>{new Date(log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</Text>
-                                                                <View style={[styles.trackerActionBadge, badgeStyle]}>
-                                                                    <Text style={[styles.trackerActionBadgeText, badgeTextStyle]}>{log.actionType.replace('_', ' ')}</Text>
-                                                                </View>
-                                                                <Text style={styles.trackerLogCost}>${(log.estimatedCostUsd || 0).toFixed(5)}</Text>
-                                                            </View>
-                                                            <View style={styles.trackerTableRowBottom}>
-                                                                <Text style={styles.trackerLogModel}>{log.modelName || 'gemini-1.5-flash'}</Text>
-                                                                <Text style={styles.trackerLogTokens}>Tokens: <Text style={styles.boldText}>{log.totalTokens || 0}</Text> (In: {log.promptTokens || 0} | Out: {log.candidateTokens || 0})</Text>
-                                                            </View>
-                                                        </View>
-                                                    );
-                                                })
-                                            )}
-                                        </View>
+                            <View style={styles.previewBody}>
+                                {isImageMime(previewDoc.mimeType, previewDoc.url) ? (
+                                    <Image source={{ uri: previewDoc.url }} style={styles.previewImage} resizeMode="contain" />
+                                ) : (
+                                    <View style={{ padding: 40, alignItems: 'center' }}>
+                                        <Feather name="file-text" size={48} color="#3b82f6" />
+                                        <Text style={{ marginTop: 12, color: '#0f172a', fontWeight: 'bold' }}>PDF Document</Text>
+                                        <TouchableOpacity 
+                                            style={[styles.btnOpenExt, { marginTop: 14, backgroundColor: '#2563eb', paddingHorizontal: 16 }]}
+                                            onPress={() => Linking.openURL(previewDoc.url)}
+                                        >
+                                            <Text style={{ color: '#fff', fontWeight: 'bold' }}>Open PDF Externally</Text>
+                                        </TouchableOpacity>
                                     </View>
-                                </>
-                            )}
-                        </ScrollView>
+                                )}
+                            </View>
+                        </View>
                     </View>
-                </View>
-            </Modal>
+                </Modal>
+            )}
+
+            {/* ── AI Wallet Modal ── */}
+            {isWalletOpen && (
+                <Modal visible={isWalletOpen} transparent animationType="fade">
+                    <View style={styles.modalOverlay}>
+                        <View style={styles.walletModal}>
+                            <View style={styles.previewHeader}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                    <Text style={{ fontSize: 22 }}>🏥</Text>
+                                    <View>
+                                        <Text style={styles.previewTitle}>Hospital AI Wallet & AI Credits</Text>
+                                        <Text style={styles.previewSub}>Live budget and credit usage logs.</Text>
+                                    </View>
+                                </View>
+                                <TouchableOpacity onPress={() => setIsWalletOpen(false)}>
+                                    <Feather name="x" size={20} color="#64748b" />
+                                </TouchableOpacity>
+                            </View>
+
+                            <ScrollView style={{ maxHeight: 400, padding: 16 }}>
+                                <View style={styles.walletKpiRow}>
+                                    <View style={styles.walletKpiCard}>
+                                        <Text style={styles.walletKpiLabel}>Available Balance</Text>
+                                        <Text style={[styles.walletKpiValue, { color: statusInfo.color }]}>
+                                            ⚡ {formatCredits(remainingRupees)}
+                                        </Text>
+                                        <Text style={styles.walletKpiSub}>
+                                            Status: {statusInfo.icon} {statusInfo.label}
+                                        </Text>
+                                    </View>
+                                    <View style={styles.walletKpiCard}>
+                                        <Text style={styles.walletKpiLabel}>Used Credits</Text>
+                                        <Text style={styles.walletKpiValue}>
+                                            {formatCredits(usedRupees)}
+                                        </Text>
+                                        <Text style={styles.walletKpiSub}>
+                                            Total Pool: {formatCredits(budgetRupees)}
+                                        </Text>
+                                    </View>
+                                </View>
+
+                                <Text style={[styles.cardHeading, { marginTop: 16, marginBottom: 8 }]}>Recent AI Invocations</Text>
+                                {isWalletLoading ? (
+                                    <ActivityIndicator size="small" color="#3b82f6" />
+                                ) : walletLogs.length === 0 ? (
+                                    <Text style={{ color: '#64748b', fontSize: 13, textAlign: 'center', padding: 16 }}>
+                                        No AI requests recorded yet.
+                                    </Text>
+                                ) : (
+                                    walletLogs.map((log) => (
+                                        <View key={log._id} style={styles.walletLogRow}>
+                                            <View>
+                                                <Text style={{ fontSize: 12, fontWeight: '700', color: '#0f172a' }}>{log.operation || 'CLINICAL_CHAT'}</Text>
+                                                <Text style={{ fontSize: 10, color: '#64748b' }}>{new Date(log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {log.totalTokens || 0} tokens</Text>
+                                            </View>
+                                            <Text style={{ fontSize: 12, fontWeight: '700', color: '#6366f1' }}>
+                                                ⚡ {(log.actualApiCost || log.estimatedCostInr || 0).toFixed(2)} Credits
+                                            </Text>
+                                        </View>
+                                    ))
+                                )}
+                            </ScrollView>
+                        </View>
+                    </View>
+                </Modal>
+            )}
         </KeyboardAvoidingView>
     );
 };
@@ -1080,978 +1272,970 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     scrollContent: {
-        padding: 24,
+        padding: 18,
     },
-    aiHeader: {
-        marginBottom: 24,
-        padding: 32,
-        paddingHorizontal: 40,
-        borderRadius: 16,
-        backgroundColor: '#7c3aed',
-        shadowColor: '#7c3aed',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.25,
-        shadowRadius: 25,
-        elevation: 10,
-        overflow: 'hidden',
-    },
-    aiHeaderTop: {
-        flexDirection: isTablet ? 'row' : 'column',
-        justifyContent: 'space-between',
-        alignItems: isTablet ? 'center' : 'flex-start',
-        zIndex: 1,
-    },
-    aiHeaderTitle: {
-        fontSize: 28,
-        color: 'white',
-        fontWeight: 'bold',
-        marginBottom: 8,
-    },
-    walletBadgeBtn: {
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 16,
-        borderWidth: 1.5,
-        alignItems: 'center',
-    },
-    walletBadgeBtnText: {
-        fontSize: 12,
-        fontWeight: '800',
-    },
-    modeTabsRow: {
-        flexDirection: 'row',
-        gap: 10,
-        marginTop: 16,
-        paddingTop: 14,
-        borderTopWidth: 1,
-        borderTopColor: 'rgba(255,255,255,0.25)',
-    },
-    modeTabBtn: {
-        paddingVertical: 8,
-        paddingHorizontal: 16,
-        borderRadius: 20,
-        backgroundColor: 'rgba(255,255,255,0.18)',
-    },
-    modeTabBtnActive: {
+
+    // ── Top Header ──
+    topHeaderCard: {
         backgroundColor: '#ffffff',
-    },
-    modeTabBtnText: {
-        color: '#ffffff',
-        fontSize: 13,
-        fontWeight: '700',
-    },
-    modeTabBtnTextActive: {
-        color: '#7c3aed',
-        fontWeight: '800',
-    },
-    aiHeaderSubtitle: {
-        color: '#e0e7ff',
-        fontSize: 16,
-        marginBottom: isTablet ? 0 : 16,
-    },
-    aiTokenTrackerBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: 'rgba(255, 255, 255, 0.2)',
-        borderColor: 'rgba(255, 255, 255, 0.4)',
+        borderRadius: 16,
         borderWidth: 1,
-        paddingVertical: 10,
-        paddingHorizontal: 20,
-        borderRadius: 12,
-    },
-    aiTokenTrackerBtnText: {
-        color: 'white',
-        fontWeight: 'bold',
-        fontSize: 14,
-    },
-    aiGrid: {
-        flexDirection: isTablet ? 'row' : 'column',
-    },
-    aiColLeft: {
-        width: isTablet ? 370 : '100%',
-        marginRight: isTablet ? 24 : 0,
-        marginBottom: isTablet ? 0 : 24,
-    },
-    aiColRight: {
-        flex: 1,
-    },
-    aiCard: {
-        backgroundColor: 'white',
-        borderRadius: 12,
-        padding: 20,
         borderColor: '#e2e8f0',
-        borderWidth: 1,
-        marginBottom: 24,
+        padding: 20,
+        marginBottom: 16,
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 3,
+        shadowOpacity: 0.02,
+        shadowOffset: { width: 0, height: 2 },
+        shadowRadius: 8,
         elevation: 1,
     },
-    aiCardTitleContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        borderBottomWidth: 1,
-        borderColor: '#f1f5f9',
-        paddingBottom: 12,
-        marginBottom: 16,
+    headerLeft: {
+        marginBottom: 14,
     },
-    aiCardTitle: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: '#0f172a',
-        marginLeft: 8,
-    },
-    searchInputWrapper: {
-        position: 'relative',
-        justifyContent: 'center',
-    },
-    searchIcon: {
-        position: 'absolute',
-        left: 14,
-        zIndex: 1,
-    },
-    searchInput: {
-        width: '100%',
-        paddingVertical: 11,
-        paddingLeft: 42,
-        paddingRight: 32,
-        backgroundColor: '#ffffff',
-        borderWidth: 1,
-        borderColor: '#cbd5e1',
-        borderRadius: 12,
-        color: '#0f172a',
-        fontSize: 14,
-    },
-    clearSearchBtn: {
-        position: 'absolute',
-        right: 12,
-        padding: 4,
-    },
-    clearSearchText: {
-        color: '#64748b',
-        fontSize: 16,
-    },
-    errorText: {
-        color: 'red',
-        marginTop: 8,
-        fontSize: 14,
-    },
-    errorTextCenter: {
-        color: 'red',
-        marginTop: 10,
-        marginBottom: 16,
-        fontSize: 14,
-        textAlign: 'center',
-    },
-    errorTextLarge: {
-        color: '#dc2626',
-        marginTop: 16,
-        fontSize: 14,
-        textAlign: 'center',
-    },
-    searchResultsContainer: {
-        marginTop: 8,
-        backgroundColor: 'white',
-        borderWidth: 1,
-        borderColor: '#e2e8f0',
+    backBtn: {
+        backgroundColor: 'rgba(15, 23, 42, 0.06)',
         borderRadius: 8,
-        maxHeight: 200,
-        overflow: 'hidden',
-    },
-    searchResultItem: {
-        padding: 12,
-        borderBottomWidth: 1,
-        borderColor: '#e2e8f0',
-    },
-    searchResultName: {
-        fontWeight: 'bold',
-        color: '#0f172a',
-    },
-    searchResultSub: {
-        fontSize: 12,
-        color: '#64748b',
-    },
-    aiPatientInfo: {
-        marginTop: 20,
-    },
-    aiInfoRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginBottom: 12,
-    },
-    aiInfoLabel: {
-        color: '#64748b',
-        fontSize: 14,
-    },
-    aiInfoValue: {
-        color: '#1e293b',
-        fontWeight: 'bold',
-        fontSize: 14,
-    },
-    emptyStateText: {
-        color: '#64748b',
-        fontSize: 14,
-        textAlign: 'center',
-        paddingVertical: 20,
-    },
-    aiReportList: {
-        marginTop: 12,
-    },
-    aiReportItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: 12,
-        borderWidth: 1,
-        borderColor: '#e2e8f0',
-        borderRadius: 8,
-        backgroundColor: '#f8fafc',
-        marginBottom: 12,
-    },
-    aiReportItemSelected: {
-        borderColor: '#8b5cf6',
-        backgroundColor: '#f3e8ff',
-    },
-    aiReportInfo: {
-        flex: 1,
-        marginRight: 12,
-    },
-    aiReportName: {
-        fontWeight: 'bold',
-        color: '#0f172a',
-        fontSize: 14,
-    },
-    aiReportDate: {
-        fontSize: 12,
-        color: '#64748b',
-        marginTop: 4,
-    },
-    aiBtnView: {
         paddingVertical: 6,
         paddingHorizontal: 12,
-        backgroundColor: 'white',
-        borderWidth: 1,
-        borderColor: '#cbd5e1',
-        borderRadius: 6,
-    },
-    aiBtnViewSelected: {
-        backgroundColor: '#3b82f6',
-        borderColor: '#3b82f6',
-    },
-    aiBtnViewText: {
-        color: '#475569',
-        fontSize: 13,
-    },
-    aiBtnViewTextSelected: {
-        color: 'white',
-    },
-    subText: {
-        color: '#64748b',
-        fontSize: 14,
-        marginBottom: 16,
-    },
-    hintText: {
-        marginTop: 12,
-        fontSize: 14,
-        color: '#64748b',
-        textAlign: 'center',
-    },
-    aiBtnPrimary: {
-        width: '100%',
-        paddingVertical: 12,
-        backgroundColor: '#3b82f6',
-        borderRadius: 6,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: 20,
-    },
-    aiBtnPrimarySmall: {
-        paddingVertical: 8,
-        paddingHorizontal: 16,
-        backgroundColor: '#3b82f6',
-        borderRadius: 6,
-        alignItems: 'center',
-        width: '100%',
-    },
-    aiBtnPrimaryText: {
-        color: 'white',
-        fontWeight: 'bold',
-        fontSize: 14,
-    },
-    btnDisabled: {
-        opacity: 0.5,
-    },
-    btnLoading: {
-        opacity: 0.7,
-    },
-    aiSummaryContent: {
-        marginTop: 20,
-    },
-    comparisonDatesBox: {
-        marginBottom: 16,
-        padding: 12,
-        backgroundColor: '#f8fafc',
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: '#e2e8f0',
-    },
-    compDateRow: {
-        paddingBottom: 8,
-    },
-    compDateRowBorder: {
-        paddingTop: 8,
-        borderTopWidth: 1,
-        borderColor: '#e2e8f0',
-    },
-    compDateLabel: {
-        fontSize: 12,
-        color: '#64748b',
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
-    },
-    compDateVal: {
-        fontWeight: 'bold',
-        color: '#0f172a',
-        marginTop: 4,
-    },
-    compFindingsBox: {
-        marginBottom: 16,
-    },
-    compFindingsTitle: {
-        color: '#0f172a',
-        marginBottom: 8,
-        fontSize: 14,
-        fontWeight: 'bold',
-    },
-    compFindingsItem: {
-        color: '#334155',
-        fontSize: 13,
-        marginBottom: 4,
-        paddingLeft: 10,
-    },
-    overallChangeBox: {
-        backgroundColor: '#f0f9ff',
-        padding: 16,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: '#bae6fd',
-    },
-    overallChangeTitle: {
-        color: '#0369a1',
-        marginBottom: 8,
-        fontSize: 13,
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
-        fontWeight: 'bold',
-    },
-    overallChangeText: {
-        color: '#0c4a6e',
-        fontSize: 13,
-        lineHeight: 20,
-    },
-    historySummaryHeader: {
-        marginBottom: 16,
-    },
-    summaryBlock: {
-        backgroundColor: '#f8fafc',
-        padding: 14,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: '#e2e8f0',
-        marginBottom: 12,
-    },
-    summaryBlockTitle: {
-        color: '#0f172a',
-        marginBottom: 10,
-        fontSize: 13,
-        fontWeight: 'bold',
-    },
-    summaryBlockItem: {
-        color: '#334155',
-        fontSize: 13,
-        marginBottom: 6,
-    },
-    nestedSummaryItem: {
-        color: '#334155',
-        fontSize: 13,
-        paddingLeft: 16,
-        marginBottom: 4,
-    },
-    boldText: {
-        fontWeight: 'bold',
-    },
-    aiSummaryBox: {
-        padding: 24,
-        marginTop: 16,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: '#b0b9fd',
-        borderStyle: 'dashed',
-        backgroundColor: '#fbfbfe',
-        alignItems: 'center',
-    },
-    aiSummaryBoxActive: {
-        borderWidth: 0,
-        backgroundColor: '#ffffff',
-        alignItems: 'stretch',
-    },
-    emptySummaryText: {
-        color: '#6b78e6',
-        fontSize: 14,
-    },
-    summaryContainer: {
-        gap: 16,
-    },
-    summaryBlockLabel: {
-        color: '#334155',
-        marginBottom: 8,
-        fontSize: 13,
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
-        fontWeight: 'bold',
-    },
-    summaryBlockValueLarge: {
-        color: '#0f172a',
-        fontSize: 15,
-        fontWeight: 'bold',
-    },
-    summaryBlockValue: {
-        color: '#0f172a',
-        fontSize: 14,
-        lineHeight: 21,
-    },
-    summaryListItem: {
-        color: '#0f172a',
-        fontSize: 14,
-        marginBottom: 6,
-        paddingLeft: 10,
-    },
-    abnormalBlock: {
-        backgroundColor: '#fef2f2',
-        padding: 16,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: '#fecaca',
-    },
-    abnormalBlockLabel: {
-        color: '#dc2626',
-        marginBottom: 12,
-        fontSize: 13,
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
-        fontWeight: 'bold',
-    },
-    abnormalListItem: {
-        color: '#991b1b',
-        fontSize: 14,
-        marginBottom: 6,
-        paddingLeft: 10,
-    },
-    aiTokenBadge: {
-        flexDirection: 'column',
-        backgroundColor: '#f1f5f9',
-        borderWidth: 1,
-        borderColor: '#cbd5e1',
-        padding: 10,
-        paddingHorizontal: 16,
-        borderRadius: 8,
-        marginTop: 12,
-        gap: 4,
-    },
-    tokenBadgeText: {
-        color: '#334155',
-        fontSize: 13,
-    },
-    codeText: {
-        backgroundColor: '#e2e8f0',
-        color: '#6b21a8',
-        fontSize: 12,
-        fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-    },
-    reportSearchInputWrapper: {
-        position: 'relative',
-        justifyContent: 'center',
-        marginTop: 12,
-    },
-    searchIconLarge: {
-        position: 'absolute',
-        left: 14,
-        zIndex: 1,
-    },
-    reportSearchInput: {
-        width: '100%',
-        paddingVertical: 14,
-        paddingLeft: 44,
-        paddingRight: 32,
-        backgroundColor: '#f8fafc',
-        borderWidth: 1,
-        borderColor: '#cbd5e1',
-        borderRadius: 12,
-        color: '#0f172a',
-        fontSize: 16,
-    },
-    clearSearchBtnLarge: {
-        position: 'absolute',
-        right: 14,
-        padding: 4,
-    },
-    clearSearchTextLarge: {
-        color: '#64748b',
-        fontSize: 18,
-    },
-    reportSearchResultsWrapper: {
-        marginTop: 24,
-        backgroundColor: '#f8fafc',
-        borderWidth: 1,
-        borderColor: '#cbd5e1',
-        borderStyle: 'dashed',
-        borderRadius: 8,
-        padding: 24,
-    },
-    reportSearchErrorText: {
-        color: '#64748b',
-        fontSize: 15,
-        textAlign: 'center',
-    },
-    reportSearchMatchTitle: {
-        color: '#0f172a',
-        marginBottom: 16,
-        fontSize: 15,
-        fontWeight: 'bold',
-    },
-    reportSearchList: {
-        gap: 16,
-    },
-    reportSearchResultCard: {
-        backgroundColor: '#ffffff',
-        borderWidth: 1,
-        borderColor: '#e2e8f0',
-        borderRadius: 12,
-        padding: 16,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 3,
-        elevation: 1,
-    },
-    rsCardHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginBottom: 12,
-        borderBottomWidth: 1,
-        borderColor: '#f1f5f9',
-        paddingBottom: 12,
-    },
-    rsCardName: {
-        fontSize: 14,
-        fontWeight: 'bold',
-        color: '#0f172a',
-    },
-    rsCardPageBadge: {
-        backgroundColor: '#f1f5f9',
-        paddingVertical: 4,
-        paddingHorizontal: 10,
-        borderRadius: 12,
-    },
-    rsCardPageText: {
-        fontSize: 13,
-        color: '#475569',
-        fontWeight: 'bold',
-    },
-    rsCardBody: {
-        backgroundColor: '#f8fafc',
-        padding: 12,
-        borderRadius: 8,
-        borderLeftWidth: 3,
-        borderColor: '#8b5cf6',
-    },
-    resultText: {
-        fontSize: 15,
-        color: '#334155',
-        lineHeight: 24,
-    },
-    highlightedText: {
-        backgroundColor: '#fef08a',
-        color: '#166534',
-        fontWeight: 'bold',
-    },
-    chatDisabledState: {
-        alignItems: 'center',
-        paddingVertical: 48,
-        backgroundColor: '#f8fafc',
-        borderWidth: 1,
-        borderColor: '#e2e8f0',
-        borderStyle: 'dashed',
-        borderRadius: 12,
-    },
-    chatDisabledIcon: {
-        fontSize: 28,
-        marginBottom: 8,
-    },
-    chatDisabledText: {
-        color: '#94a3b8',
-        fontSize: 15,
-    },
-    chatMessagesArea: {
-        height: 420,
-        paddingHorizontal: 4,
-    },
-    chatMessagesContent: {
-        paddingVertical: 16,
-        gap: 14,
-    },
-    chatEmptyState: {
-        alignItems: 'center',
-        paddingVertical: 40,
-    },
-    chatEmptyIcon: {
-        fontSize: 36,
-        marginBottom: 6,
-    },
-    chatEmptyTitle: {
-        fontSize: 15,
-        color: '#64748b',
-        fontWeight: 'bold',
-        marginBottom: 4,
-    },
-    chatEmptySub: {
-        fontSize: 12,
-        color: '#94a3b8',
-        textAlign: 'center',
-    },
-    chatBubbleContainer: {
-        paddingVertical: 14,
-        paddingHorizontal: 16,
-        borderRadius: 14,
-        maxWidth: '85%',
-    },
-    chatBubbleRight: {
-        alignSelf: 'flex-end',
-        backgroundColor: '#3249fd',
-        borderBottomRightRadius: 4,
-    },
-    chatBubbleLeft: {
         alignSelf: 'flex-start',
-        backgroundColor: '#f1f5f9',
-        borderBottomLeftRadius: 4,
-        borderWidth: 1,
-        borderColor: '#e2e8f0',
+        marginBottom: 10,
     },
-    chatBubbleHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginBottom: 6,
-    },
-    chatRoleTag: {
+    backBtnText: {
+        color: '#475569',
         fontSize: 12,
         fontWeight: 'bold',
-        letterSpacing: 0.3,
     },
-    chatRoleTagDoctor: {
-        color: 'rgba(255,255,255,0.85)',
-    },
-    chatRoleTagAI: {
-        color: '#64748b',
-    },
-    chatTimeTag: {
-        fontSize: 11,
-        opacity: 0.6,
-        color: '#ffffff',
-    },
-    chatBubbleText: {
-        fontSize: 14,
-        lineHeight: 23,
-    },
-    chatBubbleTextDoctor: {
-        color: '#ffffff',
-    },
-    chatBubbleTextAI: {
-        color: '#1e293b',
-    },
-    chatTokenTag: {
-        fontSize: 11,
-        color: '#64748b',
-        marginTop: 4,
-        opacity: 0.85,
-    },
-    typingIndicator: {
+    titleWrap: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 4,
-        gap: 5,
-    },
-    typingDot: {
-        width: 8,
-        height: 8,
-        backgroundColor: '#94a3b8',
-        borderRadius: 4,
-    },
-    chatChipsContainer: {
-        borderTopWidth: 1,
-        borderColor: '#f1f5f9',
-        paddingVertical: 12,
-    },
-    chatChipsScroll: {
         gap: 8,
+        marginBottom: 4,
     },
-    chatChip: {
-        paddingVertical: 7,
-        paddingHorizontal: 14,
-        backgroundColor: '#f0f4ff',
-        borderWidth: 1,
-        borderColor: '#d4dafe',
-        borderRadius: 20,
-    },
-    chatChipText: {
-        color: '#3249fd',
-        fontSize: 13,
-        fontWeight: 'bold',
-    },
-    chatInputArea: {
-        flexDirection: 'row',
-        alignItems: 'flex-end',
-        gap: 10,
-        paddingTop: 12,
-        borderTopWidth: 1,
-        borderColor: '#f1f5f9',
-    },
-    chatInput: {
-        flex: 1,
-        paddingVertical: 12,
-        paddingHorizontal: 14,
-        borderWidth: 1,
-        borderColor: '#cbd5e1',
-        borderRadius: 12,
-        fontSize: 14,
-        color: '#1e293b',
-        backgroundColor: '#f8fafc',
-        maxHeight: 120,
-    },
-    chatSendBtn: {
-        paddingVertical: 12,
-        paddingHorizontal: 24,
-        backgroundColor: '#3249fd',
-        borderRadius: 12,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    chatSendBtnText: {
-        color: 'white',
-        fontWeight: 'bold',
-        fontSize: 14,
-    },
-    
-    // Modal Styles
-    modalOverlay: {
-        flex: 1,
-        backgroundColor: 'rgba(15, 23, 42, 0.6)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: 20,
-    },
-    trackerModal: {
-        backgroundColor: '#ffffff',
-        borderRadius: 20,
-        width: '100%',
-        maxWidth: 850,
-        maxHeight: '88%',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 25 },
-        shadowOpacity: 0.25,
-        shadowRadius: 50,
-        elevation: 20,
-    },
-    trackerHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: 20,
-        paddingHorizontal: 24,
-        borderBottomWidth: 1,
-        borderColor: '#f1f5f9',
-        backgroundColor: '#f8fafc',
-        borderTopLeftRadius: 20,
-        borderTopRightRadius: 20,
-    },
-    trackerTitleContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    trackerTitle: {
-        fontSize: 20,
-        fontWeight: 'bold',
-        color: '#0f172a',
-    },
-    trackerCloseBtn: {
-        padding: 8,
-    },
-    trackerCloseBtnText: {
+    titleText: {
         fontSize: 24,
-        color: '#64748b',
-    },
-    trackerBody: {
-        padding: 24,
-    },
-    trackerLoadingText: {
-        textAlign: 'center',
-        paddingVertical: 40,
-        color: '#64748b',
-    },
-    trackerKpiGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 16,
-        marginBottom: 24,
-    },
-    trackerKpiCard: {
-        flex: 1,
-        minWidth: 180,
-        backgroundColor: '#f8fafc',
-        borderWidth: 1,
-        borderColor: '#e2e8f0',
-        borderRadius: 14,
-        padding: 16,
-        gap: 6,
-    },
-    trackerKpiCardHighlight: {
-        backgroundColor: '#f5f3ff',
-        borderColor: '#c4b5fd',
-    },
-    trackerKpiTitle: {
-        fontSize: 13,
-        fontWeight: 'bold',
-        color: '#64748b',
-        textTransform: 'uppercase',
-    },
-    trackerKpiValue: {
-        fontSize: 22,
         fontWeight: '900',
         color: '#0f172a',
     },
-    trackerKpiSub: {
-        fontSize: 12,
-        color: '#64748b',
+    aiPill: {
+        backgroundColor: 'rgba(124, 58, 237, 0.1)',
+        borderWidth: 1,
+        borderColor: 'rgba(124, 58, 237, 0.25)',
+        borderRadius: 12,
+        paddingHorizontal: 8,
+        paddingVertical: 2,
     },
-    trackerBreakdownBox: {
-        backgroundColor: '#ffffff',
+    aiPillText: {
+        color: '#7c3aed',
+        fontSize: 10,
+        fontWeight: '800',
+        textTransform: 'uppercase',
+    },
+    headerSubtitle: {
+        color: '#64748b',
+        fontSize: 13,
+        lineHeight: 18,
+    },
+    creditsHeaderBox: {
+        backgroundColor: '#f8fafc',
+        borderRadius: 14,
         borderWidth: 1,
         borderColor: '#e2e8f0',
-        borderRadius: 14,
-        padding: 16,
-        marginBottom: 24,
+        padding: 14,
     },
-    trackerBreakdownTitle: {
-        fontSize: 14,
-        fontWeight: 'bold',
-        color: '#334155',
-        marginBottom: 12,
-    },
-    trackerBreakdownTags: {
+    cwTop: {
         flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 10,
-    },
-    trackerBreakdownTag: {
-        flexDirection: 'row',
+        justifyContent: 'space-between',
         alignItems: 'center',
-        backgroundColor: '#f1f5f9',
+        marginBottom: 10,
+    },
+    cwLeft: {
+        flex: 1,
+    },
+    cwLabel: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#64748b',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+    },
+    cwAmount: {
+        fontSize: 18,
+        fontWeight: '900',
+        color: '#0f172a',
+        marginTop: 2,
+    },
+    cwSub: {
+        fontSize: 11,
+        color: '#64748b',
+    },
+    btnBuyCredits: {
+        backgroundColor: '#3b82f6',
         paddingVertical: 8,
         paddingHorizontal: 14,
         borderRadius: 8,
-        gap: 8,
     },
-    breakdownTagLabel: {
+    btnBuyCreditsText: {
+        color: '#fff',
+        fontSize: 12,
         fontWeight: 'bold',
-        color: '#334155',
-        fontSize: 13,
     },
-    breakdownTagVal: {
-        color: '#334155',
-        fontSize: 13,
+    cwProgressTrack: {
+        height: 6,
+        backgroundColor: '#e2e8f0',
+        borderRadius: 3,
+        overflow: 'hidden',
     },
-    trackerTableTitleRow: {
+    cwProgressFill: {
+        height: '100%',
+        borderRadius: 3,
+    },
+
+    // ── Mode Switcher ──
+    aiModeNav: {
+        flexDirection: 'row',
+        backgroundColor: '#f1f5f9',
+        padding: 4,
+        borderRadius: 12,
+        marginBottom: 16,
+        gap: 6,
+    },
+    modeBtn: {
+        flex: 1,
+        paddingVertical: 10,
+        alignItems: 'center',
+        borderRadius: 8,
+    },
+    modeBtnActiveReports: {
+        backgroundColor: '#ffffff',
+        shadowColor: '#000',
+        shadowOpacity: 0.05,
+        shadowOffset: { width: 0, height: 2 },
+        shadowRadius: 4,
+        elevation: 1,
+    },
+    modeBtnActiveScribe: {
+        backgroundColor: '#10b981',
+    },
+    modeBtnText: {
+        fontSize: 12.5,
+        fontWeight: '600',
+        color: '#64748b',
+    },
+    modeBtnTextActiveReports: {
+        color: '#3b82f6',
+        fontWeight: '800',
+    },
+    modeBtnTextActiveScribe: {
+        color: '#ffffff',
+        fontWeight: '800',
+    },
+
+    voiceScribeCard: {
+        backgroundColor: '#ffffff',
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        padding: 16,
+    },
+
+    // ── Main Workspace ──
+    mainGrid: {
+        width: '100%',
+    },
+    leftCol: {
+        gap: 16,
+    },
+    rightCol: {
+        marginTop: isTablet ? 0 : 16,
+    },
+
+    // ── Cards ──
+    card: {
+        backgroundColor: '#ffffff',
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        padding: 16,
+        shadowColor: '#000',
+        shadowOpacity: 0.02,
+        shadowOffset: { width: 0, height: 2 },
+        shadowRadius: 6,
+        elevation: 1,
+    },
+    cardHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
         marginBottom: 12,
     },
-    trackerTableTitle: {
-        fontSize: 15,
-        fontWeight: 'bold',
-        color: '#1e293b',
+    cardTitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        flex: 1,
     },
-    trackerRefreshBtn: {
-        backgroundColor: '#f1f5f9',
-        borderWidth: 1,
-        borderColor: '#cbd5e1',
-        borderRadius: 6,
-        paddingVertical: 4,
-        paddingHorizontal: 10,
+    cardIcon: {
+        fontSize: 18,
     },
-    trackerRefreshBtnText: {
-        fontSize: 12,
+    cardHeading: {
+        fontSize: 14,
+        fontWeight: '800',
         color: '#0f172a',
     },
-    trackerTableContainer: {
+    secPillBlue: {
+        backgroundColor: '#eff6ff',
+        paddingHorizontal: 6,
+        paddingVertical: 1,
+        borderRadius: 6,
+        alignSelf: 'flex-start',
+        marginTop: 2,
+    },
+    secPillBlueText: {
+        color: '#2563eb',
+        fontSize: 9.5,
+        fontWeight: '700',
+    },
+    secPillGreen: {
+        backgroundColor: '#ecfdf5',
+        paddingHorizontal: 6,
+        paddingVertical: 1,
+        borderRadius: 6,
+        alignSelf: 'flex-start',
+        marginTop: 2,
+    },
+    secPillGreenText: {
+        color: '#059669',
+        fontSize: 9.5,
+        fontWeight: '700',
+    },
+    secPillOrange: {
+        backgroundColor: '#fffbeb',
+        paddingHorizontal: 6,
+        paddingVertical: 1,
+        borderRadius: 6,
+        alignSelf: 'flex-start',
+        marginTop: 2,
+    },
+    secPillOrangeText: {
+        color: '#d97706',
+        fontSize: 9.5,
+        fontWeight: '700',
+    },
+
+    // ── Patient Search Row ──
+    patientSearchRowUnified: {
+        backgroundColor: '#ffffff',
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        padding: 14,
+        gap: 10,
+    },
+    searchBox: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#f8fafc',
+        borderWidth: 1,
+        borderColor: '#cbd5e1',
+        borderRadius: 10,
+        paddingHorizontal: 12,
+        height: 42,
+    },
+    searchInput: {
+        flex: 1,
+        fontSize: 13,
+        color: '#0f172a',
+    },
+    patientDropdown: {
         backgroundColor: '#ffffff',
         borderWidth: 1,
         borderColor: '#e2e8f0',
-        borderRadius: 14,
+        borderRadius: 10,
         overflow: 'hidden',
+        maxHeight: 180,
     },
-    trackerEmptyTableText: {
-        textAlign: 'center',
-        color: '#64748b',
-        padding: 20,
-    },
-    trackerTableRow: {
+    dropdownItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 10,
         borderBottomWidth: 1,
-        borderColor: '#f1f5f9',
+        borderBottomColor: '#f1f5f9',
+        gap: 10,
+    },
+    ddAvatar: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: '#3b82f6',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    ddAvatarText: {
+        color: '#fff',
+        fontWeight: 'bold',
+        fontSize: 14,
+    },
+    ddName: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#0f172a',
+    },
+    ddSub: {
+        fontSize: 11,
+        color: '#64748b',
+    },
+    selectedPatientCard: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        backgroundColor: '#f8fafc',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
         padding: 12,
     },
-    trackerTableRowTop: {
+    patientLeft: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 8,
+        gap: 10,
+        flex: 1,
     },
-    trackerTableRowBottom: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
+    avatarCircle: {
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        backgroundColor: '#6366f1',
         alignItems: 'center',
+        justifyContent: 'center',
     },
-    trackerLogTime: {
+    avatarText: {
+        color: '#fff',
+        fontWeight: 'bold',
+        fontSize: 14,
+    },
+    patientName: {
+        fontSize: 14,
+        fontWeight: '800',
+        color: '#0f172a',
+    },
+    activeTag: {
+        backgroundColor: '#dcfce7',
+        paddingHorizontal: 6,
+        paddingVertical: 1,
+        borderRadius: 4,
+    },
+    activeTagText: {
+        color: '#166534',
+        fontSize: 9.5,
+        fontWeight: 'bold',
+    },
+    patientMeta: {
+        fontSize: 11,
         color: '#64748b',
-        fontSize: 13,
+        marginTop: 2,
     },
-    trackerActionBadge: {
-        paddingVertical: 3,
+    btnViewDetails: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        backgroundColor: '#eff6ff',
+        borderWidth: 1,
+        borderColor: 'rgba(37, 99, 235, 0.2)',
+        borderRadius: 8,
+        paddingVertical: 5,
+        paddingHorizontal: 8,
+    },
+    btnViewDetailsText: {
+        color: '#2563eb',
+        fontSize: 11,
+        fontWeight: '700',
+    },
+    patientDetailsExpanded: {
+        backgroundColor: '#f8fafc',
+        borderRadius: 8,
+        padding: 10,
+        gap: 4,
+    },
+    detailItem: {
+        fontSize: 12,
+        color: '#64748b',
+    },
+    detailVal: {
+        color: '#0f172a',
+        fontWeight: '600',
+    },
+
+    // ── Reports List ──
+    reportItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#f8fafc',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        borderRadius: 10,
+        padding: 10,
+        gap: 10,
+    },
+    reportItemActive: {
+        borderColor: '#3b82f6',
+        backgroundColor: '#eff6ff',
+    },
+    reportIconWrap: {
+        width: 34,
+        height: 34,
+        borderRadius: 8,
+        backgroundColor: '#ffffff',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    reportName: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#0f172a',
+    },
+    reportMeta: {
+        fontSize: 10.5,
+        color: '#64748b',
+        marginTop: 2,
+    },
+    selectedTag: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 3,
+        backgroundColor: '#dcfce7',
+        borderWidth: 1,
+        borderColor: '#86efac',
+        paddingVertical: 4,
         paddingHorizontal: 8,
         borderRadius: 6,
     },
-    trackerActionBadgeText: {
+    selectedTagText: {
+        color: '#166534',
         fontSize: 11,
         fontWeight: 'bold',
-        textTransform: 'uppercase',
     },
-    aiActionSummary: { backgroundColor: '#dbeafe' }, aiActionSummaryText: { color: '#1e40af' },
-    aiActionChat: { backgroundColor: '#f3e8ff' }, aiActionChatText: { color: '#6b21a8' },
-    aiActionCompare: { backgroundColor: '#fef3c7' }, aiActionCompareText: { color: '#92400e' },
-    aiActionOcr: { backgroundColor: '#dcfce7' }, aiActionOcrText: { color: '#166534' },
-    trackerLogCost: {
-        color: '#16a34a',
+    btnSelectReport: {
+        backgroundColor: '#eff6ff',
+        borderWidth: 1,
+        borderColor: 'rgba(37, 99, 235, 0.2)',
+        paddingVertical: 4,
+        paddingHorizontal: 8,
+        borderRadius: 6,
+    },
+    btnSelectReportText: {
+        color: '#2563eb',
+        fontSize: 11,
         fontWeight: 'bold',
     },
-    trackerLogModel: {
-        fontSize: 11,
+    btnViewDoc: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 3,
+        backgroundColor: '#ffffff',
+        borderWidth: 1,
+        borderColor: '#cbd5e1',
+        paddingVertical: 4,
+        paddingHorizontal: 8,
+        borderRadius: 6,
+    },
+    btnViewDocText: {
         color: '#475569',
-        fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+        fontSize: 11,
+        fontWeight: 'bold',
     },
-    trackerLogTokens: {
+    inlineSearchBox: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#f1f5f9',
+        borderRadius: 6,
+        paddingHorizontal: 8,
+        height: 32,
+    },
+    inlineSearchInput: {
+        fontSize: 12,
+        color: '#0f172a',
+        width: 80,
+    },
+    iconBtn: {
+        padding: 6,
+    },
+
+    // ── Summary Card ──
+    targetReportHint: {
+        fontSize: 11,
+        color: '#64748b',
+        marginTop: 1,
+    },
+    btnGenerate: {
+        backgroundColor: '#7c3aed',
+        borderRadius: 8,
+        paddingVertical: 6,
+        paddingHorizontal: 12,
+    },
+    btnGenerateText: {
+        color: '#fff',
+        fontSize: 11,
+        fontWeight: 'bold',
+    },
+    errorBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: '#fee2e2',
+        borderWidth: 1,
+        borderColor: '#fca5a5',
+        borderRadius: 8,
+        padding: 10,
+        marginBottom: 10,
+    },
+    errorBannerText: {
+        color: '#dc2626',
+        fontSize: 12,
+        flex: 1,
+    },
+    summaryResultBox: {
+        backgroundColor: '#f8fafc',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        borderRadius: 10,
+        padding: 14,
+    },
+    summaryResultText: {
+        fontSize: 13,
+        color: '#1e293b',
+        lineHeight: 20,
+    },
+
+    // ── Inside Search Card ──
+    insideSearchRow: {
+        flexDirection: 'row',
+        gap: 8,
+        alignItems: 'center',
+    },
+    insideInputBox: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#f8fafc',
+        borderWidth: 1,
+        borderColor: '#cbd5e1',
+        borderRadius: 8,
+        paddingHorizontal: 10,
+        height: 38,
+    },
+    insideInput: {
+        flex: 1,
+        fontSize: 12,
+        color: '#0f172a',
+    },
+    btnInsideSearch: {
+        backgroundColor: '#059669',
+        borderRadius: 8,
+        paddingHorizontal: 14,
+        height: 38,
+        justifyContent: 'center',
+    },
+    btnInsideSearchText: {
+        color: '#fff',
+        fontSize: 12,
+        fontWeight: 'bold',
+    },
+    insideSearchMsg: {
+        fontSize: 12,
+        color: '#64748b',
+        marginTop: 8,
+    },
+    insideResultCard: {
+        backgroundColor: '#f8fafc',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        borderRadius: 8,
+        padding: 10,
+    },
+    insideResDoc: {
+        fontSize: 12,
+        fontWeight: 'bold',
+        color: '#0f172a',
+    },
+    insideResPage: {
+        fontSize: 10,
+        color: '#64748b',
+    },
+    resultText: {
         fontSize: 12,
         color: '#334155',
-    }
+        lineHeight: 18,
+    },
+    highlightedText: {
+        backgroundColor: '#fef08a',
+        fontWeight: 'bold',
+        color: '#854d0e',
+    },
+
+    // ── Compare Card ──
+    compareControlsRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    pickerBox: {
+        flex: 1,
+        backgroundColor: '#f8fafc',
+        borderWidth: 1,
+        borderColor: '#cbd5e1',
+        borderRadius: 8,
+        overflow: 'hidden',
+    },
+    comparePicker: {
+        height: 38,
+        color: '#0f172a',
+    },
+    vsText: {
+        fontSize: 12,
+        fontWeight: 'bold',
+        color: '#64748b',
+    },
+    btnCompare: {
+        backgroundColor: '#d97706',
+        borderRadius: 8,
+        paddingHorizontal: 12,
+        height: 38,
+        justifyContent: 'center',
+    },
+    btnCompareText: {
+        color: '#fff',
+        fontSize: 12,
+        fontWeight: 'bold',
+    },
+    comparisonResultsBox: {
+        marginTop: 12,
+        gap: 8,
+    },
+    compOverall: {
+        backgroundColor: '#f0fdf4',
+        borderWidth: 1,
+        borderColor: '#bbf7d0',
+        borderRadius: 8,
+        padding: 10,
+    },
+    compOverallText: {
+        fontSize: 12,
+        color: '#166534',
+        lineHeight: 18,
+    },
+    compCardChanged: {
+        backgroundColor: '#fffbeb',
+        borderWidth: 1,
+        borderColor: '#fde68a',
+        borderRadius: 8,
+        padding: 10,
+    },
+    compCardNew: {
+        backgroundColor: '#eff6ff',
+        borderWidth: 1,
+        borderColor: '#bfdbfe',
+        borderRadius: 8,
+        padding: 10,
+    },
+    compCardTitle: {
+        fontSize: 12,
+        fontWeight: 'bold',
+        color: '#0f172a',
+        marginBottom: 4,
+    },
+    compCardItem: {
+        fontSize: 11.5,
+        color: '#334155',
+        lineHeight: 16,
+    },
+
+    // ── Right Column / Chat Card ──
+    chatCard: {
+        backgroundColor: '#ffffff',
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        overflow: 'hidden',
+        shadowColor: '#000',
+        shadowOpacity: 0.02,
+        shadowOffset: { width: 0, height: 2 },
+        shadowRadius: 8,
+        elevation: 1,
+    },
+    chatHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#f1f5f9',
+    },
+    chatTitleGroup: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        flex: 1,
+    },
+    botIconCircle: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: '#ede9fe',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    chatTitleText: {
+        fontSize: 14,
+        fontWeight: '800',
+        color: '#0f172a',
+    },
+    liveBadge: {
+        backgroundColor: '#dcfce7',
+        borderRadius: 4,
+        paddingHorizontal: 6,
+        paddingVertical: 1,
+    },
+    liveBadgeText: {
+        color: '#15803d',
+        fontSize: 9.5,
+        fontWeight: 'bold',
+    },
+    chatSubtitle: {
+        fontSize: 11,
+        color: '#64748b',
+        marginTop: 1,
+    },
+    btnClearChat: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        backgroundColor: '#f1f5f9',
+        paddingVertical: 5,
+        paddingHorizontal: 8,
+        borderRadius: 6,
+    },
+    btnClearChatText: {
+        fontSize: 11,
+        color: '#64748b',
+        fontWeight: '600',
+    },
+    chatStream: {
+        minHeight: 280,
+        maxHeight: 400,
+        backgroundColor: '#f8fafc',
+    },
+    chatBubble: {
+        borderRadius: 12,
+        padding: 12,
+        maxWidth: '88%',
+    },
+    chatBubbleDoctor: {
+        alignSelf: 'flex-end',
+        backgroundColor: '#eff6ff',
+        borderWidth: 1,
+        borderColor: '#bfdbfe',
+    },
+    chatBubbleAI: {
+        alignSelf: 'flex-start',
+        backgroundColor: '#ffffff',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+    },
+    chatBubbleHead: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 4,
+        gap: 10,
+    },
+    chatRoleTag: {
+        fontSize: 10.5,
+        fontWeight: 'bold',
+    },
+    chatRoleDoctor: {
+        color: '#2563eb',
+    },
+    chatRoleAI: {
+        color: '#7c3aed',
+    },
+    chatTime: {
+        fontSize: 9.5,
+        color: '#94a3b8',
+    },
+    chatText: {
+        fontSize: 13,
+        lineHeight: 18,
+    },
+    chatTextDoctor: {
+        color: '#1e3a8a',
+    },
+    chatTextAI: {
+        color: '#1e293b',
+    },
+    quickChipsBar: {
+        borderTopWidth: 1,
+        borderTopColor: '#f1f5f9',
+        paddingVertical: 8,
+        backgroundColor: '#ffffff',
+    },
+    quickChip: {
+        backgroundColor: '#f1f5f9',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        borderRadius: 16,
+        paddingVertical: 5,
+        paddingHorizontal: 12,
+    },
+    quickChipText: {
+        fontSize: 11,
+        color: '#334155',
+        fontWeight: '600',
+    },
+    chatInputBox: {
+        borderTopWidth: 1,
+        borderTopColor: '#f1f5f9',
+        padding: 12,
+        backgroundColor: '#ffffff',
+        gap: 6,
+    },
+    chatInputRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-end',
+        gap: 8,
+    },
+    chatInput: {
+        flex: 1,
+        backgroundColor: '#f8fafc',
+        borderWidth: 1,
+        borderColor: '#cbd5e1',
+        borderRadius: 10,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        fontSize: 13,
+        color: '#0f172a',
+        maxHeight: 80,
+    },
+    btnSend: {
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        backgroundColor: '#2563eb',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    disclaimerText: {
+        fontSize: 10,
+        color: '#94a3b8',
+        textAlign: 'center',
+    },
+
+    btnDisabled: {
+        opacity: 0.45,
+    },
+
+    // ── Modals ──
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20,
+    },
+    previewModal: {
+        backgroundColor: '#ffffff',
+        borderRadius: 16,
+        width: '100%',
+        maxWidth: 600,
+        maxHeight: '80%',
+        overflow: 'hidden',
+    },
+    previewHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#f1f5f9',
+    },
+    previewTitle: {
+        fontSize: 14,
+        fontWeight: 'bold',
+        color: '#0f172a',
+    },
+    previewSub: {
+        fontSize: 11,
+        color: '#64748b',
+    },
+    btnOpenExt: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        backgroundColor: '#eff6ff',
+        paddingVertical: 5,
+        paddingHorizontal: 8,
+        borderRadius: 6,
+    },
+    btnOpenExtText: {
+        color: '#2563eb',
+        fontSize: 11,
+        fontWeight: 'bold',
+    },
+    previewBody: {
+        height: 380,
+        backgroundColor: '#0f172a',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    previewImage: {
+        width: '100%',
+        height: '100%',
+    },
+
+    walletModal: {
+        backgroundColor: '#ffffff',
+        borderRadius: 16,
+        width: '100%',
+        maxWidth: 500,
+        overflow: 'hidden',
+    },
+    walletKpiRow: {
+        flexDirection: 'row',
+        gap: 10,
+    },
+    walletKpiCard: {
+        flex: 1,
+        backgroundColor: '#f8fafc',
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        padding: 12,
+    },
+    walletKpiLabel: {
+        fontSize: 11,
+        color: '#64748b',
+        fontWeight: '600',
+    },
+    walletKpiValue: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: '#0f172a',
+        marginTop: 4,
+    },
+    walletKpiSub: {
+        fontSize: 10,
+        color: '#94a3b8',
+        marginTop: 2,
+    },
+    walletLogRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingVertical: 8,
+        borderBottomWidth: 1,
+        borderBottomColor: '#f1f5f9',
+    },
 });
 
 export default AIAssistant;
