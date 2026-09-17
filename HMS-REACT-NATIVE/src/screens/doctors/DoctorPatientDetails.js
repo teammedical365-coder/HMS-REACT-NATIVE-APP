@@ -14,6 +14,7 @@ import {
     doctorAPI, labTestAPI, questionLibraryAPI, hospitalAPI, 
     patientAPI, receptionAPI, otAPI, adminEntitiesAPI, referralAPI, publicAPI 
 } from '../../utils/api';
+import { toast } from '../../utils/confirmToast';
 import { useAuth } from '../../store/hooks';
 
 // Dynamic / child components
@@ -46,6 +47,10 @@ const timingOptions = [
     'On Empty Stomach',
     'At Bedtime (HS)'
 ];
+
+const isMongoId = (val) => {
+    return Boolean(val && typeof val === 'string' && /^[0-9a-fA-F]{24}$/.test(val));
+};
 
 const isDocumentFileName = (str) => {
     if (!str || typeof str !== 'string') return false;
@@ -124,8 +129,19 @@ const extractLabTestsFromAppt = (appt) => {
     return '';
 };
 
+const formatDiagnosis = (d) => {
+    if (!d) return 'No diagnosis recorded';
+    if (Array.isArray(d)) return d.length > 0 ? d.join(', ') : 'No diagnosis recorded';
+    if (typeof d === 'string') {
+        const trimmed = d.trim();
+        if (trimmed === '[]' || trimmed === '') return 'No diagnosis recorded';
+        return trimmed;
+    }
+    return String(d);
+};
+
 const isValAvailable = (val) => {
-    return val && val !== '-' && val !== 'None' && val.toString().trim() !== '';
+    return Boolean(val && val !== '-' && val !== 'None' && val.toString().trim() !== '');
 };
 
 const DoctorPatientDetails = () => {
@@ -523,44 +539,93 @@ const DoctorPatientDetails = () => {
                 { text: "Save", onPress: async () => {
                     setSaving(true);
                     try {
-                        const patientId = appointment?.clinicPatientId?._id || appointment?.userId?._id;
-                        if (patientId) {
-                            await doctorAPI.updatePatientProfile(patientId, intakeData);
+                        // 1. Resolve valid Patient MongoDB _id
+                        const realPatientMongoId = 
+                            (appointment?.clinicPatientId?._id && isMongoId(appointment.clinicPatientId._id) ? appointment.clinicPatientId._id : null) ||
+                            (isMongoId(appointment?.clinicPatientId) ? appointment.clinicPatientId : null) ||
+                            (appointment?.userId?._id && isMongoId(appointment.userId._id) ? appointment.userId._id : null) ||
+                            (isMongoId(appointment?.userId) ? appointment.userId : null) ||
+                            (route.params?.patient?._id && isMongoId(route.params.patient._id) ? route.params.patient._id : null) ||
+                            (intakeData?._id && isMongoId(intakeData._id) ? intakeData._id : null) ||
+                            (isMongoId(id) ? id : null);
+
+                        // Update patient profile if ID exists
+                        const profileTargetId = realPatientMongoId || appointment?.clinicPatientId?._id || appointment?.userId?._id || id;
+                        if (profileTargetId) {
+                            try {
+                                await doctorAPI.updatePatientProfile(profileTargetId, intakeData);
+                            } catch (profErr) {
+                                console.warn("Patient profile update error:", profErr);
+                            }
                         }
+
+                        // 2. Prepare Web-matching payload structure
+                        // Filter medicines so ONLY actual medicines are saved - never uploaded report/document filenames
+                        const cleanPharmacy = (sessionData.medicines || [])
+                            .filter(isValidMedicineRecord)
+                            .map(m => ({
+                                medicineName: (m.medicineName || m.medicine || m.name || '').trim(),
+                                saltName: (m.saltName || m.genericName || '').trim(),
+                                frequency: (m.dose || m.frequency || '').trim(),
+                                duration: String(m.days || m.duration || '7').trim()
+                            }))
+                            .filter(m => m.medicineName && !isDocumentFileName(m.medicineName));
+
+                        const cleanLabTests = typeof sessionData.labTests === 'string'
+                            ? sessionData.labTests.split(',').map(s => s.trim()).filter(Boolean).filter(t => !isDocumentFileName(t))
+                            : Array.isArray(sessionData.labTests)
+                                ? sessionData.labTests.map(t => (typeof t === 'string' ? t.trim() : t.name || '')).filter(Boolean).filter(t => !isDocumentFileName(t))
+                                : [];
 
                         const payload = {
                             status: 'completed',
-                            diagnosis: sessionData.diagnosis,
-                            notes: sessionData.notes,
-                            labTests: sessionData.labTests.split(',').map(s => s.trim()).filter(Boolean).filter(t => !isDocumentFileName(t)),
-                            pharmacy: (sessionData.medicines || []).filter(m => m.medicineName?.trim() && !isDocumentFileName(m.medicineName)).map(m => ({
-                                medicineName: m.medicineName?.trim() || '',
-                                saltName: m.saltName?.trim() || '',
-                                frequency: m.dose?.trim() || '',
-                                duration: m.days?.trim() || ''
-                            }))
+                            diagnosis: typeof sessionData.diagnosis === 'string' ? sessionData.diagnosis : (Array.isArray(sessionData.diagnosis) ? sessionData.diagnosis.join(', ') : ''),
+                            notes: sessionData.notes || '',
+                            labTests: cleanLabTests,
+                            pharmacy: cleanPharmacy
                         };
-                        await doctorAPI.updateSession(appointmentId, payload);
-                        setIsLocked(true);
 
-                        Alert.alert(
-                            "Consultation Completed",
-                            "Do you want to transition to the Reception Desk to Admit/Hospitalize this patient?",
-                            [
-                                { text: "Stay Here", style: "cancel", onPress: () => {
-                                    Alert.alert('Session Completed', 'This consultation has already been completed. This record is now read-only.');
-                                }},
-                                { text: "Go to Reception", onPress: () => {
-                                    navigation.navigate('ReceptionDashboard', { view: 'intake', patient: appointment?.userId || appointment?.clinicPatientId || appointment });
-                                }}
-                            ]
-                        );
+                        // 3. Resolve REAL appointment MongoDB _id
+                        let targetApptId = null;
+                        if (isMongoId(appointmentId)) {
+                            targetApptId = appointmentId;
+                        } else if (appointment?._id && isMongoId(appointment._id) && !String(appointment._id).startsWith('session-')) {
+                            targetApptId = appointment._id;
+                        } else if (isMongoId(route.params?.appointmentId)) {
+                            targetApptId = route.params.appointmentId;
+                        }
+
+                        // If no real appointment exists, use existing startSession(patientId) to create one
+                        if (!targetApptId) {
+                            const startId = realPatientMongoId || (isMongoId(id) ? id : null);
+                            if (!startId) {
+                                throw new Error("A valid patient record could not be resolved to start an appointment session.");
+                            }
+                            const startRes = await doctorAPI.startSession(startId);
+                            if (startRes?.success && startRes?.appointment?._id && isMongoId(startRes.appointment._id)) {
+                                targetApptId = startRes.appointment._id;
+                                setAppointmentId(targetApptId);
+                            } else {
+                                throw new Error(startRes?.message || "Failed to create consultation session on server.");
+                            }
+                        }
+
+                        // Guarantee: NEVER call updateSession with undefined, null, or session-*
+                        if (!isMongoId(targetApptId)) {
+                            throw new Error("Cannot save prescription: Invalid appointment ID (" + targetApptId + ").");
+                        }
+
+                        // 4. Update session with payload via PATCH /api/doctor/appointments/:id/prescription
+                        await doctorAPI.updateSession(targetApptId, payload);
+
+                        setIsLocked(true);
 
                         setAppointment(prev => ({
                             ...prev,
+                            _id: targetApptId,
                             status: 'completed',
-                            diagnosis: sessionData.diagnosis,
-                            doctorNotes: sessionData.notes,
+                            diagnosis: payload.diagnosis,
+                            doctorNotes: payload.notes,
                             labTests: payload.labTests,
                             pharmacy: payload.pharmacy,
                             vitals: {
@@ -578,9 +643,12 @@ const DoctorPatientDetails = () => {
                         
                         setPrescriptionMode('slip');
                         setShowPrescriptionModal(true);
+                        toast.success("Prescription generated successfully!");
 
                     } catch (err) {
-                        Alert.alert('Error', "Error: " + (err.response?.data?.message || err.message));
+                        const errMsg = err.response?.data?.message || err.message || "Failed to save session";
+                        console.error("Save & merge error:", err);
+                        Alert.alert('Error', "Error: " + errMsg);
                     } finally { setSaving(false); }
                 }}
             ]
@@ -1046,7 +1114,7 @@ const DoctorPatientDetails = () => {
                                     </View>
 
                                     {/* Partner / Spouse Quick Info (Web 1:1 Parity) */}
-                                    {(profile.partnerFirstName || intakeData.partnerFirstName) && (
+                                    {Boolean(profile.partnerFirstName || intakeData.partnerFirstName) && (
                                         <View style={styles.partnerQuick}>
                                             <Text style={styles.partnerTitle}>👫 Spouse/Partner Info</Text>
                                             <View style={styles.overviewGrid}>
@@ -1112,15 +1180,15 @@ const DoctorPatientDetails = () => {
                                                     </View>
                                                     <Text style={styles.histDiagnosis}>
                                                         <Text style={{ fontWeight: 'bold' }}>Diagnosis: </Text>
-                                                        {h.doctorConsultation?.diagnosis?.length > 0 ? h.doctorConsultation.diagnosis.join(', ') : (h.diagnosis || 'No diagnosis recorded')}
+                                                        {formatDiagnosis(h.doctorConsultation?.diagnosis || h.diagnosis)}
                                                     </Text>
-                                                    {(h.doctorConsultation?.clinicalNotes || h.doctorNotes) && (
+                                                    {Boolean(h.doctorConsultation?.clinicalNotes || h.doctorNotes) && (
                                                         <Text style={styles.histNotesText}>
                                                             <Text style={{ fontWeight: 'bold' }}>Notes: </Text>
                                                             {h.doctorConsultation?.clinicalNotes || h.doctorNotes}
                                                         </Text>
                                                     )}
-                                                    {((h.doctorConsultation?.prescription?.filter(isValidMedicineRecord) || []).length > 0 || (h.pharmacy?.filter(isValidMedicineRecord) || []).length > 0) && (
+                                                    {Boolean(((h.doctorConsultation?.prescription?.filter(isValidMedicineRecord) || []).length > 0 || (h.pharmacy?.filter(isValidMedicineRecord) || []).length > 0)) && (
                                                         <Text style={[styles.histNotesText, { color: '#059669' }]}>
                                                             <Text style={{ fontWeight: 'bold' }}>💊 Medicines: </Text>
                                                             {(h.doctorConsultation?.prescription?.filter(isValidMedicineRecord) || []).length > 0
@@ -1128,7 +1196,7 @@ const DoctorPatientDetails = () => {
                                                                 : (h.pharmacy || []).filter(isValidMedicineRecord).map(p => `${p.medicineName || p.medicine} (${p.frequency || p.dose || '-'}, ${p.duration || p.days || '-'} days)`).join(' · ')}
                                                         </Text>
                                                     )}
-                                                    {(h.doctorConsultation?.labTests?.length > 0 || h.labTests?.length > 0) && (
+                                                    {Boolean(h.doctorConsultation?.labTests?.length > 0 || h.labTests?.length > 0) && (
                                                         <Text style={[styles.histNotesText, { color: '#2563eb' }]}>
                                                             <Text style={{ fontWeight: 'bold' }}>🧪 Lab Tests: </Text>
                                                             {h.doctorConsultation?.labTests?.length > 0
@@ -1136,7 +1204,7 @@ const DoctorPatientDetails = () => {
                                                                 : (h.labTests || []).join(', ')}
                                                         </Text>
                                                     )}
-                                                    {h._id === appointmentId && <View style={styles.currentBadge}><Text style={styles.currentBadgeText}>📌 Current Session</Text></View>}
+                                                    {Boolean(h._id === appointmentId) && <View style={styles.currentBadge}><Text style={styles.currentBadgeText}>📌 Current Session</Text></View>}
                                                 </TouchableOpacity>
                                             ))}
                                         </View>
@@ -1160,29 +1228,27 @@ const DoctorPatientDetails = () => {
                             )}
 
                             {/* DYNAMIC FORMS RENDERER */}
-                            {dynamicTabs.map(dTab => (
-                                activeTab === dTab.id && (
-                                    <View key={dTab.id} style={{ display: 'flex' }}>
-                                        <DynamicQuestionForm
-                                            categoryName={dTab.label}
-                                            questions={dTab.data}
-                                            intakeData={intakeData}
-                                            setIntakeData={setIntakeData}
-                                            readOnly={isLocked}
-                                        />
-                                        {!isLocked && (
-                                            <TouchableOpacity 
-                                                style={styles.saveSectionBtn} 
-                                                onPress={handleSaveProfile} 
-                                                disabled={saving}
-                                            >
-                                                <Text style={styles.saveSectionBtnText}>
-                                                    {saving ? 'Saving...' : `💾 Save ${dTab.label} Data`}
-                                                </Text>
-                                            </TouchableOpacity>
-                                        )}
-                                    </View>
-                                )
+                            {dynamicTabs.filter(dTab => activeTab === dTab.id).map(dTab => (
+                                <View key={dTab.id} style={{ display: 'flex' }}>
+                                    <DynamicQuestionForm
+                                        categoryName={dTab.label}
+                                        questions={dTab.data}
+                                        intakeData={intakeData}
+                                        setIntakeData={setIntakeData}
+                                        readOnly={isLocked}
+                                    />
+                                    {!isLocked && (
+                                        <TouchableOpacity 
+                                            style={styles.saveSectionBtn} 
+                                            onPress={handleSaveProfile} 
+                                            disabled={saving}
+                                        >
+                                            <Text style={styles.saveSectionBtnText}>
+                                                {saving ? 'Saving...' : `💾 Save ${dTab.label} Data`}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
                             ))}
                         </View>
                     </View>
@@ -1210,7 +1276,7 @@ const DoctorPatientDetails = () => {
                                     <ScrollView style={styles.rightContent}>
                                         <View style={styles.sessionField}>
                                             <Text style={styles.fieldLabel}>🔍 Diagnosis at the time</Text>
-                                            <View style={styles.tmFieldBox}><Text style={styles.tmFieldText}>{viewingPastSession.diagnosis || 'No diagnosis recorded'}</Text></View>
+                                            <View style={styles.tmFieldBox}><Text style={styles.tmFieldText}>{formatDiagnosis(viewingPastSession.diagnosis)}</Text></View>
                                         </View>
                                         <View style={styles.sessionField}>
                                             <Text style={styles.fieldLabel}>📋 Clinical Notes</Text>
@@ -1323,19 +1389,19 @@ const DoctorPatientDetails = () => {
                                                 <View style={styles.radioGroup}>
                                                     <TouchableOpacity style={styles.radioBtn} onPress={() => setOperationRequired(false)}>
                                                         <View style={[styles.radioOuter, !operationRequired && styles.radioOuterActive]}>
-                                                            {!operationRequired && <View style={styles.radioInner}/>}
+                                                            {Boolean(!operationRequired) && <View style={styles.radioInner}/>}
                                                         </View>
                                                         <Text style={styles.radioText}>No</Text>
                                                     </TouchableOpacity>
                                                     <TouchableOpacity style={styles.radioBtn} onPress={() => setOperationRequired(true)}>
                                                         <View style={[styles.radioOuter, operationRequired && styles.radioOuterActive]}>
-                                                            {operationRequired && <View style={styles.radioInner}/>}
+                                                            {Boolean(operationRequired) && <View style={styles.radioInner}/>}
                                                         </View>
                                                         <Text style={styles.radioText}>Yes</Text>
                                                     </TouchableOpacity>
                                                 </View>
 
-                                                {operationRequired && (
+                                                {Boolean(operationRequired) && (
                                                     <View style={styles.surgeryActions}>
                                                         <TouchableOpacity 
                                                             style={styles.surgeryBtn} 
@@ -1385,14 +1451,14 @@ const DoctorPatientDetails = () => {
                                                 </>
                                             )}
 
-                                            {((sessionData.medicines || []).filter(m => m.medicineName?.trim() && !isDocumentFileName(m.medicineName)).length > 0 || sessionData.labTests || (isLocked && (appointment?.pharmacy || []).filter(isValidMedicineRecord).length > 0)) && (
+                                            {Boolean((sessionData.medicines || []).filter(m => m.medicineName?.trim() && !isDocumentFileName(m.medicineName)).length > 0 || (sessionData.labTests && sessionData.labTests.trim()) || (isLocked && (appointment?.pharmacy || []).filter(isValidMedicineRecord).length > 0)) && (
                                                 <View style={styles.includedSummaryBox}>
-                                                    {((sessionData.medicines || []).filter(m => m.medicineName?.trim() && !isDocumentFileName(m.medicineName)).length > 0 || (isLocked && (appointment?.pharmacy || []).filter(isValidMedicineRecord).length > 0)) && (
+                                                    {Boolean((sessionData.medicines || []).filter(m => m.medicineName?.trim() && !isDocumentFileName(m.medicineName)).length > 0 || (isLocked && (appointment?.pharmacy || []).filter(isValidMedicineRecord).length > 0)) && (
                                                         <Text style={styles.includedSummaryTitle}>
                                                             ✅ Medicines included ({(sessionData.medicines || []).filter(m => m.medicineName?.trim() && !isDocumentFileName(m.medicineName)).length || (appointment?.pharmacy || []).filter(isValidMedicineRecord).length || 0})
                                                         </Text>
                                                     )}
-                                                    {(sessionData.labTests || (isLocked && (appointment?.labTests?.length > 0))) && (
+                                                    {Boolean((sessionData.labTests && sessionData.labTests.trim()) || (isLocked && (appointment?.labTests?.length > 0))) && (
                                                         <Text style={styles.includedSummaryTitle}>
                                                             ✅ Lab Tests included
                                                         </Text>
@@ -1468,7 +1534,7 @@ const DoctorPatientDetails = () => {
                                 onChangeText={setMedSearch} 
                             />
                             
-                            {medSearch.trim().length > 0 && (
+                            {Boolean(medSearch.trim().length > 0) && (
                                 <View style={styles.searchList}>
                                     {catalogMedicines
                                         .filter(m => m?.name && !isDocumentFileName(m.name) && m.name.toLowerCase().includes(medSearch.toLowerCase()))
@@ -1493,7 +1559,7 @@ const DoctorPatientDetails = () => {
                                                 </TouchableOpacity>
                                             );
                                         })}
-                                    {catalogMedicines.filter(m => m?.name && !isDocumentFileName(m.name) && m.name.toLowerCase().includes(medSearch.toLowerCase())).length === 0 && (
+                                    {Boolean(catalogMedicines.filter(m => m?.name && !isDocumentFileName(m.name) && m.name.toLowerCase().includes(medSearch.toLowerCase())).length === 0) && (
                                         <View style={{ padding: 12, alignItems: 'center' }}>
                                             <Text style={{ color: '#94a3b8', fontSize: 13 }}>No medicines found.</Text>
                                         </View>
@@ -1634,7 +1700,7 @@ const DoctorPatientDetails = () => {
                                                 }}
                                             >
                                                 <View style={[styles.labCheckCircle, isChecked && styles.labCheckCircleActive]}>
-                                                    {isChecked && <Text style={styles.labCheckmark}>✓</Text>}
+                                                    {Boolean(isChecked) && <Text style={styles.labCheckmark}>✓</Text>}
                                                 </View>
                                                 <View style={{ flex: 1 }}>
                                                     <Text style={[styles.labTestNameText, isChecked && { color: '#1d4ed8' }]}>{test.name}</Text>
@@ -1766,12 +1832,12 @@ const DoctorPatientDetails = () => {
                                 onPress={() => setSurgeryPlanData(prev => ({...prev, admissionRequired: !prev.admissionRequired}))}
                             >
                                 <View style={[styles.checkboxBox, surgeryPlanData.admissionRequired && styles.checkboxBoxActive]}>
-                                    {surgeryPlanData.admissionRequired && <Text style={styles.checkboxCheck}>✓</Text>}
+                                    {Boolean(surgeryPlanData.admissionRequired) && <Text style={styles.checkboxCheck}>✓</Text>}
                                 </View>
                                 <Text style={styles.checkboxLabel}>Admission Required</Text>
                             </TouchableOpacity>
 
-                            {surgeryPlanData.admissionRequired && (
+                            {Boolean(surgeryPlanData.admissionRequired) && (
                                 <View style={styles.sessionField}>
                                     <Text style={styles.fieldLabel}>Admission Date *</Text>
                                     <TextInput 
@@ -1789,7 +1855,7 @@ const DoctorPatientDetails = () => {
                                 onPress={() => setSurgeryPlanData(prev => ({...prev, preOpRequired: !prev.preOpRequired}))}
                             >
                                 <View style={[styles.checkboxBox, surgeryPlanData.preOpRequired && styles.checkboxBoxActive]}>
-                                    {surgeryPlanData.preOpRequired && <Text style={styles.checkboxCheck}>✓</Text>}
+                                    {Boolean(surgeryPlanData.preOpRequired) && <Text style={styles.checkboxCheck}>✓</Text>}
                                 </View>
                                 <Text style={styles.checkboxLabel}>Pre-Operative Preparation Required</Text>
                             </TouchableOpacity>
@@ -1902,7 +1968,7 @@ const DoctorPatientDetails = () => {
             </Modal>
 
             {/* REFERRAL REVIEW MODAL (Web 1:1 Parity) */}
-            {showReferralReviewModal && activeReferralForReview && (
+            {Boolean(showReferralReviewModal && activeReferralForReview) && (
                 <Modal visible={showReferralReviewModal} animationType="fade" transparent={true}>
                     <View style={styles.modalOverlay}>
                         <View style={styles.modalContent}>
@@ -1924,7 +1990,7 @@ const DoctorPatientDetails = () => {
                                 <View style={styles.referralReviewDetailsBox}>
                                     <Text style={styles.referralReviewDetailItem}><Text style={{ fontWeight: 'bold' }}>Referred By: </Text>{activeReferralForReview.referringDoctorId?.name || 'N/A'}</Text>
                                     <Text style={styles.referralReviewDetailItem}><Text style={{ fontWeight: 'bold' }}>Reason: </Text>{activeReferralForReview.reason}</Text>
-                                    {activeReferralForReview.notes && <Text style={styles.referralReviewDetailItem}><Text style={{ fontWeight: 'bold' }}>Notes: </Text>{activeReferralForReview.notes}</Text>}
+                                    {Boolean(activeReferralForReview.notes) && <Text style={styles.referralReviewDetailItem}><Text style={{ fontWeight: 'bold' }}>Notes: </Text>{activeReferralForReview.notes}</Text>}
                                     <Text style={styles.referralReviewDetailItem}><Text style={{ fontWeight: 'bold' }}>Date: </Text>{new Date(activeReferralForReview.referralDate).toLocaleDateString()}</Text>
                                 </View>
 
@@ -2003,7 +2069,7 @@ const DoctorPatientDetails = () => {
                                 </View>
                                 <View style={styles.pdfInfoRow}>
                                     <Text style={styles.pdfInfoLabel}>Diagnosis:</Text>
-                                    <Text style={[styles.pdfInfoVal, { fontWeight: 'bold' }]}>{sessionData.diagnosis || appointment?.diagnosis || '-'}</Text>
+                                    <Text style={[styles.pdfInfoVal, { fontWeight: 'bold' }]}>{formatDiagnosis(sessionData.diagnosis || appointment?.diagnosis)}</Text>
                                 </View>
 
                                 <Text style={styles.pdfSectionHead}>💊 Prescribed Medicines</Text>

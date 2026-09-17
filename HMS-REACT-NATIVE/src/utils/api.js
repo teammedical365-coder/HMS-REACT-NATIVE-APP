@@ -61,6 +61,18 @@ apiClient.interceptors.request.use(async (config) => {
     // Synchronize default header for future requests
     apiClient.defaults.headers.common['Authorization'] = `Bearer ${cleanToken}`;
   }
+
+  // Automatic multipart boundary for FormData on Web
+  if (config.data && typeof FormData !== 'undefined' && config.data instanceof FormData) {
+    if (Platform.OS === 'web') {
+      if (config.headers) {
+        delete config.headers['Content-Type'];
+        delete config.headers['content-type'];
+        if (typeof config.headers.delete === 'function') config.headers.delete('Content-Type');
+      }
+    }
+  }
+
   return config;
 }, (error) => Promise.reject(error));
 
@@ -193,24 +205,31 @@ export const doctorAPI = {
   updatePatientProfile: async (patientId, profileData) =>
     (await apiClient.put(`/api/doctor/patients/${patientId}/profile`, profileData)).data,
   updateSession: async (id, data) => {
-    let body = data;
-    if (!(data instanceof FormData)) {
-      const formData = new FormData();
-      Object.keys(data || {}).forEach((key) => {
-        if (data[key] !== undefined && data[key] !== null) {
-          if (typeof data[key] === 'object' && key !== 'prescriptionFile') {
-            formData.append(key, JSON.stringify(data[key]));
-          } else {
-            formData.append(key, data[key]);
+    const hasFile = (typeof FormData !== 'undefined' && data instanceof FormData) || (data && data.prescriptionFile);
+    if (hasFile) {
+      let body = data;
+      if (!(typeof FormData !== 'undefined' && data instanceof FormData)) {
+        const formData = new FormData();
+        Object.keys(data || {}).forEach((key) => {
+          if (data[key] !== undefined && data[key] !== null) {
+            if (typeof data[key] === 'object' && key !== 'prescriptionFile') {
+              formData.append(key, JSON.stringify(data[key]));
+            } else {
+              formData.append(key, data[key]);
+            }
           }
-        }
+        });
+        body = formData;
+      }
+      const headers = Platform.OS === 'web' ? { 'Content-Type': undefined } : { 'Content-Type': 'multipart/form-data' };
+      const response = await apiClient.patch(`/api/doctor/appointments/${id}/prescription`, body, {
+        headers,
       });
-      body = formData;
+      return response.data;
+    } else {
+      const response = await apiClient.patch(`/api/doctor/appointments/${id}/prescription`, data);
+      return response.data;
     }
-    const response = await apiClient.patch(`/api/doctor/appointments/${id}/prescription`, body, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
-    return response.data;
   },
   getLabs: async () => (await apiClient.get('/api/doctor/labs-list')).data,
   getMedicines: async () => (await apiClient.get('/api/doctor/medicines-list')).data,
@@ -658,6 +677,20 @@ export const whiteLabelAPI = {
     `${baseURL}/api/superadmin/hospitals/${id}/download/apk`,
   getAabDownloadUrl: (id) =>
     `${baseURL}/api/superadmin/hospitals/${id}/download/aab`,
+};
+
+// ─── React Native White Label Build API ──────────────────────────────────────
+export const rnBuildAPI = {
+  buildApp: async (id) =>
+    (await apiClient.post(`/api/superadmin/hospitals/${id}/build-rn-app`)).data,
+  getBuildStatus: async (id) =>
+    (await apiClient.get(`/api/superadmin/hospitals/${id}/build-rn-status`)).data,
+  resetBuild: async (id) =>
+    (await apiClient.post(`/api/superadmin/hospitals/${id}/reset-rn-build`)).data,
+  getApkDownloadUrl: (id) =>
+    `${baseURL}/api/superadmin/hospitals/${id}/download/rn-apk`,
+  getAabDownloadUrl: (id) =>
+    `${baseURL}/api/superadmin/hospitals/${id}/download/rn-aab`,
 };
 
 // ─── Finance API ──────────────────────────────────────────────────────────────

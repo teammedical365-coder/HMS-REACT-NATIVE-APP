@@ -2,12 +2,12 @@ import React, { useState } from 'react';
 import { View, Text, Image, TouchableOpacity, Pressable, useWindowDimensions, Alert, Linking, Platform } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import { whiteLabelAPI } from '../../utils/api';
+import { rnBuildAPI } from '../../utils/api';
 import { styles } from './CentralAdminDashboardStyles';
 
 const normalizePlan = (value) => {
   const plan = String(value || '').trim().toLowerCase().replace(/[\s-]/g, '_');
-  if (!plan || plan === 'none' || plan === 'null' || plan === 'enterprise') return 'enterprise';
+  if (!plan || plan === 'none' || plan === 'enterprise') return 'enterprise';
   if (plan.includes('multi_speciality') || plan.includes('multi_specialty')) return 'multi-speciality';
   if (plan.includes('clinic_basic') || plan === 'basic') return 'clinic-basic';
   if (plan.includes('starter') && !plan.includes('multi')) return 'simple-clinics';
@@ -62,7 +62,7 @@ export default function CentralAdminHospitalCards({
       const hospitalId = hospital?._id || hospital?.id;
       setBuildStatuses(prev => ({ ...prev, [hospitalId]: 'BUILDING' }));
       
-      const response = await whiteLabelAPI.buildApp(hospitalId);
+      const response = await rnBuildAPI.buildApp(hospitalId);
       
       if (response?.success !== false) {
         setBuildStatuses(prev => ({ ...prev, [hospitalId]: 'BUILDING' }));
@@ -180,6 +180,40 @@ export default function CentralAdminHospitalCards({
               </Text>
 
               <View style={styles.hospitalBtnGroup}>
+                <Pressable 
+                  style={({ pressed, hovered }) => [
+                    styles.btnSmEdit,
+                    (currentStatus === 'BUILDING' || currentStatus === 'PROCESSING') ? { backgroundColor: '#fef3c7', borderColor: '#fde68a' } :
+                    currentStatus === 'COMPLETED' ? { backgroundColor: '#dcfce7', borderColor: '#bbf7d0' } :
+                    currentStatus === 'FAILED' ? { backgroundColor: '#fee2e2', borderColor: '#fecaca' } :
+                    { backgroundColor: '#eff6ff', borderColor: '#bfdbfe' },
+                    Platform.select({ web: { transition: 'all 0.15s ease', cursor: (currentStatus === 'BUILDING' || currentStatus === 'PROCESSING') ? 'not-allowed' : 'pointer' } }),
+                    hovered && { transform: [{ translateY: -1 }] },
+                    pressed && { transform: [{ scale: 0.96 }] },
+                  ]} 
+                  onPress={(e) => { 
+                    e.stopPropagation?.(); 
+                    if (currentStatus === 'BUILDING' || currentStatus === 'PROCESSING') return;
+                    if (currentStatus === 'COMPLETED') {
+                      Linking.openURL(rnBuildAPI.getApkDownloadUrl(hospitalId)).catch(err => console.error(err));
+                    } else {
+                      handleBuildRNApp(hospital);
+                    }
+                  }}
+                  disabled={currentStatus === 'BUILDING' || currentStatus === 'PROCESSING'}
+                >
+                  <Text style={[styles.btnSmEditText, {
+                    color: (currentStatus === 'BUILDING' || currentStatus === 'PROCESSING') ? '#d97706' :
+                           currentStatus === 'COMPLETED' ? '#16a34a' :
+                           currentStatus === 'FAILED' ? '#dc2626' : '#2563eb'
+                  }]}>
+                    {currentStatus === 'BUILDING' ? '⏳ Building...' :
+                     currentStatus === 'PROCESSING' ? '⚙️ Processing...' :
+                     currentStatus === 'COMPLETED' ? '📥 APK' :
+                     currentStatus === 'FAILED' ? '⚠️ Retry Build' : '⚡ Build APK'}
+                  </Text>
+                </Pressable>
+
                 {activeTab !== 'simple-clinics' && (
                   <Pressable 
                     style={({ pressed, hovered }) => [
