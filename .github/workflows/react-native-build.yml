@@ -42,6 +42,8 @@ jobs:
           THEME_COLOR: ${{ github.event.inputs.themeColor }}
           RN_BUILD_ID: ${{ github.event.inputs.rnBuildId }}
         run: |
+          set -euo pipefail
+
           if [ -z "$TENANT_ID" ]; then
             echo "::error::tenantId is required and cannot be empty"
             exit 1
@@ -164,11 +166,13 @@ jobs:
               echo "::error::Malformed or unsupported data URL."
               exit 1
             fi
+
             BASE64_DATA="${LOGO_URL#*;base64,}"
             printf '%s' "$BASE64_DATA" | base64 --decode > "$RAW_FILE"
 
           elif [[ "$LOGO_URL" == /* ]] || [[ "$LOGO_URL" == https://* ]]; then
             TARGET_URL="$LOGO_URL"
+
             if [[ "$LOGO_URL" == /* ]]; then
               TARGET_URL="https://hms-n6nk.onrender.com${LOGO_URL}"
             fi
@@ -189,6 +193,7 @@ jobs:
             echo "::error::Logo file is empty"
             exit 1
           fi
+
           if [ "$FILE_SIZE" -gt "$MAX_LOGO_BYTES" ]; then
             echo "::error::Logo file exceeds 5 MB"
             exit 1
@@ -312,13 +317,29 @@ jobs:
             exit 1
           fi
 
-          curl -f -sS --retry 3 --retry-delay 2 --retry-max-time 90 \
+          HTTP_STATUS=$(curl -sS \
+            -o /tmp/rn-webhook-response.txt \
+            -w "%{http_code}" \
+            --retry 3 \
+            --retry-delay 2 \
+            --retry-max-time 90 \
             -X POST \
             "https://hms-n6nk.onrender.com/api/superadmin/hospitals/webhook/github-rn/upload-build?secret=${WEBHOOK_SECRET}&tenantId=${TENANT_ID}&rnBuildId=${RN_BUILD_ID}" \
             -F "apk=@output_artifacts/app-rn.apk" \
             -F "aab=@output_artifacts/app-rn.aab" \
             -F "tenantId=${TENANT_ID}" \
-            -F "rnBuildId=${RN_BUILD_ID}"
+            -F "rnBuildId=${RN_BUILD_ID}")
+
+          echo "Backend HTTP status: $HTTP_STATUS"
+          echo "Backend response:"
+          cat /tmp/rn-webhook-response.txt
+
+          if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
+            echo "::error::RN success webhook failed with HTTP $HTTP_STATUS"
+            exit 1
+          fi
+
+          echo "RN success webhook completed successfully."
 
       - name: Notify Backend Webhook (Failure)
         if: failure() && steps.notify_success.outcome != 'failure'
@@ -334,7 +355,10 @@ jobs:
             exit 1
           fi
 
-          curl -f -sS --retry 3 --retry-delay 2 --retry-max-time 60 \
+          curl -f -sS \
+            --retry 3 \
+            --retry-delay 2 \
+            --retry-max-time 60 \
             -X POST \
             "https://hms-n6nk.onrender.com/api/superadmin/hospitals/webhook/github-rn?secret=${WEBHOOK_SECRET}" \
             -H 'Content-Type: application/json' \
