@@ -296,14 +296,14 @@ jobs:
         id: notify_success
         if: success()
         env:
-          WEBHOOK_SECRET: ${{ secrets.GITHUB_WEBHOOK_SECRET }}
+          WEBHOOK_SECRET: ${{ secrets.RN_WEBHOOK_SECRET }}
           TENANT_ID: ${{ github.event.inputs.tenantId }}
           RN_BUILD_ID: ${{ github.event.inputs.rnBuildId }}
         run: |
           set -euo pipefail
 
           if [ -z "$WEBHOOK_SECRET" ]; then
-            echo "::error::GITHUB_WEBHOOK_SECRET is not configured"
+            echo "::error::RN_WEBHOOK_SECRET is not configured"
             exit 1
           fi
 
@@ -323,14 +323,14 @@ jobs:
       - name: Notify Backend Webhook (Failure)
         if: failure() && steps.notify_success.outcome != 'failure'
         env:
-          WEBHOOK_SECRET: ${{ secrets.GITHUB_WEBHOOK_SECRET }}
+          WEBHOOK_SECRET: ${{ secrets.RN_WEBHOOK_SECRET }}
           TENANT_ID: ${{ github.event.inputs.tenantId }}
           RN_BUILD_ID: ${{ github.event.inputs.rnBuildId }}
         run: |
           set -euo pipefail
 
           if [ -z "$WEBHOOK_SECRET" ]; then
-            echo "::error::GITHUB_WEBHOOK_SECRET is not configured"
+            echo "::error::RN_WEBHOOK_SECRET is not configured"
             exit 1
           fi
 
