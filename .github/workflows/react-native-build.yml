@@ -70,6 +70,7 @@ jobs:
           fi
 
           echo "Input validation passed."
+          echo "Received and validated rnBuildId: $RN_BUILD_ID"
 
       - name: Setup Java
         uses: actions/setup-java@v3
@@ -317,6 +318,8 @@ jobs:
             exit 1
           fi
 
+          echo "Sending rnBuildId: $RN_BUILD_ID to success upload webhook"
+
           HTTP_STATUS=$(curl -sS \
             -o /tmp/rn-webhook-response.txt \
             -w "%{http_code}" \
@@ -354,6 +357,8 @@ jobs:
             echo "::error::RN_WEBHOOK_SECRET is not configured"
             exit 1
           fi
+
+          echo "Sending rnBuildId: $RN_BUILD_ID to failure webhook"
 
           curl -f -sS \
             --retry 3 \
