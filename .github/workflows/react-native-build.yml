@@ -160,7 +160,7 @@ jobs:
 
           if [[ "$LOGO_URL" == data:image/* ]]; then
             echo "Processing Base64 logo..."
-            if ! [[ "$LOGO_URL" =~ ^data:image/(png|jpeg|jpg|webp);base64, ]]; then
+            if ! printf '%s' "$LOGO_URL" | grep -Eq '^data:image/(png|jpeg|jpg|webp);base64,'; then
               echo "::error::Malformed or unsupported data URL."
               exit 1
             fi
