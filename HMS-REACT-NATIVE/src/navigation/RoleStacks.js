@@ -33,6 +33,8 @@ import DoctorDashboard from '../screens/doctors/DoctorDashboard';
 import Patient from '../screens/doctors/Patient';
 import DoctorPatientDetails from '../screens/doctors/DoctorPatientDetails';
 import AIAssistant from '../screens/doctors/AIAssistant';
+import SurgeryReferrals from '../screens/doctors/SurgeryReferrals';
+import MySurgeryPlans from '../screens/doctors/MySurgeryPlans';
 import LabReports from '../screens/user/LabReports';
 
 // -- OT Pages --
@@ -157,6 +159,8 @@ export const DoctorApp = () => (
         <Stack.Screen name="DoctorPatients" component={withLayout(Patient)} />
         <Stack.Screen name="DoctorPatientDetails" component={withLayout(DoctorPatientDetails)} />
         <Stack.Screen name="AIAssistant" component={withLayout(AIAssistant)} />
+        <Stack.Screen name="SurgeryReferrals" component={withLayout(SurgeryReferrals)} />
+        <Stack.Screen name="MySurgeryPlans" component={withLayout(MySurgeryPlans)} />
         <Stack.Screen name="IPDCommandCenter" component={withLayout(IPDCommandCenter)} />
         <Stack.Screen name="NursePatientWorkspace" component={withLayout(NursePatientWorkspace)} />
         <Stack.Screen name="NurseDashboard" component={withLayout(NurseDashboard)} />

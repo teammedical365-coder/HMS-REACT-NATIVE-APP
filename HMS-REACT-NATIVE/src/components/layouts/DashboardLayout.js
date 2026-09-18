@@ -191,14 +191,23 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
         }
 
         const isDoctor = role === 'doctor' || role === 'clinic doctor' || roleClean === 'doctor' || roleClean === 'clinicdoctor';
-        const isDoctorRoute = currentPath && (currentPath === 'DoctorDashboard' || currentPath === 'DoctorPatients' || currentPath === 'DoctorPatientDetails' || currentPath === 'AIAssistant' || (currentPath === 'LabReports' && isDoctor));
+        const isDoctorRoute = currentPath && (
+            currentPath === 'DoctorDashboard' || 
+            currentPath === 'DoctorPatients' || 
+            currentPath === 'DoctorPatientDetails' || 
+            currentPath === 'AIAssistant' || 
+            currentPath === 'SurgeryReferrals' || 
+            currentPath === 'MySurgeryPlans' || 
+            (currentPath === 'LabReports' && isDoctor)
+        );
         if (isDoctor || (isDoctorRoute && !role)) {
             return [
                 { label: 'Dashboard', path: 'DoctorDashboard', icon: <Feather name="home" size={18} /> },
-                { label: 'IPD Command Center', path: 'IPDCommandCenter', icon: <Feather name="activity" size={18} /> },
                 { label: 'My Patients', path: 'DoctorPatients', icon: <Feather name="users" size={18} /> },
-                { label: 'AI Assistant', path: 'AIAssistant', icon: <Feather name="file-text" size={18} /> },
-                { label: 'Reports', path: 'LabReports', icon: <Feather name="file-text" size={18} /> },
+                { label: 'IPD Command Center', path: 'IPDCommandCenter', icon: <Feather name="activity" size={18} /> },
+                { label: 'AI Assistant', path: 'AIAssistant', icon: <Feather name="cpu" size={18} /> },
+                { label: 'Surgery Referrals', path: 'SurgeryReferrals', icon: <Feather name="scissors" size={18} /> },
+                { label: 'My Surgery Plans', path: 'MySurgeryPlans', icon: <Feather name="file-text" size={18} /> },
             ];
         }
 
@@ -302,7 +311,7 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
                     );
                 })}
 
-                {(isCentralAdmin || role === 'hospitaladmin' || role === 'doctor' || role === 'clinic doctor' || Boolean(currentPath && (currentPath === 'DoctorDashboard' || currentPath === 'DoctorPatients' || currentPath === 'DoctorPatientDetails' || currentPath === 'AIAssistant' || currentPath === 'LabReports'))) && isOpen && (
+                {(isCentralAdmin || role === 'hospitaladmin' || role === 'doctor' || role === 'clinic doctor' || Boolean(currentPath && (currentPath === 'DoctorDashboard' || currentPath === 'DoctorPatients' || currentPath === 'DoctorPatientDetails' || currentPath === 'AIAssistant' || currentPath === 'SurgeryReferrals' || currentPath === 'MySurgeryPlans' || currentPath === 'LabReports'))) && isOpen && (
                     <Pressable
                         style={({ pressed, hovered }) => [
                             Platform.select({ web: { transition: 'all 0.2s ease', cursor: 'pointer' } }),
@@ -452,6 +461,8 @@ const TopBar = ({ toggleSidebar, sidebarOpen, isMobile }) => {
         if (name === 'DoctorPatients') return 'My Patients';
         if (name === 'DoctorPatientDetails') return 'Clinical Workspace';
         if (name === 'AIAssistant') return 'AI Assistant';
+        if (name === 'SurgeryReferrals') return 'Surgery Referrals';
+        if (name === 'MySurgeryPlans') return 'My Surgery Plans';
         if (name === 'LabReports') return 'Reports';
         return name.replace(/([A-Z])/g, ' $1').trim();
     };

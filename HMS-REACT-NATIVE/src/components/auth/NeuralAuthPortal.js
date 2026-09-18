@@ -293,7 +293,7 @@ const NeuralAuthPortal = ({
             <ScrollView 
                 contentContainerStyle={styles.scrollContent} 
                 bounces={false}
-                keyboardShouldPersistTaps="handled"
+                keyboardShouldPersistTaps="always"
                 removeClippedSubviews={false}
             >
                 <View style={[styles.mainWrapper, isDesktop && styles.mainWrapperDesktop, isTablet && styles.mainWrapperTablet]}>
