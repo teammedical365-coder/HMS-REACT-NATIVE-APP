@@ -2324,7 +2324,7 @@ const styles = StyleSheet.create({
     modalActionBtn: { backgroundColor: '#3b82f6', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8, alignItems: 'center' },
     modalActionBtnText: { color: '#ffffff', fontWeight: 'bold', fontSize: 13.5 },
 
-    patientSummaryCard: { background: '#f8fafc', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 12 },
+    patientSummaryCard: { backgroundColor: '#f8fafc', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 12 },
     patientSummaryText: { fontSize: 13, color: '#334155', lineHeight: 18 },
     referringDoctorCard: { backgroundColor: '#f0fdf4', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#bbf7d0', marginBottom: 12 },
     referringDoctorText: { fontSize: 13, color: '#166534' },

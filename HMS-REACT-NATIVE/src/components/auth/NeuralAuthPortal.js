@@ -62,6 +62,22 @@ const NeuralAuthPortal = ({
     const isTablet = windowWidth >= 768 && windowWidth < 1100;
     const isMobile = windowWidth < 768;
 
+    const [credentials, setCredentials] = useState({ id: '', password: '' });
+    const [showPassword, setShowPassword] = useState(false);
+    const [rememberMe, setRememberMe] = useState(true);
+    const [otpValues, setOtpValues] = useState(['', '', '', '', '', '']);
+    const [resendTimer, setResendTimer] = useState(30);
+    const [focusedInput, setFocusedInput] = useState(null);
+    const [focusedOtpIndex, setFocusedOtpIndex] = useState(null);
+
+    const passwordInputRef = useRef(null);
+    const otpInputRefs = useRef([]);
+
+    // Animations
+    const pulseAnim = useRef(new Animated.Value(1)).current;
+    const spinAnim = useRef(new Animated.Value(0)).current;
+    const ecgAnim = useRef(new Animated.Value(0)).current;
+
     const portalRenderCount = useRef(0);
     portalRenderCount.current += 1;
     console.log(`[INSTRUMENTATION][NeuralAuthPortal] Render #${portalRenderCount.current} at ${Date.now()}`, {
@@ -96,22 +112,6 @@ const NeuralAuthPortal = ({
             hideSub.remove();
         };
     }, []);
-
-    const [credentials, setCredentials] = useState({ id: '', password: '' });
-    const [showPassword, setShowPassword] = useState(false);
-    const [rememberMe, setRememberMe] = useState(true);
-    const [otpValues, setOtpValues] = useState(['', '', '', '', '', '']);
-    const [resendTimer, setResendTimer] = useState(30);
-    const [focusedInput, setFocusedInput] = useState(null);
-    const [focusedOtpIndex, setFocusedOtpIndex] = useState(null);
-
-    const passwordInputRef = useRef(null);
-    const otpInputRefs = useRef([]);
-
-    // Animations
-    const pulseAnim = useRef(new Animated.Value(1)).current;
-    const spinAnim = useRef(new Animated.Value(0)).current;
-    const ecgAnim = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
         Animated.loop(

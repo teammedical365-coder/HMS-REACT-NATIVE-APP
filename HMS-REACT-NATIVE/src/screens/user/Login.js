@@ -16,6 +16,11 @@ const Login = () => {
     const dispatch = useAppDispatch();
     const { loading, error, isAuthenticated, user, otpStep, preAuthToken, otpEmail, activeSession, otpSuccessMsg, tenant } = useAuth();
 
+    const [formData, setFormData] = useState({ email: '', password: '', hospitalSlug: '' });
+    const [nativeSlug, setNativeSlug] = useState(null);
+    const [localError, setLocalError] = useState(null);
+    const searchParams = route.params || {};
+
     const renderCount = useRef(0);
     renderCount.current += 1;
     const prevBrandingRef = useRef(branding);
@@ -34,11 +39,6 @@ const Login = () => {
         error: !!error,
         otpStep,
     });
-    
-    const [formData, setFormData] = useState({ email: '', password: '', hospitalSlug: '' });
-    const [nativeSlug, setNativeSlug] = useState(null);
-    const [localError, setLocalError] = useState(null);
-    const searchParams = route.params || {};
 
     useEffect(() => {
         dispatch(clearError());
