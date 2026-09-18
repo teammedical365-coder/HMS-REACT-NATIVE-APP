@@ -8,27 +8,60 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Feather, FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
 import Svg, { Path } from 'react-native-svg';
 
-const TrackedTextInput = React.forwardRef(({ fieldName, onFocus, onBlur, ...props }, ref) => {
-    useEffect(() => {
-        console.log(`[INSTRUMENTATION][TextInput:${fieldName}] MOUNTED at ${Date.now()}`);
-        return () => {
-            console.log(`[INSTRUMENTATION][TextInput:${fieldName}] UNMOUNTED at ${Date.now()}`);
-        };
-    }, [fieldName]);
+const AuthInputField = React.forwardRef(({
+    iconName,
+    label,
+    rightElement,
+    value,
+    onChangeText,
+    placeholder,
+    placeholderTextColor = "#94a3b8",
+    secureTextEntry,
+    keyboardType,
+    autoCapitalize = "none",
+    onFocus,
+    onBlur,
+    style,
+    ...props
+}, ref) => {
+    const [isFocused, setIsFocused] = useState(false);
 
     return (
-        <TextInput
-            ref={ref}
-            {...props}
-            onFocus={(e) => {
-                console.log(`[INSTRUMENTATION][TextInput:${fieldName}] onFocus at ${Date.now()}`);
-                if (onFocus) onFocus(e);
-            }}
-            onBlur={(e) => {
-                console.log(`[INSTRUMENTATION][TextInput:${fieldName}] onBlur at ${Date.now()}`);
-                if (onBlur) onBlur(e);
-            }}
-        />
+        <View style={styles.inputGroup}>
+            {label ? <Text style={styles.label}>{label}</Text> : null}
+            <View style={[
+                styles.inputWrapper, 
+                isFocused && styles.inputWrapperFocused
+            ]}>
+                <Feather 
+                    name={iconName} 
+                    size={16} 
+                    color={isFocused ? "#7c3aed" : "#a78bfa"} 
+                    style={styles.inputIcon} 
+                />
+                <TextInput
+                    ref={ref}
+                    style={[styles.input, style]}
+                    placeholder={placeholder}
+                    placeholderTextColor={placeholderTextColor}
+                    keyboardType={keyboardType}
+                    autoCapitalize={autoCapitalize}
+                    secureTextEntry={secureTextEntry}
+                    value={value}
+                    onChangeText={onChangeText}
+                    onFocus={(e) => {
+                        setIsFocused(true);
+                        if (onFocus) onFocus(e);
+                    }}
+                    onBlur={(e) => {
+                        setIsFocused(false);
+                        if (onBlur) onBlur(e);
+                    }}
+                    {...props}
+                />
+                {rightElement}
+            </View>
+        </View>
     );
 });
 
@@ -57,7 +90,7 @@ const NeuralAuthPortal = ({
     sessionBanner = null,
     extraFooter = null,
 }) => {
-    const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+    const { width: windowWidth } = useWindowDimensions();
     const isDesktop = windowWidth >= 1100;
     const isTablet = windowWidth >= 768 && windowWidth < 1100;
     const isMobile = windowWidth < 768;
@@ -67,7 +100,6 @@ const NeuralAuthPortal = ({
     const [rememberMe, setRememberMe] = useState(true);
     const [otpValues, setOtpValues] = useState(['', '', '', '', '', '']);
     const [resendTimer, setResendTimer] = useState(30);
-    const [focusedInput, setFocusedInput] = useState(null);
     const [focusedOtpIndex, setFocusedOtpIndex] = useState(null);
 
     const passwordInputRef = useRef(null);
@@ -77,41 +109,6 @@ const NeuralAuthPortal = ({
     const pulseAnim = useRef(new Animated.Value(1)).current;
     const spinAnim = useRef(new Animated.Value(0)).current;
     const ecgAnim = useRef(new Animated.Value(0)).current;
-
-    const portalRenderCount = useRef(0);
-    portalRenderCount.current += 1;
-    console.log(`[INSTRUMENTATION][NeuralAuthPortal] Render #${portalRenderCount.current} at ${Date.now()}`, {
-        focusedInput,
-        showPassword,
-        brandingName: branding?.hospitalName,
-        hasBrandingLogo: !!branding?.logoUrl,
-        loading,
-        error: !!error,
-        windowHeight,
-        windowWidth
-    });
-
-    useEffect(() => {
-        const showSub = Keyboard.addListener(
-            Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-            (e) => {
-                console.log(`[INSTRUMENTATION][Keyboard] SHOW event at ${Date.now()}:`, {
-                    keyboardHeight: e.endCoordinates?.height,
-                    screenY: e.endCoordinates?.screenY,
-                });
-            }
-        );
-        const hideSub = Keyboard.addListener(
-            Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
-            () => {
-                console.log(`[INSTRUMENTATION][Keyboard] HIDE event at ${Date.now()}`);
-            }
-        );
-        return () => {
-            showSub.remove();
-            hideSub.remove();
-        };
-    }, []);
 
     useEffect(() => {
         Animated.loop(
@@ -222,7 +219,6 @@ const NeuralAuthPortal = ({
         <KeyboardAvoidingView 
             style={styles.container} 
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            onLayout={(e) => console.log(`[INSTRUMENTATION][KeyboardAvoidingView] onLayout at ${Date.now()}:`, e.nativeEvent.layout)}
         >
             {/* Ambient Light Healthcare Gradient Background */}
             <LinearGradient
@@ -235,8 +231,8 @@ const NeuralAuthPortal = ({
             <ScrollView 
                 contentContainerStyle={styles.scrollContent} 
                 bounces={false}
-                keyboardShouldPersistTaps="handled"
-                onLayout={(e) => console.log(`[INSTRUMENTATION][ScrollView] onLayout at ${Date.now()}:`, e.nativeEvent.layout)}
+                keyboardShouldPersistTaps="always"
+                removeClippedSubviews={false}
             >
                 <View style={[styles.mainWrapper, isDesktop && styles.mainWrapperDesktop, isTablet && styles.mainWrapperTablet]}>
                     
@@ -541,82 +537,30 @@ const NeuralAuthPortal = ({
                                 /* ── STEP 1: CREDENTIALS (LOGIN) ── */
                                 <View style={styles.loginForm}>
                                     {/* Identifier Input */}
-                                    <View style={styles.inputGroup}>
-                                        <Text style={styles.label}>{idLabel}</Text>
-                                        <View style={[
-                                            styles.inputWrapper, 
-                                            focusedInput === 'id' && styles.inputWrapperFocused
-                                        ]}>
-                                            <Feather 
-                                                name={portalType === 'patient' ? "phone" : "user"} 
-                                                size={16} 
-                                                color={focusedInput === 'id' ? "#7c3aed" : "#a78bfa"} 
-                                                style={styles.inputIcon} 
-                                            />
-                                            <TrackedTextInput
-                                                key="login-email-input"
-                                                fieldName="Email"
-                                                style={styles.input}
-                                                placeholder={idPlaceholder}
-                                                placeholderTextColor="#94a3b8"
-                                                keyboardType={idType}
-                                                autoCapitalize="none"
-                                                value={credentials.id}
-                                                onFocus={() => {
-                                                    console.log(`[INSTRUMENTATION][NeuralAuthPortal] setting focusedInput to 'id' at ${Date.now()}`);
-                                                    setFocusedInput('id');
-                                                }}
-                                                onBlur={() => {
-                                                    console.log(`[INSTRUMENTATION][NeuralAuthPortal] setting focusedInput to null (blur 'id') at ${Date.now()}`);
-                                                    setFocusedInput(null);
-                                                }}
-                                                onChangeText={v => handleCredentialChange('id', v)}
-                                            />
-                                        </View>
-                                    </View>
+                                    <AuthInputField
+                                        label={idLabel}
+                                        iconName={portalType === 'patient' ? "phone" : "user"}
+                                        placeholder={idPlaceholder}
+                                        keyboardType={idType}
+                                        autoCapitalize="none"
+                                        value={credentials.id}
+                                        onChangeText={v => handleCredentialChange('id', v)}
+                                    />
 
                                     {/* Password Input */}
-                                    <View style={styles.inputGroup}>
-                                        <Text style={styles.label}>{passkeyLabel}</Text>
-                                        <View style={[
-                                            styles.inputWrapper, 
-                                            focusedInput === 'password' && styles.inputWrapperFocused
-                                        ]}>
-                                            <Feather 
-                                                name="lock" 
-                                                size={16} 
-                                                color={focusedInput === 'password' ? "#7c3aed" : "#a78bfa"} 
-                                                style={styles.inputIcon} 
-                                            />
-                                            <TrackedTextInput
-                                                ref={passwordInputRef}
-                                                key="login-password-input"
-                                                fieldName="Password"
-                                                style={styles.input}
-                                                placeholder={passkeyPlaceholder}
-                                                placeholderTextColor="#94a3b8"
-                                                secureTextEntry={!showPassword}
-                                                value={credentials.password}
-                                                onFocus={() => {
-                                                    console.log(`[INSTRUMENTATION][NeuralAuthPortal] setting focusedInput to 'password' at ${Date.now()}`);
-                                                    setFocusedInput('password');
-                                                }}
-                                                onBlur={() => {
-                                                    console.log(`[INSTRUMENTATION][NeuralAuthPortal] setting focusedInput to null (blur 'password') at ${Date.now()}`);
-                                                    setFocusedInput(null);
-                                                }}
-                                                onChangeText={v => handleCredentialChange('password', v)}
-                                            />
+                                    <AuthInputField
+                                        ref={passwordInputRef}
+                                        label={passkeyLabel}
+                                        iconName="lock"
+                                        placeholder={passkeyPlaceholder}
+                                        secureTextEntry={!showPassword}
+                                        value={credentials.password}
+                                        onChangeText={v => handleCredentialChange('password', v)}
+                                        rightElement={
                                             <TouchableOpacity 
-                                                onPress={() => {
-                                                    const wasFocused = focusedInput === 'password';
-                                                    console.log(`[INSTRUMENTATION][NeuralAuthPortal] Toggling showPassword from ${showPassword} to ${!showPassword} at ${Date.now()}`);
-                                                    setShowPassword(!showPassword);
-                                                    if (wasFocused && passwordInputRef.current) {
-                                                        passwordInputRef.current.focus();
-                                                    }
-                                                }}
+                                                onPress={() => setShowPassword(prev => !prev)}
                                                 style={styles.eyeBtn}
+                                                activeOpacity={0.7}
                                             >
                                                 <Feather 
                                                     name={showPassword ? "eye-off" : "eye"} 
@@ -624,8 +568,8 @@ const NeuralAuthPortal = ({
                                                     color="#a78bfa" 
                                                 />
                                             </TouchableOpacity>
-                                        </View>
-                                    </View>
+                                        }
+                                    />
 
                                     {/* Remember Me Option */}
                                     <View style={styles.optionsRow}>
@@ -702,7 +646,6 @@ const styles = StyleSheet.create({
     },
     scrollContent: { 
         flexGrow: 1, 
-        justifyContent: 'space-between',
         paddingVertical: 20
     },
     mainWrapper: { 
@@ -1025,8 +968,7 @@ const styles = StyleSheet.create({
         shadowColor: '#8b5cf6',
         shadowOffset: { width: 0, height: 0 },
         shadowOpacity: 0.2,
-        shadowRadius: 8,
-        elevation: 2
+        shadowRadius: 8
     },
     inputIcon: { 
         marginRight: 10 
@@ -1308,8 +1250,7 @@ const styles = StyleSheet.create({
         shadowColor: '#0ea5e9',
         shadowOffset: { width: 0, height: 0 },
         shadowOpacity: 0.25,
-        shadowRadius: 6,
-        elevation: 2
+        shadowRadius: 6
     },
     otpInputFilled: { 
         borderColor: '#0d9488', 
@@ -1357,7 +1298,7 @@ const styles = StyleSheet.create({
         borderTopWidth: 1,
         borderTopColor: 'rgba(226, 232, 240, 0.6)',
         backgroundColor: 'rgba(255, 255, 255, 0.82)',
-        marginTop: 16
+        marginTop: 'auto'
     },
     footerText: { 
         color: '#64748b', 

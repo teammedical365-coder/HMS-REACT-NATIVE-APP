@@ -21,25 +21,6 @@ const Login = () => {
     const [localError, setLocalError] = useState(null);
     const searchParams = route.params || {};
 
-    const renderCount = useRef(0);
-    renderCount.current += 1;
-    const prevBrandingRef = useRef(branding);
-
-    if (prevBrandingRef.current !== branding) {
-        console.log(`[INSTRUMENTATION][Login.js] BRANDING CHANGED at ${Date.now()}:`, {
-            prev: prevBrandingRef.current ? { name: prevBrandingRef.current.hospitalName, logo: !!prevBrandingRef.current.logoUrl } : null,
-            next: branding ? { name: branding.hospitalName, logo: !!branding.logoUrl } : null,
-        });
-        prevBrandingRef.current = branding;
-    }
-
-    console.log(`[INSTRUMENTATION][Login.js] Render #${renderCount.current} at ${Date.now()}`, {
-        hasBranding: !!branding,
-        loading,
-        error: !!error,
-        otpStep,
-    });
-
     useEffect(() => {
         dispatch(clearError());
         dispatch(resetOtpFlow());
