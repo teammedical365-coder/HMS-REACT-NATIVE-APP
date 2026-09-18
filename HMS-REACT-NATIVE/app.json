@@ -16,11 +16,12 @@
       "expo-font"
     ],
     "android": {
-      "package": "com.anonymous.hms",
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
-      }
-    }
+  "package": "com.anonymous.hms",
+  "softwareKeyboardLayoutMode": "pan",
+  "adaptiveIcon": {
+    "foregroundImage": "./assets/adaptive-icon.png",
+    "backgroundColor": "#ffffff"
+  }
+}
   }
 }
