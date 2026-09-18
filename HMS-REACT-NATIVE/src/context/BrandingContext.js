@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { API_BASE_URL, STORAGE_KEYS } from '../utils/Constants';
 import { buildTheme } from '../Theme';
+import { logKbEvent } from '../utils/kbDebug';
 
 const BrandingContext = createContext();
 
@@ -13,7 +14,8 @@ export const BrandingProvider = ({ children }) => {
   const loadBranding = async (hospitalId) => {
     if (!hospitalId) return;
     setLoading(true);
-    console.log(`[BrandingContext] loadBranding called with hospitalId: ${hospitalId}`);
+    logKbEvent('BRANDING_LOADING_TRUE', { brandingLoading: true });
+    console.log(`[KB-DEBUG] [BrandingContext] loadBranding called with hospitalId: ${hospitalId}`);
     try {
       const apiUrl = `${API_BASE_URL}/api/public/branding?tenantId=${hospitalId}`;
       console.log(`[BrandingContext] Calling API URL: ${apiUrl}`);
@@ -36,6 +38,7 @@ export const BrandingProvider = ({ children }) => {
         await AsyncStorage.setItem(STORAGE_KEYS.HOSPITAL_BRANDING_NAME, brandingData.hospitalName || '');
         await AsyncStorage.setItem(STORAGE_KEYS.HOSPITAL_BRANDING_ID, hospitalId);
         setBranding(brandingData);
+        logKbEvent('BRANDING_SET');
       }
     } catch (error) {
       console.log('[BrandingContext] FULL ERROR MESSAGE:', error.message);
@@ -45,6 +48,7 @@ export const BrandingProvider = ({ children }) => {
       console.warn('[BrandingContext] Failed to load branding:', error.message);
     } finally {
       setLoading(false);
+      logKbEvent('BRANDING_LOADING_FALSE', { brandingLoading: false });
     }
   };
 

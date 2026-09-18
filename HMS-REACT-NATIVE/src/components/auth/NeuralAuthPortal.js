@@ -7,6 +7,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather, FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
 import Svg, { Path } from 'react-native-svg';
+import { logKbEvent, kbDebugState } from '../../utils/kbDebug';
 
 const AuthInputField = React.memo(React.forwardRef(({
     iconName,
@@ -25,6 +26,18 @@ const AuthInputField = React.memo(React.forwardRef(({
     ...props
 }, ref) => {
     const [isFocused, setIsFocused] = useState(false);
+    const isEmailInput = keyboardType === 'email-address' || iconName === 'user' || iconName === 'mail';
+
+    useEffect(() => {
+        if (isEmailInput) {
+            kbDebugState.emailMountCount += 1;
+            logKbEvent('EMAIL_MOUNT', { emailMountCount: kbDebugState.emailMountCount });
+            return () => {
+                kbDebugState.emailUnmountCount += 1;
+                logKbEvent('EMAIL_UNMOUNT', { emailUnmountCount: kbDebugState.emailUnmountCount });
+            };
+        }
+    }, [isEmailInput]);
 
     return (
         <View style={styles.inputGroup}>
@@ -51,10 +64,26 @@ const AuthInputField = React.memo(React.forwardRef(({
                     onChangeText={onChangeText}
                     onFocus={(e) => {
                         setIsFocused(true);
+                        if (isEmailInput) {
+                            kbDebugState.emailFocusCount += 1;
+                            logKbEvent('EMAIL_FOCUS', { emailFocusCount: kbDebugState.emailFocusCount });
+                            console.log(`[KB-DEBUG] EMAIL_FOCUS #${kbDebugState.emailFocusCount}`);
+                        } else {
+                            logKbEvent('PASSWORD_FOCUS');
+                            console.log('[KB-DEBUG] PASSWORD_FOCUS');
+                        }
                         if (onFocus) onFocus(e);
                     }}
                     onBlur={(e) => {
                         setIsFocused(false);
+                        if (isEmailInput) {
+                            kbDebugState.emailBlurCount += 1;
+                            logKbEvent('EMAIL_BLUR', { emailBlurCount: kbDebugState.emailBlurCount });
+                            console.log(`[KB-DEBUG] EMAIL_BLUR #${kbDebugState.emailBlurCount}`);
+                        } else {
+                            logKbEvent('PASSWORD_BLUR');
+                            console.log('[KB-DEBUG] PASSWORD_BLUR');
+                        }
                         if (onBlur) onBlur(e);
                     }}
                     {...props}
@@ -109,6 +138,37 @@ const NeuralAuthPortal = ({
     const pulseAnim = useRef(new Animated.Value(1)).current;
     const spinAnim = useRef(new Animated.Value(0)).current;
     const ecgAnim = useRef(new Animated.Value(0)).current;
+
+    useEffect(() => {
+        kbDebugState.neuralMountCount += 1;
+        logKbEvent('NEURAL_MOUNT', { neuralMountCount: kbDebugState.neuralMountCount });
+        console.log(`[KB-DEBUG] NEURAL_MOUNT #${kbDebugState.neuralMountCount}`);
+
+        const showSub = Keyboard.addListener(
+            Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+            () => {
+                kbDebugState.keyboardShowCount += 1;
+                logKbEvent('KEYBOARD_SHOW', { keyboardShowCount: kbDebugState.keyboardShowCount });
+                console.log(`[KB-DEBUG] KEYBOARD_SHOW #${kbDebugState.keyboardShowCount}`);
+            }
+        );
+        const hideSub = Keyboard.addListener(
+            Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+            () => {
+                kbDebugState.keyboardHideCount += 1;
+                logKbEvent('KEYBOARD_HIDE', { keyboardHideCount: kbDebugState.keyboardHideCount });
+                console.log(`[KB-DEBUG] KEYBOARD_HIDE #${kbDebugState.keyboardHideCount}`);
+            }
+        );
+
+        return () => {
+            kbDebugState.neuralUnmountCount += 1;
+            logKbEvent('NEURAL_UNMOUNT', { neuralUnmountCount: kbDebugState.neuralUnmountCount });
+            console.log(`[KB-DEBUG] NEURAL_UNMOUNT #${kbDebugState.neuralUnmountCount}`);
+            showSub.remove();
+            hideSub.remove();
+        };
+    }, []);
 
     useEffect(() => {
         Animated.loop(
@@ -213,7 +273,8 @@ const NeuralAuthPortal = ({
     };
 
     const primarySession = Array.isArray(activeSession) ? activeSession[0] : typeof activeSession === 'object' ? activeSession : null;
-    const logoSrc = branding?.logoUrl ? { uri: branding.logoUrl } : require('../../../assets/medical365-logo.png');
+    // TEMPORARY DIAGNOSTIC EXPERIMENT: Fix logoSrc to local bundled asset to isolate Image source mutation
+    const logoSrc = require('../../../assets/medical365-logo.png');
 
     return (
         <KeyboardAvoidingView 

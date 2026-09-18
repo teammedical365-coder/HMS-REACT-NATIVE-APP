@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useDispatch } from 'react-redux';
 import { useAuth } from '../store/hooks';
 import { setCredentials } from '../store/slices/authSlice';
+import { logKbEvent } from '../utils/kbDebug';
 
 import AuthStack from './AuthStack';
 import {
@@ -97,6 +98,11 @@ const FallbackStack = () => (
 const AppNavigator = () => {
     const dispatch = useDispatch();
     const { loading: isLoading, isAuthenticated, user } = useAuth();
+
+    React.useEffect(() => {
+        logKbEvent(`APPNAV_LOADING_${isLoading ? 'TRUE' : 'FALSE'}`, { appNavLoading: !!isLoading });
+        console.log(`[KB-DEBUG] AppNavigator loading changed to: ${isLoading}`);
+    }, [isLoading]);
 
     const isWeb = Platform.OS === 'web' && typeof window !== 'undefined';
 
