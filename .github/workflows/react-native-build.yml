@@ -127,15 +127,28 @@ jobs:
             slug = slug.substring(0, 50).replace(/-+$/, '') || 'hospital-app';
             config.expo.slug = slug;
 
+            // Wire app icon to white-label asset
+            config.expo.icon = './assets/icon.png';
+
             if (!config.expo.android) config.expo.android = {};
             config.expo.android.package = applicationId;
+            config.expo.android.icon = './assets/icon.png';
+
+            // Ensure adaptiveIcon does not override hospital logo with a default icon
+            if (!config.expo.android.adaptiveIcon) {
+              config.expo.android.adaptiveIcon = {};
+            }
+            config.expo.android.adaptiveIcon.foregroundImage = './assets/adaptive-icon.png';
+            if (!config.expo.android.adaptiveIcon.backgroundColor) {
+              config.expo.android.adaptiveIcon.backgroundColor = '#ffffff';
+            }
 
             if (config.expo.ios) {
               config.expo.ios.bundleIdentifier = applicationId;
             }
 
             fs.writeFileSync(appJsonPath, JSON.stringify(config, null, 2) + '\n');
-            core.info(`Updated app.json: name=${hospitalName}, slug=${slug}, package=${applicationId}`);
+            core.info(`Updated app.json: name=${hospitalName}, slug=${slug}, package=${applicationId}, icon=${config.expo.icon}`);
 
       - name: Download & Process Logo
         env:
@@ -143,102 +156,214 @@ jobs:
         run: |
           set -euo pipefail
 
+          CANONICAL_LOGO="HMS-REACT-NATIVE/assets/medical365-logo.png"
           RAW_FILE="HMS-REACT-NATIVE/assets/icon_raw"
           PNG_FILE="HMS-REACT-NATIVE/assets/icon.png"
           SPLASH_FILE="HMS-REACT-NATIVE/assets/splash.png"
+          ADAPTIVE_FILE="HMS-REACT-NATIVE/assets/adaptive-icon.png"
           MAX_LOGO_BYTES=5242880
 
           mkdir -p HMS-REACT-NATIVE/assets
 
-          if [ "$LOGO_URL" = "default" ] || [ -z "$LOGO_URL" ]; then
-            echo "Using default logo"
-            if [ -f "$PNG_FILE" ]; then
-              cp "$PNG_FILE" "$SPLASH_FILE"
+          # Verify canonical Medical365 logo exists
+          if [ ! -s "$CANONICAL_LOGO" ]; then
+            echo "::error::Canonical Medical365 logo missing at $CANONICAL_LOGO"
+            exit 1
+          fi
+
+          generate_adaptive_icon() {
+            local src="$1"
+            local dest="$2"
+            echo "Generating Android adaptive icon foreground with safe-zone padding..."
+            if command -v magick >/dev/null 2>&1; then
+              magick -size 1024x1024 xc:none \( "$src" -resize 720x720\> \) -gravity center -composite "$dest"
+            elif command -v convert >/dev/null 2>&1; then
+              convert -size 1024x1024 xc:none \( "$src" -resize 720x720\> \) -gravity center -composite "$dest"
+            elif python3 -c "import PIL" >/dev/null 2>&1; then
+              python3 -c "from PIL import Image; img = Image.open('$src').convert('RGBA'); canvas = Image.new('RGBA', (1024, 1024), (0, 0, 0, 0)); resample = getattr(Image, 'Resampling', Image).LANCZOS if hasattr(Image, 'Resampling') else getattr(Image, 'ANTIALIAS', 1); img.thumbnail((720, 720), resample); canvas.paste(img, ((1024 - img.width) // 2, (1024 - img.height) // 2), img); canvas.save('$dest', 'PNG')"
             else
-              echo "::error::Default logo file not found: $PNG_FILE"
-              exit 1
-            fi
-            exit 0
-          fi
-
-          if [[ "$LOGO_URL" == data:image/* ]]; then
-            echo "Processing Base64 logo..."
-            if ! printf '%s' "$LOGO_URL" | grep -Eq '^data:image/(png|jpeg|jpg|webp);base64,'; then
-              echo "::error::Malformed or unsupported data URL."
-              exit 1
+              cp -f "$src" "$dest"
             fi
 
-            BASE64_DATA="${LOGO_URL#*;base64,}"
-            printf '%s' "$BASE64_DATA" | base64 --decode > "$RAW_FILE"
-
-          elif [[ "$LOGO_URL" == /* ]] || [[ "$LOGO_URL" == https://* ]]; then
-            TARGET_URL="$LOGO_URL"
-
-            if [[ "$LOGO_URL" == /* ]]; then
-              TARGET_URL="https://hms-n6nk.onrender.com${LOGO_URL}"
+            if [ ! -s "$dest" ]; then
+              cp -f "$src" "$dest"
             fi
+          }
 
-            echo "Downloading logo from configured URL"
-            curl -f -L -sS \
-              --connect-timeout 15 \
-              --max-time 30 \
-              --max-filesize "$MAX_LOGO_BYTES" \
-              "$TARGET_URL" -o "$RAW_FILE"
-          else
-            echo "::error::Unsupported logo URL format. Use default, /relative/path, https:// URL, or a supported data URI."
-            exit 1
-          fi
+          IS_WHITE_LABEL=false
 
-          FILE_SIZE=$(wc -c < "$RAW_FILE" | tr -d ' ')
-          if [ "$FILE_SIZE" -le 0 ]; then
-            echo "::error::Logo file is empty"
-            exit 1
-          fi
+          LOGO_URL_LOWER=$(echo "${LOGO_URL:-}" | tr '[:upper:]' '[:lower:]' | xargs)
+          if [ -n "$LOGO_URL_LOWER" ] && [ "$LOGO_URL_LOWER" != "default" ] && [ "$LOGO_URL_LOWER" != "none" ] && [ "$LOGO_URL_LOWER" != "null" ]; then
+            echo "White-label logo candidate detected: attempting to fetch and validate..."
+            DOWNLOAD_SUCCESS=false
 
-          if [ "$FILE_SIZE" -gt "$MAX_LOGO_BYTES" ]; then
-            echo "::error::Logo file exceeds 5 MB"
-            exit 1
-          fi
-
-          MIME_TYPE=$(file -b --mime-type "$RAW_FILE" || true)
-          echo "Detected logo MIME type: $MIME_TYPE"
-
-          case "$MIME_TYPE" in
-            image/png)
-              cp "$RAW_FILE" "$PNG_FILE"
-              ;;
-            image/jpeg|image/webp)
-              if command -v magick >/dev/null 2>&1; then
-                magick "$RAW_FILE" "$PNG_FILE"
-              elif command -v convert >/dev/null 2>&1; then
-                convert "$RAW_FILE" "$PNG_FILE"
-              elif python3 -c "import PIL" >/dev/null 2>&1; then
-                python3 -c "from PIL import Image; Image.open('$RAW_FILE').convert('RGBA').save('$PNG_FILE', 'PNG')"
+            if [[ "$LOGO_URL" == data:image/* ]]; then
+              echo "Processing Base64 logo..."
+              if printf '%s' "$LOGO_URL" | grep -Eq '^data:image/(png|jpeg|jpg|webp);base64,'; then
+                BASE64_DATA="${LOGO_URL#*;base64,}"
+                if printf '%s' "$BASE64_DATA" | base64 --decode > "$RAW_FILE" 2>/dev/null; then
+                  DOWNLOAD_SUCCESS=true
+                else
+                  echo "::warning::Failed to decode Base64 logo data."
+                fi
               else
-                echo "::error::No image conversion tool found for $MIME_TYPE"
-                exit 1
+                echo "::warning::Malformed or unsupported data URL."
               fi
-              ;;
-            *)
-              echo "::error::Downloaded logo is not a supported image format"
-              exit 1
-              ;;
-          esac
 
-          FINAL_MIME=$(file -b --mime-type "$PNG_FILE" || true)
-          if [ "$FINAL_MIME" != "image/png" ]; then
-            echo "::error::Final logo is not a valid PNG"
+            elif [[ "$LOGO_URL" == /* ]] || [[ "$LOGO_URL" == https://* ]] || [[ "$LOGO_URL" == http://* ]]; then
+              TARGET_URL="$LOGO_URL"
+              if [[ "$LOGO_URL" == /* ]]; then
+                TARGET_URL="https://hms-n6nk.onrender.com${LOGO_URL}"
+              fi
+
+              echo "Downloading logo from configured URL: $TARGET_URL"
+              if curl -f -L -sS \
+                --connect-timeout 15 \
+                --max-time 30 \
+                --max-filesize "$MAX_LOGO_BYTES" \
+                "$TARGET_URL" -o "$RAW_FILE"; then
+                DOWNLOAD_SUCCESS=true
+              else
+                echo "::warning::Failed to download logo from $TARGET_URL"
+              fi
+            else
+              echo "::warning::Unsupported logo URL format: $LOGO_URL"
+            fi
+
+            if [ "$DOWNLOAD_SUCCESS" = "true" ] && [ -s "$RAW_FILE" ]; then
+              FILE_SIZE=$(wc -c < "$RAW_FILE" | tr -d ' ')
+              if [ "$FILE_SIZE" -gt 0 ] && [ "$FILE_SIZE" -le "$MAX_LOGO_BYTES" ]; then
+                MIME_TYPE=$(file -b --mime-type "$RAW_FILE" || true)
+                echo "Detected candidate logo MIME type: $MIME_TYPE"
+
+                CONVERT_SUCCESS=false
+                case "$MIME_TYPE" in
+                  image/png)
+                    cp -f "$RAW_FILE" "$PNG_FILE"
+                    CONVERT_SUCCESS=true
+                    ;;
+                  image/jpeg|image/webp)
+                    if command -v magick >/dev/null 2>&1; then
+                      magick "$RAW_FILE" "$PNG_FILE" && CONVERT_SUCCESS=true
+                    elif command -v convert >/dev/null 2>&1; then
+                      convert "$RAW_FILE" "$PNG_FILE" && CONVERT_SUCCESS=true
+                    elif python3 -c "import PIL" >/dev/null 2>&1; then
+                      python3 -c "from PIL import Image; Image.open('$RAW_FILE').convert('RGBA').save('$PNG_FILE', 'PNG')" && CONVERT_SUCCESS=true
+                    fi
+                    ;;
+                esac
+
+                if [ "$CONVERT_SUCCESS" = "true" ] && [ -s "$PNG_FILE" ]; then
+                  FINAL_MIME=$(file -b --mime-type "$PNG_FILE" || true)
+                  FINAL_SIZE=$(wc -c < "$PNG_FILE" | tr -d ' ')
+                  if [ "$FINAL_MIME" = "image/png" ] && [ "$FINAL_SIZE" -gt 0 ]; then
+                    IS_WHITE_LABEL=true
+                  fi
+                fi
+              fi
+            fi
+          fi
+
+          if [ "$IS_WHITE_LABEL" = "true" ]; then
+            echo "Using hospital white-label logo"
+          else
+            echo "White-label unavailable; using Medical365 logo"
+            cp -f "$CANONICAL_LOGO" "$PNG_FILE"
+          fi
+
+          cp -f "$PNG_FILE" "$SPLASH_FILE"
+          generate_adaptive_icon "$PNG_FILE" "$ADAPTIVE_FILE"
+
+          if [ ! -s "$PNG_FILE" ]; then
+            echo "::error::Final icon.png is missing or empty"
             exit 1
           fi
 
-          FINAL_SIZE=$(wc -c < "$PNG_FILE" | tr -d ' ')
-          if [ "$FINAL_SIZE" -le 0 ] || [ "$FINAL_SIZE" -gt "$MAX_LOGO_BYTES" ]; then
-            echo "::error::Final PNG size is invalid"
+          if [ ! -s "$ADAPTIVE_FILE" ]; then
+            echo "::error::Final adaptive-icon.png is missing or empty"
             exit 1
           fi
 
-          cp "$PNG_FILE" "$SPLASH_FILE"
-          echo "Logo and splash successfully validated."
+          if [ "$IS_WHITE_LABEL" = "true" ]; then
+            echo "SELECTED_ICON_SOURCE=WHITE_LABEL" >> "$GITHUB_ENV"
+          else
+            echo "SELECTED_ICON_SOURCE=MEDICAL365" >> "$GITHUB_ENV"
+          fi
+
+          echo "Logo, splash, and adaptive icon successfully prepared and validated."
+
+      - name: Verify and Apply App Icons in app.json
+        uses: actions/github-script@v7
+        env:
+          SELECTED_ICON_SOURCE: ${{ env.SELECTED_ICON_SOURCE }}
+        with:
+          script: |
+            const fs = require('fs');
+            const crypto = require('crypto');
+
+            const appJsonPath = 'HMS-REACT-NATIVE/app.json';
+            const iconPath = 'HMS-REACT-NATIVE/assets/icon.png';
+            const adaptivePath = 'HMS-REACT-NATIVE/assets/adaptive-icon.png';
+            const canonicalPath = 'HMS-REACT-NATIVE/assets/medical365-logo.png';
+            const selectedSource = process.env.SELECTED_ICON_SOURCE || 'UNKNOWN';
+
+            if (!fs.existsSync(iconPath) || fs.statSync(iconPath).size === 0) {
+              core.setFailed(`Required icon asset missing or empty at ${iconPath}`);
+              return;
+            }
+
+            if (!fs.existsSync(adaptivePath) || fs.statSync(adaptivePath).size === 0) {
+              core.setFailed(`Required adaptive icon asset missing or empty at ${adaptivePath}`);
+              return;
+            }
+
+            const getHash = (filePath) => {
+              const buffer = fs.readFileSync(filePath);
+              return crypto.createHash('sha256').update(buffer).digest('hex');
+            };
+
+            const iconHash = getHash(iconPath);
+            const canonicalHash = fs.existsSync(canonicalPath) ? getHash(canonicalPath) : null;
+
+            if (selectedSource === 'MEDICAL365') {
+              if (iconHash !== canonicalHash) {
+                core.setFailed(`Validation failed: Selected source is MEDICAL365, but ${iconPath} does not match canonical ${canonicalPath}`);
+                return;
+              }
+              core.info(`Icon validation passed: ${iconPath} verified against canonical Medical365 logo.`);
+            } else if (selectedSource === 'WHITE_LABEL') {
+              if (canonicalHash && iconHash === canonicalHash) {
+                core.setFailed(`Validation failed: Selected source is WHITE_LABEL, but ${iconPath} is identical to canonical Medical365 logo instead of hospital logo.`);
+                return;
+              }
+              core.info(`Icon validation passed: ${iconPath} verified as custom hospital white-label logo.`);
+            } else {
+              core.warning(`Unknown icon source ${selectedSource}; proceeding with existing icon validation.`);
+            }
+
+            let config = JSON.parse(fs.readFileSync(appJsonPath, 'utf8'));
+            if (!config.expo) config.expo = {};
+            if (!config.expo.android) config.expo.android = {};
+
+            config.expo.icon = './assets/icon.png';
+            config.expo.android.icon = './assets/icon.png';
+
+            if (!config.expo.android.adaptiveIcon) {
+              config.expo.android.adaptiveIcon = {};
+            }
+
+            if (fs.existsSync(adaptivePath)) {
+              config.expo.android.adaptiveIcon.foregroundImage = './assets/adaptive-icon.png';
+            } else {
+              config.expo.android.adaptiveIcon.foregroundImage = './assets/icon.png';
+            }
+
+            if (!config.expo.android.adaptiveIcon.backgroundColor) {
+              config.expo.android.adaptiveIcon.backgroundColor = '#ffffff';
+            }
+
+            fs.writeFileSync(appJsonPath, JSON.stringify(config, null, 2) + '\n');
+            core.info(`Configured app.json launcher icons for source=${selectedSource}: icon=${config.expo.icon}, adaptiveForeground=${config.expo.android.adaptiveIcon.foregroundImage}, adaptiveBg=${config.expo.android.adaptiveIcon.backgroundColor}`);
 
       - name: Build APK and AAB via Expo Prebuild
         id: build_release

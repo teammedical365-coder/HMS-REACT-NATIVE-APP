@@ -2,11 +2,35 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
     View, Text, StyleSheet, TextInput, TouchableOpacity, Image, 
     ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, 
-    Dimensions, Animated, useWindowDimensions 
+    Dimensions, Animated, useWindowDimensions, Keyboard 
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather, FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
 import Svg, { Path } from 'react-native-svg';
+
+const TrackedTextInput = React.forwardRef(({ fieldName, onFocus, onBlur, ...props }, ref) => {
+    useEffect(() => {
+        console.log(`[INSTRUMENTATION][TextInput:${fieldName}] MOUNTED at ${Date.now()}`);
+        return () => {
+            console.log(`[INSTRUMENTATION][TextInput:${fieldName}] UNMOUNTED at ${Date.now()}`);
+        };
+    }, [fieldName]);
+
+    return (
+        <TextInput
+            ref={ref}
+            {...props}
+            onFocus={(e) => {
+                console.log(`[INSTRUMENTATION][TextInput:${fieldName}] onFocus at ${Date.now()}`);
+                if (onFocus) onFocus(e);
+            }}
+            onBlur={(e) => {
+                console.log(`[INSTRUMENTATION][TextInput:${fieldName}] onBlur at ${Date.now()}`);
+                if (onBlur) onBlur(e);
+            }}
+        />
+    );
+});
 
 const NeuralAuthPortal = ({
     portalType = 'hospital',
@@ -38,6 +62,41 @@ const NeuralAuthPortal = ({
     const isTablet = windowWidth >= 768 && windowWidth < 1100;
     const isMobile = windowWidth < 768;
 
+    const portalRenderCount = useRef(0);
+    portalRenderCount.current += 1;
+    console.log(`[INSTRUMENTATION][NeuralAuthPortal] Render #${portalRenderCount.current} at ${Date.now()}`, {
+        focusedInput,
+        showPassword,
+        brandingName: branding?.hospitalName,
+        hasBrandingLogo: !!branding?.logoUrl,
+        loading,
+        error: !!error,
+        windowHeight,
+        windowWidth
+    });
+
+    useEffect(() => {
+        const showSub = Keyboard.addListener(
+            Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+            (e) => {
+                console.log(`[INSTRUMENTATION][Keyboard] SHOW event at ${Date.now()}:`, {
+                    keyboardHeight: e.endCoordinates?.height,
+                    screenY: e.endCoordinates?.screenY,
+                });
+            }
+        );
+        const hideSub = Keyboard.addListener(
+            Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+            () => {
+                console.log(`[INSTRUMENTATION][Keyboard] HIDE event at ${Date.now()}`);
+            }
+        );
+        return () => {
+            showSub.remove();
+            hideSub.remove();
+        };
+    }, []);
+
     const [credentials, setCredentials] = useState({ id: '', password: '' });
     const [showPassword, setShowPassword] = useState(false);
     const [rememberMe, setRememberMe] = useState(true);
@@ -46,6 +105,7 @@ const NeuralAuthPortal = ({
     const [focusedInput, setFocusedInput] = useState(null);
     const [focusedOtpIndex, setFocusedOtpIndex] = useState(null);
 
+    const passwordInputRef = useRef(null);
     const otpInputRefs = useRef([]);
 
     // Animations
@@ -159,7 +219,11 @@ const NeuralAuthPortal = ({
     const logoSrc = branding?.logoUrl ? { uri: branding.logoUrl } : require('../../../assets/medical365-logo.png');
 
     return (
-        <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <KeyboardAvoidingView 
+            style={styles.container} 
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            onLayout={(e) => console.log(`[INSTRUMENTATION][KeyboardAvoidingView] onLayout at ${Date.now()}:`, e.nativeEvent.layout)}
+        >
             {/* Ambient Light Healthcare Gradient Background */}
             <LinearGradient
                 colors={['#f0f9ff', '#f0fdfa', '#f8fafc']}
@@ -172,6 +236,7 @@ const NeuralAuthPortal = ({
                 contentContainerStyle={styles.scrollContent} 
                 bounces={false}
                 keyboardShouldPersistTaps="handled"
+                onLayout={(e) => console.log(`[INSTRUMENTATION][ScrollView] onLayout at ${Date.now()}:`, e.nativeEvent.layout)}
             >
                 <View style={[styles.mainWrapper, isDesktop && styles.mainWrapperDesktop, isTablet && styles.mainWrapperTablet]}>
                     
@@ -488,15 +553,23 @@ const NeuralAuthPortal = ({
                                                 color={focusedInput === 'id' ? "#7c3aed" : "#a78bfa"} 
                                                 style={styles.inputIcon} 
                                             />
-                                            <TextInput
+                                            <TrackedTextInput
+                                                key="login-email-input"
+                                                fieldName="Email"
                                                 style={styles.input}
                                                 placeholder={idPlaceholder}
                                                 placeholderTextColor="#94a3b8"
                                                 keyboardType={idType}
                                                 autoCapitalize="none"
                                                 value={credentials.id}
-                                                onFocus={() => setFocusedInput('id')}
-                                                onBlur={() => setFocusedInput(null)}
+                                                onFocus={() => {
+                                                    console.log(`[INSTRUMENTATION][NeuralAuthPortal] setting focusedInput to 'id' at ${Date.now()}`);
+                                                    setFocusedInput('id');
+                                                }}
+                                                onBlur={() => {
+                                                    console.log(`[INSTRUMENTATION][NeuralAuthPortal] setting focusedInput to null (blur 'id') at ${Date.now()}`);
+                                                    setFocusedInput(null);
+                                                }}
                                                 onChangeText={v => handleCredentialChange('id', v)}
                                             />
                                         </View>
@@ -515,18 +588,34 @@ const NeuralAuthPortal = ({
                                                 color={focusedInput === 'password' ? "#7c3aed" : "#a78bfa"} 
                                                 style={styles.inputIcon} 
                                             />
-                                            <TextInput
+                                            <TrackedTextInput
+                                                ref={passwordInputRef}
+                                                key="login-password-input"
+                                                fieldName="Password"
                                                 style={styles.input}
                                                 placeholder={passkeyPlaceholder}
                                                 placeholderTextColor="#94a3b8"
                                                 secureTextEntry={!showPassword}
                                                 value={credentials.password}
-                                                onFocus={() => setFocusedInput('password')}
-                                                onBlur={() => setFocusedInput(null)}
+                                                onFocus={() => {
+                                                    console.log(`[INSTRUMENTATION][NeuralAuthPortal] setting focusedInput to 'password' at ${Date.now()}`);
+                                                    setFocusedInput('password');
+                                                }}
+                                                onBlur={() => {
+                                                    console.log(`[INSTRUMENTATION][NeuralAuthPortal] setting focusedInput to null (blur 'password') at ${Date.now()}`);
+                                                    setFocusedInput(null);
+                                                }}
                                                 onChangeText={v => handleCredentialChange('password', v)}
                                             />
                                             <TouchableOpacity 
-                                                onPress={() => setShowPassword(!showPassword)}
+                                                onPress={() => {
+                                                    const wasFocused = focusedInput === 'password';
+                                                    console.log(`[INSTRUMENTATION][NeuralAuthPortal] Toggling showPassword from ${showPassword} to ${!showPassword} at ${Date.now()}`);
+                                                    setShowPassword(!showPassword);
+                                                    if (wasFocused && passwordInputRef.current) {
+                                                        passwordInputRef.current.focus();
+                                                    }
+                                                }}
                                                 style={styles.eyeBtn}
                                             >
                                                 <Feather 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, Image, ActivityIndicator, Alert, SafeAreaView, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useAppDispatch, useAuth } from '../../store/hooks';
@@ -15,6 +15,25 @@ const Login = () => {
     const { branding } = useBranding();
     const dispatch = useAppDispatch();
     const { loading, error, isAuthenticated, user, otpStep, preAuthToken, otpEmail, activeSession, otpSuccessMsg, tenant } = useAuth();
+
+    const renderCount = useRef(0);
+    renderCount.current += 1;
+    const prevBrandingRef = useRef(branding);
+
+    if (prevBrandingRef.current !== branding) {
+        console.log(`[INSTRUMENTATION][Login.js] BRANDING CHANGED at ${Date.now()}:`, {
+            prev: prevBrandingRef.current ? { name: prevBrandingRef.current.hospitalName, logo: !!prevBrandingRef.current.logoUrl } : null,
+            next: branding ? { name: branding.hospitalName, logo: !!branding.logoUrl } : null,
+        });
+        prevBrandingRef.current = branding;
+    }
+
+    console.log(`[INSTRUMENTATION][Login.js] Render #${renderCount.current} at ${Date.now()}`, {
+        hasBranding: !!branding,
+        loading,
+        error: !!error,
+        otpStep,
+    });
     
     const [formData, setFormData] = useState({ email: '', password: '', hospitalSlug: '' });
     const [nativeSlug, setNativeSlug] = useState(null);
