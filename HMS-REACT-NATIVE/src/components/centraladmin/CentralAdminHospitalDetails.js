@@ -11,17 +11,19 @@ import { hospitalAPI, rnBuildAPI } from '../../utils/api';
 
 function WhiteLabelBuilder({ hospital }) {
     const hospitalId = hospital?._id || hospital?.id;
-    const [status, setStatus] = useState(hospital?.appConfig?.rnBuildStatus || 'NOT_BUILT');
-    const [apkUrl, setApkUrl] = useState(hospital?.appConfig?.rnApkUrl || '');
-    const [aabUrl, setAabUrl] = useState(hospital?.appConfig?.rnAabUrl || '');
+    const initialStatus = hospital?.appConfig?.rnBuildStatus || 'NOT_BUILT';
+    const [status, setStatus] = useState(initialStatus);
+    const [apkUrl, setApkUrl] = useState(initialStatus === 'COMPLETED' ? (hospital?.appConfig?.rnApkUrl || '') : '');
+    const [aabUrl, setAabUrl] = useState(initialStatus === 'COMPLETED' ? (hospital?.appConfig?.rnAabUrl || '') : '');
     const [buildError, setBuildError] = useState(hospital?.appConfig?.rnBuildError || '');
     const [isTriggering, setIsTriggering] = useState(false);
 
     useEffect(() => {
         if (hospital?.appConfig) {
-            setStatus(hospital.appConfig.rnBuildStatus || 'NOT_BUILT');
-            setApkUrl(hospital.appConfig.rnApkUrl || '');
-            setAabUrl(hospital.appConfig.rnAabUrl || '');
+            const currentStatus = hospital.appConfig.rnBuildStatus || 'NOT_BUILT';
+            setStatus(currentStatus);
+            setApkUrl(currentStatus === 'COMPLETED' ? (hospital.appConfig.rnApkUrl || '') : '');
+            setAabUrl(currentStatus === 'COMPLETED' ? (hospital.appConfig.rnAabUrl || '') : '');
             setBuildError(hospital.appConfig.rnBuildError || '');
         }
     }, [hospital?._id, hospital?.appConfig?.rnBuildStatus, hospital?.appConfig?.rnBuildError]);
@@ -35,11 +37,15 @@ function WhiteLabelBuilder({ hospital }) {
                     if (res?.success) {
                         setStatus(res.buildStatus);
                         if (res.buildStatus === 'COMPLETED') {
-                            setApkUrl(res.apkUrl || rnBuildAPI.getApkDownloadUrl(hospitalId));
-                            setAabUrl(res.aabUrl || rnBuildAPI.getAabDownloadUrl(hospitalId));
+                            setApkUrl(res.apkUrl || '');
+                            setAabUrl(res.aabUrl || '');
                             setBuildError('');
-                        } else if (res.buildStatus === 'FAILED') {
-                            setBuildError(res.buildError || 'Build failed');
+                        } else {
+                            setApkUrl('');
+                            setAabUrl('');
+                            if (res.buildStatus === 'FAILED') {
+                                setBuildError(res.buildError || 'Build failed');
+                            }
                         }
                     }
                 } catch (err) {
@@ -79,6 +85,8 @@ function WhiteLabelBuilder({ hospital }) {
         try {
             await rnBuildAPI.resetBuild(hospitalId);
             setStatus('NOT_BUILT');
+            setApkUrl('');
+            setAabUrl('');
             setBuildError('');
         } catch (err) {
             console.error('Reset RN build error:', err);
@@ -155,21 +163,21 @@ function WhiteLabelBuilder({ hospital }) {
                             <Text style={styles.wlResetBtnText}>Reset Build</Text>
                         </TouchableOpacity>
                     )}
-                    {status === 'COMPLETED' && (
-                        <>
-                            <TouchableOpacity
-                                style={[styles.wlBtn, styles.wlDownloadBtn]}
-                                onPress={() => handleDownload('apk')}
-                            >
-                                <Text style={styles.wlBuildBtnText}>📥 Download APK</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[styles.wlBtn, styles.wlDownloadBtn, { backgroundColor: '#8b5cf6' }]}
-                                onPress={() => handleDownload('aab')}
-                            >
-                                <Text style={styles.wlBuildBtnText}>🚀 Download AAB</Text>
-                            </TouchableOpacity>
-                        </>
+                    {status === 'COMPLETED' && Boolean(apkUrl) && (
+                        <TouchableOpacity
+                            style={[styles.wlBtn, styles.wlDownloadBtn]}
+                            onPress={() => handleDownload('apk')}
+                        >
+                            <Text style={styles.wlBuildBtnText}>📥 Download APK</Text>
+                        </TouchableOpacity>
+                    )}
+                    {status === 'COMPLETED' && Boolean(aabUrl) && (
+                        <TouchableOpacity
+                            style={[styles.wlBtn, styles.wlDownloadBtn, { backgroundColor: '#8b5cf6' }]}
+                            onPress={() => handleDownload('aab')}
+                        >
+                            <Text style={styles.wlBuildBtnText}>🚀 Download AAB</Text>
+                        </TouchableOpacity>
                     )}
                 </View>
             </View>

@@ -423,8 +423,8 @@ jobs:
             output_artifacts/app-rn.aab
           if-no-files-found: error
 
-      - name: Notify Backend Webhook (Success)
-        id: notify_success
+      - name: Upload Build Artifacts to Backend (Phase 1)
+        id: upload_artifacts_backend
         if: success()
         env:
           WEBHOOK_SECRET: ${{ secrets.RN_WEBHOOK_SECRET }}
@@ -443,10 +443,10 @@ jobs:
             exit 1
           fi
 
-          echo "Sending rnBuildId: $RN_BUILD_ID to success upload webhook"
+          echo "Phase 1: Uploading APK/AAB with rnBuildId: $RN_BUILD_ID..."
 
           HTTP_STATUS=$(curl -sS \
-            -o /tmp/rn-webhook-response.txt \
+            -o /tmp/rn-upload-response.txt \
             -w "%{http_code}" \
             --retry 3 \
             --retry-delay 2 \
@@ -458,19 +458,20 @@ jobs:
             -F "tenantId=${TENANT_ID}" \
             -F "rnBuildId=${RN_BUILD_ID}")
 
-          echo "Backend HTTP status: $HTTP_STATUS"
-          echo "Backend response:"
-          cat /tmp/rn-webhook-response.txt
+          echo "Upload HTTP status: $HTTP_STATUS"
+          echo "Upload response:"
+          cat /tmp/rn-upload-response.txt
 
           if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
-            echo "::error::RN success webhook failed with HTTP $HTTP_STATUS"
+            echo "::error::RN upload-build webhook failed with HTTP $HTTP_STATUS"
             exit 1
           fi
 
-          echo "RN success webhook completed successfully."
+          echo "Phase 1 upload completed successfully (build status is PROCESSING)."
 
-      - name: Notify Backend Webhook (Failure)
-        if: failure() && steps.notify_success.outcome != 'failure'
+      - name: Final Completion Callback (Phase 2)
+        id: notify_completed
+        if: success()
         env:
           WEBHOOK_SECRET: ${{ secrets.RN_WEBHOOK_SECRET }}
           TENANT_ID: ${{ github.event.inputs.tenantId }}
@@ -483,7 +484,45 @@ jobs:
             exit 1
           fi
 
-          echo "Sending rnBuildId: $RN_BUILD_ID to failure webhook"
+          echo "Phase 2: Sending final completion callback for rnBuildId: $RN_BUILD_ID..."
+
+          HTTP_STATUS=$(curl -sS \
+            -o /tmp/rn-completed-response.txt \
+            -w "%{http_code}" \
+            --retry 3 \
+            --retry-delay 2 \
+            --retry-max-time 60 \
+            -X POST \
+            "https://hms-n6nk.onrender.com/api/superadmin/hospitals/webhook/github-rn?secret=${WEBHOOK_SECRET}" \
+            -H 'Content-Type: application/json' \
+            --data "{\"tenantId\":\"${TENANT_ID}\",\"rnBuildId\":\"${RN_BUILD_ID}\",\"status\":\"COMPLETED\"}")
+
+          echo "Completion callback HTTP status: $HTTP_STATUS"
+          echo "Completion callback response:"
+          cat /tmp/rn-completed-response.txt
+
+          if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
+            echo "::error::RN completion webhook failed with HTTP $HTTP_STATUS"
+            exit 1
+          fi
+
+          echo "Phase 2 completion callback acknowledged by backend. Build is now COMPLETED."
+
+      - name: Notify Backend Webhook (Failure)
+        if: failure() && steps.notify_completed.outcome != 'success'
+        env:
+          WEBHOOK_SECRET: ${{ secrets.RN_WEBHOOK_SECRET }}
+          TENANT_ID: ${{ github.event.inputs.tenantId }}
+          RN_BUILD_ID: ${{ github.event.inputs.rnBuildId }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$WEBHOOK_SECRET" ]; then
+            echo "::error::RN_WEBHOOK_SECRET is not configured"
+            exit 1
+          fi
+
+          echo "Sending failure webhook for rnBuildId: $RN_BUILD_ID"
 
           curl -f -sS \
             --retry 3 \

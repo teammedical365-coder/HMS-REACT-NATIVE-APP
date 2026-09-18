@@ -100,6 +100,7 @@ export default function CentralAdminHospitalCards({
         const logoUrl = hospital.brandingSchema?.logoUrl || hospital.branding?.logoUrl;
         const hospitalId = hospital._id || hospital.id;
         const currentStatus = buildStatuses[hospitalId] || hospital.appConfig?.rnBuildStatus || 'NOT_BUILT';
+        const hasApk = currentStatus === 'COMPLETED' && Boolean(hospital.appConfig?.rnApkUrl);
 
         return (
           <Pressable
@@ -194,9 +195,9 @@ export default function CentralAdminHospitalCards({
                   onPress={(e) => { 
                     e.stopPropagation?.(); 
                     if (currentStatus === 'BUILDING' || currentStatus === 'PROCESSING') return;
-                    if (currentStatus === 'COMPLETED') {
+                    if (currentStatus === 'COMPLETED' && hasApk) {
                       Linking.openURL(rnBuildAPI.getApkDownloadUrl(hospitalId)).catch(err => console.error(err));
-                    } else {
+                    } else if (currentStatus !== 'COMPLETED') {
                       handleBuildRNApp(hospital);
                     }
                   }}
@@ -204,12 +205,12 @@ export default function CentralAdminHospitalCards({
                 >
                   <Text style={[styles.btnSmEditText, {
                     color: (currentStatus === 'BUILDING' || currentStatus === 'PROCESSING') ? '#d97706' :
-                           currentStatus === 'COMPLETED' ? '#16a34a' :
+                           (currentStatus === 'COMPLETED' && hasApk) ? '#16a34a' :
                            currentStatus === 'FAILED' ? '#dc2626' : '#2563eb'
                   }]}>
                     {currentStatus === 'BUILDING' ? '⏳ Building...' :
                      currentStatus === 'PROCESSING' ? '⚙️ Processing...' :
-                     currentStatus === 'COMPLETED' ? '📥 APK' :
+                     (currentStatus === 'COMPLETED' && hasApk) ? '📥 APK' :
                      currentStatus === 'FAILED' ? '⚠️ Retry Build' : '⚡ Build APK'}
                   </Text>
                 </Pressable>
