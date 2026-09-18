@@ -8,7 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Feather, FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
 import Svg, { Path } from 'react-native-svg';
 
-const AuthInputField = React.forwardRef(({
+const AuthInputField = React.memo(React.forwardRef(({
     iconName,
     label,
     rightElement,
@@ -63,7 +63,7 @@ const AuthInputField = React.forwardRef(({
             </View>
         </View>
     );
-});
+}));
 
 const NeuralAuthPortal = ({
     portalType = 'hospital',
@@ -219,6 +219,7 @@ const NeuralAuthPortal = ({
         <KeyboardAvoidingView 
             style={styles.container} 
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            enabled={Platform.OS === 'ios'}
         >
             {/* Ambient Light Healthcare Gradient Background */}
             <LinearGradient
@@ -231,7 +232,7 @@ const NeuralAuthPortal = ({
             <ScrollView 
                 contentContainerStyle={styles.scrollContent} 
                 bounces={false}
-                keyboardShouldPersistTaps="always"
+                keyboardShouldPersistTaps="handled"
                 removeClippedSubviews={false}
             >
                 <View style={[styles.mainWrapper, isDesktop && styles.mainWrapperDesktop, isTablet && styles.mainWrapperTablet]}>

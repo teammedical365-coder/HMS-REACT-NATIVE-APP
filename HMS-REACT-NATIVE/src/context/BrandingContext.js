@@ -78,8 +78,16 @@ export const BrandingProvider = ({ children }) => {
 
   const getTheme = () => buildTheme(branding || null);
 
+  const contextValue = React.useMemo(() => ({
+    branding,
+    loading,
+    loadBranding,
+    resetBranding,
+    getTheme,
+  }), [branding, loading]);
+
   return (
-    <BrandingContext.Provider value={{ branding, loading, loadBranding, resetBranding, getTheme }}>
+    <BrandingContext.Provider value={contextValue}>
       {children}
     </BrandingContext.Provider>
   );
