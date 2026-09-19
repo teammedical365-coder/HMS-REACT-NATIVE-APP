@@ -4,7 +4,6 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useDispatch } from 'react-redux';
 import { useAuth } from '../store/hooks';
 import { setCredentials } from '../store/slices/authSlice';
-import { logKbEvent } from '../utils/kbDebug';
 
 import AuthStack from './AuthStack';
 import {
