@@ -159,7 +159,7 @@ const NeuralAuthPortal = ({
     const logoSrc = branding?.logoUrl ? { uri: branding.logoUrl } : require('../../../assets/medical365-logo.png');
 
     return (
-        <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
             {/* Ambient Light Healthcare Gradient Background */}
             <LinearGradient
                 colors={['#f0f9ff', '#f0fdfa', '#f8fafc']}
@@ -936,8 +936,7 @@ const styles = StyleSheet.create({
         shadowColor: '#8b5cf6',
         shadowOffset: { width: 0, height: 0 },
         shadowOpacity: 0.2,
-        shadowRadius: 8,
-        elevation: 2
+        shadowRadius: 8
     },
     inputIcon: { 
         marginRight: 10 
