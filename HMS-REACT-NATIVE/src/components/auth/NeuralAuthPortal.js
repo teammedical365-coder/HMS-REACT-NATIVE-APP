@@ -43,7 +43,6 @@ const NeuralAuthPortal = ({
     const [rememberMe, setRememberMe] = useState(true);
     const [otpValues, setOtpValues] = useState(['', '', '', '', '', '']);
     const [resendTimer, setResendTimer] = useState(30);
-    const [focusedInput, setFocusedInput] = useState(null);
     const [focusedOtpIndex, setFocusedOtpIndex] = useState(null);
 
     const otpInputRefs = useRef([]);
@@ -478,14 +477,11 @@ const NeuralAuthPortal = ({
                                     {/* Identifier Input */}
                                     <View style={styles.inputGroup}>
                                         <Text style={styles.label}>{idLabel}</Text>
-                                        <View style={[
-                                            styles.inputWrapper, 
-                                            focusedInput === 'id' && styles.inputWrapperFocused
-                                        ]}>
+                                        <View style={styles.inputWrapper}>
                                             <Feather 
                                                 name={portalType === 'patient' ? "phone" : "user"} 
                                                 size={16} 
-                                                color={focusedInput === 'id' ? "#7c3aed" : "#a78bfa"} 
+                                                color="#7c3aed" 
                                                 style={styles.inputIcon} 
                                             />
                                             <TextInput
@@ -495,8 +491,6 @@ const NeuralAuthPortal = ({
                                                 keyboardType={idType}
                                                 autoCapitalize="none"
                                                 value={credentials.id}
-                                                onFocus={() => setFocusedInput('id')}
-                                                onBlur={() => setFocusedInput(null)}
                                                 onChangeText={v => handleCredentialChange('id', v)}
                                             />
                                         </View>
@@ -505,14 +499,11 @@ const NeuralAuthPortal = ({
                                     {/* Password Input */}
                                     <View style={styles.inputGroup}>
                                         <Text style={styles.label}>{passkeyLabel}</Text>
-                                        <View style={[
-                                            styles.inputWrapper, 
-                                            focusedInput === 'password' && styles.inputWrapperFocused
-                                        ]}>
+                                        <View style={styles.inputWrapper}>
                                             <Feather 
                                                 name="lock" 
                                                 size={16} 
-                                                color={focusedInput === 'password' ? "#7c3aed" : "#a78bfa"} 
+                                                color="#7c3aed" 
                                                 style={styles.inputIcon} 
                                             />
                                             <TextInput
@@ -521,8 +512,6 @@ const NeuralAuthPortal = ({
                                                 placeholderTextColor="#94a3b8"
                                                 secureTextEntry={!showPassword}
                                                 value={credentials.password}
-                                                onFocus={() => setFocusedInput('password')}
-                                                onBlur={() => setFocusedInput(null)}
                                                 onChangeText={v => handleCredentialChange('password', v)}
                                             />
                                             <TouchableOpacity 
@@ -930,13 +919,6 @@ const styles = StyleSheet.create({
         borderRadius: 14, 
         paddingHorizontal: 14, 
         height: 50 
-    },
-    inputWrapperFocused: {
-        borderColor: '#8b5cf6',
-        shadowColor: '#8b5cf6',
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.2,
-        shadowRadius: 8
     },
     inputIcon: { 
         marginRight: 10 
