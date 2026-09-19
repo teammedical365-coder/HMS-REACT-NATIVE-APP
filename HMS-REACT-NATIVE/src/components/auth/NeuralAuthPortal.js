@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
     View, Text, StyleSheet, TextInput, TouchableOpacity, Image, 
     ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, 
@@ -119,7 +119,7 @@ const NeuralAuthPortal = ({
     sessionBanner = null,
     extraFooter = null,
 }) => {
-    const { width: windowWidth } = useWindowDimensions();
+    const windowWidth = Dimensions.get('window').width;
     const isDesktop = windowWidth >= 1100;
     const isTablet = windowWidth >= 768 && windowWidth < 1100;
     const isMobile = windowWidth < 768;
@@ -212,9 +212,17 @@ const NeuralAuthPortal = ({
         return () => clearInterval(timer);
     }, [otpStep, resendTimer]);
 
-    const handleCredentialChange = (name, value) => {
+    const handleCredentialChange = useCallback((name, value) => {
         setCredentials(prev => ({ ...prev, [name]: value }));
-    };
+    }, []);
+
+    const handleIdChange = useCallback((value) => {
+        handleCredentialChange('id', value);
+    }, [handleCredentialChange]);
+
+    const handlePasswordChange = useCallback((value) => {
+        handleCredentialChange('password', value);
+    }, [handleCredentialChange]);
 
     const handleLoginSubmit = () => {
         if (onLoginSubmit) onLoginSubmit(credentials);
@@ -606,7 +614,7 @@ const NeuralAuthPortal = ({
                                         keyboardType={idType}
                                         autoCapitalize="none"
                                         value={credentials.id}
-                                        onChangeText={v => handleCredentialChange('id', v)}
+                                        onChangeText={handleIdChange}
                                     />
 
                                     {/* Password Input */}
@@ -617,7 +625,7 @@ const NeuralAuthPortal = ({
                                         placeholder={passkeyPlaceholder}
                                         secureTextEntry={!showPassword}
                                         value={credentials.password}
-                                        onChangeText={v => handleCredentialChange('password', v)}
+                                        onChangeText={handlePasswordChange}
                                         rightElement={
                                             <TouchableOpacity 
                                                 onPress={() => setShowPassword(prev => !prev)}
