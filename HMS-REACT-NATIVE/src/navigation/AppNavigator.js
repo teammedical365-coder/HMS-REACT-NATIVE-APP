@@ -98,10 +98,6 @@ const AppNavigator = () => {
     const dispatch = useDispatch();
     const { loading: isLoading, isAuthenticated, user } = useAuth();
 
-    React.useEffect(() => {
-        logKbEvent(`APPNAV_LOADING_${isLoading ? 'TRUE' : 'FALSE'}`, { appNavLoading: !!isLoading });
-        console.log(`[KB-DEBUG] AppNavigator loading changed to: ${isLoading}`);
-    }, [isLoading]);
 
     const isWeb = Platform.OS === 'web' && typeof window !== 'undefined';
 
