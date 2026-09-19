@@ -8,6 +8,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Feather, FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
 import Svg, { Path } from 'react-native-svg';
 
+const __DISABLE_LOGIN_VISUALS__ = true;
+
 const NeuralAuthPortal = ({
     portalType = 'hospital',
     title = 'Hospital Portal',
@@ -33,6 +35,7 @@ const NeuralAuthPortal = ({
     sessionBanner = null,
     extraFooter = null,
 }) => {
+    console.log('[DIAG] LOGIN_RENDER');
     const { width: windowWidth, height: windowHeight } = useWindowDimensions();
     const isDesktop = windowWidth >= 1100;
     const isTablet = windowWidth >= 768 && windowWidth < 1100;
@@ -53,6 +56,12 @@ const NeuralAuthPortal = ({
     const ecgAnim = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
+        console.log('[DIAG] LOGIN_MOUNT');
+        if (__DISABLE_LOGIN_VISUALS__) {
+            console.log('[DIAG] VISUALS_DISABLED');
+            return;
+        }
+
         Animated.loop(
             Animated.timing(spinAnim, { toValue: 1, duration: 30000, useNativeDriver: true })
         ).start();
@@ -258,7 +267,7 @@ const NeuralAuthPortal = ({
                     )}
 
                     {/* ─── CENTER SECTION: HOLOGRAPHIC SURGEON STAGE (Desktop Only) ─── */}
-                    {isDesktop && (
+                    {!__DISABLE_LOGIN_VISUALS__ && isDesktop && (
                         <View style={styles.centerPane}>
                             <View style={styles.hologramContainer}>
                                 <Animated.View style={[styles.haloRing, { transform: [{ rotate: spin }] }]} />
@@ -280,17 +289,19 @@ const NeuralAuthPortal = ({
                                 <View style={styles.mobileBrandHeader}>
                                     <Image source={logoSrc} style={styles.mobileBrandLogo} resizeMode="contain" />
                                 </View>
-                                <View style={styles.mobileDoctorStage}>
-                                    <View style={styles.mobileDoctorContainer}>
-                                        <Animated.View style={[styles.mobileHaloRing, { transform: [{ rotate: spin }] }]} />
-                                        <Animated.View style={[styles.mobileHaloRingInner, { transform: [{ rotate: spinReverse }] }]} />
-                                        <Image 
-                                            source={require('../../../assets/hologram_surgeon_feathered.png')} 
-                                            style={styles.mobileDoctorImg} 
-                                            resizeMode="contain" 
-                                        />
+                                {!__DISABLE_LOGIN_VISUALS__ && (
+                                    <View style={styles.mobileDoctorStage}>
+                                        <View style={styles.mobileDoctorContainer}>
+                                            <Animated.View style={[styles.mobileHaloRing, { transform: [{ rotate: spin }] }]} />
+                                            <Animated.View style={[styles.mobileHaloRingInner, { transform: [{ rotate: spinReverse }] }]} />
+                                            <Image 
+                                                source={require('../../../assets/hologram_surgeon_feathered.png')} 
+                                                style={styles.mobileDoctorImg} 
+                                                resizeMode="contain" 
+                                            />
+                                        </View>
                                     </View>
-                                </View>
+                                )}
                             </>
                         )}
 
@@ -492,6 +503,8 @@ const NeuralAuthPortal = ({
                                                 autoCapitalize="none"
                                                 value={credentials.id}
                                                 onChangeText={v => handleCredentialChange('id', v)}
+                                                onFocus={() => console.log('[DIAG] EMAIL_FOCUS')}
+                                                onBlur={() => console.log('[DIAG] EMAIL_BLUR')}
                                             />
                                         </View>
                                     </View>
