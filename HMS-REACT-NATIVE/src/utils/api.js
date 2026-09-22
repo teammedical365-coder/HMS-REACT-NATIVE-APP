@@ -293,10 +293,24 @@ export const adminAPI = {
     (await apiClient.post('/api/admin/login', { email, password })).data,
   signup: async (name, email, password, phone) =>
     (await apiClient.post('/api/admin/signup', { name, email, password, phone })).data,
-  getUsers: async (plan, hospitalId) => {
+  getUsers: async (plan, hospitalId, page, limit, search, excludeDoctors) => {
     let url = '/api/admin/users?';
-    if (plan) url += `plan=${encodeURIComponent(plan)}&`;
-    if (hospitalId) url += `hospitalId=${encodeURIComponent(hospitalId)}&`;
+    if (typeof plan === 'object' && plan !== null) {
+      const params = plan;
+      if (params.plan) url += `plan=${encodeURIComponent(params.plan)}&`;
+      if (params.hospitalId) url += `hospitalId=${encodeURIComponent(params.hospitalId)}&`;
+      if (params.page !== undefined && params.page !== null && params.page !== '') url += `page=${encodeURIComponent(params.page)}&`;
+      if (params.limit !== undefined && params.limit !== null && params.limit !== '') url += `limit=${encodeURIComponent(params.limit)}&`;
+      if (params.search) url += `search=${encodeURIComponent(params.search)}&`;
+      if (params.excludeDoctors !== undefined) url += `excludeDoctors=${encodeURIComponent(params.excludeDoctors)}&`;
+    } else {
+      if (plan) url += `plan=${encodeURIComponent(plan)}&`;
+      if (hospitalId) url += `hospitalId=${encodeURIComponent(hospitalId)}&`;
+      if (page !== undefined && page !== null && page !== '') url += `page=${encodeURIComponent(page)}&`;
+      if (limit !== undefined && limit !== null && limit !== '') url += `limit=${encodeURIComponent(limit)}&`;
+      if (search) url += `search=${encodeURIComponent(search)}&`;
+      if (excludeDoctors !== undefined) url += `excludeDoctors=${encodeURIComponent(excludeDoctors)}&`;
+    }
     return (await apiClient.get(url)).data;
   },
   createUser: async (data) => (await apiClient.post('/api/admin/users', data)).data,
@@ -1245,6 +1259,7 @@ export const voiceScribeAPI = {
   discard: async (id) => (await apiClient.put(`/api/voice-scribe/${id}/discard`)).data,
   getForAppointment: async (appointmentId) => (await apiClient.get(`/api/voice-scribe/appointment/${appointmentId}`)).data,
 };
+
 
 export default apiClient;
 

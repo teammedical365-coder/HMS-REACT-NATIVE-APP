@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { API_BASE_URL, STORAGE_KEYS } from '../utils/Constants';
@@ -9,15 +9,25 @@ const BrandingContext = createContext();
 export const BrandingProvider = ({ children }) => {
   const [branding, setBranding] = useState(null);
   const [loading, setLoading] = useState(false);
+  const lastLoadedIdRef = useRef(null);
+  const inFlightRef = useRef(null);
+  const brandingRef = useRef(null);
 
-  const loadBranding = async (hospitalId) => {
+  useEffect(() => {
+    brandingRef.current = branding;
+  }, [branding]);
+
+  const loadBranding = useCallback(async (hospitalId) => {
     if (!hospitalId) return;
+    // Guard against duplicate / concurrent fetches for the same hospital
+    if (inFlightRef.current === hospitalId) return;
+    if (lastLoadedIdRef.current === hospitalId && brandingRef.current) return;
+
+    inFlightRef.current = hospitalId;
     setLoading(true);
     try {
       const apiUrl = `${API_BASE_URL}/api/public/branding?tenantId=${hospitalId}`;
-      console.log(`[BrandingContext] Calling API URL: ${apiUrl}`);
       const response = await axios.get(apiUrl);
-      console.log(`[BrandingContext] API Response data:`, JSON.stringify(response.data, null, 2));
       
       if (response.data && response.data.branding) {
         const rawBranding = response.data.branding;
@@ -34,46 +44,42 @@ export const BrandingProvider = ({ children }) => {
         await AsyncStorage.setItem(STORAGE_KEYS.HOSPITAL_BRANDING, JSON.stringify(brandingData));
         await AsyncStorage.setItem(STORAGE_KEYS.HOSPITAL_BRANDING_NAME, brandingData.hospitalName || '');
         await AsyncStorage.setItem(STORAGE_KEYS.HOSPITAL_BRANDING_ID, hospitalId);
+        lastLoadedIdRef.current = hospitalId;
         setBranding(brandingData);
       }
     } catch (error) {
-      console.log('[BrandingContext] FULL ERROR MESSAGE:', error.message);
-      if (error.response) {
-         console.log('[BrandingContext] ERROR RESPONSE:', JSON.stringify(error.response.data, null, 2));
-      }
       console.warn('[BrandingContext] Failed to load branding:', error.message);
     } finally {
+      inFlightRef.current = null;
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     const initBranding = async () => {
       const injectedTenantId = process.env.EXPO_PUBLIC_TENANT_ID;
-      console.log('--- DEBUG STARTUP ---');
-      console.log('EXPO_PUBLIC_TENANT_ID evaluates to:', injectedTenantId);
-      
       if (injectedTenantId) {
         await loadBranding(injectedTenantId);
       } else {
         const savedId = await AsyncStorage.getItem(STORAGE_KEYS.HOSPITAL_BRANDING_ID);
-        console.log('No injected tenant ID, using savedId:', savedId);
         if (savedId) {
           await loadBranding(savedId);
         }
       }
     };
     initBranding();
-  }, []);
+  }, [loadBranding]);
 
-  const resetBranding = async () => {
+  const resetBranding = useCallback(async () => {
+    lastLoadedIdRef.current = null;
+    inFlightRef.current = null;
     await AsyncStorage.multiRemove([
       STORAGE_KEYS.HOSPITAL_BRANDING,
       STORAGE_KEYS.HOSPITAL_BRANDING_NAME,
       STORAGE_KEYS.HOSPITAL_BRANDING_ID,
     ]);
     setBranding(null);
-  };
+  }, []);
 
   const getTheme = () => buildTheme(branding || null);
 
@@ -83,7 +89,7 @@ export const BrandingProvider = ({ children }) => {
     loadBranding,
     resetBranding,
     getTheme,
-  }), [branding, loading]);
+  }), [branding, loading, loadBranding, resetBranding]);
 
   return (
     <BrandingContext.Provider value={contextValue}>

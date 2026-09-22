@@ -29,7 +29,8 @@ const AdminLabs = () => {
             const userStr = await AsyncStorage.getItem('user');
             if (!userStr) { navigation.navigate('Login'); return; }
             const user = JSON.parse(userStr);
-            if (!['superadmin', 'centraladmin', 'admin'].includes(user.role)) {
+            const userRole = (typeof user.role === 'object' ? user.role?.name : user.role) || '';
+            if (!['superadmin', 'centraladmin', 'admin', 'hospitaladmin'].includes(userRole.toLowerCase())) {
                 Alert.alert('Unauthorized', 'Access denied.');
                 navigation.navigate('Home');
             }

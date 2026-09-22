@@ -46,7 +46,8 @@ const AdminReception = () => {
             try {
                 const userStr = await AsyncStorage.getItem('user');
                 const user = userStr ? JSON.parse(userStr) : {};
-                if (user.role !== 'admin') {
+                const userRole = ((typeof user.role === 'object' ? user.role?.name : user.role) || '').toLowerCase();
+                if (!['admin', 'hospitaladmin', 'centraladmin', 'superadmin'].includes(userRole)) {
                     navigation.navigate('Home');
                     return;
                 }

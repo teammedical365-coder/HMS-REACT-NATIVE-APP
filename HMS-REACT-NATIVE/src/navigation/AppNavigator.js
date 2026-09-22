@@ -21,6 +21,7 @@ import {
 } from './RoleStacks';
 import DashboardScreen from '../screens/DashboardScreen';
 import DashboardLayout from '../components/layouts/DashboardLayout';
+import { useBranding } from '../context/BrandingContext';
 
 const Stack = createNativeStackNavigator();
 
@@ -97,6 +98,21 @@ const FallbackStack = () => (
 const AppNavigator = () => {
     const dispatch = useDispatch();
     const { loading: isLoading, isAuthenticated, user } = useAuth();
+    const { loadBranding, resetBranding } = useBranding();
+
+    // Auto-load hospital branding when user logs in (Web App.jsx 1:1 Parity)
+    React.useEffect(() => {
+        if (isAuthenticated && user) {
+            const hospitalId = user.hospitalId || (typeof user.hospital === 'object' ? user.hospital?._id : user.hospital);
+            const rawRole = typeof user.role === 'object' ? user.role?.name : user.role;
+            const role = (rawRole || '').toLowerCase();
+            if (hospitalId && !['centraladmin', 'superadmin'].includes(role)) {
+                loadBranding(hospitalId);
+            }
+        } else if (!isAuthenticated) {
+            resetBranding();
+        }
+    }, [isAuthenticated, user]);
 
 
     const isWeb = Platform.OS === 'web' && typeof window !== 'undefined';

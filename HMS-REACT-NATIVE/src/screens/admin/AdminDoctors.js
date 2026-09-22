@@ -23,56 +23,7 @@ const AdminDoctors = () => {
     const isMobile = width < 768;
     const isTablet = width >= 768 && width < 1024;
 
-    const initialFallbackDoctors = [
-        {
-            _id: 'doc-001',
-            name: 'Dr. Sarah Jenkins',
-            email: 'sarah.jenkins@metropolis.org',
-            phone: '9876543210',
-            specialty: 'Cardiologist',
-            experience: '12 Years',
-            education: 'MBBS, MD (Cardiology)',
-            departments: ['Cardiology'],
-            consultationFee: 1200,
-            image: '👩‍⚕️',
-            bio: 'Senior consultant cardiologist specializing in non-invasive imaging and preventive cardiology.',
-            successRate: '98%',
-            patientsCount: '1500+'
-        },
-        {
-            _id: 'doc-002',
-            name: 'Dr. Robert Chen',
-            email: 'robert.chen@metropolis.org',
-            phone: '9876543211',
-            specialty: 'Neurologist',
-            experience: '15 Years',
-            education: 'MBBS, DM (Neurology)',
-            departments: ['Neurology'],
-            consultationFee: 1500,
-            image: '👨‍⚕️',
-            bio: 'Chief of Neurology with expertise in stroke management and neuromuscular disorders.',
-            successRate: '96%',
-            patientsCount: '2100+'
-        },
-        {
-            _id: 'doc-003',
-            name: 'Dr. Anita Patel',
-            email: 'anita.patel@metropolis.org',
-            phone: '9876543212',
-            specialty: 'Orthopedic Surgeon',
-            experience: '9 Years',
-            education: 'MBBS, MS (Ortho)',
-            departments: ['Orthopedics'],
-            consultationFee: 1000,
-            image: '👩‍⚕️',
-            bio: 'Orthopedic surgeon focusing on joint replacements and sports medicine trauma.',
-            successRate: '95%',
-            patientsCount: '980+'
-        }
-    ];
-
-    const [localDoctors, setLocalDoctors] = useState(initialFallbackDoctors);
-    const doctors = (doctorsState.data && doctorsState.data.length > 0) ? doctorsState.data : localDoctors;
+    const doctors = doctorsState.data || [];
     const loadingData = doctorsState.loading;
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -217,6 +168,11 @@ const AdminDoctors = () => {
                     setError(result.payload || 'Failed to update doctor profile');
                 }
             } else {
+                if (isQuotaReached) {
+                    setError('Doctor quota has been reached for your subscription plan. Please upgrade to add more doctors.');
+                    setLoading(false);
+                    return;
+                }
                 if (!formData.name || !formData.email) {
                     setError('Name and email are required');
                     setLoading(false);
@@ -343,12 +299,13 @@ const AdminDoctors = () => {
         });
     }, [doctors, searchQuery, selectedDeptFilter]);
 
-    // Quota details
-    const quotaLimits = hospital ? getSubscriptionLimits(hospital.subscriptionPlan) : { maxDoctors: 15 };
-    const maxDocs = quotaLimits?.maxDoctors || 15;
+    // Quota details from actual subscription plan
+    const currentPlan = hospital?.subscriptionPlan || user?.subscriptionPlan || 'enterprise';
+    const quotaLimits = getSubscriptionLimits(currentPlan);
+    const maxDocs = quotaLimits?.maxDoctors ?? Infinity;
     const docCount = doctors.length;
-    const remainingDocs = Math.max(0, maxDocs - docCount);
-    const isQuotaReached = hospital && (hospital.subscriptionPlan === 'clinic_basic' || hospital.subscriptionPlan === 'multi_speciality_starter') && docCount >= maxDocs;
+    const remainingDocs = maxDocs === Infinity ? 'Unlimited' : Math.max(0, maxDocs - docCount);
+    const isQuotaReached = maxDocs !== Infinity && docCount >= maxDocs;
 
     return (
         <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
@@ -404,7 +361,7 @@ const AdminDoctors = () => {
                                 <Feather name="users" size={18} color="#6366f1" />
                             </View>
                             <View style={styles.adQuotaInfo}>
-                                <Text style={styles.adQuotaVal}>{docCount} / {maxDocs}</Text>
+                                <Text style={styles.adQuotaVal}>{docCount} / {maxDocs === Infinity ? '∞' : maxDocs}</Text>
                                 <Text style={styles.adQuotaLbl}>Used</Text>
                             </View>
                         </View>

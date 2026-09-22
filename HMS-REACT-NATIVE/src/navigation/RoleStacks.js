@@ -121,6 +121,8 @@ export const CentralAdminApp = () => (
     </Stack.Navigator>
 );
 
+import AdminMainDashboard from '../screens/admin/AdminMainDashboard';
+
 // -- Role Landing Screen --
 import RoleDashboard from '../screens/RoleDashboard';
 
@@ -131,24 +133,83 @@ export const HospitalAdminApp = () => {
 
     return (
         <Stack.Navigator initialRouteName={initialScreen} screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
+            {/* Primary Dashboards & Hubs */}
             <Stack.Screen name="RoleDashboard" component={withLayout(RoleDashboard)} />
             <Stack.Screen name="HospitalAdminDashboard" component={withLayout(HospitalAdminDashboard)} />
             <Stack.Screen name="ClinicDashboard" component={withLayout(ClinicDashboard)} />
             <Stack.Screen name="VialManagement" component={withLayout(VialManagement)} />
             <Stack.Screen name="HospitalAdminQuestionLibrary" component={withLayout(HospitalAdminQuestionLibrary)} />
             <Stack.Screen name="BedManagement" component={withLayout(BedManagement)} />
-            <Stack.Screen name="OTDashboard" component={withLayout(OTDashboard)} />
+
+            {/* Admin Management Modules */}
+            <Stack.Screen name="AdminMainDashboard" component={withLayout(AdminMainDashboard)} />
             <Stack.Screen name="Admin" component={withLayout(Admin)} />
+            <Stack.Screen name="AdminUsers" component={withLayout(Admin)} />
             <Stack.Screen name="AdminDoctors" component={withLayout(AdminDoctors)} />
             <Stack.Screen name="AdminRoles" component={withLayout(AdminRoles)} />
             <Stack.Screen name="AdminLabTests" component={withLayout(AdminLabTests)} />
+            <Stack.Screen name="AdminTestPackages" component={withLayout(AdminTestPackages)} />
+            <Stack.Screen name="AdminMedicines" component={withLayout(AdminMedicines)} />
             <Stack.Screen name="AdminServices" component={withLayout(AdminServices)} />
-            <Stack.Screen name="PharmacyInventory" component={withLayout(PharmacyInventory)} />
+            <Stack.Screen name="AdminLabs" component={withLayout(AdminLabs)} />
+            <Stack.Screen name="AdminPharmacy" component={withLayout(AdminPharmacy)} />
+            <Stack.Screen name="AdminReception" component={withLayout(AdminReception)} />
+            <Stack.Screen name="AdminQuestionLibrary" component={withLayout(AdminQuestionLibrary)} />
             <Stack.Screen name="ConsentManagement" component={withLayout(ConsentManagement)} />
-            <Stack.Screen name="PatientBillingProfile" component={withLayout(PatientBillingProfile)} />
-            <Stack.Screen name="IPDCommandCenter" component={withLayout(IPDCommandCenter)} />
-            <Stack.Screen name="UnifiedPatientProfile" component={withLayout(UnifiedPatientProfile)} />
+
+            {/* Clinical & Doctor Accessible Workflows */}
+            <Stack.Screen name="DoctorDashboard" component={withLayout(DoctorDashboard)} />
+            <Stack.Screen name="DoctorPatients" component={withLayout(Patient)} />
+            <Stack.Screen name="Patient" component={withLayout(Patient)} />
             <Stack.Screen name="DoctorPatientDetails" component={withLayout(DoctorPatientDetails)} />
+            <Stack.Screen name="AIAssistant" component={withLayout(AIAssistant)} />
+            <Stack.Screen name="SurgeryReferrals" component={withLayout(SurgeryReferrals)} />
+            <Stack.Screen name="MySurgeryPlans" component={withLayout(MySurgeryPlans)} />
+            <Stack.Screen name="UnifiedPatientProfile" component={withLayout(UnifiedPatientProfile)} />
+            <Stack.Screen name="DoctorPatientProfile" component={withLayout(UnifiedPatientProfile)} />
+            <Stack.Screen name="LabReports" component={withLayout(LabReports)} />
+
+            {/* OT System (Full Parity) */}
+            <Stack.Screen name="OTDashboard" component={withLayout(OTDashboard)} />
+            <Stack.Screen name="OTPlannedSurgeries" component={withLayout(OTPlannedSurgeries)} />
+            <Stack.Screen name="OTSchedulePage" component={withLayout(OTSchedulePage)} />
+            <Stack.Screen name="OTRoomsPage" component={withLayout(OTRoomsPage)} />
+            <Stack.Screen name="OTPreOpPage" component={withLayout(OTPreOpPage)} />
+            <Stack.Screen name="OTInProgressPage" component={withLayout(OTInProgressPage)} />
+            <Stack.Screen name="OTPostOpPage" component={withLayout(OTPostOpPage)} />
+            <Stack.Screen name="OTCompletedPage" component={withLayout(OTCompletedPage)} />
+            <Stack.Screen name="OTSurgeonsPage" component={withLayout(OTSurgeonsPage)} />
+            <Stack.Screen name="OTReportsPage" component={withLayout(OTReportsPage)} />
+
+            {/* Pharmacy Management (Full Parity) */}
+            <Stack.Screen name="PharmacyInventory" component={withLayout(PharmacyInventory)} />
+            <Stack.Screen name="PharmacyOrders" component={withLayout(PharmacyOrders)} />
+            <Stack.Screen name="PurchaseInvoiceHistory" component={withLayout(PurchaseInvoiceHistory)} />
+            <Stack.Screen name="PharmacyReturns" component={withLayout(PharmacyReturns)} />
+            <Stack.Screen name="VendorReturns" component={withLayout(VendorReturns)} />
+            <Stack.Screen name="PharmacyCollections" component={withLayout(PharmacyCollections)} />
+            <Stack.Screen name="PharmacyDepartments" component={withLayout(PharmacyDepartments)} />
+
+            {/* Reception & Registration */}
+            <Stack.Screen name="ReceptionDashboard" component={withLayout(ReceptionDashboard)} />
+            <Stack.Screen name="ReceptionPatients" component={withLayout(ReceptionPatients)} />
+
+            {/* Nurse & Inpatient (IPD) Command Center */}
+            <Stack.Screen name="IPDCommandCenter" component={withLayout(IPDCommandCenter)} />
+            <Stack.Screen name="NurseDashboard" component={withLayout(NurseDashboard)} />
+            <Stack.Screen name="NurseOPDQueue" component={withLayout(NurseOPDQueue)} />
+            <Stack.Screen name="NurseAppointments" component={withLayout(NurseAppointments)} />
+            <Stack.Screen name="NursePatientWorkspace" component={withLayout(NursePatientWorkspace)} />
+
+            {/* Finance & Billing */}
+            <Stack.Screen name="PatientBillingProfile" component={withLayout(PatientBillingProfile)} />
+            <Stack.Screen name="AccountantDashboard" component={withLayout(AccountantDashboard)} />
+            <Stack.Screen name="CashierDashboard" component={withLayout(CashierDashboard)} />
+
+            {/* Laboratory Tests & Reports */}
+            <Stack.Screen name="LabDashboard" component={withLayout(LabDashboard)} />
+            <Stack.Screen name="AssignedTests" component={withLayout(AssignedTests)} />
+            <Stack.Screen name="CompletedReports" component={withLayout(CompletedReports)} />
         </Stack.Navigator>
     );
 };

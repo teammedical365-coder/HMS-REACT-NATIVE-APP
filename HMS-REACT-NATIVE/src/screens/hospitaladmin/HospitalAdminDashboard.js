@@ -255,7 +255,7 @@ const HospitalAdminDashboard = () => {
     useEffect(() => {
         if (activeTab === 'inventory' && inventory.length === 0) fetchInventory();
         if (activeTab === 'labpricing' && labTests.length === 0) fetchLabTests();
-        if (activeTab === 'accounts' && deptUpis.length === 0) fetchDepartmentUpis();
+        if (activeTab === 'accounts') fetchDepartmentUpis();
         if (activeTab === 'aiwallet') fetchAIDoctorTracking();
     }, [activeTab]);
 
@@ -266,8 +266,11 @@ const HospitalAdminDashboard = () => {
                 hospitalAPI.getDepartmentUpis(),
                 hospitalAPI.getStaffForUpi()
             ]);
-            if (upiRes.success) setDeptUpis(upiRes.departmentUpis);
-            if (staffRes.success) setUpiStaffOptions(staffRes.staff.filter(s => !s.hasUpiAssigned));
+            if (upiRes && upiRes.success) setDeptUpis(upiRes.departmentUpis || []);
+            if (staffRes && staffRes.success) {
+                const staffList = staffRes.staff || staffRes.data || [];
+                setUpiStaffOptions(staffList.filter(s => !s.hasUpiAssigned));
+            }
         } catch (err) { console.error('Failed to fetch department UPIs', err); }
         finally { setLoadingDeptUpis(false); }
     };
@@ -421,12 +424,13 @@ const HospitalAdminDashboard = () => {
         try {
             setLoadingUsers(true);
             const res = await adminAPI.getUsers();
-            if (res.success) {
-                setUsers(res.users);
+            const rawUsers = res?.users || res?.data || (Array.isArray(res) ? res : []);
+            if (res?.success || Array.isArray(rawUsers)) {
+                setUsers(rawUsers);
                 setStats({
-                    totalUsers: res.users.length,
-                    totalDoctors: res.users.filter(u => (u.role || '').toLowerCase().includes('doctor')).length,
-                    totalPatients: res.users.filter(u => (u.role || '').toLowerCase() === 'patient').length,
+                    totalUsers: rawUsers.length,
+                    totalDoctors: rawUsers.filter(u => (u.role || u.roleName || '').toLowerCase().includes('doctor')).length,
+                    totalPatients: rawUsers.filter(u => (u.role || u.roleName || '').toLowerCase() === 'patient').length,
                     totalRoles: 0
                 });
             }

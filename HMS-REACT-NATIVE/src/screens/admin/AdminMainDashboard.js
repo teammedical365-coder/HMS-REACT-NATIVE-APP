@@ -72,12 +72,18 @@ const AdminMainDashboard = () => {
     ];
 
     const quickActions = [
-        { icon: '👥', label: 'Manage Users', desc: 'View staff & patients, edit roles', path: 'AdminUsers', bg: 'rgba(20,184,166,0.12)' },
-        { icon: '🔑', label: 'Roles', desc: 'Create custom roles & perms', path: 'AdminRoles', bg: 'rgba(99,102,241,0.12)' },
-        { icon: '👨‍⚕️', label: 'Doctors', desc: 'Manage doctor profiles', path: 'AdminDoctors', bg: 'rgba(59,130,246,0.12)' },
-        { icon: '🧪', label: 'Labs', desc: 'Configure lab departments', path: 'AdminLabs', bg: 'rgba(245,158,11,0.12)' },
-        { icon: '💊', label: 'Pharmacy', desc: 'Manage pharmacy inventory', path: 'AdminPharmacy', bg: 'rgba(239,68,68,0.12)' },
-        { icon: '🏥', label: 'Reception', desc: 'Set up reception desk workflows', path: 'AdminReception', bg: 'rgba(16,185,129,0.12)' },
+        { icon: '👥', label: 'Manage Users', desc: 'View all staff & patients, edit roles, create accounts', path: 'AdminUsers', bg: 'rgba(20,184,166,0.12)' },
+        { icon: '🔑', label: 'Roles & Permissions', desc: 'Create custom roles and assign granular permissions', path: 'AdminRoles', bg: 'rgba(99,102,241,0.12)' },
+        { icon: '👨‍⚕️', label: 'Doctors', desc: 'Manage doctor profiles, specializations & schedules', path: 'AdminDoctors', bg: 'rgba(59,130,246,0.12)' },
+        { icon: '🧪', label: 'Labs', desc: 'Configure lab departments and lab workflows', path: 'AdminLabs', bg: 'rgba(245,158,11,0.12)' },
+        { icon: '📋', label: 'Lab Tests Catalog', desc: 'Manage predefined lab tests for prescription', path: 'AdminLabTests', bg: 'rgba(236,72,153,0.12)' },
+        { icon: '📦', label: 'Tests & Packages', desc: 'Create test packages and manage individual tests', path: 'AdminTestPackages', bg: 'rgba(124,58,237,0.12)' },
+        { icon: '💊', label: 'Pharmacy', desc: 'Manage pharmacy inventory and suppliers', path: 'AdminPharmacy', bg: 'rgba(239,68,68,0.12)' },
+        { icon: '💉', label: 'Medicine Catalog', desc: 'Manage global catalog of available medicines', path: 'AdminMedicines', bg: 'rgba(239,68,68,0.1)' },
+        { icon: '🏥', label: 'Reception', desc: 'Set up reception desk and appointment workflows', path: 'AdminReception', bg: 'rgba(16,185,129,0.12)' },
+        { icon: '🛠️', label: 'Services', desc: 'Hospital services, pricing, and categories', path: 'AdminServices', bg: 'rgba(245,158,11,0.12)' },
+        { icon: '👤', label: 'Create Staff Account', desc: 'Add a new staff member with login credentials', path: 'AdminUsers', params: { openCreateForm: true }, bg: 'rgba(94,234,212,0.15)' },
+        { icon: '❓', label: 'Question Library', desc: 'Configure forms and assessment libraries for doctors', path: 'HospitalAdminQuestionLibrary', bg: 'rgba(167,139,250,0.15)' },
     ];
 
     return (
@@ -122,7 +128,7 @@ const AdminMainDashboard = () => {
                     <TouchableOpacity
                         key={idx}
                         style={styles.actionCard}
-                        onPress={() => navigation.navigate(action.path)}
+                        onPress={() => navigation.navigate(action.path, action.params)}
                     >
                         <View style={[styles.actionIconWrap, { backgroundColor: action.bg }]}>
                             <Text style={styles.actionIcon}>{action.icon}</Text>

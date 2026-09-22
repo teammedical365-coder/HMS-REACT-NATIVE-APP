@@ -185,28 +185,36 @@ const Admin = () => {
         }
     };
 
-    const fetchUsers = async (plan = staffPlanFilter, hospitalId = staffHospitalFilter) => {
+    const fetchUsers = async (
+        plan = staffPlanFilter, 
+        hospitalId = staffHospitalFilter, 
+        targetPage = 1, 
+        limit = 50, 
+        search = staffSearchQuery
+    ) => {
         try {
             setLoadingUsers(true);
-            const response = await adminAPI.getUsers(plan, hospitalId);
-            
-            const actualData = response?.data?.data || response?.data?.users || response?.users || response?.data || response || [];
-            const safeUsers = Array.isArray(actualData) ? actualData : [];
-
             const uStr = await AsyncStorage.getItem('user');
             const userObj = JSON.parse(uStr || '{}');
             const isCentral = ['superadmin', 'centraladmin'].includes(userObj.role);
-            const staffUsers = safeUsers.filter(u => {
-                const r = (typeof u.role === 'string' ? u.role : (u.role?.name || u.roleName || '')).toLowerCase();
-                if (['patient', 'user'].includes(r)) return false;
-                if (!isCentral && r.includes('doctor')) return false;
-                return true;
-            });
-            setUsers(staffUsers);
+            const response = await adminAPI.getUsers(plan, hospitalId, targetPage, limit, search, !isCentral);
+            
+            if (response && response.success) {
+                const rawUsers = response.users || response.data || [];
+                const staffUsers = rawUsers.filter(u => {
+                    const r = (typeof u.role === 'string' ? u.role : (u.role?.name || u.roleName || '')).toLowerCase();
+                    if (['patient', 'user'].includes(r)) return false;
+                    if (!isCentral && r.includes('doctor')) return false;
+                    return true;
+                });
+                setUsers(staffUsers);
+            } else if (response && Array.isArray(response)) {
+                setUsers(response);
+            }
         } catch (err) {
             console.error('Error fetching users:', err);
             setUsers([]);
-            setError('Failed to fetch staff members');
+            setError(err?.response?.data?.message || 'Failed to fetch staff members');
         } finally {
             setLoadingUsers(false);
         }
@@ -302,6 +310,12 @@ const Admin = () => {
         setError('');
         setSuccess('');
 
+        if (isStaffQuotaFull) {
+            setError('Staff quota has been fully utilized for your subscription plan. Upgrade your plan to add more staff.');
+            setCreating(false);
+            return;
+        }
+
         if (createForm.phone && createForm.phone.length !== 10) {
             setError('Mobile number must be exactly 10 digits.');
             setCreating(false);
@@ -389,8 +403,9 @@ const Admin = () => {
     let isStaffQuotaFull = false;
     let maxStaffCount = 0;
     let currentStaffCount = 0;
-    if (hospital && (hospital.subscriptionPlan === 'clinic_basic' || hospital.subscriptionPlan === 'multi_speciality_starter')) {
-        const limits = getSubscriptionLimits(hospital.subscriptionPlan);
+    const planToCheck = hospital?.subscriptionPlan || currentUser?.subscriptionPlan;
+    if (planToCheck === 'clinic_basic' || planToCheck === 'multi_speciality_starter') {
+        const limits = getSubscriptionLimits(planToCheck);
         maxStaffCount = limits.maxStaff;
         currentStaffCount = users.filter(u => {
             const rName = (typeof u.role === 'string' ? u.role : (u.role?.name || u.roleName || '')).toLowerCase();
