@@ -453,6 +453,34 @@ const HospitalAdminDashboard = () => {
         }
     };
 
+    const appendFileToFormData = async (fd, fieldName, fileObj, defaultName = 'avatar.jpg') => {
+        if (!fileObj) return;
+        if (Platform.OS === 'web') {
+            if (fileObj.file instanceof File || fileObj.file instanceof Blob) {
+                fd.append(fieldName, fileObj.file, fileObj.name || defaultName);
+            } else if (fileObj instanceof File || fileObj instanceof Blob) {
+                fd.append(fieldName, fileObj, fileObj.name || defaultName);
+            } else if (fileObj.uri) {
+                try {
+                    const res = await fetch(fileObj.uri);
+                    const blob = await res.blob();
+                    fd.append(fieldName, blob, fileObj.name || defaultName);
+                } catch (e) {
+                    console.error('Failed to convert URI to Blob, using fallback:', e);
+                    fd.append(fieldName, fileObj.file || fileObj);
+                }
+            } else {
+                fd.append(fieldName, fileObj);
+            }
+        } else {
+            fd.append(fieldName, {
+                uri: fileObj.uri,
+                type: fileObj.type || fileObj.mimeType || 'image/jpeg',
+                name: fileObj.name || defaultName
+            });
+        }
+    };
+
     const handleCreateStaff = async () => {
         setCreating(true);
         setError('');
@@ -474,11 +502,7 @@ const HospitalAdminDashboard = () => {
             let avatarUrl = null;
             if (createForm.file) {
                 const formData = new FormData();
-                formData.append('images', {
-                    uri: createForm.file.uri,
-                    type: 'image/jpeg',
-                    name: 'avatar.jpg'
-                });
+                await appendFileToFormData(formData, 'images', createForm.file, 'avatar.jpg');
                 const uploadRes = await uploadAPI.uploadImages(formData);
                 if (uploadRes.success && uploadRes.files?.length > 0) avatarUrl = uploadRes.files[0].url;
             }
@@ -513,11 +537,7 @@ const HospitalAdminDashboard = () => {
             let avatarUrl = editForm.currentAvatar;
             if (editForm.newAvatarFile) {
                 const formData = new FormData();
-                formData.append('images', {
-                    uri: editForm.newAvatarFile.uri,
-                    type: 'image/jpeg',
-                    name: 'avatar.jpg'
-                });
+                await appendFileToFormData(formData, 'images', editForm.newAvatarFile, 'avatar.jpg');
                 const uploadRes = await uploadAPI.uploadImages(formData);
                 if (uploadRes.success && uploadRes.files?.length > 0) avatarUrl = uploadRes.files[0].url;
             }
@@ -701,6 +721,27 @@ const HospitalAdminDashboard = () => {
     const formatCurrency = (n) => `₹${(Number(n) || 0).toLocaleString('en-IN')}`;
 
     const handlePickProfilePhoto = async () => {
+        if (Platform.OS === 'web' && typeof document !== 'undefined') {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/jpeg,image/png,image/webp,image/*';
+            input.style.display = 'none';
+            input.onchange = (e) => {
+                if (e.target.files && e.target.files[0]) {
+                    const file = e.target.files[0];
+                    setProfileFile({
+                        uri: URL.createObjectURL(file),
+                        name: file.name,
+                        type: file.type,
+                        file: file
+                    });
+                }
+                document.body.removeChild(input);
+            };
+            document.body.appendChild(input);
+            input.click();
+            return;
+        }
         try {
             const result = await DocumentPicker.getDocumentAsync({
                 type: ['image/jpeg', 'image/png', 'image/webp'],
@@ -711,7 +752,8 @@ const HospitalAdminDashboard = () => {
                 setProfileFile({
                     uri: asset.uri,
                     name: asset.name || 'avatar.jpg',
-                    type: asset.mimeType || 'image/jpeg'
+                    type: asset.mimeType || 'image/jpeg',
+                    file: asset.file || null
                 });
             }
         } catch (err) {
@@ -753,22 +795,40 @@ const HospitalAdminDashboard = () => {
         setError(''); setSuccess('');
         try {
             const formData = new FormData();
-            formData.append('images', {
-                uri: profileFile.uri,
-                type: 'image/jpeg',
-                name: 'avatar.jpg'
-            });
+            await appendFileToFormData(formData, 'images', profileFile, 'avatar.jpg');
             const uploadRes = await uploadAPI.uploadImages(formData);
             if (uploadRes.success && uploadRes.files?.length > 0) {
                 const avatarUrl = uploadRes.files[0].url;
-                await adminAPI.updateUser(currentUser.id || currentUser._id, { avatar: avatarUrl });
+                const targetUserId = currentUser?._id || currentUser?.id || authUser?._id || authUser?.id;
+                await adminAPI.updateUser(targetUserId, { avatar: avatarUrl });
                 dispatch(updateUserAction({ avatar: avatarUrl }));
+                setCurrentUser(prev => ({ ...prev, avatar: avatarUrl }));
+
+                if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                    try {
+                        const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
+                        storedUser.avatar = avatarUrl;
+                        localStorage.setItem('user', JSON.stringify(storedUser));
+                    } catch (e) {}
+                }
+                try {
+                    const asyncUserStr = await AsyncStorage.getItem('user');
+                    if (asyncUserStr) {
+                        const asyncUser = JSON.parse(asyncUserStr);
+                        asyncUser.avatar = avatarUrl;
+                        await AsyncStorage.setItem('user', JSON.stringify(asyncUser));
+                    }
+                } catch (e) {}
+
                 setSuccess('Profile photo updated successfully!');
                 setProfileFile(null);
                 setTimeout(() => setSuccess(''), 3000);
+            } else {
+                setError(uploadRes?.message || 'Failed to upload photo.');
             }
         } catch (err) {
-            setError('Failed to update profile photo.');
+            console.error('Failed to update profile photo:', err);
+            setError(err.response?.data?.message || 'Failed to update profile photo.');
         } finally {
             setSavingProfile(false);
         }

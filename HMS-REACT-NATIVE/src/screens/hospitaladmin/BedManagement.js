@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { 
-    View, Text, TextInput, TouchableOpacity, ScrollView, 
+import {
+    View, Text, TextInput, TouchableOpacity, ScrollView,
     StyleSheet, ActivityIndicator, Alert, Modal
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
@@ -13,12 +13,12 @@ const BedManagement = () => {
     const [beds, setBeds] = useState([]);
     const [loading, setLoading] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
-    
+
     // Filters & Search
     const [filterWard, setFilterWard] = useState('');
     const [filterStatus, setFilterStatus] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
-    
+
     // Modal state
     const [modalOpen, setModalOpen] = useState(false);
     const [editingBed, setEditingBed] = useState(null);
@@ -41,7 +41,7 @@ const BedManagement = () => {
             const params = {};
             if (filterWard) params.ward = filterWard;
             if (filterStatus) params.status = filterStatus;
-            
+
             const res = await bedAPI.getBeds(params);
             if (res.success) {
                 setBeds(res.beds || []);
@@ -108,15 +108,17 @@ const BedManagement = () => {
         }
         Alert.alert('Confirm Delete', `Are you sure you want to delete Bed ${bed.bedNumber}?`, [
             { text: 'Cancel', style: 'cancel' },
-            { text: 'Delete Bed', style: 'destructive', onPress: async () => {
-                try {
-                    await bedAPI.deleteBed(bed._id);
-                    Alert.alert('Success', `Bed ${bed.bedNumber} deleted`);
-                    fetchBeds();
-                } catch (error) {
-                    Alert.alert('Error', error.response?.data?.message || 'Error deleting bed');
+            {
+                text: 'Delete Bed', style: 'destructive', onPress: async () => {
+                    try {
+                        await bedAPI.deleteBed(bed._id);
+                        Alert.alert('Success', `Bed ${bed.bedNumber} deleted`);
+                        fetchBeds();
+                    } catch (error) {
+                        Alert.alert('Error', error.response?.data?.message || 'Error deleting bed');
+                    }
                 }
-            }}
+            }
         ]);
     };
 
@@ -163,8 +165,8 @@ const BedManagement = () => {
                     </Text>
                 </View>
                 <View style={styles.headerActions}>
-                    <TouchableOpacity 
-                        style={styles.btnRefresh} 
+                    <TouchableOpacity
+                        style={styles.btnRefresh}
                         onPress={() => fetchBeds(true)}
                         disabled={isRefreshing}
                     >
@@ -231,7 +233,7 @@ const BedManagement = () => {
                 {/* Search Box */}
                 <View style={styles.searchBox}>
                     <Feather name="search" size={16} color="#64748b" style={styles.searchIcon} />
-                    <TextInput 
+                    <TextInput
                         style={styles.searchInput}
                         value={searchQuery}
                         onChangeText={setSearchQuery}
@@ -249,7 +251,7 @@ const BedManagement = () => {
                 <View style={styles.dropdownsRow}>
                     <View style={[styles.filterGroup, { zIndex: 10 }]}>
                         <Text style={styles.filterLabel}>Ward:</Text>
-                        <CustomSelect 
+                        <CustomSelect
                             options={[
                                 { label: `All Wards (${uniqueWards.length})`, value: '' },
                                 ...uniqueWards.map(w => ({ label: w, value: w }))
@@ -261,7 +263,7 @@ const BedManagement = () => {
                     </View>
                     <View style={[styles.filterGroup, { zIndex: 5 }]}>
                         <Text style={styles.filterLabel}>Status:</Text>
-                        <CustomSelect 
+                        <CustomSelect
                             options={[
                                 { label: 'All Statuses', value: '' },
                                 { label: 'Available Only', value: 'AVAILABLE' },
@@ -287,7 +289,7 @@ const BedManagement = () => {
                     <Text style={styles.emptyIcon}>🛏️</Text>
                     <Text style={styles.emptyTitle}>No Beds Found</Text>
                     <Text style={styles.emptyText}>No hospital beds match your selected filters or search query.</Text>
-                    <TouchableOpacity 
+                    <TouchableOpacity
                         style={styles.btnResetFilters}
                         onPress={() => { setFilterWard(''); setFilterStatus(''); setSearchQuery(''); }}
                     >
@@ -329,17 +331,17 @@ const BedManagement = () => {
                                     </View>
                                 </View>
                             </View>
-                            
+
                             {/* Bed Cards Grid */}
                             <View style={styles.bedsGrid}>
                                 {wardBeds.map(bed => {
                                     const isAvailable = bed.status === 'AVAILABLE';
                                     const isOccupied = bed.status === 'OCCUPIED';
-                                    
+
                                     return (
                                         <View key={bed._id} style={[
                                             styles.bedCard,
-                                            { 
+                                            {
                                                 borderColor: isAvailable ? '#bbf7d0' : isOccupied ? '#fecaca' : '#fde68a',
                                                 borderLeftColor: isAvailable ? '#22c55e' : isOccupied ? '#ef4444' : '#f59e0b',
                                                 borderLeftWidth: 5
@@ -366,14 +368,14 @@ const BedManagement = () => {
                                                     </View>
                                                 </View>
                                                 <View style={{ flexDirection: 'row', gap: 8 }}>
-                                                    <TouchableOpacity 
-                                                        onPress={() => handleOpenModal(bed)} 
+                                                    <TouchableOpacity
+                                                        onPress={() => handleOpenModal(bed)}
                                                         style={styles.btnIcon}
                                                     >
                                                         <Feather name="edit-2" size={14} color="#64748b" />
                                                     </TouchableOpacity>
-                                                    <TouchableOpacity 
-                                                        onPress={() => handleDelete(bed)} 
+                                                    <TouchableOpacity
+                                                        onPress={() => handleDelete(bed)}
                                                         disabled={isOccupied}
                                                         style={[
                                                             styles.btnIcon,
@@ -435,32 +437,32 @@ const BedManagement = () => {
                                 <Feather name="x" size={18} color="#64748b" />
                             </TouchableOpacity>
                         </View>
-                        
+
                         <View style={{ marginBottom: 14 }}>
                             <Text style={styles.modalLabel}>Bed Number / Code <Text style={{ color: '#ef4444' }}>*</Text></Text>
-                            <TextInput 
+                            <TextInput
                                 style={styles.staffInput}
                                 value={formData.bedNumber}
-                                onChangeText={t => setFormData({...formData, bedNumber: t})}
+                                onChangeText={t => setFormData({ ...formData, bedNumber: t })}
                                 placeholder="e.g. B-101, ICU-04"
                                 placeholderTextColor="#94a3b8"
                             />
                         </View>
-                        
+
                         <View style={{ marginBottom: 14 }}>
                             <Text style={styles.modalLabel}>Ward Name <Text style={{ color: '#ef4444' }}>*</Text></Text>
-                            <TextInput 
+                            <TextInput
                                 style={styles.staffInput}
                                 value={formData.ward}
-                                onChangeText={t => setFormData({...formData, ward: t})}
+                                onChangeText={t => setFormData({ ...formData, ward: t })}
                                 placeholder="e.g. General Ward, ICU, Semi-Private"
                                 placeholderTextColor="#94a3b8"
                             />
                         </View>
-                        
+
                         <View style={[styles.filterGroup, { marginBottom: 14, zIndex: 20 }]}>
                             <Text style={styles.modalLabel}>Bed Type / Tier</Text>
-                            <CustomSelect 
+                            <CustomSelect
                                 options={[
                                     { label: 'General', value: 'General' },
                                     { label: 'ICU (Intensive Care)', value: 'ICU' },
@@ -473,28 +475,28 @@ const BedManagement = () => {
                                     { label: 'Other', value: 'Other' }
                                 ]}
                                 value={formData.bedType}
-                                onChange={v => setFormData({...formData, bedType: v})}
+                                onChange={v => setFormData({ ...formData, bedType: v })}
                                 placeholder="Select Bed Type"
                             />
                         </View>
-                        
+
                         {editingBed && (
                             <View style={[styles.filterGroup, { marginBottom: 20, zIndex: 10 }]}>
                                 <Text style={styles.modalLabel}>Operational Status</Text>
-                                <CustomSelect 
+                                <CustomSelect
                                     options={[
                                         { label: 'Available', value: 'AVAILABLE' },
                                         { label: 'Occupied (Set via Admission)', value: 'OCCUPIED' },
                                         { label: 'Maintenance / Cleaning', value: 'MAINTENANCE' }
                                     ]}
                                     value={formData.status}
-                                    onChange={v => setFormData({...formData, status: v})}
+                                    onChange={v => setFormData({ ...formData, status: v })}
                                     placeholder="Select Status"
                                     disabled={editingBed.status === 'OCCUPIED' || formData.status === 'OCCUPIED'}
                                 />
                             </View>
                         )}
-                        
+
                         <View style={styles.modalButtons}>
                             <TouchableOpacity onPress={() => setModalOpen(false)} style={styles.btnCancel}>
                                 <Text style={styles.btnCancelText}>Cancel</Text>

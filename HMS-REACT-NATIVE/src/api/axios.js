@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // import { navigate } from './navigationRef'; // Import your global navigation reference
 
 const apiClient = axios.create({
-    baseURL: process.env.EXPO_PUBLIC_API_URL || 'https://your-production-url.onrender.com',
+    baseURL: process.env.EXPO_PUBLIC_API_URL || 'https://hms-n6nk.onrender.com',
     timeout: 10000,
 });
 

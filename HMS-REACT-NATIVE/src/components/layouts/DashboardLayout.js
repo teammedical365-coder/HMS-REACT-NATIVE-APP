@@ -114,10 +114,10 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
                 { label: 'Planned Surgeries', path: 'OTPlannedSurgeries', icon: <Feather name="clock" size={18} /> },
                 { label: 'OT Schedule', path: 'OTSchedulePage', icon: <Feather name="calendar" size={18} /> },
                 { label: 'OT Rooms', path: 'OTRoomsPage', icon: <Feather name="box" size={18} /> },
-                { label: 'Pre-Op', path: 'OTPreOpPage', icon: <Feather name="user-check" size={18} /> },
+                { label: 'Pre-Op Patients', path: 'OTPreOpPage', icon: <Feather name="user-check" size={18} /> },
                 { label: 'In OT', path: 'OTInProgressPage', icon: <Feather name="activity" size={18} /> },
                 { label: 'Post-Op', path: 'OTPostOpPage', icon: <Feather name="heart" size={18} /> },
-                { label: 'Completed', path: 'OTCompletedPage', icon: <Feather name="check-circle" size={18} /> },
+                { label: 'Completed Surgeries', path: 'OTCompletedPage', icon: <Feather name="check-circle" size={18} /> },
                 { label: 'Surgeons', path: 'OTSurgeonsPage', icon: <Feather name="user" size={18} /> },
                 { label: 'OT Reports', path: 'OTReportsPage', icon: <Feather name="file-text" size={18} /> },
             ];
@@ -128,6 +128,7 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
             if (isClinicHub) {
                 return [
                     { label: 'Clinic Hub', path: 'ClinicDashboard', icon: <Feather name="home" size={18} /> },
+                    { label: 'Billing & Payments', path: 'PatientBillingProfile', icon: <Feather name="file-text" size={18} /> },
                     { label: 'Vial Management', path: 'VialManagement', icon: <Feather name="box" size={18} /> },
                 ];
             }
@@ -138,6 +139,7 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
                 { label: 'Staff Management', path: 'Admin', icon: <Feather name="users" size={18} /> },
                 { label: 'Doctors Feed', path: 'AdminDoctors', icon: <Feather name="activity" size={18} /> },
                 { label: 'Pharma Inventory', path: 'PharmacyInventory', icon: <Feather name="package" size={18} /> },
+                { label: 'Billing & Payments', path: 'PatientBillingProfile', icon: <Feather name="file-text" size={18} /> },
             ];
         }
 
@@ -258,7 +260,9 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
 
             <ScrollView style={styles.sidebarNav} showsVerticalScrollIndicator={false}>
                 {menuItems.map((item, idx) => {
-                    const isActive = currentPath === item.path;
+                    const isActive = currentPath === item.path ||
+                        (item.path === 'HospitalAdminDashboard' && (currentPath === 'RoleDashboard' || currentPath === 'HospitalAdminDashboard')) ||
+                        (item.path === 'Admin' && currentPath === 'AdminUsers');
 
                     const caThemes = [
                         { bg: styles.themeGreenActive, text: styles.themeGreenTextActive },
@@ -450,7 +454,7 @@ const TopBar = ({ toggleSidebar, sidebarOpen, isMobile }) => {
         if (name === 'CompletedReports') return 'Past Records';
         if (name === 'AdminRoles') return 'Roles & Permissions';
         if (name === 'AccountantDashboard') return 'Finance Dashboard';
-        if (name === 'PatientBillingProfile') return 'Patient Billing';
+        if (name === 'PatientBillingProfile') return role === 'hospitaladmin' ? 'Billing & Payments' : 'Patient Billing';
         if (name === 'CashierDashboard') return role === 'billing' ? 'Patient Billing' : 'Billing/Payments';
         if (name === 'NurseDashboard') return 'Nurse Command Center';
         if (name === 'NurseOPDQueue') return 'OPD Patient Queue';

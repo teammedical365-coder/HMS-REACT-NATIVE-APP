@@ -1,19 +1,19 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { 
-    View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, Dimensions, ActivityIndicator 
+import {
+    View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, Dimensions, ActivityIndicator
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 import { otAPI, doctorAPI, bedAPI } from '../../utils/api';
 import socket from '../../utils/socket';
 import OTHeader from './OTHeader';
-import { 
-    getStatusStyle, 
-    getElapsedTime, 
-    checkIfDelayed, 
-    SurgeryDetailsModal, 
-    ScheduleSurgeryModal, 
-    WorkflowBedModal 
+import {
+    getStatusStyle,
+    getElapsedTime,
+    checkIfDelayed,
+    SurgeryDetailsModal,
+    ScheduleSurgeryModal,
+    WorkflowBedModal
 } from '../../components/ot/OTModals';
 
 const OTDashboard = () => {
@@ -155,7 +155,7 @@ const OTDashboard = () => {
             {/* ========================================================= */}
             <View style={styles.kpiGrid}>
                 {/* 1. Today's Surgeries */}
-                <TouchableOpacity 
+                <TouchableOpacity
                     onPress={() => navigation.navigate('OTSchedulePage')}
                     style={[styles.kpiCard, { borderColor: '#e2e8f0' }]}
                 >
@@ -172,7 +172,7 @@ const OTDashboard = () => {
                 </TouchableOpacity>
 
                 {/* 2. In OT */}
-                <TouchableOpacity 
+                <TouchableOpacity
                     onPress={() => navigation.navigate('OTInProgressPage')}
                     style={[styles.kpiCard, { borderColor: '#fee2e2' }]}
                 >
@@ -189,7 +189,7 @@ const OTDashboard = () => {
                 </TouchableOpacity>
 
                 {/* 3. Available OT Rooms */}
-                <TouchableOpacity 
+                <TouchableOpacity
                     onPress={() => navigation.navigate('OTRoomsPage')}
                     style={[styles.kpiCard, { borderColor: '#dcfce7' }]}
                 >
@@ -206,7 +206,7 @@ const OTDashboard = () => {
                 </TouchableOpacity>
 
                 {/* 4. Occupied OT Rooms */}
-                <TouchableOpacity 
+                <TouchableOpacity
                     onPress={() => navigation.navigate('OTRoomsPage')}
                     style={[styles.kpiCard, { borderColor: '#fed7aa' }]}
                 >
@@ -223,7 +223,7 @@ const OTDashboard = () => {
                 </TouchableOpacity>
 
                 {/* 5. Pre-Op Patients */}
-                <TouchableOpacity 
+                <TouchableOpacity
                     onPress={() => navigation.navigate('OTPreOpPage')}
                     style={[styles.kpiCard, { borderColor: '#fef08a' }]}
                 >
@@ -240,7 +240,7 @@ const OTDashboard = () => {
                 </TouchableOpacity>
 
                 {/* 6. Completed Today */}
-                <TouchableOpacity 
+                <TouchableOpacity
                     onPress={() => navigation.navigate('OTCompletedPage')}
                     style={[styles.kpiCard, { borderColor: '#c7d2fe' }]}
                 >
@@ -257,7 +257,7 @@ const OTDashboard = () => {
                 </TouchableOpacity>
 
                 {/* 7. Planned Surgeries */}
-                <TouchableOpacity 
+                <TouchableOpacity
                     onPress={() => navigation.navigate('OTPlannedSurgeries')}
                     style={[styles.kpiCard, { borderColor: '#e9d5ff' }]}
                 >
@@ -329,7 +329,7 @@ const OTDashboard = () => {
                             <Text style={styles.previewTitle}>📅 Today's OT Schedule</Text>
                             <Text style={styles.previewSubtitle}>Showing {previewSchedule.length} of {todaySchedule.length} surgeries scheduled today</Text>
                         </View>
-                        <TouchableOpacity 
+                        <TouchableOpacity
                             onPress={() => navigation.navigate('OTSchedulePage')}
                             style={styles.previewLink}
                         >
@@ -399,7 +399,7 @@ const OTDashboard = () => {
                             <Text style={styles.previewTitle}>🏥 Live OT Room Status</Text>
                             <Text style={styles.previewSubtitle}>Showing {previewRooms.length} of {rooms.length} OT suites</Text>
                         </View>
-                        <TouchableOpacity 
+                        <TouchableOpacity
                             onPress={() => navigation.navigate('OTRoomsPage')}
                             style={styles.previewLink}
                         >
@@ -420,11 +420,11 @@ const OTDashboard = () => {
                                 const isAvailable = r.status === 'Available' || r.status === 'AVAILABLE';
 
                                 return (
-                                    <View 
+                                    <View
                                         key={r._id}
                                         style={[
                                             styles.roomCard,
-                                            { 
+                                            {
                                                 backgroundColor: isOccupied ? '#fef2f2' : (isAvailable ? '#f0fdf4' : '#eff6ff'),
                                                 borderColor: isOccupied ? '#fecaca' : (isAvailable ? '#bbf7d0' : '#bfdbfe')
                                             }
@@ -481,7 +481,7 @@ const OTDashboard = () => {
                         <Text style={styles.previewTitle}>📋 Planned Surgeries (Awaiting OT Scheduling)</Text>
                         <Text style={styles.previewSubtitle}>Showing {previewPlanned.length} of {plannedSurgeries.length} doctor-created surgery plans</Text>
                     </View>
-                    <TouchableOpacity 
+                    <TouchableOpacity
                         onPress={() => navigation.navigate('OTPlannedSurgeries')}
                         style={[styles.previewLink, { backgroundColor: '#f5f3ff' }]}
                     >

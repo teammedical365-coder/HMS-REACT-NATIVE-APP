@@ -558,7 +558,7 @@ const ClinicDashboard = ({ navigation }) => {
                 if (role === 'doctor' || role === 'clinic doctor') setMode('doctor');
                 else if (role === 'reception' || role === 'receptionist') setMode('reception');
                 else setMode('overview');
-                
+
                 const allowed = ['hospitaladmin', 'doctor', 'clinic doctor', 'reception', 'receptionist'];
                 if (!allowed.includes(role)) {
                     // Navigate to login
@@ -608,7 +608,7 @@ const ClinicDashboard = ({ navigation }) => {
                                 if (role === 'reception' || role === 'receptionist') return ['reception', 'patients', 'overview', 'billing', 'plans'].includes(m.id);
                                 return true;
                             }).map(m => (
-                                <TouchableOpacity 
+                                <TouchableOpacity
                                     key={m.id}
                                     style={[styles.switcherBtn, mode === m.id && { backgroundColor: m.color, borderColor: m.color }]}
                                     onPress={() => setMode(m.id)}
@@ -627,7 +627,7 @@ const ClinicDashboard = ({ navigation }) => {
                     )}
                 </View>
             )}
-            
+
             {isClinicDoctorUser && (
                 <View style={[styles.roleSwitcher, { justifyContent: 'flex-end' }]}>
                     {currentUser?.subscriptionPlan !== 'starter' && (
@@ -767,17 +767,17 @@ const OverviewMode = () => {
     const selectedDate = new Date(overviewMonthStr + '-01T00:00:00');
     const m = selectedDate.getMonth();
     const y = selectedDate.getFullYear();
-    
+
     let mAppt = 0;
     let mTreat = 0;
-        
+
     appointments.forEach(a => {
         if (a.amount > 0 && (a.paymentStatus === 'paid' || a.status === 'completed' || a.status === 'consulted')) {
             const ad = new Date(a.appointmentDate);
             if (ad.getMonth() === m && ad.getFullYear() === y) mAppt += a.amount;
         }
     });
-    
+
     treatmentPlans.forEach(p => {
         if (Array.isArray(p.visits)) {
             p.visits.forEach(v => {
@@ -798,7 +798,7 @@ const OverviewMode = () => {
             });
         }
     });
-    
+
     chartData.push({ month: m, year: y, appt: mAppt, treat: mTreat, total: mAppt + mTreat });
 
     const kpis = [
@@ -860,7 +860,7 @@ const OverviewMode = () => {
                         })}
                     </View>
                 )}
-                
+
                 <View style={{ flexDirection: 'row', height: 180, alignItems: 'flex-end', justifyContent: 'space-around', paddingTop: 20 }}>
                     {chartData.map((m, i) => {
                         const maxTotal = Math.max(...chartData.map(x => x.total));
@@ -931,22 +931,22 @@ const OverviewMode = () => {
                 <View style={{ gap: 12 }}>
                     <View>
                         <Text style={styles.label}>Default Service Name</Text>
-                        <TextInput style={styles.input} value={config.defaultServiceName} onChangeText={t => setConfig({...config, defaultServiceName: t})} placeholder="General Consultation" maxLength={50} />
+                        <TextInput style={styles.input} value={config.defaultServiceName} onChangeText={t => setConfig({ ...config, defaultServiceName: t })} placeholder="General Consultation" maxLength={50} />
                     </View>
                     <View style={{ flexDirection: 'row', gap: 12 }}>
                         <View style={{ flex: 1 }}>
                             <Text style={styles.label}>Default Fee (₹)</Text>
-                            <TextInput style={styles.input} keyboardType="numeric" value={config.defaultFee} onChangeText={t => setConfig({...config, defaultFee: t})} />
+                            <TextInput style={styles.input} keyboardType="numeric" value={config.defaultFee} onChangeText={t => setConfig({ ...config, defaultFee: t })} />
                         </View>
                         <View style={{ flex: 1 }}>
                             <Text style={styles.label}>Follow-up Validity (Days)</Text>
-                            <TextInput style={styles.input} keyboardType="numeric" value={config.followUpDays} onChangeText={t => setConfig({...config, followUpDays: t})} />
+                            <TextInput style={styles.input} keyboardType="numeric" value={config.followUpDays} onChangeText={t => setConfig({ ...config, followUpDays: t })} />
                         </View>
                     </View>
                     <View>
                         <Text style={styles.label}>Appointment Mode</Text>
                         <View style={styles.pickerWrapper}>
-                            <Picker selectedValue={config.appointmentMode} onValueChange={t => setConfig({...config, appointmentMode: t})}>
+                            <Picker selectedValue={config.appointmentMode} onValueChange={t => setConfig({ ...config, appointmentMode: t })}>
                                 <Picker.Item label="Token (walk-in queue)" value="token" />
                                 <Picker.Item label="Time Slot" value="slot" />
                             </Picker>
@@ -1163,7 +1163,7 @@ const PatientsMode = ({ onBookToken, setPendingDownload }) => {
 // ═══════════════════════════════════════════════════
 const BookTokenForm = ({ patient, onBook, onCancel, flash, mode = 'token', defaultFee = 0, defaultServiceName = 'General Consultation', setPendingDownload }) => {
     const isSlotMode = mode === 'slot';
-    
+
     const getTodayString = () => {
         const d = new Date();
         const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -1171,21 +1171,21 @@ const BookTokenForm = ({ patient, onBook, onCancel, flash, mode = 'token', defau
         return `${d.getFullYear()}-${month}-${day}`;
     };
 
-    const [form, setForm] = useState({ 
-        amount: defaultFee > 0 ? String(defaultFee) : '', 
-        serviceName: defaultServiceName, 
-        notes: '', 
+    const [form, setForm] = useState({
+        amount: defaultFee > 0 ? String(defaultFee) : '',
+        serviceName: defaultServiceName,
+        notes: '',
         appointmentDate: getTodayString(),
-        appointmentTime: '', 
-        paymentMethod: 'Cash', 
-        upiScreenshot: null, 
-        cardRef: '' 
+        appointmentTime: '',
+        paymentMethod: 'Cash',
+        upiScreenshot: null,
+        cardRef: ''
     });
     const [booking, setBooking] = useState(false);
     const [feeWaived, setFeeWaived] = useState(false);
     const [waiverMessage, setWaiverMessage] = useState('');
     const [bookedSlots, setBookedSlots] = useState([]);
-    
+
     useEffect(() => {
         if (!patient?._id) return;
         clinicAPI.checkFeeWaiver(patient._id, form.appointmentDate)
@@ -1432,12 +1432,14 @@ const ReceptionMode = ({ preselectedPatient, clearPreselected, setPendingDownloa
     const cancelAppt = async (id) => {
         Alert.alert("Confirm Cancel", isSlotMode ? 'Cancel this appointment?' : 'Cancel this token?', [
             { text: "No", style: "cancel" },
-            { text: "Yes", onPress: async () => {
-                try {
-                    await clinicAPI.cancelAppointment(id);
-                    setAppointments(prev => prev.map(a => a._id === id ? { ...a, status: 'cancelled' } : a));
-                } catch (e) { flash('error', e.message); }
-            }}
+            {
+                text: "Yes", onPress: async () => {
+                    try {
+                        await clinicAPI.cancelAppointment(id);
+                        setAppointments(prev => prev.map(a => a._id === id ? { ...a, status: 'cancelled' } : a));
+                    } catch (e) { flash('error', e.message); }
+                }
+            }
         ]);
     };
 
@@ -1514,7 +1516,7 @@ const ReceptionMode = ({ preselectedPatient, clearPreselected, setPendingDownloa
             ) : displayList.length === 0 ? (
                 <View style={{ padding: 20, alignItems: 'center' }}><Text style={{ color: '#94a3b8' }}>No patients found. Register your first patient.</Text></View>
             ) : (
-                <FlatList 
+                <FlatList
                     data={displayList}
                     keyExtractor={p => p._id}
                     scrollEnabled={false}
@@ -1546,8 +1548,8 @@ const ReceptionMode = ({ preselectedPatient, clearPreselected, setPendingDownloa
                                             </>
                                         )}
                                         {isDone && <Text style={{ backgroundColor: '#dcfce7', color: '#16a34a', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, fontSize: 12, fontWeight: 'bold' }}>✅ Visited Today</Text>}
-                                        <TouchableOpacity 
-                                            style={[styles.btnSecondary, { paddingHorizontal: 8, paddingVertical: 4 }]} 
+                                        <TouchableOpacity
+                                            style={[styles.btnSecondary, { paddingHorizontal: 8, paddingVertical: 4 }]}
                                             onPress={() => generatePatientProfilePDF(p)}
                                             title="Export Patient Profile PDF"
                                         >
@@ -1620,13 +1622,13 @@ const MedicineTable = ({ rx, setRx, inventory }) => {
                 <Text style={{ flex: 1, paddingHorizontal: 8, fontWeight: '700', color: '#374151', fontSize: 12 }}>Days</Text>
                 <Text style={{ width: 40, paddingHorizontal: 8, fontWeight: '700', color: '#374151', fontSize: 12, textAlign: 'center' }}>X</Text>
             </View>
-            
+
             {/* Table Body */}
             {rx.medicines.map((m, idx) => {
                 const displayVal = rowSearch[idx] !== undefined ? rowSearch[idx] : (m.name || m.medicineName || '');
                 const suggestions = getSuggestions(idx);
                 const showDropdown = activeRow === idx && suggestions.length > 0;
-                
+
                 return (
                     <View key={idx} style={{ backgroundColor: idx % 2 === 0 ? '#fff' : '#f8fafc' }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderColor: '#f1f5f9', paddingVertical: 6 }}>
@@ -1756,15 +1758,15 @@ const DoctorMode = ({ setPendingDownload }) => {
     };
 
     useEffect(() => {
-        clinicAPI.getStaff().then(r => { if (r.success) setStaff(r.staff || []); }).catch(() => {}).finally(() => setStaffLoading(false));
+        clinicAPI.getStaff().then(r => { if (r.success) setStaff(r.staff || []); }).catch(() => { }).finally(() => setStaffLoading(false));
         loadToday();
-        
+
         clinicAPI.getInventory()
             .then(invRes => {
                 const localList = invRes.success ? (invRes.inventory || []) : [];
                 setInventory(localList);
             })
-            .catch(() => {});
+            .catch(() => { });
 
         clinicAPI.getStats().then(r => { if (r.success) setAnalytics(r.stats); }).catch(() => { });
     }, []);
@@ -1815,7 +1817,7 @@ const DoctorMode = ({ setPendingDownload }) => {
         try {
             const labArr = rx.labTests.split(',').map(t => t.trim()).filter(Boolean);
             const isEditing = consulting.status === 'completed';
-            
+
             const payload = {
                 diagnosis: rx.diagnosis,
                 notes: rx.notes,
@@ -1855,9 +1857,9 @@ const DoctorMode = ({ setPendingDownload }) => {
             <TouchableOpacity onPress={() => setConsulting(null)} style={{ marginBottom: 12 }}>
                 <Text style={{ color: '#6366f1', fontWeight: 'bold' }}>← Back to Queue</Text>
             </TouchableOpacity>
-            
+
             {msg.text ? <View style={[styles.downloadAlert, { borderColor: msg.type === 'error' ? '#fecaca' : '#a7f3d0', backgroundColor: msg.type === 'error' ? '#fef2f2' : '#ecfdf5' }]}><Text style={{ color: msg.type === 'error' ? '#dc2626' : '#059669', fontWeight: 'bold' }}>{msg.text}</Text></View> : null}
-            
+
             <View style={styles.clinicCard}>
                 {/* Patient header */}
                 <View style={{ flexDirection: 'row', gap: 12, marginBottom: 16 }}>
@@ -1884,7 +1886,7 @@ const DoctorMode = ({ setPendingDownload }) => {
                                 ))}
                             </View>
                         )}
-                        <TouchableOpacity 
+                        <TouchableOpacity
                             style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#eef2ff', borderWidth: 1, borderColor: '#c7d2fe', paddingVertical: 5, paddingHorizontal: 10, borderRadius: 6, alignSelf: 'flex-start', marginTop: 8 }}
                             onPress={() => generatePatientProfilePDF(consulting.clinicPatientId, patientHistory)}
                         >
@@ -2029,10 +2031,10 @@ const DoctorMode = ({ setPendingDownload }) => {
                 {[{ id: 'staff', label: '👥 Doctor & Staff List' }, { id: 'queue', label: '🩺 Today\'s Queue' }]
                     .filter(t => true) // keeping both for now
                     .map(t => (
-                    <TouchableOpacity key={t.id} style={[styles.switcherBtn, tab === t.id && { backgroundColor: '#6366f1', borderColor: '#6366f1' }]} onPress={() => setTab(t.id)}>
-                        <Text style={[styles.switcherBtnText, tab === t.id && { color: '#fff' }]}>{t.label}</Text>
-                    </TouchableOpacity>
-                ))}
+                        <TouchableOpacity key={t.id} style={[styles.switcherBtn, tab === t.id && { backgroundColor: '#6366f1', borderColor: '#6366f1' }]} onPress={() => setTab(t.id)}>
+                            <Text style={[styles.switcherBtnText, tab === t.id && { color: '#fff' }]}>{t.label}</Text>
+                        </TouchableOpacity>
+                    ))}
             </View>
 
             {/* Staff List */}
@@ -2043,7 +2045,7 @@ const DoctorMode = ({ setPendingDownload }) => {
                         <FlatList
                             data={staff}
                             keyExtractor={s => s._id}
-                            renderItem={({item: s}) => (
+                            renderItem={({ item: s }) => (
                                 <View style={styles.tableRow}>
                                     <View style={{ flex: 2 }}>
                                         <Text style={{ fontWeight: 'bold', color: '#1e293b' }}>{s.name}</Text>
@@ -2102,7 +2104,7 @@ const DoctorMode = ({ setPendingDownload }) => {
                             <FlatList
                                 data={pending}
                                 keyExtractor={a => a._id}
-                                renderItem={({item: a}) => (
+                                renderItem={({ item: a }) => (
                                     <View style={{ flexDirection: 'row', backgroundColor: '#f8fafc', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 12, alignItems: 'center' }}>
                                         <View style={{ backgroundColor: '#fff', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#6366f1', marginRight: 12 }}>
                                             <Text style={{ color: '#6366f1', fontWeight: '900', fontSize: 16 }}>#{a.tokenNumber}</Text>
@@ -2130,7 +2132,7 @@ const DoctorMode = ({ setPendingDownload }) => {
                             <FlatList
                                 data={done}
                                 keyExtractor={a => a._id}
-                                renderItem={({item: a}) => (
+                                renderItem={({ item: a }) => (
                                     <View style={styles.tableRow}>
                                         <Text style={{ fontWeight: 'bold', color: '#6366f1', width: 40 }}>#{a.tokenNumber}</Text>
                                         <View style={{ flex: 1 }}>
@@ -2246,7 +2248,7 @@ const PharmacyMode = () => {
                                 <FlatList
                                     data={filtered}
                                     keyExtractor={m => m._id}
-                                    renderItem={({item: m, index: i}) => (
+                                    renderItem={({ item: m, index: i }) => (
                                         <View style={styles.tableRow}>
                                             <Text style={{ color: '#94a3b8', fontSize: 12, width: 30 }}>{i + 1}</Text>
                                             <View style={{ flex: 1 }}>
@@ -2292,7 +2294,7 @@ const PharmacyMode = () => {
                                         </Picker>
                                     </View>
                                 </View>
-                                
+
                                 <View>
                                     <Text style={styles.label}>Unit / Form</Text>
                                     <View style={styles.pickerWrapper}>
@@ -2351,9 +2353,9 @@ const TreatmentPlanMode = () => {
     const getEffectiveStatus = (visit) => {
         if (visit.status === 'completed' || visit.status === 'missed') return visit.status;
         const today = new Date();
-        today.setHours(0,0,0,0);
+        today.setHours(0, 0, 0, 0);
         const sDate = new Date(visit.scheduledDate);
-        sDate.setHours(0,0,0,0);
+        sDate.setHours(0, 0, 0, 0);
         if (sDate <= today) return 'due';
         return visit.status;
     };
@@ -2436,7 +2438,7 @@ const TreatmentPlanMode = () => {
                 paymentMethod: payInput.paymentMethod,
                 notes: payInput.notes,
             };
-            
+
             const r = await clinicAPI.payVisit(payModal.planId, payModal.visit._id, payload);
             if (r.success) {
                 setSelectedPlan(r.plan);
@@ -2579,7 +2581,7 @@ const TreatmentPlanMode = () => {
             <TouchableOpacity onPress={() => setView('list')} style={{ marginBottom: 12 }}>
                 <Text style={{ color: '#6366f1', fontWeight: 'bold' }}>← Back to Plans</Text>
             </TouchableOpacity>
-            
+
             {msg.text ? <View style={[styles.downloadAlert, { borderColor: msg.type === 'error' ? '#fecaca' : '#a7f3d0', backgroundColor: msg.type === 'error' ? '#fef2f2' : '#ecfdf5' }]}><Text style={{ color: msg.type === 'error' ? '#dc2626' : '#059669', fontWeight: 'bold' }}>{msg.text}</Text></View> : null}
 
             <View style={styles.clinicCard}>
@@ -2669,7 +2671,7 @@ const TreatmentPlanMode = () => {
                 <TouchableOpacity onPress={() => setView('list')} style={{ marginBottom: 12 }}>
                     <Text style={{ color: '#6366f1', fontWeight: 'bold' }}>← Back to Plans</Text>
                 </TouchableOpacity>
-                
+
                 {msg.text ? <View style={[styles.downloadAlert, { borderColor: msg.type === 'error' ? '#fecaca' : '#a7f3d0', backgroundColor: msg.type === 'error' ? '#fef2f2' : '#ecfdf5' }]}><Text style={{ color: msg.type === 'error' ? '#dc2626' : '#059669', fontWeight: 'bold' }}>{msg.text}</Text></View> : null}
 
                 <View style={styles.clinicCard}>
@@ -2678,7 +2680,7 @@ const TreatmentPlanMode = () => {
                             <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#0f172a' }}>{selectedPlan.title}</Text>
                             <Text style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>👤 {selectedPlan.clinicPatientId?.name}</Text>
                         </View>
-                        <TouchableOpacity 
+                        <TouchableOpacity
                             style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#ecfeff', borderWidth: 1, borderColor: '#0891b2', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}
                             onPress={() => downloadTreatmentPlanPDF(selectedPlan)}
                         >
@@ -2713,7 +2715,7 @@ const TreatmentPlanMode = () => {
                                         </View>
                                     </View>
                                     {v.procedure ? <Text style={{ fontSize: 12, color: '#475569', marginBottom: 6 }}>{v.procedure}</Text> : null}
-                                    
+
                                     <View style={{ flexDirection: 'row', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                                         {selectedPlan.status === 'active' && !['completed', 'missed'].includes(v.status) && (
                                             <>
@@ -2731,8 +2733,8 @@ const TreatmentPlanMode = () => {
                                             </>
                                         )}
                                         {v.status === 'missed' && !v.rescheduledToDate && selectedPlan.status === 'active' && (
-                                            <TouchableOpacity 
-                                                style={{ backgroundColor: '#f3e8ff', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }} 
+                                            <TouchableOpacity
+                                                style={{ backgroundColor: '#f3e8ff', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}
                                                 onPress={() => {
                                                     setRescheduleModal({ planId: selectedPlan._id, visit: v });
                                                     setRescheduleInput({ newDate: todayStr(), newTime: v.scheduledTime || '', remarks: '' });
@@ -2757,7 +2759,7 @@ const TreatmentPlanMode = () => {
                                 <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 16 }}>Record Payment</Text>
                                 <Text style={styles.label}>Amount Paying Now (₹) *</Text>
                                 <TextInput style={[styles.input, { marginBottom: 16 }]} keyboardType="numeric" value={payInput.amountPaid} onChangeText={t => setPayInput(p => ({ ...p, amountPaid: t }))} />
-                                
+
                                 <Text style={styles.label}>Payment Method</Text>
                                 <View style={[styles.pickerWrapper, { marginBottom: 16 }]}>
                                     <Picker selectedValue={payInput.paymentMethod} onValueChange={val => setPayInput(p => ({ ...p, paymentMethod: val }))}>
@@ -2785,7 +2787,7 @@ const TreatmentPlanMode = () => {
                         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
                             <View style={{ backgroundColor: '#fff', padding: 24, borderRadius: 12, width: '100%', maxWidth: 400 }}>
                                 <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 16 }}>🔄 Reschedule Visit #{rescheduleModal.visit?.visitNumber}</Text>
-                                
+
                                 <Text style={styles.label}>New Scheduled Date *</Text>
                                 <DatePickerInput
                                     value={rescheduleInput.newDate}
@@ -2795,19 +2797,19 @@ const TreatmentPlanMode = () => {
                                 />
 
                                 <Text style={[styles.label, { marginTop: 12 }]}>New Scheduled Time</Text>
-                                <TextInput 
-                                    style={[styles.input, { marginBottom: 12 }]} 
-                                    placeholder="e.g. 10:30 AM" 
-                                    value={rescheduleInput.newTime} 
-                                    onChangeText={t => setRescheduleInput(p => ({ ...p, newTime: t }))} 
+                                <TextInput
+                                    style={[styles.input, { marginBottom: 12 }]}
+                                    placeholder="e.g. 10:30 AM"
+                                    value={rescheduleInput.newTime}
+                                    onChangeText={t => setRescheduleInput(p => ({ ...p, newTime: t }))}
                                 />
 
                                 <Text style={styles.label}>Remarks / Reason</Text>
-                                <TextInput 
-                                    style={[styles.input, { marginBottom: 16 }]} 
-                                    placeholder="e.g. Patient requested new slot" 
-                                    value={rescheduleInput.remarks} 
-                                    onChangeText={t => setRescheduleInput(p => ({ ...p, remarks: t }))} 
+                                <TextInput
+                                    style={[styles.input, { marginBottom: 16 }]}
+                                    placeholder="e.g. Patient requested new slot"
+                                    value={rescheduleInput.remarks}
+                                    onChangeText={t => setRescheduleInput(p => ({ ...p, remarks: t }))}
                                 />
 
                                 <View style={{ flexDirection: 'row', gap: 12, marginTop: 8 }}>
@@ -2840,37 +2842,37 @@ const BillingMode = () => {
 
     useEffect(() => {
         Promise.all([clinicAPI.getAppointments(), clinicAPI.getTreatmentPlans(), clinicAPI.getStats()])
-        .then(([apptR, plansR, statsR]) => {
-            let combined = [];
-            if (apptR.success && Array.isArray(apptR.appointments)) {
-                apptR.appointments.filter(a => a.paymentStatus === 'paid' || a.amount > 0).forEach(a => {
-                    combined.push({
-                        _id: a._id, date: a.appointmentDate, tokenOrSlot: a.tokenNumber ? `#${a.tokenNumber}` : 'Token',
-                        patientName: a.clinicPatientId?.name || '—', patientUid: a.clinicPatientId?.patientUid || a.patientId || '—',
-                        serviceName: a.serviceName || 'General Consultation', amount: a.amount || 0, pendingAmount: 0,
-                        paymentMethod: a.paymentMethod || 'Cash', status: a.status || 'completed', type: 'consultation', rawRecord: a
-                    });
-                });
-            }
-            if (plansR.success && Array.isArray(plansR.plans)) {
-                plansR.plans.forEach(plan => {
-                    if (Array.isArray(plan.visits)) {
-                        plan.visits.filter(v => v.amountPaid > 0).forEach((v, idx) => {
-                            combined.push({
-                                _id: `${plan._id}_v${v._id || idx}`, date: v.paidAt || v.completedAt || plan.createdAt,
-                                tokenOrSlot: `Plan: ${plan.title}`, patientName: plan.clinicPatientId?.name || '—',
-                                patientUid: plan.clinicPatientId?.patientUid || '—', serviceName: `Treatment Plan (Visit ${v.visitNumber})`,
-                                amount: v.amountPaid, pendingAmount: plan.pendingBalance || 0, paymentMethod: v.paymentMethod || 'Cash',
-                                status: 'completed', type: 'treatment_plan'
-                            });
+            .then(([apptR, plansR, statsR]) => {
+                let combined = [];
+                if (apptR.success && Array.isArray(apptR.appointments)) {
+                    apptR.appointments.filter(a => a.paymentStatus === 'paid' || a.amount > 0).forEach(a => {
+                        combined.push({
+                            _id: a._id, date: a.appointmentDate, tokenOrSlot: a.tokenNumber ? `#${a.tokenNumber}` : 'Token',
+                            patientName: a.clinicPatientId?.name || '—', patientUid: a.clinicPatientId?.patientUid || a.patientId || '—',
+                            serviceName: a.serviceName || 'General Consultation', amount: a.amount || 0, pendingAmount: 0,
+                            paymentMethod: a.paymentMethod || 'Cash', status: a.status || 'completed', type: 'consultation', rawRecord: a
                         });
-                    }
-                });
-            }
-            combined.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
-            setAllRecords(combined); setDisplayRecords(combined);
-            if (statsR.success) setStats(statsR.stats);
-        }).catch(console.error).finally(() => setLoading(false));
+                    });
+                }
+                if (plansR.success && Array.isArray(plansR.plans)) {
+                    plansR.plans.forEach(plan => {
+                        if (Array.isArray(plan.visits)) {
+                            plan.visits.filter(v => v.amountPaid > 0).forEach((v, idx) => {
+                                combined.push({
+                                    _id: `${plan._id}_v${v._id || idx}`, date: v.paidAt || v.completedAt || plan.createdAt,
+                                    tokenOrSlot: `Plan: ${plan.title}`, patientName: plan.clinicPatientId?.name || '—',
+                                    patientUid: plan.clinicPatientId?.patientUid || '—', serviceName: `Treatment Plan (Visit ${v.visitNumber})`,
+                                    amount: v.amountPaid, pendingAmount: plan.pendingBalance || 0, paymentMethod: v.paymentMethod || 'Cash',
+                                    status: 'completed', type: 'treatment_plan'
+                                });
+                            });
+                        }
+                    });
+                }
+                combined.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+                setAllRecords(combined); setDisplayRecords(combined);
+                if (statsR.success) setStats(statsR.stats);
+            }).catch(console.error).finally(() => setLoading(false));
     }, []);
 
     const filterByPatient = () => {
@@ -2898,7 +2900,7 @@ const BillingMode = () => {
 
             <View style={styles.clinicCard}>
                 <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 14, color: '#1e293b' }}>🧾 Billing Records</Text>
-                
+
                 <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
                     <TextInput style={[styles.input, { flex: 1 }]} placeholder="Search patient..." value={patSearch} onChangeText={setPatSearch} />
                     <TouchableOpacity style={[styles.btnPrimary, { paddingHorizontal: 16, paddingVertical: 12 }]} onPress={filterByPatient}>
@@ -2910,7 +2912,7 @@ const BillingMode = () => {
                     <FlatList
                         data={displayRecords}
                         keyExtractor={r => r._id}
-                        renderItem={({item: r}) => (
+                        renderItem={({ item: r }) => (
                             <View style={[styles.tableRow, { flexWrap: 'wrap' }]}>
                                 <View style={{ flex: 1, minWidth: '40%' }}>
                                     <Text style={{ fontWeight: 'bold', color: '#1e293b' }}>{r.patientName}</Text>
@@ -2970,9 +2972,9 @@ const PayBadge = ({ status }) => {
 const ReportViewerModal = ({ report, onClose }) => {
     if (!report) return null;
     const url = reportURL(report.filename);
-    const isPDF = report.mimetype === 'application/pdf' || 
-                  (report.filename || '').toLowerCase().endsWith('.pdf') || 
-                  (report.name || '').toLowerCase().endsWith('.pdf');
+    const isPDF = report.mimetype === 'application/pdf' ||
+        (report.filename || '').toLowerCase().endsWith('.pdf') ||
+        (report.name || '').toLowerCase().endsWith('.pdf');
 
     return (
         <Modal visible={true} transparent animationType="fade" onRequestClose={onClose}>
@@ -2992,7 +2994,7 @@ const ReportViewerModal = ({ report, onClose }) => {
                             <View style={{ alignItems: 'center', padding: 20 }}>
                                 <Ionicons name="document-text" size={64} color="#38bdf8" />
                                 <Text style={{ color: '#94a3b8', fontSize: 13, marginTop: 10, textAlign: 'center' }}>PDF Document</Text>
-                                <TouchableOpacity 
+                                <TouchableOpacity
                                     style={{ backgroundColor: '#0284c7', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, marginTop: 16 }}
                                     onPress={() => Linking.openURL(url)}
                                 >
@@ -3000,22 +3002,22 @@ const ReportViewerModal = ({ report, onClose }) => {
                                 </TouchableOpacity>
                             </View>
                         ) : (
-                            <Image 
-                                source={{ uri: url }} 
-                                style={{ width: '100%', height: '100%', resizeMode: 'contain' }} 
+                            <Image
+                                source={{ uri: url }}
+                                style={{ width: '100%', height: '100%', resizeMode: 'contain' }}
                             />
                         )}
                     </View>
 
                     <View style={{ flexDirection: 'row', justifyContent: 'flex-end', padding: 12, gap: 10, backgroundColor: '#1e293b' }}>
-                        <TouchableOpacity 
-                            style={{ paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#334155', borderRadius: 6 }} 
+                        <TouchableOpacity
+                            style={{ paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#334155', borderRadius: 6 }}
                             onPress={() => Linking.openURL(url)}
                         >
                             <Text style={{ color: '#38bdf8', fontSize: 12, fontWeight: '600' }}>Open External ↗</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity 
-                            style={{ paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#475569', borderRadius: 6 }} 
+                        <TouchableOpacity
+                            style={{ paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#475569', borderRadius: 6 }}
                             onPress={onClose}
                         >
                             <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>Close</Text>
@@ -3116,7 +3118,7 @@ const PatientReportPanel = ({ patientId, patientName }) => {
     return (
         <View style={{ marginVertical: 10, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, overflow: 'hidden', backgroundColor: '#fff' }}>
             {viewReport && <ReportViewerModal report={viewReport} onClose={() => setViewReport(null)} />}
-            <TouchableOpacity 
+            <TouchableOpacity
                 onPress={() => setOpen(o => !o)}
                 style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: 12, borderBottomWidth: open ? 1 : 0, borderColor: '#e2e8f0' }}
             >
@@ -3161,13 +3163,13 @@ const PatientReportPanel = ({ patientId, patientName }) => {
                                         <Text style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{r.createdAt ? new Date(r.createdAt).toLocaleDateString('en-IN') : 'Uploaded'}</Text>
                                     </View>
                                     <View style={{ flexDirection: 'row', gap: 6 }}>
-                                        <TouchableOpacity 
+                                        <TouchableOpacity
                                             style={{ backgroundColor: '#e0f2fe', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 4 }}
                                             onPress={() => setViewReport(r)}
                                         >
                                             <Text style={{ color: '#0284c7', fontSize: 11, fontWeight: '700' }}>View</Text>
                                         </TouchableOpacity>
-                                        <TouchableOpacity 
+                                        <TouchableOpacity
                                             style={{ backgroundColor: '#fee2e2', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 4 }}
                                             onPress={() => handleDelete(r._id || r.id)}
                                         >
@@ -3200,22 +3202,22 @@ const styles = StyleSheet.create({
     downloadAlert: { margin: 16, padding: 12, backgroundColor: '#ecfdf5', borderWidth: 1, borderColor: '#a7f3d0', borderRadius: 12 },
     downloadAlertText: { color: '#065f46', fontWeight: 'bold' },
     modeContent: { flex: 1, padding: 16 },
-    
+
     kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 12 },
     kpiCard: { flex: 1, minWidth: '45%', backgroundColor: '#fff', padding: 16, borderRadius: 12, borderTopWidth: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 },
     kpiToggleBtn: { alignSelf: 'center', marginVertical: 12, padding: 8 },
     kpiToggleText: { color: '#6366f1', fontWeight: 'bold' },
-    
+
     clinicCard: { backgroundColor: '#fff', padding: 16, borderRadius: 12, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 },
     dropdownBtn: { paddingHorizontal: 10, paddingVertical: 6, backgroundColor: '#f1f5f9', borderRadius: 6 },
     dropdownMenu: { position: 'absolute', right: 16, top: 50, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, zIndex: 10, elevation: 5 },
     dropdownItem: { padding: 10, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-    
+
     tableHeader: { flexDirection: 'row', backgroundColor: '#f8fafc', paddingVertical: 10, borderBottomWidth: 1, borderColor: '#e2e8f0' },
     tableRow: { flexDirection: 'row', paddingVertical: 12, borderBottomWidth: 1, borderColor: '#f1f5f9', alignItems: 'center' },
     th: { fontWeight: 'bold', color: '#64748b', fontSize: 12 },
     td: { fontSize: 13, color: '#1e293b' },
-    
+
     label: { fontSize: 12, color: '#64748b', marginBottom: 4, fontWeight: 'bold' },
     input: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, padding: 10, fontSize: 14 },
     pickerWrapper: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden' },

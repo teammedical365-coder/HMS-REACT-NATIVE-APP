@@ -416,10 +416,13 @@ export const reportAPI = {
 
 // ─── Upload API ───────────────────────────────────────────────────────────────
 export const uploadAPI = {
-  uploadImages: async (formData) =>
-    (await apiClient.post('/api/upload/images', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })).data,
+  uploadImages: async (formData) => {
+    const config = {};
+    if (Platform.OS !== 'web') {
+      config.headers = { 'Content-Type': 'multipart/form-data' };
+    }
+    return (await apiClient.post('/api/upload/images', formData, config)).data;
+  },
 };
 
 // ─── Lab API ──────────────────────────────────────────────────────────────────
@@ -732,6 +735,8 @@ export const billingAPI = {
     (await apiClient.get(`/api/reception/search-patients?query=${query}`)).data,
   searchPatient: async (query) =>
     (await apiClient.get(`/api/reception/search-patients?query=${query}`)).data,
+  getPaymentHistory: async (params) =>
+    (await apiClient.get('/api/billing/history', { params })).data,
 };
 
 // ─── Admission API ────────────────────────────────────────────────────────────
