@@ -247,6 +247,8 @@ export const receptionAPI = {
   getStats: async () => (await apiClient.get('/api/reception/stats')).data,
   getAllAppointments: async (params = {}) =>
     (await apiClient.get('/api/reception/appointments', { params })).data,
+  getAppointments: async (params = {}) =>
+    (await apiClient.get('/api/reception/appointments', { params })).data,
   getAllPatients: async () => (await apiClient.get('/api/reception/patients')).data,
   registerPatient: async (data) => (await apiClient.post('/api/reception/register', data)).data,
   getTransactions: async () => (await apiClient.get('/api/reception/transactions')).data,
@@ -1045,6 +1047,18 @@ export const consentAPI = {
     (await apiClient.delete(`/api/patients/${patientId}/consent/${index}`)).data,
 };
 
+// ─── Hospital Policy API ──────────────────────────────────────────────────────
+export const policyAPI = {
+  getActivePolicies: async (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return (await apiClient.get(`/api/hospital-policies/active?${query}`)).data;
+  },
+  getAllPolicies: async () => (await apiClient.get('/api/hospital-policies')).data,
+  acceptPolicies: async (data) => (await apiClient.post('/api/hospital-policies/accept', data)).data,
+  getAcceptanceHistory: async (patientId) => (await apiClient.get(`/api/hospital-policies/history/${patientId}`)).data,
+};
+
+
 // ─── Vial Management API ──────────────────────────────────────────────────────
 export const vialAPI = {
   getAll: async (params) => {
@@ -1265,6 +1279,6 @@ export const voiceScribeAPI = {
   getForAppointment: async (appointmentId) => (await apiClient.get(`/api/voice-scribe/appointment/${appointmentId}`)).data,
 };
 
-
 export default apiClient;
+
 

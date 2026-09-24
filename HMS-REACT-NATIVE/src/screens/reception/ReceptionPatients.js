@@ -72,8 +72,6 @@ const ReceptionPatients = () => {
     const [selectedReportFile, setSelectedReportFile] = useState(null);
     const [uploadingReport, setUploadingReport] = useState(false);
 
-    const [profileModal, setProfileModal] = useState({ open: false, patient: null, appointments: [] });
-
     const [consentModal, setConsentModal] = useState({ open: false, patientId: null, patientName: '', consents: [], loading: false, uploading: false });
     const [selectedConsentFile, setSelectedConsentFile] = useState(null);
 
@@ -242,18 +240,25 @@ const ReceptionPatients = () => {
         });
     }, [appointments, activeTab, searchText, todayStr, filterDoctor, filterStatus, filterDepartment]);
 
-    // Action Handlers
-    const openPatientProfile = (patientData, appt) => {
-        const p = patientData || appt.userId || appt;
-        const pId = p._id || p.patientId || appt.patientId;
-        const ptAppts = appointments.filter(a => {
-            const aPid = a.userId?._id || a.userId?.patientId || a.patientId;
-            return aPid === pId;
-        });
-        setProfileModal({
-            open: true,
-            patient: p,
-            appointments: ptAppts
+    // Action Handlers - Authoritative UnifiedPatientProfile navigation (1:1 Web parity)
+    const handleViewProfile = (appt) => {
+        if (!appt) return;
+        // Exact match of Web's pid resolution (ReceptionPatients.jsx line 766):
+        // const pid = (typeof appt.userId === 'object' ? (appt.userId?._id || appt.userId?.patientId) : appt.userId) || appt.patientId || appt._id;
+        const targetId = (typeof appt.userId === 'object' ? (appt.userId?._id || appt.userId?.patientId) : appt.userId)
+            || appt.patientId
+            || appt._id;
+
+        if (!targetId) {
+            Alert.alert('Notice', 'Patient record identifier not found');
+            return;
+        }
+
+        const dept = appt.department || appt.serviceName || appt.doctorId?.department || 'Unassigned';
+        navigation.navigate('UnifiedPatientProfile', {
+            id: targetId,
+            patientId: targetId,
+            department: dept
         });
     };
 
@@ -738,7 +743,7 @@ const ReceptionPatients = () => {
                                 <Text style={[styles.thCell, { width: 100 }]}>TIME</Text>
                                 <Text style={[styles.thCell, { width: 110 }]}>DATE</Text>
                                 <Text style={[styles.thCell, { width: 120 }]}>STATUS</Text>
-                                <Text style={[styles.thCell, { width: 280, textAlign: 'center' }]}>ACTIONS</Text>
+                                <Text style={[styles.thCell, { width: 110, textAlign: 'center' }]}>ACTIONS</Text>
                             </View>
 
                             {/* Table Rows */}
@@ -761,7 +766,7 @@ const ReceptionPatients = () => {
                                         {/* Patient Avatar & Name */}
                                         <TouchableOpacity
                                             style={[styles.tdCell, styles.patientCell, { width: 220 }]}
-                                            onPress={() => openPatientProfile(rawPt, appt)}
+                                            onPress={() => handleViewProfile(appt)}
                                             activeOpacity={0.7}
                                         >
                                             <View style={[styles.patientAvatar, { backgroundColor: getInitialBgColor(patientName) }]}>
@@ -836,52 +841,16 @@ const ReceptionPatients = () => {
                                             </View>
                                         </View>
 
-                                        {/* Actions */}
-                                        <View style={[styles.tdCell, styles.actionsRow, { width: 280 }]}>
+                                        {/* Actions — Web parity: Profile only */}
+                                        <View style={[styles.tdCell, styles.actionsRow, { width: 110 }]}>
                                             <TouchableOpacity
                                                 style={styles.actionBtnProfile}
-                                                onPress={() => openPatientProfile(rawPt, appt)}
+                                                onPress={() => handleViewProfile(appt)}
                                                 activeOpacity={0.7}
                                             >
                                                 <Feather name="eye" size={12} color="#2563eb" style={{ marginRight: 4 }} />
                                                 <Text style={styles.actionBtnProfileText}>Profile</Text>
                                             </TouchableOpacity>
-
-                                            <TouchableOpacity
-                                                style={styles.actionBtnUpload}
-                                                onPress={() => {
-                                                    setSelectedReportFile(null);
-                                                    setUploadModal({
-                                                        open: true,
-                                                        apptId: appt._id,
-                                                        patientName,
-                                                        patientId: rawPt._id || appt.patientId
-                                                    });
-                                                }}
-                                                activeOpacity={0.7}
-                                            >
-                                                <Feather name="upload" size={12} color="#db2777" style={{ marginRight: 4 }} />
-                                                <Text style={styles.actionBtnUploadText}>Upload</Text>
-                                            </TouchableOpacity>
-
-                                            <TouchableOpacity
-                                                style={styles.actionBtnConsent}
-                                                onPress={() => openConsentModal(rawPt._id || appt.patientId || appt.userId, patientName)}
-                                                activeOpacity={0.7}
-                                            >
-                                                <Feather name="file-text" size={12} color="#0891b2" style={{ marginRight: 4 }} />
-                                                <Text style={styles.actionBtnConsentText}>Consent</Text>
-                                            </TouchableOpacity>
-
-                                            {['pending', 'confirmed', 'scheduled'].includes(statusStr) && (
-                                                <TouchableOpacity
-                                                    style={styles.actionBtnCancel}
-                                                    onPress={() => handleCancelAppointment(appt._id)}
-                                                    activeOpacity={0.7}
-                                                >
-                                                    <Feather name="x-circle" size={12} color="#dc2626" />
-                                                </TouchableOpacity>
-                                            )}
                                         </View>
                                     </View>
                                 );
@@ -1070,116 +1039,7 @@ const ReceptionPatients = () => {
                         </View>
                     </TouchableOpacity>
                 </TouchableOpacity>
-            </Modal>
-
-            {/* 7. PATIENT PROFILE MODAL */}
-            <Modal visible={profileModal.open} transparent animationType="fade" onRequestClose={() => setProfileModal({ open: false, patient: null, appointments: [] })}>
-                <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setProfileModal({ open: false, patient: null, appointments: [] })}>
-                    <TouchableOpacity activeOpacity={1} style={styles.profileModalCard} onPress={e => e.stopPropagation()}>
-                        <View style={styles.profileModalHeader}>
-                            <View style={styles.profileAvatarLarge}>
-                                <Text style={styles.profileAvatarLargeLetter}>
-                                    {(profileModal.patient?.name || 'P').charAt(0).toUpperCase()}
-                                </Text>
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 14 }}>
-                                <Text style={styles.profileNameText}>{profileModal.patient?.name || 'Patient Profile'}</Text>
-                                <Text style={styles.profileMRNText}>MRN: {profileModal.patient?.patientId || 'N/A'}</Text>
-                            </View>
-                            <TouchableOpacity onPress={() => setProfileModal({ open: false, patient: null, appointments: [] })}>
-                                <Feather name="x" size={22} color="#94a3b8" />
-                            </TouchableOpacity>
-                        </View>
-
-                        <ScrollView style={styles.profileModalBody} showsVerticalScrollIndicator={false}>
-                            {/* Contact & Demographics */}
-                            <View style={styles.profileDetailSection}>
-                                <Text style={styles.profileSectionTitle}>Demographics & Contact</Text>
-                                <View style={styles.profileInfoGrid}>
-                                    <View style={styles.profileInfoItem}>
-                                        <Text style={styles.profileInfoLabel}>PHONE NUMBER</Text>
-                                        <Text style={styles.profileInfoVal}>{profileModal.patient?.phone || '-'}</Text>
-                                    </View>
-                                    <View style={styles.profileInfoItem}>
-                                        <Text style={styles.profileInfoLabel}>EMAIL ADDRESS</Text>
-                                        <Text style={styles.profileInfoVal}>{profileModal.patient?.email || '-'}</Text>
-                                    </View>
-                                    <View style={styles.profileInfoItemFull}>
-                                        <Text style={styles.profileInfoLabel}>RESIDENTIAL ADDRESS</Text>
-                                        <Text style={styles.profileInfoVal}>
-                                            {[
-                                                profileModal.patient?.houseNo,
-                                                profileModal.patient?.street,
-                                                profileModal.patient?.city,
-                                                profileModal.patient?.state,
-                                                profileModal.patient?.zipCode
-                                            ].filter(Boolean).join(', ') || 'No address specified'}
-                                        </Text>
-                                    </View>
-                                </View>
-                            </View>
-
-                            {/* KYC & Clinical Profile */}
-                            {profileModal.patient?.fertilityProfile && (
-                                <View style={styles.profileDetailSection}>
-                                    <Text style={styles.profileSectionTitle}>KYC & Clinical Demographics</Text>
-                                    <View style={styles.profileInfoGrid}>
-                                        <View style={styles.profileInfoItem}>
-                                            <Text style={styles.profileInfoLabel}>AGE</Text>
-                                            <Text style={styles.profileInfoVal}>{profileModal.patient?.fertilityProfile?.age || '-'}</Text>
-                                        </View>
-                                        <View style={styles.profileInfoItem}>
-                                            <Text style={styles.profileInfoLabel}>GENDER</Text>
-                                            <Text style={styles.profileInfoVal}>{profileModal.patient?.fertilityProfile?.gender || '-'}</Text>
-                                        </View>
-                                        <View style={styles.profileInfoItem}>
-                                            <Text style={styles.profileInfoLabel}>RELATIVE / PARTNER</Text>
-                                            <Text style={styles.profileInfoVal}>
-                                                {profileModal.patient?.fertilityProfile?.partnerFirstName || '-'} ({profileModal.patient?.fertilityProfile?.relationToPatient || 'Relative'})
-                                            </Text>
-                                        </View>
-                                        <View style={styles.profileInfoItem}>
-                                            <Text style={styles.profileInfoLabel}>REFERRAL SOURCE</Text>
-                                            <Text style={styles.profileInfoVal}>{profileModal.patient?.fertilityProfile?.referralType || 'Walk-in'}</Text>
-                                        </View>
-                                    </View>
-                                </View>
-                            )}
-
-                            {/* Recent Appointments */}
-                            <View style={styles.profileDetailSection}>
-                                <Text style={styles.profileSectionTitle}>Appointment History ({profileModal.appointments?.length || 0})</Text>
-                                {(!profileModal.appointments || profileModal.appointments.length === 0) ? (
-                                    <Text style={styles.noHistoryText}>No past appointments logged for this patient.</Text>
-                                ) : (
-                                    profileModal.appointments.map((a, i) => (
-                                        <View key={a._id || i} style={styles.historyApptRow}>
-                                            <View style={styles.historyApptLeft}>
-                                                <Text style={styles.historyApptDoc}>{a.doctorName || a.doctorId?.name || 'Dr. Assigned'}</Text>
-                                                <Text style={styles.historyApptDept}>{a.department || a.serviceName || 'General'} • {formatDate(a.appointmentDate)}</Text>
-                                            </View>
-                                            <View style={[styles.historyStatusPill, a.status === 'completed' && { backgroundColor: '#dcfce7' }]}>
-                                                <Text style={[styles.historyStatusText, a.status === 'completed' && { color: '#15803d' }]}>
-                                                    {a.status || 'Scheduled'}
-                                                </Text>
-                                            </View>
-                                        </View>
-                                    ))
-                                )}
-                            </View>
-                        </ScrollView>
-
-                        <View style={styles.profileModalFooter}>
-                            <TouchableOpacity
-                                style={styles.profileCloseBtn}
-                                onPress={() => setProfileModal({ open: false, patient: null, appointments: [] })}
-                            >
-                                <Text style={styles.profileCloseBtnText}>Close</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </TouchableOpacity>
-                </TouchableOpacity>
-            </Modal>
+                </Modal>
 
             {/* 8. CONSENT FORM MANAGEMENT MODAL */}
             <Modal visible={consentModal.open} transparent animationType="fade" onRequestClose={() => setConsentModal({ open: false, patientId: null, patientName: '', consents: [], loading: false, uploading: false })}>
@@ -2228,146 +2088,7 @@ const styles = StyleSheet.create({
         color: '#ffffff',
     },
 
-    // Profile Modal
-    profileModalCard: {
-        backgroundColor: '#ffffff',
-        borderRadius: 16,
-        padding: 20,
-        width: '100%',
-        maxWidth: 520,
-        maxHeight: '85%',
-        elevation: 6,
-    },
-    profileModalHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 16,
-        paddingBottom: 14,
-        borderBottomWidth: 1,
-        borderBottomColor: '#f1f5f9',
-    },
-    profileAvatarLarge: {
-        width: 46,
-        height: 46,
-        borderRadius: 23,
-        backgroundColor: '#2563eb',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    profileAvatarLargeLetter: {
-        color: '#ffffff',
-        fontSize: 20,
-        fontWeight: '800',
-    },
-    profileNameText: {
-        fontSize: 18,
-        fontWeight: '800',
-        color: '#0f172a',
-    },
-    profileMRNText: {
-        fontSize: 12,
-        color: '#2563eb',
-        fontWeight: '700',
-        marginTop: 2,
-    },
-    profileModalBody: {
-        maxHeight: 420,
-    },
-    profileDetailSection: {
-        marginBottom: 18,
-        backgroundColor: '#f8fafc',
-        borderRadius: 10,
-        padding: 14,
-        borderWidth: 1,
-        borderColor: '#e2e8f0',
-    },
-    profileSectionTitle: {
-        fontSize: 11,
-        fontWeight: '800',
-        color: '#475569',
-        textTransform: 'uppercase',
-        marginBottom: 10,
-        letterSpacing: 0.5,
-    },
-    profileInfoGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 12,
-    },
-    profileInfoItem: {
-        width: '47%',
-    },
-    profileInfoItemFull: {
-        width: '100%',
-        marginTop: 4,
-    },
-    profileInfoLabel: {
-        fontSize: 10,
-        fontWeight: '800',
-        color: '#94a3b8',
-    },
-    profileInfoVal: {
-        fontSize: 13,
-        fontWeight: '700',
-        color: '#1e293b',
-        marginTop: 2,
-    },
-    noHistoryText: {
-        fontSize: 12,
-        color: '#94a3b8',
-        fontStyle: 'italic',
-    },
-    historyApptRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        backgroundColor: '#ffffff',
-        padding: 10,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: '#e2e8f0',
-        marginBottom: 6,
-    },
-    historyApptLeft: {
-        flex: 1,
-    },
-    historyApptDoc: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: '#1e293b',
-    },
-    historyApptDept: {
-        fontSize: 11,
-        color: '#64748b',
-        marginTop: 1,
-    },
-    historyStatusPill: {
-        backgroundColor: '#eff6ff',
-        paddingHorizontal: 8,
-        paddingVertical: 3,
-        borderRadius: 12,
-    },
-    historyStatusText: {
-        fontSize: 10,
-        fontWeight: '800',
-        color: '#2563eb',
-        textTransform: 'capitalize',
-    },
-    profileModalFooter: {
-        marginTop: 14,
-        alignItems: 'flex-end',
-    },
-    profileCloseBtn: {
-        backgroundColor: '#2563eb',
-        paddingVertical: 8,
-        paddingHorizontal: 22,
-        borderRadius: 8,
-    },
-    profileCloseBtnText: {
-        fontSize: 13,
-        fontWeight: '700',
-        color: '#ffffff',
-    },
+
 
     // Consent Modal
     consentModalCard: {

@@ -18,6 +18,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
+import { Feather } from '@expo/vector-icons';
 import { patientAPI, receptionAPI, reportAPI, consentAPI } from '../../utils/api';
 import { useAuth } from '../../store/hooks';
 import DoctorIPDOrdersPanel from '../../components/ipd/DoctorIPDOrdersPanel';
@@ -31,8 +32,9 @@ const UnifiedPatientProfile = () => {
     const navigation = useNavigation();
     const { user: authUser } = useAuth();
 
-    // Patient ID resolution: route param (id or patientId) or current auth user if patient
-    const patientId = route.params?.id || route.params?.patientId || authUser?._id || authUser?.id || authUser?.patientId;
+    // Patient ID resolution: route param (id or patientId), only falling back to authUser if logged in as patient
+    const isPatientRole = (authUser?.role || '').toLowerCase() === 'patient';
+    const patientId = route.params?.id || route.params?.patientId || (isPatientRole ? (authUser?._id || authUser?.id || authUser?.patientId) : null);
     const departmentParam = route.params?.department || 'Unassigned';
 
     // State
@@ -86,8 +88,16 @@ const UnifiedPatientProfile = () => {
             return;
         }
 
-        if (isRefresh) setRefreshing(true);
-        else setLoading(true);
+        if (isRefresh) {
+            setRefreshing(true);
+        } else {
+            setLoading(true);
+            setPatientData(null);
+            setTimeline([]);
+            setConsentList([]);
+            setDocumentList([]);
+            setCurrentFollowupStatus(null);
+        }
         setError('');
 
         try {
@@ -560,6 +570,14 @@ const UnifiedPatientProfile = () => {
         ? allergiesText.split(',').map(a => a.trim()).filter(Boolean)
         : [];
 
+    let fullAddress = patientData.address || '';
+    if (!fullAddress) {
+        fullAddress = [patientData.houseNo, patientData.street, patientData.city, patientData.state, patientData.zipCode]
+            .map(s => String(s || '').trim())
+            .filter(Boolean)
+            .join(', ');
+    }
+
     const metrics = calculateMetrics();
 
     // Categorized timeline items
@@ -662,6 +680,36 @@ const UnifiedPatientProfile = () => {
                                 <Text style={styles.tagChipText}>🩸 {patientData.bloodGroup || fp.bloodGroup || 'N/A'}</Text>
                             </View>
                         </View>
+
+                        {/* Row 2: Contact (Phone, Email - 1:1 Web Parity) */}
+                        {Boolean(patientData.phone || patientData.email) && (
+                            <View style={[styles.tagWrap, { marginTop: 6 }]}>
+                                {patientData.phone ? (
+                                    <View style={[styles.tagChip, styles.tagChipContact]}>
+                                        <Feather name="phone" size={11} color="#0284c7" style={{ marginRight: 4 }} />
+                                        <Text style={styles.tagChipContactText}>{patientData.phone}</Text>
+                                    </View>
+                                ) : null}
+                                {patientData.email ? (
+                                    <View style={[styles.tagChip, styles.tagChipContact]}>
+                                        <Feather name="mail" size={11} color="#0284c7" style={{ marginRight: 4 }} />
+                                        <Text style={styles.tagChipContactText}>{patientData.email}</Text>
+                                    </View>
+                                ) : null}
+                            </View>
+                        )}
+
+                        {/* Row 3: Address & Location (1:1 Web Parity) */}
+                        {Boolean(fullAddress || patientData.city) && (
+                            <View style={[styles.tagWrap, { marginTop: 6 }]}>
+                                <View style={[styles.tagChip, styles.tagChipLocation]}>
+                                    <Feather name="map-pin" size={11} color="#475569" style={{ marginRight: 4 }} />
+                                    <Text style={styles.tagChipLocationText} numberOfLines={1}>
+                                        {fullAddress || patientData.city}
+                                    </Text>
+                                </View>
+                            </View>
+                        )}
                     </View>
                 </View>
 
@@ -1284,10 +1332,14 @@ const styles = StyleSheet.create({
     statusActiveText: { color: '#15803d' },
     statusInactiveText: { color: '#64748b' },
     tagWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-    tagChip: { backgroundColor: '#f1f5f9', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+    tagChip: { backgroundColor: '#f1f5f9', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, flexDirection: 'row', alignItems: 'center' },
     tagChipText: { fontSize: 11, color: '#475569', fontWeight: '600' },
     tagChipPrimary: { backgroundColor: '#eff6ff' },
     tagChipPrimaryText: { fontSize: 11, color: '#2563eb', fontWeight: '700' },
+    tagChipContact: { backgroundColor: '#f0f9ff', borderColor: '#e0f2fe', borderWidth: 1 },
+    tagChipContactText: { fontSize: 11, color: '#0369a1', fontWeight: '600' },
+    tagChipLocation: { backgroundColor: '#f8fafc', borderColor: '#e2e8f0', borderWidth: 1, maxWidth: '100%' },
+    tagChipLocationText: { fontSize: 11, color: '#475569', fontWeight: '500' },
 
     identityActionsRow: { flexDirection: 'row', gap: 10, marginTop: 16, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
     headerActionBtn: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },

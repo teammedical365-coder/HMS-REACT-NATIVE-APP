@@ -7,11 +7,11 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSelector } from 'react-redux';
 import { Feather, FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
-import Svg, { Path, Rect, Circle, Line, Defs, LinearGradient, Stop, G } from 'react-native-svg';
+import Svg, { Path, Rect, Circle, Line, Defs, LinearGradient, Stop, G, Ellipse } from 'react-native-svg';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Print from 'expo-print';
 import socket from '../../utils/socket';
-import { receptionAPI, hospitalAPI, publicAPI, bedAPI, admissionAPI, uploadAPI } from '../../utils/api';
+import { receptionAPI, hospitalAPI, publicAPI, bedAPI, admissionAPI, uploadAPI, ipdClinicalAPI, policyAPI, patientAuthAPI } from '../../utils/api';
 import { getSubdomain } from '../../utils/subdomain';
 import SlotPicker from '../../components/SlotPicker';
 
@@ -25,12 +25,85 @@ const timeSlots = [
 
 const bloodGroups = ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'];
 
+const isWithin24Hours = (dateString) => {
+    if (!dateString) return false;
+    const then = new Date(dateString).getTime();
+    const now = new Date().getTime();
+    const diffHours = (now - then) / (1000 * 60 * 60);
+    return diffHours <= 24;
+};
+
+const combineDateTime = (dateVal, timeStr) => {
+    if (!dateVal) return new Date();
+    const d = new Date(dateVal);
+    if (!timeStr) return d;
+    const match = String(timeStr).trim().match(/^(\d{1,2}):(\d{2})(?:\s*(AM|PM))?$/i);
+    if (match) {
+        let hours = parseInt(match[1], 10);
+        const minutes = parseInt(match[2], 10);
+        const meridiem = match[3];
+        if (meridiem) {
+            if (meridiem.toUpperCase() === 'PM' && hours < 12) hours += 12;
+            if (meridiem.toUpperCase() === 'AM' && hours === 12) hours = 0;
+        }
+        d.setHours(hours, minutes, 0, 0);
+    }
+    return d;
+};
+
+const computeStayDurationAndCost = (startDateTime, endDateTime, dailyRate) => {
+    if (!startDateTime || !endDateTime) return { durationText: '0 Hours', amount: 0, hourlyRate: 0, totalHours: 0, fullDays: 0, remainingHours: 0 };
+    const start = new Date(startDateTime).getTime();
+    const end = new Date(endDateTime).getTime();
+    if (isNaN(start) || isNaN(end) || end < start) {
+        return { durationText: 'Invalid Range', amount: 0, hourlyRate: 0, totalHours: 0, fullDays: 0, remainingHours: 0 };
+    }
+    const diffMs = Math.max(0, end - start);
+    const totalHoursRaw = diffMs / (1000 * 60 * 60);
+    const totalHours = Math.max(0.5, Math.round(totalHoursRaw * 10) / 10);
+    
+    const ratePerDay = Number(dailyRate) || 0;
+    const hourlyRate = Math.round((ratePerDay / 24) * 100) / 100;
+    
+    const fullDays = Math.floor(totalHours / 24);
+    const remainingHours = Math.round((totalHours % 24) * 10) / 10;
+    
+    let durationText = '';
+    let amount = 0;
+
+    if (totalHours < 24) {
+        const billedHrs = Math.max(1, Math.round(totalHours));
+        durationText = `${billedHrs} Hour${billedHrs > 1 ? 's' : ''}`;
+        amount = Math.round(billedHrs * (ratePerDay / 24));
+    } else {
+        if (remainingHours >= 0.5) {
+            const remHrsRound = Math.round(remainingHours);
+            durationText = `${fullDays} Day${fullDays > 1 ? 's' : ''} ${remHrsRound} Hr${remHrsRound > 1 ? 's' : ''}`;
+            amount = Math.round((fullDays * ratePerDay) + (remHrsRound * (ratePerDay / 24)));
+        } else {
+            durationText = `${fullDays} Day${fullDays > 1 ? 's' : ''}`;
+            amount = Math.round(fullDays * ratePerDay);
+        }
+    }
+    
+    return {
+        totalHours: Math.max(1, Math.round(totalHours)),
+        fullDays,
+        remainingHours,
+        durationText,
+        ratePerDay,
+        hourlyRate,
+        amount
+    };
+};
+
 const getInitialBgColor = (name = '') => {
     const colors = ['#8b5cf6', '#0d9488', '#f59e0b', '#2563eb', '#ec4899', '#10b981', '#6366f1'];
     let hash = 0;
     for (let i = 0; i < name.length; i++) hash += name.charCodeAt(i);
     return colors[hash % colors.length];
 };
+
 
 const ReceptionDashboard = ({ isPatientPortal = false }) => {
     const navigation = useNavigation();
@@ -50,6 +123,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
     const [selectedPatientId, setSelectedPatientId] = useState(null);
     const [stats, setStats] = useState(null);
     const [saving, setSaving] = useState(false);
+    const [isEditingProfileOnly, setIsEditingProfileOnly] = useState(false);
     const [pendingDownload, setPendingDownload] = useState(null);
     const [nextToken, setNextToken] = useState(null);
     const [upiOptions, setUpiOptions] = useState([]);
@@ -60,8 +134,6 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
     const [transactions, setTransactions] = useState([]);
     const [loadingTransactions, setLoadingTransactions] = useState(false);
     const [transactionSearch, setTransactionSearch] = useState('');
-    const [transactionStatusFilter, setTransactionStatusFilter] = useState('all'); // 'all', 'paid', 'pending'
-    const [selectedTxModal, setSelectedTxModal] = useState(null);
 
     // Live search states
     const [searchQuery, setSearchQuery] = useState('');
@@ -81,6 +153,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
     const [availabilityCheck, setAvailabilityCheck] = useState({
         doctorId: '', date: new Date().toISOString().split('T')[0], bookedSlots: []
     });
+    const [selectedTimeSlot, setSelectedTimeSlot] = useState('09:00');
 
     // ─── INTAKE / REGISTRATION STEPPER STATE (SLICE 3) ──────────────────────
     const [currentStep, setCurrentStep] = useState(1); // Steps 1 to 5
@@ -91,6 +164,11 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
     const [paymentScreenshot, setPaymentScreenshot] = useState(null);
     const [followupStatus, setFollowupStatus] = useState(null);
     const [intakePolicyAgreed, setIntakePolicyAgreed] = useState(true);
+
+    // Policy Modal State
+    const [showPolicyModal, setShowPolicyModal] = useState(false);
+    const [policies, setPolicies] = useState([]);
+    const [loadingPolicies, setLoadingPolicies] = useState(false);
 
     // Intake Form State
     const [intakeForm, setIntakeForm] = useState({
@@ -120,8 +198,12 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
     const [hospitalizeModal, setHospitalizeModal] = useState({ open: false, appointment: null });
     const [hospitalizeForm, setHospitalizeForm] = useState({
         ward: 'General', bedId: '', admissionDate: new Date().toISOString().split('T')[0],
+        admissionTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
         provisionalDiagnosis: '', advancePayment: '0', notes: ''
     });
+    const [hospitalizeDoctorOrders, setHospitalizeDoctorOrders] = useState([]);
+    const [loadingHospitalizeOrders, setLoadingHospitalizeOrders] = useState(false);
+    const [existingActiveAdmission, setExistingActiveAdmission] = useState(null);
 
     const [vitalsModal, setVitalsModal] = useState({ open: false, appointment: null });
     const [vitalsForm, setVitalsForm] = useState({ bp: '', pulse: '', temp: '', spo2: '', weight: '', notes: '' });
@@ -146,11 +228,12 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         open: false, appointment: null, method: 'Cash', amount: '', splitPayments: [{ method: 'Cash', amount: '' }]
     });
 
-    // Profile detail modal
-    const [profileModal, setProfileModal] = useState({ open: false, patient: null });
+
+    const isRebookingMode = Boolean(selectedPatientId && !isPatientPortal && !isEditingProfileOnly);
 
     const timeOfDay = new Date().getHours() < 12 ? 'Morning' : new Date().getHours() < 17 ? 'Afternoon' : 'Evening';
     const todayStr = new Date().toISOString().split('T')[0];
+
 
     // Handle view param from navigation
     useEffect(() => {
@@ -400,6 +483,21 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         }
     };
 
+    const fetchAvailableBeds = async () => {
+        try {
+            const bedsRes = await bedAPI.getBeds({ status: 'AVAILABLE' });
+            if (bedsRes?.success) setAvailableBeds(bedsRes.beds || []);
+        } catch (e) {
+            console.warn('Failed to fetch available beds:', e);
+        }
+    };
+
+    const handleCloseRegistration = useCallback(() => {
+        setSelectedPatientId(null);
+        setIsEditingProfileOnly(false);
+        setViewMode('desk');
+    }, []);
+
     useEffect(() => {
         if (availabilityCheck.doctorId && availabilityCheck.date) {
             fetchBookedSlots(availabilityCheck.doctorId, availabilityCheck.date);
@@ -442,47 +540,155 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         }, 300);
     };
 
-    // Quick fill from search result
-    const handleSelectPatient = async (patient) => {
-        setSearchResults([]);
-        setSearchQuery('');
-        const pId = patient._id || patient.patientId;
+    // Web 1:1 Past slot check
+    const isSlotInPast = (time, dateVal) => {
+        const checkDate = dateVal || availabilityCheck.date || intakeForm.visitDate || todayStr;
+        if (checkDate !== todayStr) return false;
+        const now = new Date();
+        const [h, m] = time.split(':').map(Number);
+        const slotTime = new Date();
+        slotTime.setHours(h, m, 0, 0);
+        return slotTime <= now;
+    };
+
+    // Web 1:1 Availability Slot Click (P0.3)
+    const handleSlotClick = (time) => {
+        if (availabilityCheck.bookedSlots.includes(time)) return;
+        handleNewWalkIn();
+        const doc = doctorsList.find(d => d._id === availabilityCheck.doctorId);
+        const dept = (doc?.departments && doc.departments[0]) || doc?.department || '';
+        setIntakeForm(prev => ({
+            ...prev,
+            department: dept || prev.department,
+            doctor: availabilityCheck.doctorId,
+            visitDate: availabilityCheck.date,
+            visitTime: time
+        }));
+    };
+
+    // Web 1:1 New Walk-in Handler
+    const handleNewWalkIn = () => {
+        setSelectedPatientId(null);
+        setOtpSent(false);
+        setAadhaarOtp('');
+        setVerifyingAadhaar(false);
+        setPatientPhoto(null);
+        setPaymentScreenshot(null);
+        setFollowupStatus(null);
+        setCurrentStep(1);
+        const defaultFee = String(hospitalContext?.appointmentFee ?? '500');
+        setIntakeForm({
+            title: 'Mrs.', firstName: '', middleName: '', lastName: '',
+            dob: '', age: '', gender: 'Female', mobile: '', email: '',
+            houseNo: '', street: '', city: '', state: '', zipCode: '', address: '',
+            aadhaar: '', isAadhaarVerified: false, avatar: '',
+            partnerTitle: 'Mr.', partnerFirstName: '', partnerLastName: '', partnerMobile: '',
+            relationToPatient: 'Spouse',
+            height: '', weight: '', bmi: '', bloodGroup: 'B+',
+            consultationFee: defaultFee, referralType: 'Walk In', reasonForVisit: '', bio: '',
+            department: '', doctor: '', visitDate: new Date().toISOString().split('T')[0], visitTime: '',
+            paymentMethod: 'Cash', paymentStatus: 'Paid',
+            splitPayments: [{ method: 'Cash', amount: defaultFee }]
+        });
+        setViewMode('intake');
+    };
+
+    // Web 1:1 Edit / Select Existing Patient
+    const handleEditPatient = (patient, isEditOnly = false) => {
+        const pId = patient._id || patient.patientId || patient.id;
         setSelectedPatientId(pId);
-        const nameParts = (patient.name || '').split(' ');
+        setOtpSent(false);
+        setAadhaarOtp('');
+        setVerifyingAadhaar(false);
+        setPatientPhoto(null);
+        setPaymentScreenshot(null);
+        const nameParts = (patient.name || '').trim().split(' ');
+        const defaultFee = String(hospitalContext?.appointmentFee ?? '500');
         setIntakeForm(prev => ({
             ...prev,
             firstName: nameParts[0] || '',
             lastName: nameParts.slice(1).join(' ') || '',
-            mobile: patient.phone || '',
+            mobile: patient.phone || patient.mobile || '',
             email: patient.email || '',
-            gender: patient.gender || prev.gender,
-            age: String(patient.age || prev.age),
+            gender: patient.gender || prev.gender || 'Female',
+            age: String(patient.age || prev.age || ''),
+            dob: patient.dob ? new Date(patient.dob).toISOString().split('T')[0] : prev.dob,
             address: patient.address || '',
+            houseNo: patient.houseNo || '',
+            street: patient.street || '',
             city: patient.city || '',
             state: patient.state || '',
-            zipCode: patient.zipCode || ''
+            zipCode: patient.zipCode || '',
+            aadhaar: patient.aadhaar || patient.aadhaarNumber || '',
+            isAadhaarVerified: Boolean(patient.aadhaar || patient.aadhaarNumber || patient.isAadhaarVerified),
+            avatar: patient.avatar || '',
+            partnerFirstName: patient.partnerFirstName || '',
+            partnerLastName: patient.partnerLastName || '',
+            partnerMobile: patient.partnerMobile || '',
+            relationToPatient: patient.relationToPatient || prev.relationToPatient || 'Spouse',
+            bloodGroup: patient.bloodGroup || prev.bloodGroup || 'B+',
+            height: String(patient.height || ''),
+            weight: String(patient.weight || ''),
+            bmi: String(patient.bmi || ''),
+            consultationFee: defaultFee,
+            splitPayments: [{ method: 'Cash', amount: defaultFee }],
+            department: '', doctor: '', visitDate: new Date().toISOString().split('T')[0], visitTime: ''
         }));
+        setCurrentStep(4);
+        setViewMode('intake');
+    };
 
-        // Follow-up status check
+    // Web 1:1 Autocomplete Select Search Result (P1.1)
+    const handleSelectSearchResult = async (patient) => {
+        handleEditPatient(patient, false);
+        setSearchResults([]);
+        setSearchQuery('');
         try {
-            const pId = patient._id || patient.patientId;
+            const pId = patient._id || patient.patientId || patient.id;
             const res = await receptionAPI.getFollowupStatus(pId, 'auto', todayStr);
             if (res?.success) {
                 setFollowupStatus(res);
+                if (res.department) {
+                    setIntakeForm(prev => ({
+                        ...prev,
+                        department: res.department,
+                        doctor: res.doctorId || prev.doctor
+                    }));
+                }
                 if (res.active) {
-                    setIntakeForm(p => ({
-                        ...p,
+                    setIntakeForm(prev => ({
+                        ...prev,
                         consultationFee: '0',
                         splitPayments: [{ method: 'Cash', amount: '0' }]
                     }));
+                } else if (res.fee !== undefined) {
+                    setIntakeForm(prev => ({
+                        ...prev,
+                        consultationFee: String(res.fee),
+                        splitPayments: [{ method: 'Cash', amount: String(res.fee) }]
+                    }));
                 }
             }
-        } catch (e) {
-            console.warn('Follow-up check error:', e);
+        } catch (err) {
+            console.warn('Auto-fetch followup status error:', err);
         }
+    };
 
-        setCurrentStep(4);
-        setViewMode('intake');
+    const handleSelectPatientForBooking = (patient) => handleSelectSearchResult(patient);
+
+    // Full Patient Profile Navigation (Authoritative 1:1 Web parity)
+    const handleViewProfile = (patient) => {
+        if (!patient) return;
+        const pid = (typeof patient.userId === 'object' ? (patient.userId?._id || patient.userId?.patientId || patient.userId?.mrn) : patient.userId)
+            || (typeof patient.clinicPatientId === 'object' ? (patient.clinicPatientId?._id || patient.clinicPatientId?.patientUid) : patient.clinicPatientId)
+            || (typeof patient.patientId === 'object' ? (patient.patientId?._id || patient.patientId?.patientId || patient.patientId?.mrn) : patient.patientId)
+            || patient.mrn
+            || patient._id
+            || patient.id;
+        const dept = patient.department || patient.serviceName || (patient.userId && (patient.userId.department || patient.userId.serviceName)) || 'General';
+        if (pid) {
+            navigation.navigate('UnifiedPatientProfile', { id: pid, patientId: pid, department: dept });
+        }
     };
 
     // Form field updater with Web 1:1 downstream dependencies
@@ -627,7 +833,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         }
     };
 
-    // Split payment handlers
+    // Split payment handlers for intake form
     const addSplitRow = () => {
         setIntakeForm(p => ({
             ...p,
@@ -643,7 +849,44 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
 
     const removeSplitRow = (idx) => {
         const updated = intakeForm.splitPayments.filter((_, i) => i !== idx);
-        setIntakeForm(p => ({ ...p, splitPayments: updated }));
+        setIntakeForm(p => ({ ...p, splitPayments: updated.length ? updated : [{ method: 'Cash', amount: p.consultationFee || '500' }] }));
+    };
+
+    // Split payment handlers for payment confirmation modal (P1.6)
+    const addPaymentModalSplit = () => {
+        setPaymentModal(p => {
+            const currentSplits = p.splitPayments || [];
+            const currentTotal = currentSplits.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
+            const totalFee = Number(p.amount || p.appointment?.amount) || 500;
+            const remaining = Math.max(0, totalFee - currentTotal);
+            return {
+                ...p,
+                splitPayments: [
+                    ...currentSplits,
+                    {
+                        method: currentSplits.some(s => s.method === 'Cash') ? 'UPI' : 'Cash',
+                        amount: remaining > 0 ? String(remaining) : ''
+                    }
+                ]
+            };
+        });
+    };
+
+    const updatePaymentModalSplit = (index, field, value) => {
+        const newSplits = [...(paymentModal.splitPayments || [])];
+        if (!newSplits[index]) return;
+        newSplits[index][field] = value;
+        setPaymentModal(p => ({ ...p, splitPayments: newSplits }));
+    };
+
+    const removePaymentModalSplit = (index) => {
+        setPaymentModal(p => {
+            const filtered = (p.splitPayments || []).filter((_, i) => i !== index);
+            return {
+                ...p,
+                splitPayments: filtered.length > 0 ? filtered : [{ method: 'Cash', amount: String(p.amount || 500) }]
+            };
+        });
     };
 
     // ─── STEPPER NAVIGATION VALIDATIONS ─────────────────────────────────────
@@ -680,7 +923,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         }
     };
 
-    // ─── FINAL SUBMISSION: REGISTER + BOOK APPOINTMENT ───────────────────────
+    // ─── FINAL SUBMISSION: REGISTER + BOOK APPOINTMENT (P0.1 & P0.2 PARITY) ──
     const handleRegisterAndBook = async () => {
         if (!intakePolicyAgreed) {
             Alert.alert("Policy Agreement", "Please agree to the hospital policies and terms of service before registering.");
@@ -691,44 +934,116 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         const totalSplit = intakeForm.splitPayments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
 
         if (fee > 0 && totalSplit !== fee) {
-            Alert.alert("Payment Mismatch", `Total payment entered (₹${totalSplit}) must match consultation fee (₹${fee}).`);
+            Alert.alert("Payment Mismatch", 'Total payment entered (Rs. ' + totalSplit + ') must match consultation fee (Rs. ' + fee + ').');
             return;
         }
 
         setSaving(true);
         try {
-            // 1. Register Patient (Web 1:1 Payload Parity)
-            const regPayload = {
-                name: `${intakeForm.firstName || ''} ${intakeForm.lastName || ''}`.trim(),
-                phone: intakeForm.mobile,
-                email: intakeForm.email,
-                age: intakeForm.age,
-                gender: intakeForm.gender,
-                aadhaarNumber: intakeForm.aadhaar,
-                address: `${intakeForm.houseNo || ''} ${intakeForm.street || ''} ${intakeForm.city || ''} ${intakeForm.state || ''} ${intakeForm.zipCode || ''}`.trim(),
-                partnerFirstName: intakeForm.partnerFirstName,
-                partnerLastName: intakeForm.partnerLastName,
-                partnerMobile: intakeForm.partnerMobile,
-                relationToPatient: intakeForm.relationToPatient,
-                referralType: intakeForm.referralType || 'Walk In',
-                bloodGroup: intakeForm.bloodGroup,
-                height: intakeForm.height,
-                weight: intakeForm.weight,
-                bmi: intakeForm.bmi,
-                bio: intakeForm.reasonForVisit || ''
-            };
-
-            const regRes = await receptionAPI.registerPatient(regPayload);
-            const patientId = regRes.user?._id || regRes.patient?._id;
-
-            if (!patientId) {
-                throw new Error("Patient registration did not return a valid patient ID.");
+            let userId = selectedPatientId;
+            if (isPatientPortal && !userId) {
+                userId = currentUser?._id;
             }
 
-            // 2. Book Appointment
+            // P0.1 BRANCHING: Register patient ONLY if new patient
+            if (!userId) {
+                const regPayload = {
+                    name: `${intakeForm.firstName || ''} ${intakeForm.lastName || ''}`.trim(),
+                    phone: intakeForm.mobile,
+                    email: intakeForm.email,
+                    age: intakeForm.age,
+                    gender: intakeForm.gender,
+                    aadhaarNumber: intakeForm.aadhaar,
+                    address: `${intakeForm.houseNo || ''} ${intakeForm.street || ''} ${intakeForm.city || ''} ${intakeForm.state || ''} ${intakeForm.zipCode || ''}`.trim(),
+                    partnerFirstName: intakeForm.partnerFirstName,
+                    partnerLastName: intakeForm.partnerLastName,
+                    partnerMobile: intakeForm.partnerMobile,
+                    relationToPatient: intakeForm.relationToPatient,
+                    referralType: intakeForm.referralType || 'Walk In',
+                    bloodGroup: intakeForm.bloodGroup,
+                    height: intakeForm.height,
+                    weight: intakeForm.weight,
+                    bmi: intakeForm.bmi,
+                    bio: intakeForm.reasonForVisit || ''
+                };
+
+                const regRes = await receptionAPI.registerPatient(regPayload);
+                userId = regRes.user?._id || regRes.patient?._id;
+
+                if (!userId) {
+                    throw new Error(regRes?.message || "Patient registration did not return a valid patient ID.");
+                }
+
+                // Accept hospital policies for new patient registration (P2.4)
+                try {
+                    const activeHid = hospitalContext?._id || currentUser?.hospitalId;
+                    if (activeHid && userId) {
+                        policyAPI.acceptPolicies({
+                            hospitalId: activeHid,
+                            patientId: userId,
+                            source: isPatientPortal ? 'PATIENT_PORTAL' : 'RECEPTION_DESK',
+                            offlineSync: false
+                        }).catch(() => {});
+                    }
+                } catch (e) {
+                    console.warn('Policy acceptance error:', e);
+                }
+            }
+
+            // P0.2: Upload patient photo to server via uploadAPI.uploadImages
+            let avatarUrl = intakeForm.avatar || null;
+            if (patientPhoto && patientPhoto.uri) {
+                try {
+                    const photoFD = new FormData();
+                    photoFD.append('images', {
+                        uri: patientPhoto.uri,
+                        name: patientPhoto.name || 'photo.jpg',
+                        type: patientPhoto.mimeType || patientPhoto.type || 'image/jpeg'
+                    });
+                    const photoRes = await uploadAPI.uploadImages(photoFD);
+                    if (photoRes?.success && Array.isArray(photoRes.files) && photoRes.files.length > 0) {
+                        avatarUrl = photoRes.files[0].url;
+                    }
+                } catch (e) {
+                    console.warn('Failed to upload patient photo to server:', e);
+                }
+            }
+
+            // P0.2: Upload payment screenshot to server via uploadAPI.uploadImages
+            let screenshotUrl = '';
+            const hasNonCash = intakeForm.splitPayments.some(p => p.method !== 'Cash');
+            if (hasNonCash && paymentScreenshot && paymentScreenshot.uri) {
+                try {
+                    const proofFD = new FormData();
+                    proofFD.append('images', {
+                        uri: paymentScreenshot.uri,
+                        name: paymentScreenshot.name || 'payment_proof.jpg',
+                        type: paymentScreenshot.mimeType || paymentScreenshot.type || 'image/jpeg'
+                    });
+                    const proofRes = await uploadAPI.uploadImages(proofFD);
+                    if (proofRes?.success && Array.isArray(proofRes.files) && proofRes.files.length > 0) {
+                        screenshotUrl = proofRes.files[0].url;
+                    }
+                } catch (e) {
+                    console.warn('Failed to upload payment proof to server:', e);
+                }
+            }
+
+            // Update patient intake/demographics (Web 1:1)
+            const intakePayload = {
+                ...intakeForm,
+                address: `${intakeForm.houseNo || ''} ${intakeForm.street || ''} ${intakeForm.city || ''} ${intakeForm.state || ''} ${intakeForm.zipCode || ''}`.trim() || intakeForm.address
+            };
+            if (avatarUrl && !avatarUrl.startsWith('file://')) intakePayload.avatar = avatarUrl;
+            await receptionAPI.updateIntake(userId, intakePayload);
+
+            // Book Appointment
             const isTokenMode = hospitalContext?.appointmentMode === 'token';
+            const isUpiInvolved = intakeForm.paymentMethod === 'UPI' || intakeForm.splitPayments?.some(p => (p.method || '').toUpperCase().includes('UPI'));
+            const isOnlineInvolved = intakeForm.paymentMethod === 'Online' || intakeForm.splitPayments?.some(p => (p.method || '').toUpperCase().includes('ONLINE'));
+
             const bookPayload = {
-                patientId,
+                patientId: userId,
                 doctorId: intakeForm.doctor,
                 appointmentDate: intakeForm.visitDate,
                 date: intakeForm.visitDate,
@@ -736,15 +1051,35 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                 time: isTokenMode ? undefined : intakeForm.visitTime,
                 department: intakeForm.department,
                 reason: intakeForm.reasonForVisit || 'OPD Consultation',
+                notes: (intakeForm.reasonForVisit || intakeForm.bio || '').trim(),
                 amount: fee,
                 paymentStatus: 'Paid',
                 paymentMethod: intakeForm.splitPayments[0]?.method || 'Cash',
-                splitPayments: intakeForm.splitPayments
+                splitPayments: intakeForm.splitPayments,
+                proofUrl: (isUpiInvolved || isOnlineInvolved) ? screenshotUrl : '',
+                upiScreenshotUrl: (isUpiInvolved || isOnlineInvolved) ? screenshotUrl : '',
+                transactionId: intakePaymentData?.transactionId || '',
+                upiId: intakePaymentData?.upiId || '',
+                bankReference: intakePaymentData?.bankReference || ''
             };
 
             const bookingRes = await receptionAPI.bookAppointment(bookPayload);
 
-            // 3. Document Download Notice
+            // Record policy acceptance for appointment booking
+            try {
+                const activeHid = hospitalContext?._id || currentUser?.hospitalId;
+                if (activeHid && userId) {
+                    policyAPI.acceptPolicies({
+                        hospitalId: activeHid,
+                        patientId: userId,
+                        appointmentId: bookingRes?.appointment?._id || null,
+                        source: isPatientPortal ? 'PATIENT_PORTAL' : 'APPOINTMENT_BOOKING',
+                        offlineSync: false
+                    }).catch(() => {});
+                }
+            } catch {}
+
+            // Document Download & Print Slip
             const pName = `${intakeForm.firstName} ${intakeForm.lastName}`.trim();
             const docName = doctorsList.find(d => d._id === intakeForm.doctor)?.name || 'Consultant';
             const allocatedToken = bookingRes?.appointment?.tokenNumber || nextToken;
@@ -753,7 +1088,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
             const hPhone = hospitalContext?.phone || '';
             const hEmail = hospitalContext?.email || '';
             const issuedBy = currentUser?.name || 'Reception Desk';
-            const paymentMethodsStr = intakeForm.splitPayments.map(p => `${p.method} (₹${p.amount})`).join(' + ');
+            const paymentMethodsStr = intakeForm.splitPayments.map(p => p.method + ' (Rs. ' + p.amount + ')').join(' + ');
 
             Alert.alert(
                 "Registration Completed!",
@@ -807,7 +1142,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
 
                                         <table>
                                             <tr><td class="label">Patient Name</td><td class="value"><strong>${pName}</strong> (${intakeForm.gender}, ${intakeForm.age} yrs)</td></tr>
-                                            <tr><td class="label">MRN / Patient ID</td><td class="value">${bookingRes?.appointment?.patientId || patientId || 'N/A'}</td></tr>
+                                            <tr><td class="label">MRN / Patient ID</td><td class="value">${bookingRes?.appointment?.patientId || userId || 'N/A'}</td></tr>
                                             <tr><td class="label">Phone Contact</td><td class="value">${intakeForm.mobile || '-'}</td></tr>
                                             <tr><td class="label">Aadhaar Verification</td><td class="value">${intakeForm.isAadhaarVerified ? 'YES — Verified' : 'NO'}</td></tr>
                                             <tr><td class="label">Department</td><td class="value">${intakeForm.department || 'General'}</td></tr>
@@ -836,20 +1171,9 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
             );
 
             // Reset form
-            setCurrentStep(1);
-            setIntakeForm({
-                title: 'Mrs.', firstName: '', middleName: '', lastName: '',
-                dob: '', age: '', gender: 'Female', mobile: '', email: '',
-                houseNo: '', street: '', city: '', state: '', zipCode: '', address: '',
-                aadhaar: '', isAadhaarVerified: false, avatar: '',
-                partnerTitle: 'Mr.', partnerFirstName: '', partnerLastName: '', partnerMobile: '',
-                relationToPatient: 'Spouse',
-                height: '', weight: '', bmi: '', bloodGroup: 'B+',
-                consultationFee: '500', referralType: 'Walk In', reasonForVisit: '',
-                department: '', doctor: '', visitDate: new Date().toISOString().split('T')[0], visitTime: '',
-                paymentMethod: 'Cash', paymentStatus: 'Paid',
-                splitPayments: [{ method: 'Cash', amount: '500' }]
-            });
+            handleNewWalkIn();
+            setViewMode('desk');
+            fetchData();
         } catch (err) {
             console.error('Registration/Booking error:', err);
             Alert.alert("Registration Failed", err.response?.data?.message || err.message || "Failed to register patient.");
@@ -884,26 +1208,39 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         );
     };
 
-    const openHospitalize = (apt) => {
+    // Web 1:1 Hospitalize Modal with Active Admission Detection & Doctor Orders (P1.3 & P1.4)
+    const openHospitalizeModal = async (apt) => {
         const patientId = apt.userId?._id || apt.patientId?._id || apt.patientId;
-        const activeAdm = hospitalizedPatients.find(adm => {
-            const admPid = adm.patientId?._id || adm.patientId;
-            return (admPid === patientId || adm.appointmentId?._id === apt._id) && adm.status === 'Admitted';
+        const activeAdm = hospitalizedPatients.find(p => {
+            const admPid = p.patientId?._id || p.patientId;
+            return (admPid === patientId || p.appointmentId?._id === apt._id || p.appointmentId === apt._id) && (p.status || '').toLowerCase() === 'admitted';
         });
-
-        if (activeAdm) {
-            Alert.alert("Already Admitted", "This patient currently has an active admission in " + (activeAdm.ward || 'Ward'));
-            return;
-        }
+        setExistingActiveAdmission(activeAdm || null);
 
         setHospitalizeForm({
-            ward: 'General',
+            ward: availableBeds[0]?.ward || 'General',
             bedId: availableBeds[0]?._id || '',
             admissionDate: new Date().toISOString().split('T')[0],
             admissionTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
             notes: ''
         });
         setHospitalizeModal({ open: true, appointment: apt });
+        setHospitalizeDoctorOrders([]);
+        fetchAvailableBeds();
+
+        if (patientId) {
+            setLoadingHospitalizeOrders(true);
+            try {
+                const res = await ipdClinicalAPI.getPatientOrders(patientId, { status: 'ACTIVE' });
+                if (res?.success && res.data) {
+                    setHospitalizeDoctorOrders(res.data);
+                }
+            } catch (err) {
+                console.warn('Could not fetch doctor orders for hospitalization modal', err);
+            } finally {
+                setLoadingHospitalizeOrders(false);
+            }
+        }
     };
 
     const submitHospitalize = async () => {
@@ -915,10 +1252,12 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
             setSaving(true);
             const apt = hospitalizeModal.appointment;
             const patientId = apt.userId?._id || apt.patientId?._id || apt.patientId;
+            const doctorId = apt.doctorId?._id || apt.doctorId || (hospitalizeDoctorOrders.length > 0 ? (hospitalizeDoctorOrders[0].doctorId?._id || hospitalizeDoctorOrders[0].doctorId) : null);
 
             await admissionAPI.createAdmission({
                 patientId,
                 appointmentId: apt._id,
+                doctorId,
                 ward: hospitalizeForm.ward,
                 bedId: hospitalizeForm.bedId,
                 admissionDate: hospitalizeForm.admissionDate,
@@ -937,6 +1276,17 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
     };
 
     const openTransfer = (adm) => {
+        let rate = Number(adm.wardRatePerDay) || 0;
+        if (rate === 0) {
+            const matching = hospitalContext?.facilities?.find(f => 
+                (f.name || '').toLowerCase().includes((adm.ward || '').toLowerCase()) ||
+                (adm.ward || '').toLowerCase().includes((f.name || '').toLowerCase())
+            );
+            rate = matching?.pricePerDay || ((adm.ward || '').toLowerCase().includes('icu') ? 20000 : 5000);
+        }
+        adm.wardRatePerDay = rate;
+        adm.wardHourlyRate = Math.round((rate / 24) * 100) / 100;
+
         setTransferModal({
             open: true,
             admission: adm,
@@ -946,6 +1296,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
             transferTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
             notes: ''
         });
+        fetchAvailableBeds();
     };
 
     const submitTransfer = async () => {
@@ -972,7 +1323,19 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         }
     };
 
-    const openDischarge = (adm) => {
+    // Web 1:1 Discharge Modal with Hourly & Daily Pro-rated Cost Calculation (P1.5)
+    const openDischargeModal = (adm) => {
+        let rate = Number(adm.wardRatePerDay) || 0;
+        if (rate === 0) {
+            const matching = hospitalContext?.facilities?.find(f => 
+                (f.name || '').toLowerCase().includes((adm.ward || '').toLowerCase()) ||
+                (adm.ward || '').toLowerCase().includes((f.name || '').toLowerCase())
+            );
+            rate = matching?.pricePerDay || ((adm.ward || '').toLowerCase().includes('icu') ? 20000 : 5000);
+        }
+        adm.wardRatePerDay = rate;
+        adm.wardHourlyRate = Math.round((rate / 24) * 100) / 100;
+
         setDischargeModal({
             open: true,
             admission: adm,
@@ -982,36 +1345,96 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         });
     };
 
-    const printDischargeBill = async (adm) => {
+    const openDischarge = (adm) => openDischargeModal(adm);
+
+    const printDischargeBill = async (adm, dischargeCalcData = {}) => {
         try {
-            const pName = adm?.patientId?.name || 'Patient';
+            const pName = adm?.patientId?.name || 'Inpatient';
+            const ptId = adm?.patientId?.patientId || adm?.patientId?.mrn || 'N/A';
+            const hName = hospitalContext?.name || 'Care Medical Hospital & Health Center';
+            const hAddr = [hospitalContext?.address, hospitalContext?.city, hospitalContext?.state].filter(Boolean).join(', ');
+            const hPhone = hospitalContext?.phone || '';
+            const hEmail = hospitalContext?.email || '';
+            const issuedBy = currentUser?.name || 'Reception Desk';
+            const grandTotal = dischargeCalcData.grandTotal || adm.totalAmount || 0;
+
             const html = `
+                <!DOCTYPE html>
                 <html>
-                    <body style="font-family: Arial, sans-serif; padding: 24px; color: #1e293b;">
-                        <h2 style="text-align: center; color: #0f172a; margin-bottom: 4px;">INPATIENT DISCHARGE BILL & RECEIPT</h2>
-                        <p style="text-align: center; color: #64748b; font-size: 12px; margin-top: 0;">Date: ${new Date().toLocaleDateString('en-IN')}</p>
-                        <hr style="border: none; border-top: 1px solid #cbd5e1; margin: 16px 0;" />
-                        <table style="width: 100%; font-size: 14px; margin-bottom: 20px;">
+                <head>
+                    <meta charset="utf-8">
+                    <title>Inpatient Discharge Bill - ${pName}</title>
+                    <style>
+                        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 24px; color: #1e293b; line-height: 1.5; background: #ffffff; }
+                        .header { text-align: center; border-bottom: 2px solid #dc2626; padding-bottom: 12px; margin-bottom: 16px; }
+                        .h-name { font-size: 22px; font-weight: 800; color: #0f172a; }
+                        .h-addr { font-size: 11px; color: #64748b; margin-top: 2px; }
+                        .bill-title { font-size: 14px; font-weight: 800; color: #dc2626; margin-top: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+                        table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 12px; }
+                        th { background: #2563eb; color: #ffffff; padding: 8px 10px; text-align: left; font-size: 11px; text-transform: uppercase; }
+                        td { padding: 8px 10px; border: 1px solid #e2e8f0; }
+                        td.label { font-weight: bold; color: #334155; width: 35%; background: #f8fafc; }
+                        .breakdown-table th { background: #1e293b; color: #ffffff; }
+                        .total-row { background: #f1f5f9; font-weight: 900; font-size: 14px; color: #0f172a; }
+                        .footer { margin-top: 24px; border-top: 1px solid #cbd5e1; padding-top: 10px; display: flex; justify-content: space-between; font-size: 10px; color: #64748b; }
+                        .thanks { text-align: center; margin-top: 12px; font-size: 11px; color: #64748b; font-style: italic; }
+                    </style>
+                </head>
+                <body>
+                    <div class="header">
+                        <div class="h-name">${hName}</div>
+                        ${hAddr ? `<div class="h-addr">${hAddr}</div>` : ''}
+                        ${hPhone || hEmail ? `<div class="h-addr">${[hPhone && `Ph: ${hPhone}`, hEmail && `Email: ${hEmail}`].filter(Boolean).join(' | ')}</div>` : ''}
+                        <div class="bill-title">Inpatient Discharge Bill & Settle Receipt</div>
+                    </div>
+
+                    <table>
+                        <tr><td class="label">Patient Name</td><td><strong>${pName}</strong></td><td class="label">MRN / Patient ID</td><td>${ptId}</td></tr>
+                        <tr><td class="label">Ward & Bed</td><td>${adm.ward || 'General'} (Bed #${adm.bedNumber || '-'})</td><td class="label">Payment Status</td><td style="color: #16a34a; font-weight: bold;">SETTLED & CLEARED ✓</td></tr>
+                        <tr><td class="label">Admission Time</td><td>${adm.admissionDate ? new Date(adm.admissionDate).toLocaleDateString('en-IN') : '-'} ${adm.admissionTime || ''}</td><td class="label">Discharge Time</td><td>${adm.dischargeDate || new Date().toISOString().split('T')[0]} ${adm.dischargeTime || ''}</td></tr>
+                    </table>
+
+                    <h4 style="margin: 18px 0 6px; color: #0f172a;">Stay & Ward Breakdown (Hourly / Daily Pro-rated):</h4>
+                    <table class="breakdown-table">
+                        <thead>
                             <tr>
-                                <td><strong>Patient Name:</strong> ${pName}</td>
-                                <td><strong>MRN:</strong> ${adm?.patientId?.mrn || adm?.patientId?.patientId || '-'}</td>
+                                <th>#</th>
+                                <th>Ward / Service</th>
+                                <th>Duration</th>
+                                <th>Rate Basis</th>
+                                <th style="text-align: right;">Amount (INR)</th>
                             </tr>
-                            <tr>
-                                <td><strong>Ward / Bed:</strong> ${adm?.ward || 'General'} - Bed ${adm?.bedId?.bedNumber || '-'}</td>
-                                <td><strong>Admission Date:</strong> ${adm?.admissionDate || '-'}</td>
+                        </thead>
+                        <tbody>
+                            ${(adm.transferHistory || []).map((th, idx) => `
+                                <tr>
+                                    <td>${idx + 1}</td>
+                                    <td>${th.fromWard}</td>
+                                    <td>${th.durationText || `${th.durationDays || 1}d`}</td>
+                                    <td>₹${th.ratePerDay}/day</td>
+                                    <td style="text-align: right; font-weight: bold;">₹${Number(th.segmentAmount || 0).toLocaleString('en-IN')}</td>
+                                </tr>
+                            `).join('')}
+                            <tr style="background: #f0fdf4;">
+                                <td>${(adm.transferHistory?.length || 0) + 1}</td>
+                                <td>${adm.ward} (Current)</td>
+                                <td>${dischargeCalcData.finalDurationText || '1 Day'}</td>
+                                <td>₹${adm.wardRatePerDay || 5000}/day</td>
+                                <td style="text-align: right; font-weight: bold; color: #166534;">₹${Number(dischargeCalcData.finalAmount || adm.wardRatePerDay || 0).toLocaleString('en-IN')}</td>
                             </tr>
-                            <tr>
-                                <td><strong>Discharge Date:</strong> ${adm?.dischargeDate || new Date().toISOString().split('T')[0]}</td>
-                                <td><strong>Attending Doctor:</strong> Dr. ${adm?.admittingDoctorId?.name || adm?.doctorId?.name || 'Doctor'}</td>
+                            <tr class="total-row">
+                                <td colspan="4" style="text-align: right;">TOTAL INPATIENT CHARGES:</td>
+                                <td style="text-align: right; color: #2563eb;">₹${Number(grandTotal).toLocaleString('en-IN')}</td>
                             </tr>
-                        </table>
-                        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-top: 20px;">
-                            <h4 style="margin: 0 0 10px; color: #0f172a;">Billing & Clearance Summary</h4>
-                            <p style="margin: 4px 0; font-size: 13px;"><strong>Daily Bed Rate:</strong> ₹${adm?.bedId?.pricePerDay || 2000}</p>
-                            <p style="margin: 4px 0; font-size: 13px;"><strong>Status:</strong> <span style="color: #16a34a; font-weight: bold;">CLEARED & DISCHARGED</span></p>
-                        </div>
-                        <p style="text-align: center; font-size: 11px; color: #94a3b8; margin-top: 40px;">This is a computer-generated discharge receipt.</p>
-                    </body>
+                        </tbody>
+                    </table>
+
+                    <div class="footer">
+                        <span>Issued by: ${issuedBy}</span>
+                        <span>Generated: ${new Date().toLocaleString('en-IN')}</span>
+                    </div>
+                    <div class="thanks">Thank you for choosing ${hName}. Wishing you a speedy recovery!</div>
+                </body>
                 </html>
             `;
             await Print.printAsync({ html });
@@ -1023,6 +1446,20 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
     const submitDischarge = async () => {
         const admToPrint = dischargeModal.admission;
         const dDate = dischargeModal.dischargeDate;
+        const dTime = dischargeModal.dischargeTime;
+
+        // Compute final live stay segment
+        const prevTransfer = admToPrint?.transferHistory && admToPrint.transferHistory.length > 0
+            ? admToPrint.transferHistory[admToPrint.transferHistory.length - 1]
+            : null;
+        const finalStartDateTime = prevTransfer
+            ? combineDateTime(prevTransfer.transferDate, prevTransfer.transferTime)
+            : combineDateTime(admToPrint?.admissionDate, admToPrint?.admissionTime);
+        const currentDischargeDateTime = combineDateTime(dDate, dTime);
+        const finalCalc = computeStayDurationAndCost(finalStartDateTime, currentDischargeDateTime, admToPrint?.wardRatePerDay);
+        const pastSegmentsTotal = (admToPrint?.transferHistory || []).reduce((acc, th) => acc + (Number(th.segmentAmount) || 0), 0);
+        const grandTotal = pastSegmentsTotal + finalCalc.amount;
+
         try {
             setSaving(true);
             await admissionAPI.dischargePatient(dischargeModal.admission._id, {
@@ -1032,10 +1469,16 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
             });
             Alert.alert(
                 "Patient Discharged",
-                "Patient discharged successfully. Would you like to print the Inpatient Discharge Bill?",
+                'Patient discharged successfully! Inpatient Charges: Rs. ' + grandTotal.toLocaleString('en-IN') + '. Would you like to print the Discharge Bill?',
                 [
                     { text: "Later", style: "cancel" },
-                    { text: "🖨️ Print Discharge Bill", onPress: () => printDischargeBill({ ...admToPrint, dischargeDate: dDate }) }
+                    { 
+                        text: "🖨️ Print Discharge Bill", 
+                        onPress: () => printDischargeBill(
+                            { ...admToPrint, dischargeDate: dDate, dischargeTime: dTime },
+                            { finalDurationText: finalCalc.durationText, finalAmount: finalCalc.amount, grandTotal }
+                        ) 
+                    }
                 ]
             );
             setDischargeModal({ open: false, admission: null, dischargeDate: '', dischargeTime: '', notes: '' });
@@ -1047,26 +1490,37 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         }
     };
 
+    // Web 1:1 Payment Modal (P1.6 Split Payments)
     const openPaymentModal = (apt) => {
+        const amt = String(apt.amount || apt.consultationFee || 500);
         setPaymentModal({
             open: true,
             appointment: apt,
             method: 'Cash',
-            amount: String(apt.amount || apt.consultationFee || 500),
-            splitPayments: [{ method: 'Cash', amount: String(apt.amount || 500) }]
+            amount: amt,
+            splitPayments: [{ method: 'Cash', amount: amt }]
         });
     };
 
     const submitPayment = async () => {
+        const { appointment, splitPayments, amount } = paymentModal;
+        const totalSplit = (splitPayments || []).reduce((acc, s) => acc + (Number(s.amount) || 0), 0);
+        const expectedAmt = Number(amount || appointment?.amount || 0);
+
+        if (totalSplit !== expectedAmt) {
+            Alert.alert("Payment Mismatch", 'Total split payments (Rs. ' + totalSplit + ') must match the appointment fee (Rs. ' + expectedAmt + ').');
+            return;
+        }
+
         try {
             setSaving(true);
             await receptionAPI.confirmPayment(
-                paymentModal.appointment._id,
-                paymentModal.method,
-                paymentModal.amount,
-                { splitPayments: paymentModal.splitPayments }
+                appointment._id,
+                splitPayments[0]?.method || 'Cash',
+                expectedAmt,
+                { splitPayments }
             );
-            Alert.alert("Payment Confirmed", "Payment of ₹" + paymentModal.amount + " confirmed successfully!");
+            Alert.alert("Payment Confirmed", 'Payment of Rs. ' + expectedAmt + ' confirmed successfully!');
             setPaymentModal({ open: false, appointment: null, method: 'Cash', amount: '', splitPayments: [] });
             fetchData();
         } catch (err) {
@@ -1076,14 +1530,60 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         }
     };
 
-    const handlePrintReceipt = (apt) => {
+    const handlePrintReceipt = async (apt) => {
         const pName = apt.userId?.name || apt.patientName || 'Patient';
-        setPendingDownload({
-            title: 'Payment Receipt',
-            filename: `Receipt_${pName.replace(/\s+/g, '_')}.pdf`
-        });
-        Alert.alert("Receipt Ready", "Receipt generated for " + pName + ". Tap the top banner to download.");
+        const docName = apt.doctorName || apt.doctorId?.name || 'Doctor';
+        const hName = hospitalContext?.name || 'Care Medical Hospital & Health Center';
+        const hAddr = [hospitalContext?.address, hospitalContext?.city, hospitalContext?.state].filter(Boolean).join(', ');
+        const issuedBy = currentUser?.name || 'Reception Desk';
+
+        try {
+            const html = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="utf-8">
+                    <title>Consultation Receipt - ${pName}</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; padding: 24px; color: #1e293b; line-height: 1.5; }
+                        .header { text-align: center; border-bottom: 2px solid #0d9488; padding-bottom: 12px; margin-bottom: 16px; }
+                        .h-name { font-size: 20px; font-weight: bold; color: #0f172a; }
+                        .slip-title { font-size: 13px; font-weight: bold; color: #0d9488; margin-top: 6px; text-transform: uppercase; }
+                        table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 12px; }
+                        td { padding: 8px 10px; border: 1px solid #e2e8f0; }
+                        td.label { font-weight: bold; width: 35%; background: #f8fafc; color: #334155; }
+                        .footer { margin-top: 20px; border-top: 1px solid #cbd5e1; padding-top: 8px; font-size: 10px; color: #64748b; display: flex; justify-content: space-between; }
+                    </style>
+                </head>
+                <body>
+                    <div class="header">
+                        <div class="h-name">${hName}</div>
+                        ${hAddr ? `<div style="font-size: 11px; color: #64748b;">${hAddr}</div>` : ''}
+                        <div class="slip-title">Consultation Fee Receipt</div>
+                    </div>
+                    <table>
+                        <tr><td class="label">Patient Name</td><td><strong>${pName}</strong></td></tr>
+                        <tr><td class="label">MRN / Patient ID</td><td>${apt.patientId || apt.userId?.patientId || 'N/A'}</td></tr>
+                        <tr><td class="label">Consulting Doctor</td><td>Dr. ${docName}</td></tr>
+                        <tr><td class="label">Department</td><td>${apt.department || 'General'}</td></tr>
+                        <tr><td class="label">Appointment Time</td><td>${apt.appointmentDate || todayStr} @ ${apt.appointmentTime || '10:00 AM'}</td></tr>
+                        <tr><td class="label">Amount Paid</td><td><strong>₹${Number(apt.amount || 500).toLocaleString('en-IN')}</strong></td></tr>
+                        <tr><td class="label">Payment Method</td><td>${apt.paymentMethod || 'Cash'}</td></tr>
+                        <tr><td class="label">Payment Status</td><td style="color: #16a34a; font-weight: bold;">PAID ✓</td></tr>
+                    </table>
+                    <div class="footer">
+                        <span>Issued by: ${issuedBy}</span>
+                        <span>Date: ${new Date().toLocaleString('en-IN')}</span>
+                    </div>
+                </body>
+                </html>
+            `;
+            await Print.printAsync({ html });
+        } catch (e) {
+            Alert.alert("Receipt Error", "Could not print receipt: " + e.message);
+        }
     };
+
 
     // Filter appointments for queue
     const filteredQueue = appointments.filter(apt => {
@@ -1111,14 +1611,14 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         const isMobile = width < 768;
         return (
             <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-                {pendingDownload && (
+                {Boolean(pendingDownload) ? (
                     <View style={styles.wDocBanner}>
                         <Text style={styles.wDocBannerText}>{'✅ '}{pendingDownload.title || 'Document Generated'}{' — '}{pendingDownload.filename}{' is ready'}</Text>
                         <TouchableOpacity style={styles.wDocBannerBtn} onPress={() => setPendingDownload(null)}>
                             <Text style={styles.wDocBannerBtnText}>{'📥 Download'}</Text>
                         </TouchableOpacity>
                     </View>
-                )}
+                ) : null}
                 {/* 1. Hero Greeting Banner — Web 1:1 Parity with Illustration & Action Controls */}
                 <ExpoLinearGradient colors={['#f8faff', '#f0f4ff', '#e8effe']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.wHeroCard, isMobile && { flexDirection: 'column', alignItems: 'stretch', paddingVertical: 24, paddingHorizontal: 20 }]}>
                     <View style={[styles.wHeroLeft, isMobile && { maxWidth: '100%', marginBottom: 16, paddingRight: 0 }]}>
@@ -1176,7 +1676,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                         <TouchableOpacity style={[styles.wSearchAction, { backgroundColor: '#10b981' }]} onPress={() => handleSelectPatientForBooking(p)}>
                                             <Text style={styles.wSearchActionText}>{'📋 Book Appointment'}</Text>
                                         </TouchableOpacity>
-                                        <TouchableOpacity style={[styles.wSearchAction, { backgroundColor: '#3b82f6' }]} onPress={() => setProfileModal({ open: true, patient: p })}>
+                                        <TouchableOpacity style={[styles.wSearchAction, { backgroundColor: '#3b82f6' }]} onPress={() => handleViewProfile(p)}>
                                             <Text style={styles.wSearchActionText}>{'👤 View Profile'}</Text>
                                         </TouchableOpacity>
                                     </View>
@@ -1265,19 +1765,65 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
 
         return (
             <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-                {/* Desk Page Header */}
-                <View style={styles.deskHeaderRow}>
-                    <View>
-                        <Text style={styles.deskTitle}>Reception Desk & Queue</Text>
-                        <Text style={styles.deskSubtitle}>Manage today's OPD flow and inpatient admissions</Text>
+                {/* TOP SEARCH BAR WITH AUTOCOMPLETE (P1.1 1:1 Web Parity) */}
+                <View style={{ marginBottom: 16 }}>
+                    <View style={styles.deskSearchBox}>
+                        <Feather name="search" size={18} color="#94a3b8" style={{ marginRight: 10 }} />
+                        <TextInput
+                            placeholder="Search Patient by Name, Mobile or MRN..."
+                            placeholderTextColor="#94a3b8"
+                            value={searchQuery}
+                            onChangeText={handleSearchTextChange}
+                            style={styles.deskSearchInput}
+                        />
+                        {searchQuery.length > 0 && (
+                            <TouchableOpacity onPress={() => handleSearchTextChange('')}>
+                                <Feather name="x" size={16} color="#94a3b8" />
+                            </TouchableOpacity>
+                        )}
                     </View>
-                    <TouchableOpacity 
-                        style={styles.switchHubBtn}
-                        onPress={() => setViewMode('intake')}
-                    >
-                        <Feather name="user-plus" size={14} color="#0d9488" />
-                        <Text style={styles.switchHubBtnText}>New Walk-in</Text>
-                    </TouchableOpacity>
+
+                    {searchQuery.trim().length > 0 && searchResults.length > 0 && (
+                        <View style={styles.deskSearchResultsDropdown}>
+                            {searchResults.map(p => (
+                                <View key={p._id} style={styles.deskSearchResultItem}>
+                                    <View style={{ flex: 1, marginRight: 8 }}>
+                                        <Text style={styles.deskSearchPatientName}>
+                                            {p.name} <Text style={styles.deskSearchPatientMrn}>({p.patientId || p.mrn || 'N/A'})</Text>
+                                        </Text>
+                                        <Text style={styles.deskSearchPatientPhone}>📱 {p.phone || '-'}</Text>
+                                    </View>
+                                    <View style={{ flexDirection: 'row', gap: 6 }}>
+                                        <TouchableOpacity
+                                            style={styles.deskSearchBookBtn}
+                                            onPress={() => handleSelectSearchResult(p)}
+                                        >
+                                            <Text style={styles.deskSearchBookBtnText}>📋 Book</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={styles.deskSearchViewBtn}
+                                            onPress={() => handleViewProfile(p)}
+                                        >
+                                            <Text style={styles.deskSearchViewBtnText}>👤 Profile</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                            ))}
+                        </View>
+                    )}
+                </View>
+
+                {/* 1. HERO BANNER WITH RECEPTIONIST GREETING & QUICK ACTIONS (P2.3 1:1 Web) */}
+                <View style={styles.heroCard}>
+                    <View style={styles.heroTextCol}>
+                        <View style={styles.heroBadgeRow}>
+                            <Text style={{ fontSize: 13 }}>👋</Text>
+                            <Text style={styles.heroBadgeText}>RECEPTION DESK</Text>
+                        </View>
+                        <Text style={styles.heroGreet}>Good {timeOfDay}, Receptionist 👋</Text>
+                        <Text style={styles.heroTitle}>Welcome Back!</Text>
+                        <Text style={styles.heroSubtitle}>Here's what's happening today</Text>
+                    </View>
                 </View>
 
                 {/* Hero Mini Action Chips */}
@@ -1310,7 +1856,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
 
                     <TouchableOpacity 
                         style={[styles.miniChip, { backgroundColor: '#dbeafe', borderColor: '#bfdbfe' }]}
-                        onPress={() => setViewMode('intake')}
+                        onPress={handleNewWalkIn}
                     >
                         <View style={[styles.miniChipIcon, { backgroundColor: '#3b82f6' }]}>
                             <Feather name="user-plus" size={12} color="#ffffff" />
@@ -1373,6 +1919,136 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                     </TouchableOpacity>
                 </View>
 
+                {/* 3. DYNAMIC CHECK DOCTOR AVAILABILITY CARD WITH 3D CLOCK (P0.3 1:1 Web Parity) */}
+                {(() => {
+                    const selectedDoctorObj = doctorsList.find(d => String(d._id) === String(availabilityCheck.doctorId));
+                    const availableSlots = timeSlots.filter(time => {
+                        const isBooked = (availabilityCheck.bookedSlots || []).includes(time);
+                        const isPast = isSlotInPast(time, availabilityCheck.date);
+                        return !isBooked && !isPast;
+                    });
+
+                    return (
+                        <View style={styles.availCard}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                    <View style={styles.availCalendarIconWrap}>
+                                        <Feather name="calendar" size={15} color="#0d9488" />
+                                    </View>
+                                    <Text style={styles.availTitle}>Check Doctor Availability</Text>
+                                    <Text style={{ color: '#f59e0b', fontSize: 14 }}>✦</Text>
+                                </View>
+                                {/* 3D Clock Art Pedestal SVG */}
+                                <Svg width="42" height="42" viewBox="0 0 160 160" fill="none">
+                                    <Ellipse cx="80" cy="140" rx="55" ry="12" fill="#c4b5fd" opacity={0.4} />
+                                    <Path d="M 45 115 L 115 115 L 135 130 L 25 130 Z" fill="#8b5cf6" />
+                                    <Path d="M 25 130 L 135 130 L 135 138 L 25 138 Z" fill="#6d28d9" />
+                                    <Ellipse cx="80" cy="75" rx="42" ry="42" fill="#f8fafc" stroke="#8b5cf6" strokeWidth={4} />
+                                    <Circle cx="80" cy="75" r="32" stroke="#ddd6fe" strokeWidth={1.5} />
+                                    <Line x1="80" y1="75" x2="80" y2="55" stroke="#6d28d9" strokeWidth={3} strokeLinecap="round" />
+                                    <Line x1="80" y1="75" x2="98" y2="70" stroke="#8b5cf6" strokeWidth={2.2} strokeLinecap="round" />
+                                    <Circle cx="80" cy="75" r="4" fill="#7c3aed" />
+                                </Svg>
+                            </View>
+
+                            <View style={{ marginTop: 10 }}>
+                                <Text style={styles.fieldLabel}>Select Specialist</Text>
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row', gap: 6, marginVertical: 4 }}>
+                                    {doctorsList.map(d => (
+                                        <TouchableOpacity
+                                            key={d._id}
+                                            style={[styles.miniPill, availabilityCheck.doctorId === d._id && styles.miniPillActive]}
+                                            onPress={() => setAvailabilityCheck(prev => ({ ...prev, doctorId: d._id }))}
+                                        >
+                                            <Text style={[styles.miniPillText, availabilityCheck.doctorId === d._id && styles.miniPillTextActive]}>
+                                                {d.name} {d.departments?.length > 0 ? `(${d.departments[0]})` : ''}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </ScrollView>
+                            </View>
+
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                                <Text style={[styles.fieldLabel, { marginBottom: 0 }]}>Date:</Text>
+                                <TouchableOpacity
+                                    style={[styles.miniPill, availabilityCheck.date === todayStr && styles.miniPillActive]}
+                                    onPress={() => setAvailabilityCheck(prev => ({ ...prev, date: todayStr }))}
+                                >
+                                    <Text style={[styles.miniPillText, availabilityCheck.date === todayStr && styles.miniPillTextActive]}>Today</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[styles.miniPill, availabilityCheck.date !== todayStr && styles.miniPillActive]}
+                                    onPress={() => {
+                                        const tom = new Date();
+                                        tom.setDate(tom.getDate() + 1);
+                                        setAvailabilityCheck(prev => ({ ...prev, date: tom.toISOString().split('T')[0] }));
+                                    }}
+                                >
+                                    <Text style={[styles.miniPillText, availabilityCheck.date !== todayStr && styles.miniPillTextActive]}>
+                                        {availabilityCheck.date !== todayStr ? availabilityCheck.date : 'Tomorrow'}
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+
+                            <View style={{ marginTop: 12 }}>
+                                {!availabilityCheck.doctorId ? (
+                                    <View style={styles.availPromptBox}>
+                                        <View style={styles.availPromptIconWrap}>
+                                            <Feather name="clock" size={20} color="#0d9488" />
+                                        </View>
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={styles.availPromptTitle}>Select a Doctor Above</Text>
+                                            <Text style={styles.availPromptSub}>Choose any doctor from the list above to check real-time slot availability.</Text>
+                                        </View>
+                                    </View>
+                                ) : (
+                                    <View style={styles.availActiveView}>
+                                        <View style={styles.availActiveHeader}>
+                                            <View style={styles.availBadgeCount}>
+                                                <Feather name="check-circle" size={12} color="#16a34a" />
+                                                <Text style={styles.availBadgeCountText}>{availableSlots.length} Slots Available</Text>
+                                            </View>
+                                            <Text style={styles.availDocTag}>
+                                                Dr. {selectedDoctorObj?.name || 'Doctor'} • {availabilityCheck.date}
+                                            </Text>
+                                        </View>
+
+                                        {availableSlots.length > 0 ? (
+                                            <View style={styles.slotsGrid}>
+                                                {availableSlots.map(time => {
+                                                    const isSelected = selectedTimeSlot === time;
+                                                    return (
+                                                        <TouchableOpacity
+                                                            key={time}
+                                                            style={[styles.slotChip, isSelected && styles.slotChipSelected]}
+                                                            onPress={() => {
+                                                                setSelectedTimeSlot(time);
+                                                                handleSlotClick(time);
+                                                            }}
+                                                            activeOpacity={0.7}
+                                                        >
+                                                            <Feather name="clock" size={11} color={isSelected ? '#ffffff' : '#0d9488'} />
+                                                            <Text style={[styles.slotChipText, isSelected && styles.slotChipTextSelected]}>{time}</Text>
+                                                        </TouchableOpacity>
+                                                    );
+                                                })}
+                                            </View>
+                                        ) : (
+                                            <View style={styles.availNoSlotsBox}>
+                                                <Text style={{ fontSize: 18 }}>⚠️</Text>
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={styles.availNoSlotsTitle}>No Available Slots</Text>
+                                                    <Text style={styles.availNoSlotsSub}>All slots for Dr. {selectedDoctorObj?.name} on this date are fully booked or past.</Text>
+                                                </View>
+                                            </View>
+                                        )}
+                                    </View>
+                                )}
+                            </View>
+                        </View>
+                    );
+                })()}
+
                 {/* Queue Controls: Search & Dual Tabs */}
                 <View style={styles.queueControlHeader}>
                     <View style={styles.tabPillContainer}>
@@ -1429,7 +2105,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                         <Text style={[styles.th, { width: 180 }]}>DOCTOR</Text>
                                         <Text style={[styles.th, { width: 110 }]}>TIME</Text>
                                         <Text style={[styles.th, { width: 120 }]}>STATUS</Text>
-                                        <Text style={[styles.th, { width: 330, textAlign: 'center' }]}>ACTIONS</Text>
+                                        <Text style={[styles.th, { width: 280, textAlign: 'center' }]}>ACTIONS</Text>
                                     </View>
 
                                     {filteredQueue.map((apt, idx) => {
@@ -1442,7 +2118,6 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                         const dName = apt.doctorName || apt.doctorId?.name || 'Doctor';
                                         const aTime = apt.appointmentTime || '10:00 AM';
                                         const st = (apt.status || 'CONFIRMED').toUpperCase();
-                                        const isPaid = apt.paymentStatus === 'Paid' || apt.paymentStatus === 'completed';
 
                                         return (
                                             <View key={apt._id || idx} style={styles.tr}>
@@ -1450,7 +2125,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                                 
                                                 <TouchableOpacity 
                                                     style={[styles.tdPatient, { width: 220 }]} 
-                                                    onPress={() => setProfileModal({ open: true, patient: apt.userId || apt })}
+                                                    onPress={() => handleViewProfile(apt.userId || apt)}
                                                 >
                                                     <View style={[styles.avatarCircle, { backgroundColor: getInitialBgColor(pName) }]}>
                                                         <Text style={styles.avatarText}>{pName.substring(0, 2).toUpperCase()}</Text>
@@ -1461,9 +2136,12 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                                     </View>
                                                 </TouchableOpacity>
 
-                                                <View style={{ width: 130 }}>
+                                                <TouchableOpacity 
+                                                    style={{ width: 130 }}
+                                                    onPress={() => handleViewProfile(apt.userId || apt)}
+                                                >
                                                     <View style={styles.mrnPill}><Text style={styles.mrnPillText}>{pMrn}</Text></View>
-                                                </View>
+                                                </TouchableOpacity>
 
                                                 <View style={{ width: 180, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                                                     <View style={styles.docAvatar}>
@@ -1487,8 +2165,9 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                                     </View>
                                                 </View>
 
-                                                <View style={{ width: 330, flexDirection: 'row', justifyContent: 'center', gap: 6 }}>
-                                                    <TouchableOpacity style={styles.tblBtnProfile} onPress={() => setProfileModal({ open: true, patient: apt.userId || apt })}>
+                                                {/* P2.2: Removed extra Pay button; profile, print, hospitalize, cancel matching Web 1:1 */}
+                                                <View style={{ width: 280, flexDirection: 'row', justifyContent: 'center', gap: 6 }}>
+                                                    <TouchableOpacity style={styles.tblBtnProfile} onPress={() => handleViewProfile(apt.userId || apt)}>
                                                         <Feather name="eye" size={12} color="#0284c7" />
                                                         <Text style={styles.tblBtnProfileText}>Profile</Text>
                                                     </TouchableOpacity>
@@ -1498,14 +2177,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                                         <Text style={styles.tblBtnPrintText}>Print</Text>
                                                     </TouchableOpacity>
 
-                                                    {!isPaid && (
-                                                        <TouchableOpacity style={styles.tblBtnPay} onPress={() => openPaymentModal(apt)}>
-                                                            <Feather name="dollar-sign" size={12} color="#b45309" />
-                                                            <Text style={styles.tblBtnPayText}>Pay</Text>
-                                                        </TouchableOpacity>
-                                                    )}
-
-                                                    <TouchableOpacity style={[styles.tblBtnHosp, isHospitalized && styles.tblBtnHospActive]} onPress={() => openHospitalize(apt)}>
+                                                    <TouchableOpacity style={[styles.tblBtnHosp, isHospitalized && styles.tblBtnHospActive]} onPress={() => openHospitalizeModal(apt)}>
                                                         <Feather name="home" size={12} color={isHospitalized ? '#dc2626' : '#2563eb'} />
                                                         <Text style={[styles.tblBtnHospText, isHospitalized && styles.tblBtnHospActiveText]}>
                                                             {isHospitalized ? 'Admitted' : 'Hospitalize'}
@@ -1526,7 +2198,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                     </View>
                 )}
 
-                {/* Tab 2: Hospitalized In-Patients Table */}
+                {/* Tab 2: Hospitalized In-Patients Table (P1.2 1:1 Web Parity) */}
                 {listTab === 'hospitalized' && (
                     <View style={styles.tableCard}>
                         {loading ? (
@@ -1543,9 +2215,10 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                         <Text style={[styles.th, { width: 40 }]}>#</Text>
                                         <Text style={[styles.th, { width: 220 }]}>PATIENT</Text>
                                         <Text style={[styles.th, { width: 130 }]}>MRN</Text>
-                                        <Text style={[styles.th, { width: 180 }]}>WARD & BED</Text>
-                                        <Text style={[styles.th, { width: 180 }]}>ATTENDING DOCTOR</Text>
-                                        <Text style={[styles.th, { width: 140 }]}>ADMISSION DATE</Text>
+                                        <Text style={[styles.th, { width: 160 }]}>WARD & BED</Text>
+                                        <Text style={[styles.th, { width: 180 }]}>DOCTOR & DEPT</Text>
+                                        <Text style={[styles.th, { width: 130 }]}>ADMISSION DATE</Text>
+                                        <Text style={[styles.th, { width: 110 }]}>STAY DURATION</Text>
                                         <Text style={[styles.th, { width: 100 }]}>STATUS</Text>
                                         <Text style={[styles.th, { width: 260, textAlign: 'center' }]}>ACTIONS</Text>
                                     </View>
@@ -1555,15 +2228,26 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                         const pPhone = adm.patientId?.phone || '-';
                                         const pMrn = adm.patientId?.patientId || adm.patientId?.mrn || '-';
                                         const dName = adm.appointmentId?.doctorName || adm.appointmentId?.doctorId?.name || 'Attending Physician';
+                                        const dept = adm.appointmentId?.department || adm.appointmentId?.serviceName || 'General';
                                         const ward = adm.ward || 'General';
                                         const bedNum = adm.bedNumber || (adm.bedId?.bedNumber) || '#1';
-                                        const admDate = adm.admissionDate ? new Date(adm.admissionDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : 'Today';
+                                        
+                                        const admDate = adm.admissionDate ? new Date(adm.admissionDate) : new Date(adm.createdAt || Date.now());
+                                        const now = new Date();
+                                        const diffMs = Math.max(0, now - admDate);
+                                        const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+                                        const stayDays = Math.floor(diffHours / 24);
+                                        const stayHours = diffHours % 24;
+                                        const stayText = stayDays > 0 ? `${stayDays}d ${stayHours}h` : `${Math.max(1, diffHours)}h`;
 
                                         return (
                                             <View key={adm._id || idx} style={styles.tr}>
                                                 <Text style={[styles.tdNum, { width: 40 }]}>{String(idx + 1).padStart(2, '0')}</Text>
 
-                                                <TouchableOpacity style={[styles.tdPatient, { width: 220 }]} onPress={() => setProfileModal({ open: true, patient: adm.patientId || adm })}>
+                                                <TouchableOpacity 
+                                                    style={[styles.tdPatient, { width: 220 }]} 
+                                                    onPress={() => handleViewProfile(adm.patientId || adm)}
+                                                >
                                                     <View style={[styles.avatarCircle, { backgroundColor: getInitialBgColor(pName) }]}>
                                                         <Text style={styles.avatarText}>{pName.substring(0, 2).toUpperCase()}</Text>
                                                     </View>
@@ -1573,29 +2257,47 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                                     </View>
                                                 </TouchableOpacity>
 
-                                                <View style={{ width: 130 }}><View style={styles.mrnPill}><Text style={styles.mrnPillText}>{pMrn}</Text></View></View>
+                                                <TouchableOpacity 
+                                                    style={{ width: 130 }}
+                                                    onPress={() => handleViewProfile(adm.patientId || adm)}
+                                                >
+                                                    <View style={styles.mrnPill}><Text style={styles.mrnPillText}>{pMrn}</Text></View>
+                                                </TouchableOpacity>
 
-                                                <View style={{ width: 180, flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                                                <View style={{ width: 160, flexDirection: 'row', gap: 6, alignItems: 'center' }}>
                                                     <View style={styles.wardPill}><Text style={styles.wardPillText}>{ward}</Text></View>
                                                     <View style={styles.bedPill}><Text style={styles.bedPillText}>Bed {bedNum}</Text></View>
                                                 </View>
 
+                                                {/* DOCTOR & DEPT (P1.2 1:1 Web) */}
                                                 <View style={{ width: 180, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                                                     <View style={[styles.docAvatar, { backgroundColor: '#8b5cf6' }]}>
                                                         <Text style={styles.docAvatarText}>{dName.replace('Dr. ', '').substring(0, 2).toUpperCase()}</Text>
                                                     </View>
-                                                    <Text style={styles.tdDocName} numberOfLines={1}>{dName}</Text>
+                                                    <View style={{ flex: 1 }}>
+                                                        <Text style={styles.tdDocName} numberOfLines={1}>{dName}</Text>
+                                                        <Text style={{ fontSize: 10, color: '#64748b' }}>{dept}</Text>
+                                                    </View>
                                                 </View>
 
-                                                <View style={{ width: 140 }}>
-                                                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#1e293b' }}>{admDate}</Text>
+                                                <View style={{ width: 130 }}>
+                                                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#1e293b' }}>
+                                                        {admDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                                                    </Text>
                                                     <Text style={{ fontSize: 11, color: '#64748b' }}>{adm.admissionTime || '10:00 AM'}</Text>
+                                                </View>
+
+                                                {/* STAY DURATION (P1.2 1:1 Web) */}
+                                                <View style={{ width: 110 }}>
+                                                    <View style={styles.stayBadge}>
+                                                        <Text style={styles.stayBadgeText}>⏱️ {stayText}</Text>
+                                                    </View>
                                                 </View>
 
                                                 <View style={{ width: 100 }}><View style={[styles.statusBadge, styles.statusAdmitted]}><Text style={styles.statusAdmittedText}>ADMITTED</Text></View></View>
 
                                                 <View style={{ width: 260, flexDirection: 'row', justifyContent: 'center', gap: 6 }}>
-                                                    <TouchableOpacity style={styles.tblBtnProfile} onPress={() => setProfileModal({ open: true, patient: adm.patientId || adm })}>
+                                                    <TouchableOpacity style={styles.tblBtnProfile} onPress={() => handleViewProfile(adm.patientId || adm)}>
                                                         <Feather name="eye" size={12} color="#0284c7" />
                                                         <Text style={styles.tblBtnProfileText}>Profile</Text>
                                                     </TouchableOpacity>
@@ -1634,6 +2336,266 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
             ? availableDepartments
             : ['General Medicine', 'Gynecology', 'Obstetrics', 'Pediatrics', 'Orthopedics', 'Cardiology', 'Dermatology', 'Neurology', 'ENT'];
 
+        // ─── RECEPTION REBOOKING MODE (P1.7 1:1 Web Parity Lines 1965-2228) ────
+        if (isRebookingMode) {
+            const patientName = [intakeForm.firstName, intakeForm.lastName].filter(Boolean).join(' ') || 'Patient';
+            return (
+                <ScrollView style={styles.scrollContainer} contentContainerStyle={[styles.scrollContent, { paddingBottom: 40 }]} showsVerticalScrollIndicator={false}>
+                    {/* Context Bar */}
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+                        <Text style={{ fontSize: 20, fontWeight: '800', color: '#0f172a' }}>
+                            {followupStatus?.active ? 'Re-Book Appointment' : 'Book Appointment'}
+                        </Text>
+                        <TouchableOpacity onPress={handleCloseRegistration} style={{ padding: 8 }}>
+                            <Text style={{ color: '#ef4444', fontWeight: '700', fontSize: 15 }}>Close ✕</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Patient Summary Header Card */}
+                    <View style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 14,
+                        padding: 16,
+                        backgroundColor: '#f8fafc',
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: '#e2e8f0',
+                        marginBottom: 16
+                    }}>
+                        <View style={[styles.avatarCircle, { backgroundColor: getInitialBgColor(patientName), width: 44, height: 44 }]}>
+                            <Text style={styles.avatarText}>{patientName.substring(0, 2).toUpperCase()}</Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                            <Text style={{ fontWeight: '800', fontSize: 16, color: '#1e293b' }}>{patientName}</Text>
+                            <View style={{ flexDirection: 'row', gap: 10, marginTop: 3, flexWrap: 'wrap' }}>
+                                {intakeForm.mobile ? <Text style={{ fontSize: 12, color: '#64748b' }}>📱 {intakeForm.mobile}</Text> : null}
+                                {intakeForm.age ? <Text style={{ fontSize: 12, color: '#64748b' }}>Age: {intakeForm.age}</Text> : null}
+                                {intakeForm.gender ? <Text style={{ fontSize: 12, color: '#64748b' }}>{intakeForm.gender}</Text> : null}
+                            </View>
+                        </View>
+                    </View>
+
+                    {/* Follow-up Status Card */}
+                    {Boolean(followupStatus?.lastConsultation) ? (
+                        <View style={{
+                            padding: 14,
+                            borderRadius: 10,
+                            borderWidth: 1,
+                            backgroundColor: followupStatus.active ? '#f0fdf4' : '#fef2f2',
+                            borderColor: followupStatus.active ? '#bbf7d0' : '#fecaca',
+                            marginBottom: 16
+                        }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                                <Feather name={followupStatus.active ? "check-circle" : "alert-circle"} size={16} color={followupStatus.active ? "#15803d" : "#b91c1c"} />
+                                <Text style={{ fontWeight: '700', fontSize: 14, color: followupStatus.active ? '#15803d' : '#b91c1c' }}>
+                                    {followupStatus.active ? 'Follow-up Visit — Payment Not Required' : 'Follow-up Expired'}
+                                </Text>
+                            </View>
+                            <Text style={{ fontSize: 12, color: followupStatus.active ? '#166534' : '#991b1b', lineHeight: 18 }}>
+                                Last Paid Visit: {new Date(followupStatus.lastConsultation).toLocaleDateString('en-IN')}{'\n'}
+                                Valid Till: {new Date(followupStatus.validUntil).toLocaleDateString('en-IN')}
+                                {followupStatus.active ? ' • Fee: Rs. 0' : (' • Fee Applicable: Rs. ' + (followupStatus.fee || intakeForm.consultationFee))}
+                            </Text>
+                        </View>
+                    ) : null}
+
+                    {/* Payment Confirmed Banner when follow-up active */}
+                    {followupStatus?.active ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 12, backgroundColor: '#f0fdf4', borderRadius: 8, borderWidth: 1, borderColor: '#86efac', marginBottom: 16 }}>
+                            <Text style={{ fontSize: 16 }}>✅</Text>
+                            <Text style={{ fontWeight: '700', color: '#15803d', fontSize: 14 }}>Payment Confirmed — Paid (₹0 Follow-up)</Text>
+                        </View>
+                    ) : (
+                        /* Payment Split Breakdown when NOT active follow-up */
+                        <View style={[styles.stepCard, { marginBottom: 16 }]}>
+                            <Text style={[styles.fieldLabel, { fontSize: 13, fontWeight: '800' }]}>Payment Breakdown (₹{intakeForm.consultationFee})</Text>
+                            {intakeForm.splitPayments.map((row, idx) => (
+                                <View key={idx} style={styles.splitRow}>
+                                    <View style={styles.splitMethodCol}>
+                                        {['Cash', 'UPI', 'Card', 'NetBanking'].map(m => (
+                                            <TouchableOpacity 
+                                                key={m} 
+                                                style={[styles.miniPill, row.method === m && styles.miniPillActive]}
+                                                onPress={() => updateSplitRow(idx, 'method', m)}
+                                            >
+                                                <Text style={[styles.miniPillText, row.method === m && styles.miniPillTextActive]}>{m}</Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
+                                    <TextInput 
+                                        style={[styles.formInput, { width: 90, textAlign: 'right', fontWeight: '800' }]} 
+                                        keyboardType="numeric" 
+                                        placeholder="Amount" 
+                                        value={row.amount} 
+                                        onChangeText={t => updateSplitRow(idx, 'amount', t)} 
+                                    />
+                                    {intakeForm.splitPayments.length > 1 && (
+                                        <TouchableOpacity onPress={() => removeSplitRow(idx)} style={styles.removeSplitBtn}>
+                                            <Feather name="trash-2" size={14} color="#ef4444" />
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
+                            ))}
+                            <TouchableOpacity style={styles.addSplitRowBtn} onPress={addSplitRow}>
+                                <Feather name="plus" size={14} color="#0d9488" />
+                                <Text style={styles.addSplitRowBtnText}>Add Split Payment</Text>
+                            </TouchableOpacity>
+                        </View>
+                    )}
+
+                    {/* Assign to Doctor/Counselor */}
+                    <View style={[styles.stepCard, { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0', marginBottom: 16 }]}>
+                        <Text style={{ color: '#166534', fontSize: 13, fontWeight: '800', textTransform: 'uppercase', marginBottom: 12 }}>
+                            Assign to Doctor / Counselor
+                        </Text>
+
+                        <View style={styles.fieldBlock}>
+                            <Text style={styles.fieldLabel}>Department {followupStatus?.active ? '(Read Only)' : ''}</Text>
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row', gap: 6 }}>
+                                {deptsToDisplay.map(dept => (
+                                    <TouchableOpacity
+                                        key={dept}
+                                        disabled={followupStatus?.active}
+                                        style={[styles.miniPill, intakeForm.department === dept && styles.miniPillActive, followupStatus?.active && { opacity: 0.6 }]}
+                                        onPress={() => handleFormChange('department', dept)}
+                                    >
+                                        <Text style={[styles.miniPillText, intakeForm.department === dept && styles.miniPillTextActive]}>{dept}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </ScrollView>
+                        </View>
+
+                        <View style={[styles.fieldBlock, { marginTop: 10 }]}>
+                            <Text style={styles.fieldLabel}>Select Specialist {followupStatus?.active ? '(Read Only)' : ''}</Text>
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row', gap: 6 }}>
+                                {doctorsList.filter(doc => !intakeForm.department || (doc.departments || [doc.department]).includes(intakeForm.department)).map(doc => (
+                                    <TouchableOpacity
+                                        key={doc._id}
+                                        disabled={followupStatus?.active}
+                                        style={[styles.miniPill, intakeForm.doctor === doc._id && styles.miniPillActive, followupStatus?.active && { opacity: 0.6 }]}
+                                        onPress={() => {
+                                            handleFormChange('doctor', doc._id);
+                                            if (doc.departments?.length > 0 && !intakeForm.department) {
+                                                handleFormChange('department', doc.departments[0]);
+                                            }
+                                        }}
+                                    >
+                                        <Text style={[styles.miniPillText, intakeForm.doctor === doc._id && styles.miniPillTextActive]}>
+                                            {doc.name}
+                                        </Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </ScrollView>
+                        </View>
+
+                        <View style={[styles.fieldBlock, { marginTop: 10 }]}>
+                            <Text style={styles.fieldLabel}>Appointment Date</Text>
+                            <View style={{ flexDirection: 'row', gap: 8 }}>
+                                <TouchableOpacity
+                                    style={[styles.miniPill, intakeForm.visitDate === todayStr && styles.miniPillActive]}
+                                    onPress={() => handleFormChange('visitDate', todayStr)}
+                                >
+                                    <Text style={[styles.miniPillText, intakeForm.visitDate === todayStr && styles.miniPillTextActive]}>Today</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[styles.miniPill, intakeForm.visitDate !== todayStr && styles.miniPillActive]}
+                                    onPress={() => {
+                                        const tom = new Date();
+                                        tom.setDate(tom.getDate() + 1);
+                                        handleFormChange('visitDate', tom.toISOString().split('T')[0]);
+                                    }}
+                                >
+                                    <Text style={[styles.miniPillText, intakeForm.visitDate !== todayStr && styles.miniPillTextActive]}>Tomorrow</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+
+                        {Boolean(intakeForm.doctor) ? (
+                            isTokenMode ? (
+                                <View style={[styles.tokenModeBox, { marginTop: 12 }]}>
+                                    <Text style={{ fontSize: 28 }}>🎟️</Text>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={styles.tokenModeTitle}>Daily Token Mode Active</Text>
+                                        <Text style={styles.tokenModeSub}>
+                                            {nextToken ? `Next Token: #${nextToken}` : 'Token will be allocated upon booking.'}
+                                        </Text>
+                                    </View>
+                                </View>
+                            ) : (
+                                <View style={{ marginTop: 12 }}>
+                                    <SlotPicker
+                                        doctorId={intakeForm.doctor}
+                                        date={intakeForm.visitDate}
+                                        selectedTime={intakeForm.visitTime}
+                                        onSelectTime={(time) => handleFormChange('visitTime', time)}
+                                    />
+                                </View>
+                            )
+                        ) : null}
+                    </View>
+
+                    {/* Hospital Policy Acceptance Checkbox */}
+                    <TouchableOpacity 
+                        style={{
+                            padding: 12,
+                            backgroundColor: '#f8fafc',
+                            borderRadius: 10,
+                            borderWidth: 1,
+                            borderColor: '#e2e8f0',
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 10,
+                            marginBottom: 16
+                        }}
+                        activeOpacity={0.8}
+                        onPress={() => setIntakePolicyAgreed(!intakePolicyAgreed)}
+                    >
+                        <View style={{
+                            width: 20,
+                            height: 20,
+                            borderRadius: 4,
+                            borderWidth: 1.5,
+                            borderColor: intakePolicyAgreed ? '#2563eb' : '#cbd5e1',
+                            backgroundColor: intakePolicyAgreed ? '#2563eb' : '#ffffff',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                        }}>
+                            {intakePolicyAgreed && <Feather name="check" size={14} color="#ffffff" />}
+                        </View>
+                        <Text style={{ flex: 1, fontSize: 12, color: '#334155', lineHeight: 18 }}>
+                            I confirm that the patient acknowledges and agrees to the{' '}
+                            <Text 
+                                style={{ color: '#2563eb', fontWeight: '700', textDecorationLine: 'underline' }}
+                                onPress={() => setShowPolicyModal(true)}
+                            >
+                                Hospital Terms & Policies
+                            </Text>{' '}
+                            and data consent provisions.
+                        </Text>
+                    </TouchableOpacity>
+
+                    {/* Submit Action */}
+                    <TouchableOpacity 
+                        style={[styles.stepperSubmitBtn, saving && styles.stepperSubmitBtnDisabled]} 
+                        onPress={handleRegisterAndBook}
+                        disabled={saving}
+                    >
+                        {saving ? (
+                            <ActivityIndicator color="#ffffff" />
+                        ) : (
+                            <>
+                                <Feather name="check-circle" size={18} color="#ffffff" />
+                                <Text style={styles.stepperSubmitBtnText}>
+                                    {followupStatus?.active ? 'Re-Book Appointment & Receipt' : 'Book Appointment & Receipt'}
+                                </Text>
+                            </>
+                        )}
+                    </TouchableOpacity>
+                </ScrollView>
+            );
+        }
+
         const filteredDocs = doctorsList.filter(doc => {
             if (!intakeForm.department) return true;
             if (doc.departments && doc.departments.length > 0) {
@@ -1656,7 +2618,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                     <View style={styles.regHeadingRight}>
                         <TouchableOpacity 
                             style={styles.regBtnCloseProminent}
-                            onPress={() => setViewMode('welcome')}
+                            onPress={handleCloseRegistration}
                             activeOpacity={0.8}
                         >
                             <Text style={styles.regBtnCloseText}>✕ Close</Text>
@@ -2452,7 +3414,12 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                 </View>
                                 <Text style={{ flex: 1, fontSize: 12, color: '#334155', lineHeight: 18 }}>
                                     I have read, understood, and agree to the{' '}
-                                    <Text style={{ color: '#2563eb', fontWeight: '700' }}>Hospital Policies</Text>,{' '}
+                                    <Text 
+                                        style={{ color: '#2563eb', fontWeight: '700', textDecorationLine: 'underline' }}
+                                        onPress={() => setShowPolicyModal(true)}
+                                    >
+                                        Hospital Policies
+                                    </Text>,{' '}
                                     <Text style={{ color: '#2563eb', fontWeight: '700' }}>Consent to Treatment</Text>, and{' '}
                                     <Text style={{ color: '#2563eb', fontWeight: '700' }}>Privacy Notice</Text>.
                                 </Text>
@@ -2564,25 +3531,17 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                             <td>${t.transactionId || t.bankReference || t._id || 'N/A'}</td>
                         </tr>
                         <tr>
-                            <td class="label">Status:</td>
-                            <td>${t.paymentStatus || 'Paid'}</td>
+                            <td class="label">Amount Paid:</td>
+                            <td><strong>Rs. ${Number(t.amount || 0).toLocaleString('en-IN')}</strong></td>
                         </tr>
                     </table>
-
-                    <div class="total-box">
-                        <span style="font-weight: bold; font-size: 15px; color: #334155;">Total Amount Paid:</span>
-                        <span class="total-amount">₹${Number(t.amount || 0).toLocaleString('en-IN')}</span>
-                    </div>
-
-                    <div class="footer">
-                        Computer-generated receipt issued at Reception Desk • ${new Date().toLocaleString('en-IN')}
-                    </div>
+                    <div class="footer">Thank you for your visit. Keep this receipt for your records.</div>
                 </body>
                 </html>
             `;
             await Print.printAsync({ html });
-        } catch (err) {
-            Alert.alert('Print Error', 'Could not print receipt: ' + err.message);
+        } catch (e) {
+            Alert.alert('Print Error', 'Failed to generate receipt print: ' + e.message);
         }
     };
 
@@ -2591,34 +3550,22 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         const totalBills = transactions.length;
         const pendingBills = transactions.filter(t => (t.paymentStatus || '').toLowerCase() !== 'paid').length;
 
-        // Payment mode breakdown
-        const cashTotal = transactions.filter(t => (t.paymentMethod || 'Cash').toLowerCase() === 'cash').reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-        const upiTotal = transactions.filter(t => (t.paymentMethod || '').toLowerCase() === 'upi').reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-        const cardTotal = transactions.filter(t => ['card', 'debit card', 'credit card'].includes((t.paymentMethod || '').toLowerCase())).reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-
+        const q = transactionSearch.trim().toLowerCase();
         const filteredTransactions = transactions.filter(t => {
-            const matchesStatus = transactionStatusFilter === 'all' 
-                ? true 
-                : transactionStatusFilter === 'paid' 
-                    ? (t.paymentStatus || '').toLowerCase() === 'paid'
-                    : (t.paymentStatus || '').toLowerCase() !== 'paid';
-            
-            const q = transactionSearch.trim().toLowerCase();
-            const matchesSearch = !q || (
+            if (!q) return true;
+            return (
                 (t.userId?.name || t.patientName || '').toLowerCase().includes(q) ||
                 (t.doctorName || t.doctorId?.name || '').toLowerCase().includes(q) ||
                 (t.paymentMethod || '').toLowerCase().includes(q) ||
                 (t.transactionId || t._id || '').toLowerCase().includes(q)
             );
-
-            return matchesStatus && matchesSearch;
         });
 
         return (
             <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-                {/* Header */}
+                {/* Header (P2.1 1:1 Web Parity - Back returns to Desk) */}
                 <View style={styles.txHeader}>
-                    <TouchableOpacity onPress={() => setViewMode('welcome')} style={styles.txBackBtn}>
+                    <TouchableOpacity onPress={() => setViewMode('desk')} style={styles.txBackBtn}>
                         <Feather name="arrow-left" size={18} color="#334155" />
                         <Text style={styles.txBackBtnText}>Back</Text>
                     </TouchableOpacity>
@@ -2638,7 +3585,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                     </TouchableOpacity>
                 </View>
 
-                {/* Summary Cards (1:1 Web Lines 2717-2734) */}
+                {/* 3 Summary Cards (1:1 Web Parity Lines 2978-2995) */}
                 <View style={styles.txSummaryGrid}>
                     <View style={[styles.txStatCard, { backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }]}>
                         <Text style={[styles.txStatLabel, { color: '#1e40af' }]}>Total Collected</Text>
@@ -2659,125 +3606,110 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                     </View>
                 </View>
 
-                {/* Payment Mode Breakdown Bar */}
-                <View style={styles.txBreakdownBar}>
-                    <View style={styles.txBreakdownItem}>
-                        <Text style={styles.txBreakdownLabel}>💵 Cash:</Text>
-                        <Text style={styles.txBreakdownVal}>₹{cashTotal.toLocaleString('en-IN')}</Text>
-                    </View>
-                    <View style={styles.txBreakdownDivider} />
-                    <View style={styles.txBreakdownItem}>
-                        <Text style={styles.txBreakdownLabel}>📱 UPI:</Text>
-                        <Text style={styles.txBreakdownVal}>₹{upiTotal.toLocaleString('en-IN')}</Text>
-                    </View>
-                    <View style={styles.txBreakdownDivider} />
-                    <View style={styles.txBreakdownItem}>
-                        <Text style={styles.txBreakdownLabel}>💳 Card/Other:</Text>
-                        <Text style={styles.txBreakdownVal}>₹{cardTotal.toLocaleString('en-IN')}</Text>
-                    </View>
+                {/* Search Box (1:1 Web Lines 2999-3004) */}
+                <View style={styles.deskSearchBox}>
+                    <Feather name="search" size={16} color="#94a3b8" style={{ marginRight: 10 }} />
+                    <TextInput 
+                        style={styles.deskSearchInput} 
+                        placeholder="Search by patient name..."
+                        placeholderTextColor="#94a3b8"
+                        value={transactionSearch}
+                        onChangeText={setTransactionSearch}
+                    />
+                    {transactionSearch.length > 0 && (
+                        <TouchableOpacity onPress={() => setTransactionSearch('')}>
+                            <Feather name="x" size={16} color="#94a3b8" />
+                        </TouchableOpacity>
+                    )}
                 </View>
 
-                {/* Search & Filter Controls Card */}
-                <View style={styles.txControlsCard}>
-                    <View style={styles.txSearchBox}>
-                        <Feather name="search" size={16} color="#94a3b8" style={{ marginRight: 10 }} />
-                        <TextInput 
-                            style={styles.txSearchInput} 
-                            placeholder="Search by patient name, doctor, reference..."
-                            placeholderTextColor="#94a3b8"
-                            value={transactionSearch}
-                            onChangeText={setTransactionSearch}
-                        />
-                        {transactionSearch.length > 0 && (
-                            <TouchableOpacity onPress={() => setTransactionSearch('')}>
-                                <Feather name="x" size={16} color="#94a3b8" />
-                            </TouchableOpacity>
-                        )}
-                    </View>
+                {/* 6-Column Horizontally Scrollable Transactions Table (1:1 Web Parity Lines 3006-3058) */}
+                <View style={[styles.tableCard, { marginTop: 14 }]}>
+                    {loadingTransactions && transactions.length === 0 ? (
+                        <View style={styles.txLoadingBox}>
+                            <ActivityIndicator size="large" color="#0d9488" />
+                            <Text style={styles.txLoadingText}>Loading transactions ledger...</Text>
+                        </View>
+                    ) : filteredTransactions.length === 0 ? (
+                        <View style={styles.txEmptyBox}>
+                            <Text style={{ fontSize: 44, marginBottom: 12 }}>🧾</Text>
+                            <Text style={styles.txEmptyTitle}>No transactions found</Text>
+                            <Text style={styles.txEmptySub}>There are no recent billing records to display.</Text>
+                        </View>
+                    ) : (
+                        <ScrollView horizontal showsHorizontalScrollIndicator={true}>
+                            <View style={styles.tableWrap}>
+                                <View style={styles.tableHeaderRow}>
+                                    <Text style={[styles.th, { width: 140 }]}>Date & Time</Text>
+                                    <Text style={[styles.th, { width: 180 }]}>Patient Name</Text>
+                                    <Text style={[styles.th, { width: 160 }]}>Doctor</Text>
+                                    <Text style={[styles.th, { width: 130 }]}>Payment Method</Text>
+                                    <Text style={[styles.th, { width: 110, textAlign: 'center' }]}>Status</Text>
+                                    <Text style={[styles.th, { width: 120, textAlign: 'right' }]}>Amount</Text>
+                                    <Text style={[styles.th, { width: 80, textAlign: 'center' }]}>Receipt</Text>
+                                </View>
 
-                    {/* Status Tabs */}
-                    <View style={styles.txFilterTabs}>
-                        {[
-                            { key: 'all', label: `All (${transactions.length})` },
-                            { key: 'paid', label: `Paid (${totalBills - pendingBills})` },
-                            { key: 'pending', label: `Pending (${pendingBills})` }
-                        ].map(tab => (
-                            <TouchableOpacity 
-                                key={tab.key}
-                                style={[styles.txFilterTab, transactionStatusFilter === tab.key && styles.txFilterTabActive]}
-                                onPress={() => setTransactionStatusFilter(tab.key)}
-                            >
-                                <Text style={[styles.txFilterTabText, transactionStatusFilter === tab.key && styles.txFilterTabTextActive]}>
-                                    {tab.label}
-                                </Text>
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-                </View>
+                                {filteredTransactions.map(t => {
+                                    const isPaid = (t.paymentStatus || '').toLowerCase() === 'paid';
+                                    const d = t.createdAt ? new Date(t.createdAt) : new Date();
+                                    const dateStr = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+                                    const timeStr = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+                                    const method = t.paymentMethod || 'Cash';
+                                    const pName = t.userId?.name || t.patientName || 'Walk-in';
+                                    const dName = t.doctorName || t.doctorId?.name || '-';
 
-                {/* Transactions Card List */}
-                {loadingTransactions && transactions.length === 0 ? (
-                    <View style={styles.txLoadingBox}>
-                        <ActivityIndicator size="large" color="#0d9488" />
-                        <Text style={styles.txLoadingText}>Loading transactions ledger...</Text>
-                    </View>
-                ) : filteredTransactions.length === 0 ? (
-                    <View style={styles.txEmptyBox}>
-                        <Text style={{ fontSize: 44, marginBottom: 12 }}>🧾</Text>
-                        <Text style={styles.txEmptyTitle}>No transactions found</Text>
-                        <Text style={styles.txEmptySub}>There are no billing records matching your filter.</Text>
-                    </View>
-                ) : (
-                    <View style={styles.txCardList}>
-                        {filteredTransactions.map(t => {
-                            const isPaid = (t.paymentStatus || '').toLowerCase() === 'paid';
-                            const d = t.createdAt ? new Date(t.createdAt) : new Date();
-                            const dateStr = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-                            const timeStr = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-                            const method = t.paymentMethod || 'Cash';
-                            const icon = method === 'Cash' ? '💵' : method === 'UPI' ? '📱' : '💳';
-
-                            return (
-                                <TouchableOpacity 
-                                    key={t._id || Math.random().toString()} 
-                                    style={styles.txCard}
-                                    activeOpacity={0.9}
-                                    onPress={() => setSelectedTxModal(t)}
-                                >
-                                    <View style={styles.txCardHeader}>
-                                        <View style={{ flex: 1, marginRight: 12 }}>
-                                            <Text style={styles.txPatientName}>
-                                                {t.userId?.name || t.patientName || 'Walk-in'}
-                                            </Text>
-                                            <Text style={styles.txDoctorName}>
-                                                Doctor: <Text style={{ fontWeight: '700', color: '#334155' }}>{t.doctorName || t.doctorId?.name || '-'}</Text>
-                                            </Text>
-                                        </View>
-                                        <Text style={styles.txAmount}>₹{Number(t.amount || 0).toLocaleString('en-IN')}</Text>
-                                    </View>
-
-                                    <View style={styles.txCardFooter}>
-                                        <View style={styles.txDateTimeBox}>
-                                            <Feather name="calendar" size={12} color="#64748b" style={{ marginRight: 4 }} />
-                                            <Text style={styles.txDateTimeText}>{dateStr} • {timeStr}</Text>
-                                        </View>
-
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                                            <View style={styles.txMethodBadge}>
-                                                <Text style={styles.txMethodText}>{icon} {method}</Text>
+                                    return (
+                                        <View key={t._id || Math.random().toString()} style={styles.tr}>
+                                            <View style={{ width: 140 }}>
+                                                <Text style={{ fontSize: 12, fontWeight: '700', color: '#1e293b' }}>{dateStr}</Text>
+                                                <Text style={{ fontSize: 11, color: '#94a3b8' }}>{timeStr}</Text>
                                             </View>
-                                            <View style={[styles.txStatusBadge, isPaid ? styles.txStatusPaid : styles.txStatusPending]}>
-                                                <Text style={[styles.txStatusText, isPaid ? styles.txStatusTextPaid : styles.txStatusTextPending]}>
-                                                    {isPaid ? 'Paid ✓' : 'Pending'}
+
+                                            <View style={{ width: 180 }}>
+                                                <Text style={{ fontSize: 13, fontWeight: '700', color: '#0f172a' }}>{pName}</Text>
+                                            </View>
+
+                                            <View style={{ width: 160 }}>
+                                                <Text style={{ fontSize: 13, color: '#334155' }} numberOfLines={1}>{dName}</Text>
+                                            </View>
+
+                                            <View style={{ width: 130 }}>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f1f5f9', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, alignSelf: 'flex-start' }}>
+                                                    <Text style={{ fontSize: 11, color: '#475569', fontWeight: '600' }}>
+                                                        {method === 'Cash' ? '💵' : method === 'UPI' ? '📱' : '💳'} {method}
+                                                    </Text>
+                                                </View>
+                                            </View>
+
+                                            <View style={{ width: 110, alignItems: 'center' }}>
+                                                <View style={[styles.statusBadge, isPaid ? styles.statusConfirmed : styles.statusPending]}>
+                                                    <Text style={[styles.statusBadgeText, isPaid ? styles.statusConfirmedText : styles.statusPendingText]}>
+                                                        {isPaid ? 'Paid ✓' : 'Pending'}
+                                                    </Text>
+                                                </View>
+                                            </View>
+
+                                            <View style={{ width: 120 }}>
+                                                <Text style={{ fontSize: 14, fontWeight: '800', color: '#0f172a', textAlign: 'right' }}>
+                                                    ₹{Number(t.amount || 0).toLocaleString('en-IN')}
                                                 </Text>
                                             </View>
+
+                                            <View style={{ width: 80, alignItems: 'center' }}>
+                                                <TouchableOpacity
+                                                    style={{ padding: 6 }}
+                                                    onPress={() => handlePrintTransactionReceipt(t)}
+                                                >
+                                                    <Feather name="printer" size={14} color="#059669" />
+                                                </TouchableOpacity>
+                                            </View>
                                         </View>
-                                    </View>
-                                </TouchableOpacity>
-                            );
-                        })}
-                    </View>
-                )}
+                                    );
+                                })}
+                            </View>
+                        </ScrollView>
+                    )}
+                </View>
             </ScrollView>
         );
     };
@@ -2785,68 +3717,154 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
     // ─── MODALS RENDERING ───────────────────────────────────────────────────
     const renderModals = () => (
         <>
-            {/* Hospitalize Modal */}
+            {/* Hospitalize Modal (P1.3 Doctor Orders & P1.4 Active Admission Warning 1:1 Web) */}
             <Modal visible={hospitalizeModal.open} transparent animationType="fade">
                 <View style={styles.modalOverlay}>
-                    <View style={styles.modalCard}>
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>🛏️ Hospitalize Patient</Text>
-                            <TouchableOpacity onPress={() => setHospitalizeModal({ open: false, appointment: null })}>
-                                <Feather name="x" size={20} color="#64748b" />
-                            </TouchableOpacity>
-                        </View>
-                        <Text style={styles.modalPatientSub}>
-                            Patient: <Text style={{ fontWeight: '800', color: '#0f172a' }}>{hospitalizeModal.appointment?.userId?.name || hospitalizeModal.appointment?.patientName || 'Patient'}</Text>
-                        </Text>
-
-                        <Text style={styles.modalSectionLabel}>Select Ward:</Text>
-                        <View style={styles.modalRowSelector}>
-                            {['General', 'Semi-Private', 'Private', 'ICU'].map(w => (
-                                <TouchableOpacity 
-                                    key={w} 
-                                    onPress={() => setHospitalizeForm(p => ({ ...p, ward: w }))}
-                                    style={[styles.modalPill, hospitalizeForm.ward === w && styles.modalPillActive]}
-                                >
-                                    <Text style={[styles.modalPillText, hospitalizeForm.ward === w && styles.modalPillTextActive]}>{w}</Text>
+                    <View style={[styles.modalCard, { maxHeight: '90%' }]}>
+                        <ScrollView showsVerticalScrollIndicator={false}>
+                            <View style={styles.modalHeader}>
+                                <Text style={styles.modalTitle}>🏥 Hospitalize Patient</Text>
+                                <TouchableOpacity onPress={() => setHospitalizeModal({ open: false, appointment: null })}>
+                                    <Feather name="x" size={20} color="#64748b" />
                                 </TouchableOpacity>
-                            ))}
-                        </View>
+                            </View>
+                            <Text style={styles.modalPatientSub}>
+                                Patient: <Text style={{ fontWeight: '800', color: '#0f172a' }}>{hospitalizeModal.appointment?.userId?.name || hospitalizeModal.appointment?.patientName || 'Patient'}</Text>
+                                {' — Dr. '}{hospitalizeModal.appointment?.doctorName || hospitalizeDoctorOrders[0]?.doctorId?.name || 'Doctor'}
+                            </Text>
 
-                        <Text style={styles.modalSectionLabel}>Select Available Bed:</Text>
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
-                            {availableBeds.length > 0 ? (
-                                availableBeds.map(b => (
-                                    <TouchableOpacity 
-                                        key={b._id} 
-                                        onPress={() => setHospitalizeForm(p => ({ ...p, bedId: b._id }))}
-                                        style={[styles.bedChip, hospitalizeForm.bedId === b._id && styles.bedChipActive]}
-                                    >
-                                        <Text style={[styles.bedChipText, hospitalizeForm.bedId === b._id && styles.bedChipTextActive]}>
-                                            Bed #{b.bedNumber} ({b.ward || 'General'})
+                            {/* P1.4 ACTIVE ADMISSION IN-MODAL WARNING BANNER */}
+                            {Boolean(existingActiveAdmission) ? (
+                                <View style={{
+                                    backgroundColor: '#fef2f2',
+                                    borderWidth: 1.5,
+                                    borderColor: '#fecaca',
+                                    borderRadius: 10,
+                                    padding: 14,
+                                    marginBottom: 16
+                                }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                        <Text style={{ fontSize: 16 }}>⚠️</Text>
+                                        <Text style={{ fontWeight: '800', color: '#991b1b', fontSize: 13 }}>
+                                            This patient already has an active admission.
                                         </Text>
+                                    </View>
+                                    <Text style={{ fontSize: 12, color: '#7f1d1d', lineHeight: 17, marginBottom: 10 }}>
+                                        Current Inpatient Record: Ward <Text style={{ fontWeight: '700' }}>{existingActiveAdmission.ward}</Text>, Bed <Text style={{ fontWeight: '700' }}>#{existingActiveAdmission.bedNumber || existingActiveAdmission.bedId?.bedNumber || 'Assigned'}</Text> (Admitted: {new Date(existingActiveAdmission.admissionDate).toLocaleDateString('en-IN')}). A patient cannot have multiple concurrent active admissions.
+                                    </Text>
+                                    <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                                        <TouchableOpacity
+                                            style={styles.deskSearchBookBtn}
+                                            onPress={() => {
+                                                setHospitalizeModal({ open: false, appointment: null });
+                                                openTransfer(existingActiveAdmission);
+                                            }}
+                                        >
+                                            <Text style={styles.deskSearchBookBtnText}>🔄 Transfer Bed / Ward</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={styles.deskSearchViewBtn}
+                                            onPress={() => {
+                                                setHospitalizeModal({ open: false, appointment: null });
+                                                handleViewProfile(existingActiveAdmission.patientId);
+                                            }}
+                                        >
+                                            <Text style={styles.deskSearchViewBtnText}>👤 Open Patient Profile</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                            ) : null}
+
+                            {/* P1.3 DOCTOR CLINICAL DECISION & MEDICINES ORDERED */}
+                            <View style={{ backgroundColor: '#f8fafc', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 14 }}>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                                    <Text style={{ fontWeight: '800', fontSize: 12, color: '#1e293b' }}>
+                                        🩺 Doctor Clinical Recommendation
+                                    </Text>
+                                    <Text style={{ fontSize: 11, color: '#64748b' }}>
+                                        {hospitalizeDoctorOrders.length} Order{hospitalizeDoctorOrders.length === 1 ? '' : 's'}
+                                    </Text>
+                                </View>
+                                {loadingHospitalizeOrders ? (
+                                    <ActivityIndicator size="small" color="#0d9488" style={{ padding: 10 }} />
+                                ) : hospitalizeDoctorOrders.length > 0 ? (
+                                    hospitalizeDoctorOrders.map((ord, oIdx) => (
+                                        <View key={ord._id || oIdx} style={{ paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
+                                            <Text style={{ fontSize: 12, fontWeight: '700', color: '#0f172a' }}>
+                                                {ord.orderType || 'IPD Order'}: {ord.instructions || ord.notes || 'Admission indicated'}
+                                            </Text>
+                                            {ord.medications?.length > 0 && (
+                                                <Text style={{ fontSize: 11, color: '#64748b' }}>
+                                                    Meds: {ord.medications.map(m => m.name || m).join(', ')}
+                                                </Text>
+                                            )}
+                                        </View>
+                                    ))
+                                ) : (
+                                    <Text style={{ fontSize: 11, color: '#64748b', fontStyle: 'italic' }}>
+                                        No specific IPD clinical order records found. Proceed with standard admission.
+                                    </Text>
+                                )}
+                            </View>
+
+                            <Text style={styles.modalSectionLabel}>Select Ward:</Text>
+                            <View style={styles.modalRowSelector}>
+                                {['General', 'Semi-Private', 'Private', 'ICU'].map(w => (
+                                    <TouchableOpacity 
+                                        key={w} 
+                                        onPress={() => setHospitalizeForm(p => ({ ...p, ward: w }))}
+                                        style={[styles.modalPill, hospitalizeForm.ward === w && styles.modalPillActive]}
+                                        disabled={!!existingActiveAdmission}
+                                    >
+                                        <Text style={[styles.modalPillText, hospitalizeForm.ward === w && styles.modalPillTextActive]}>{w}</Text>
                                     </TouchableOpacity>
-                                ))
-                            ) : (
-                                <Text style={{ color: '#ef4444', fontStyle: 'italic', fontSize: 12 }}>No vacant beds found.</Text>
-                            )}
+                                ))}
+                            </View>
+
+                            <Text style={styles.modalSectionLabel}>Select Available Bed:</Text>
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
+                                {availableBeds.length > 0 ? (
+                                    availableBeds.map(b => (
+                                        <TouchableOpacity 
+                                            key={b._id} 
+                                            onPress={() => setHospitalizeForm(p => ({ ...p, bedId: b._id }))}
+                                            style={[styles.bedChip, hospitalizeForm.bedId === b._id && styles.bedChipActive]}
+                                            disabled={!!existingActiveAdmission}
+                                        >
+                                            <Text style={[styles.bedChipText, hospitalizeForm.bedId === b._id && styles.bedChipTextActive]}>
+                                                Bed #{b.bedNumber} ({b.ward || 'General'})
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))
+                                ) : (
+                                    <Text style={{ color: '#ef4444', fontStyle: 'italic', fontSize: 12 }}>No vacant beds found.</Text>
+                                )}
+                            </ScrollView>
+
+                            <Text style={styles.modalSectionLabel}>Admission Notes / Reason:</Text>
+                            <TextInput 
+                                placeholder="Reason for hospitalization..."
+                                style={styles.modalInput}
+                                value={hospitalizeForm.notes}
+                                onChangeText={t => setHospitalizeForm(p => ({ ...p, notes: t }))}
+                                editable={!existingActiveAdmission}
+                            />
+
+                            <View style={styles.modalFooter}>
+                                <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setHospitalizeModal({ open: false, appointment: null })}>
+                                    <Text style={styles.modalCancelBtnText}>Cancel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity 
+                                    style={[styles.modalConfirmBtn, (saving || !!existingActiveAdmission) && { backgroundColor: '#94a3b8' }]} 
+                                    onPress={submitHospitalize} 
+                                    disabled={saving || !!existingActiveAdmission}
+                                >
+                                    <Text style={styles.modalConfirmBtnText}>
+                                        {saving ? 'Admitting...' : existingActiveAdmission ? 'Already Admitted' : '✓ Confirm Admission'}
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
                         </ScrollView>
-
-                        <Text style={styles.modalSectionLabel}>Admission Notes / Reason:</Text>
-                        <TextInput 
-                            placeholder="Reason for hospitalization..."
-                            style={styles.modalInput}
-                            value={hospitalizeForm.notes}
-                            onChangeText={t => setHospitalizeForm(p => ({ ...p, notes: t }))}
-                        />
-
-                        <View style={styles.modalFooter}>
-                            <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setHospitalizeModal({ open: false, appointment: null })}>
-                                <Text style={styles.modalCancelBtnText}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.modalConfirmBtn} onPress={submitHospitalize} disabled={saving}>
-                                <Text style={styles.modalConfirmBtnText}>{saving ? 'Admitting...' : 'Confirm Admission'}</Text>
-                            </TouchableOpacity>
-                        </View>
                     </View>
                 </View>
             </Modal>
@@ -2913,132 +3931,248 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                 </View>
             </Modal>
 
-            {/* Discharge Modal */}
-            <Modal visible={dischargeModal.open} transparent animationType="fade">
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalCard}>
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>🚪 Discharge Patient</Text>
-                            <TouchableOpacity onPress={() => setDischargeModal({ open: false, admission: null })}>
-                                <Feather name="x" size={20} color="#64748b" />
-                            </TouchableOpacity>
-                        </View>
-                        <Text style={styles.modalPatientSub}>
-                            Patient: <Text style={{ fontWeight: '800', color: '#0f172a' }}>{dischargeModal.admission?.patientId?.name || 'Patient'}</Text>
-                        </Text>
-                        <Text style={{ fontSize: 13, color: '#64748b', marginBottom: 12 }}>
-                            Current Bed: <Text style={{ fontWeight: '700' }}>{dischargeModal.admission?.ward} - Bed #{dischargeModal.admission?.bedNumber}</Text>
-                        </Text>
+            {/* Discharge Modal (P1.5 Full Stay Duration & Prorated Cost Calculation 1:1 Web) */}
+            {dischargeModal.open && dischargeModal.admission && (() => {
+                const adm = dischargeModal.admission;
+                const transferHistory = adm.transferHistory || [];
+                const lastTransfer = transferHistory.length > 0 ? transferHistory[transferHistory.length - 1] : null;
 
-                        <Text style={styles.modalSectionLabel}>Discharge Date & Time:</Text>
-                        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
-                            <TextInput 
-                                style={[styles.modalInput, { flex: 1 }]}
-                                value={dischargeModal.dischargeDate}
-                                onChangeText={t => setDischargeModal(p => ({ ...p, dischargeDate: t }))}
-                                placeholder="YYYY-MM-DD"
-                            />
-                            <TextInput 
-                                style={[styles.modalInput, { width: 100 }]}
-                                value={dischargeModal.dischargeTime}
-                                onChangeText={t => setDischargeModal(p => ({ ...p, dischargeTime: t }))}
-                                placeholder="HH:MM"
-                            />
-                        </View>
+                const currentStartDateTime = lastTransfer
+                    ? combineDateTime(lastTransfer.transferDate, lastTransfer.transferTime)
+                    : combineDateTime(adm.admissionDate, adm.admissionTime);
+                
+                const currentDischargeDateTime = combineDateTime(dischargeModal.dischargeDate, dischargeModal.dischargeTime);
+                const liveCalc = computeStayDurationAndCost(currentStartDateTime, currentDischargeDateTime, adm.wardRatePerDay || 1000);
 
-                        <Text style={styles.modalSectionLabel}>Discharge Summary / Clinical Notes:</Text>
-                        <TextInput 
-                            placeholder="Condition upon discharge, medications..."
-                            style={[styles.modalInput, { height: 60 }]}
-                            multiline
-                            value={dischargeModal.notes}
-                            onChangeText={t => setDischargeModal(p => ({ ...p, notes: t }))}
-                        />
+                const pastTransfersTotal = transferHistory.reduce((sum, tr) => sum + (Number(tr.amount) || 0), 0);
+                const grandTotal = pastTransfersTotal + (Number(liveCalc.amount) || 0);
 
-                        <View style={styles.modalFooter}>
-                            <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setDischargeModal({ open: false, admission: null })}>
-                                <Text style={styles.modalCancelBtnText}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={[styles.modalConfirmBtn, { backgroundColor: '#ea580c' }]} onPress={submitDischarge} disabled={saving}>
-                                <Text style={styles.modalConfirmBtnText}>{saving ? 'Discharging...' : 'Confirm Discharge'}</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </View>
-            </Modal>
+                return (
+                    <Modal visible={dischargeModal.open} transparent animationType="fade">
+                        <View style={styles.modalOverlay}>
+                            <View style={[styles.modalCard, { maxHeight: '90%' }]}>
+                                <ScrollView showsVerticalScrollIndicator={false}>
+                                    <View style={styles.modalHeader}>
+                                        <Text style={styles.modalTitle}>🚪 Discharge Patient</Text>
+                                        <TouchableOpacity onPress={() => setDischargeModal({ open: false, admission: null })}>
+                                            <Feather name="x" size={20} color="#64748b" />
+                                        </TouchableOpacity>
+                                    </View>
+                                    <Text style={styles.modalPatientSub}>
+                                        Patient: <Text style={{ fontWeight: '800', color: '#0f172a' }}>{adm.patientId?.name || 'Patient'}</Text>
+                                    </Text>
+                                    <Text style={{ fontSize: 13, color: '#64748b', marginBottom: 12 }}>
+                                        Current Ward: <Text style={{ fontWeight: '700' }}>{adm.ward} - Bed #{adm.bedNumber}</Text>
+                                    </Text>
 
-            {/* Payment Confirm Modal */}
-            <Modal visible={paymentModal.open} transparent animationType="fade">
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalCard}>
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>💳 Confirm Payment</Text>
-                            <TouchableOpacity onPress={() => setPaymentModal({ open: false, appointment: null })}>
-                                <Feather name="x" size={20} color="#64748b" />
-                            </TouchableOpacity>
-                        </View>
-                        <Text style={styles.modalPatientSub}>
-                            Patient: <Text style={{ fontWeight: '800', color: '#0f172a' }}>{paymentModal.appointment?.userId?.name || paymentModal.appointment?.patientName || 'Patient'}</Text>
-                        </Text>
+                                    {/* Itemized Ward Stay & Cost Breakdown (P1.5 1:1 Web) */}
+                                    <View style={{ backgroundColor: '#f8fafc', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 14 }}>
+                                        <Text style={{ fontSize: 12, fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: 6 }}>
+                                            Stay Duration &amp; Cost Breakdown
+                                        </Text>
 
-                        <Text style={styles.modalSectionLabel}>Payment Method:</Text>
-                        <View style={styles.modalRowSelector}>
-                            {['Cash', 'UPI', 'Card', 'NetBanking'].map(m => (
-                                <TouchableOpacity 
-                                    key={m} 
-                                    onPress={() => setPaymentModal(p => ({ ...p, method: m }))}
-                                    style={[styles.modalPill, paymentModal.method === m && styles.modalPillActive]}
-                                >
-                                    <Text style={[styles.modalPillText, paymentModal.method === m && styles.modalPillTextActive]}>{m}</Text>
-                                </TouchableOpacity>
-                            ))}
-                        </View>
+                                        {transferHistory.map((tr, tIdx) => (
+                                            <View key={tIdx} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
+                                                <Text style={{ fontSize: 12, color: '#334155' }}>
+                                                    {tr.ward} ({tr.durationText || 'Prior Segment'})
+                                                </Text>
+                                                <Text style={{ fontSize: 12, fontWeight: '700', color: '#0f172a' }}>
+                                                    ₹{Number(tr.amount || 0).toLocaleString('en-IN')}
+                                                </Text>
+                                            </View>
+                                        ))}
 
-                        <Text style={styles.modalSectionLabel}>Amount (₹):</Text>
-                        <TextInput 
-                            style={styles.modalInput}
-                            keyboardType="numeric"
-                            value={paymentModal.amount}
-                            onChangeText={t => setPaymentModal(p => ({ ...p, amount: t }))}
-                        />
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
+                                            <View>
+                                                <Text style={{ fontSize: 12, fontWeight: '700', color: '#1e40af' }}>
+                                                    {adm.ward} (Current: ⏱️ {liveCalc.durationText})
+                                                </Text>
+                                                <Text style={{ fontSize: 10, color: '#64748b' }}>
+                                                    ₹{adm.wardRatePerDay || 1000}/day (₹{liveCalc.hourlyRate}/hr)
+                                                </Text>
+                                            </View>
+                                            <Text style={{ fontSize: 13, fontWeight: '800', color: '#16a34a' }}>
+                                                ₹{liveCalc.amount.toLocaleString('en-IN')}
+                                            </Text>
+                                        </View>
 
-                        <View style={styles.modalFooter}>
-                            <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setPaymentModal({ open: false, appointment: null })}>
-                                <Text style={styles.modalCancelBtnText}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={[styles.modalConfirmBtn, { backgroundColor: '#10b981' }]} onPress={submitPayment} disabled={saving}>
-                                <Text style={styles.modalConfirmBtnText}>{saving ? 'Processing...' : 'Confirm Paid'}</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </View>
-            </Modal>
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingTop: 8, marginTop: 6, borderTopWidth: 1.5, borderTopColor: '#cbd5e1' }}>
+                                            <Text style={{ fontSize: 14, fontWeight: '800', color: '#0f172a' }}>Total Inpatient Charges:</Text>
+                                            <Text style={{ fontSize: 16, fontWeight: '800', color: '#dc2626' }}>
+                                                ₹{grandTotal.toLocaleString('en-IN')}
+                                            </Text>
+                                        </View>
+                                    </View>
 
-            {/* Patient Profile Preview Modal */}
-            <Modal visible={profileModal.open} transparent animationType="fade">
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalCard}>
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>👤 Patient Details</Text>
-                            <TouchableOpacity onPress={() => setProfileModal({ open: false, patient: null })}>
-                                <Feather name="x" size={20} color="#64748b" />
-                            </TouchableOpacity>
-                        </View>
-                        {profileModal.patient && (
-                            <View style={{ gap: 8, paddingVertical: 10 }}>
-                                <Text style={{ fontSize: 16, fontWeight: '800', color: '#0f172a' }}>{profileModal.patient.name || 'Patient'}</Text>
-                                <Text style={{ fontSize: 13, color: '#64748b' }}>MRN: <Text style={{ fontWeight: '700', color: '#0f172a' }}>{profileModal.patient.patientId || profileModal.patient.mrn || 'N/A'}</Text></Text>
-                                <Text style={{ fontSize: 13, color: '#64748b' }}>Phone: <Text style={{ fontWeight: '700', color: '#0f172a' }}>{profileModal.patient.phone || '-'}</Text></Text>
-                                <Text style={{ fontSize: 13, color: '#64748b' }}>Age / Gender: <Text style={{ fontWeight: '700', color: '#0f172a' }}>{profileModal.patient.age || '-'} / {profileModal.patient.gender || '-'}</Text></Text>
-                                <Text style={{ fontSize: 13, color: '#64748b' }}>Address: <Text style={{ fontWeight: '700', color: '#0f172a' }}>{profileModal.patient.address || 'Not specified'}</Text></Text>
+                                    <Text style={styles.modalSectionLabel}>Discharge Date & Time:</Text>
+                                    <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
+                                        <TextInput 
+                                            style={[styles.modalInput, { flex: 1 }]}
+                                            value={dischargeModal.dischargeDate}
+                                            onChangeText={t => setDischargeModal(p => ({ ...p, dischargeDate: t }))}
+                                            placeholder="YYYY-MM-DD"
+                                        />
+                                        <TextInput 
+                                            style={[styles.modalInput, { width: 100 }]}
+                                            value={dischargeModal.dischargeTime}
+                                            onChangeText={t => setDischargeModal(p => ({ ...p, dischargeTime: t }))}
+                                            placeholder="HH:MM"
+                                        />
+                                    </View>
+
+                                    <Text style={styles.modalSectionLabel}>Discharge Summary / Clinical Notes:</Text>
+                                    <TextInput 
+                                        placeholder="Condition upon discharge, medications..."
+                                        style={[styles.modalInput, { height: 60 }]}
+                                        multiline
+                                        value={dischargeModal.notes}
+                                        onChangeText={t => setDischargeModal(p => ({ ...p, notes: t }))}
+                                    />
+
+                                    <View style={styles.modalFooter}>
+                                        <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setDischargeModal({ open: false, admission: null })}>
+                                            <Text style={styles.modalCancelBtnText}>Cancel</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity 
+                                            style={[styles.modalConfirmBtn, { backgroundColor: '#dc2626' }]} 
+                                            onPress={() => submitDischarge(grandTotal)} 
+                                            disabled={saving}
+                                        >
+                                            <Text style={styles.modalConfirmBtnText}>
+                                                {saving ? 'Discharging...' : ('\u2713 Confirm Discharge & Print Bill (\u20B9' + grandTotal.toLocaleString('en-IN') + ')')}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                </ScrollView>
                             </View>
-                        )}
-                        <TouchableOpacity style={[styles.modalConfirmBtn, { marginTop: 14 }]} onPress={() => setProfileModal({ open: false, patient: null })}>
-                            <Text style={styles.modalConfirmBtnText}>Close</Text>
-                        </TouchableOpacity>
+                        </View>
+                    </Modal>
+                );
+            })()}
+
+            {/* Payment Confirm Modal (P1.6 Dynamic Split Payments 1:1 Web) */}
+            {paymentModal.open && (
+                <Modal visible={paymentModal.open} transparent animationType="fade">
+                    <View style={styles.modalOverlay}>
+                        <View style={styles.modalCard}>
+                            <View style={styles.modalHeader}>
+                                <Text style={styles.modalTitle}>💳 Confirm Payment</Text>
+                                <TouchableOpacity onPress={() => setPaymentModal({ open: false, appointment: null, splitPayments: [{ method: 'Cash', amount: '' }] })}>
+                                    <Feather name="x" size={20} color="#64748b" />
+                                </TouchableOpacity>
+                            </View>
+                            <Text style={styles.modalPatientSub}>
+                                Patient: <Text style={{ fontWeight: '800', color: '#0f172a' }}>{paymentModal.appointment?.userId?.name || paymentModal.appointment?.patientName || 'Patient'}</Text>
+                                {paymentModal.appointment?.amount ? (' - Total: Rs. ' + Number(paymentModal.appointment.amount).toLocaleString('en-IN')) : ''}
+                            </Text>
+
+                            <Text style={styles.modalSectionLabel}>Payment Breakdown (Single or Split):</Text>
+                            {paymentModal.splitPayments?.map((split, index) => (
+                                <View key={index} style={{ flexDirection: 'row', gap: 6, alignItems: 'center', marginBottom: 8 }}>
+                                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
+                                        {['Cash', 'UPI', 'Card', 'Cheque', 'NEFT/RTGS'].map(m => (
+                                            <TouchableOpacity 
+                                                key={m} 
+                                                style={[styles.miniPill, split.method === m && styles.miniPillActive]}
+                                                onPress={() => updatePaymentModalSplit(index, 'method', m)}
+                                            >
+                                                <Text style={[styles.miniPillText, split.method === m && styles.miniPillTextActive]}>{m}</Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </ScrollView>
+                                    <TextInput 
+                                        style={[styles.formInput, { width: 90, textAlign: 'right', fontWeight: '800' }]}
+                                        keyboardType="numeric"
+                                        placeholder="Amount"
+                                        value={String(split.amount)}
+                                        onChangeText={t => updatePaymentModalSplit(index, 'amount', t)}
+                                    />
+                                    {paymentModal.splitPayments.length > 1 && (
+                                        <TouchableOpacity onPress={() => removePaymentModalSplit(index)} style={styles.removeSplitBtn}>
+                                            <Feather name="trash-2" size={14} color="#ef4444" />
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
+                            ))}
+
+                            <TouchableOpacity style={styles.addSplitRowBtn} onPress={addPaymentModalSplit}>
+                                <Feather name="plus" size={14} color="#0d9488" />
+                                <Text style={styles.addSplitRowBtnText}>+ Add Payment Method</Text>
+                            </TouchableOpacity>
+
+                            <View style={styles.modalFooter}>
+                                <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setPaymentModal({ open: false, appointment: null, splitPayments: [{ method: 'Cash', amount: '' }] })}>
+                                    <Text style={styles.modalCancelBtnText}>Cancel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={[styles.modalConfirmBtn, { backgroundColor: '#10b981' }]} onPress={submitPayment} disabled={saving}>
+                                    <Text style={styles.modalConfirmBtnText}>{saving ? 'Processing...' : 'Confirm & Print Receipt'}</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    </View>
+                </Modal>
+            )}
+
+            {/* Hospital Policies Modal (P2.4 1:1 Web Parity) */}
+            <Modal visible={showPolicyModal} transparent animationType="slide">
+                <View style={styles.modalOverlay}>
+                    <View style={[styles.modalCard, { maxHeight: '85%' }]}>
+                        <View style={styles.modalHeader}>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.modalTitle}>📜 Hospital Policies &amp; Terms</Text>
+                                <Text style={{ fontSize: 11, color: '#64748b' }}>
+                                    {hospitalContext?.name || 'Hospital'} • {policies.length} Active Policies
+                                </Text>
+                            </View>
+                            <TouchableOpacity onPress={() => setShowPolicyModal(false)}>
+                                <Feather name="x" size={20} color="#64748b" />
+                            </TouchableOpacity>
+                        </View>
+
+                        <ScrollView style={{ maxHeight: 380, marginVertical: 12 }}>
+                            {loadingPolicies ? (
+                                <ActivityIndicator size="small" color="#0d9488" style={{ padding: 20 }} />
+                            ) : policies.length === 0 ? (
+                                <View style={{ padding: 20, alignItems: 'center' }}>
+                                    <Text style={{ color: '#64748b', fontSize: 13 }}>Standard hospital patient care and data consent terms apply.</Text>
+                                </View>
+                            ) : (
+                                policies.map((pol, pIdx) => (
+                                    <View key={pol._id || pIdx} style={{ padding: 12, backgroundColor: '#f8fafc', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 10 }}>
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                                            <Text style={{ fontWeight: '700', fontSize: 13, color: '#0f172a' }}>{pol.title || ('Policy #' + (pIdx + 1))}</Text>
+                                            {pol.isMandatory && (
+                                                <View style={{ backgroundColor: '#fef2f2', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                                                    <Text style={{ fontSize: 9, color: '#dc2626', fontWeight: '700' }}>Mandatory</Text>
+                                                </View>
+                                            )}
+                                        </View>
+                                        <Text style={{ fontSize: 12, color: '#475569', lineHeight: 17 }}>
+                                            {pol.content || pol.description || 'Terms of medical treatment and personal data handling for hospital records.'}
+                                        </Text>
+                                    </View>
+                                ))
+                            )}
+                        </ScrollView>
+
+                        <View style={styles.modalFooter}>
+                            <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setShowPolicyModal(false)}>
+                                <Text style={styles.modalCancelBtnText}>Close</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity 
+                                style={[styles.modalConfirmBtn, { backgroundColor: '#2563eb' }]} 
+                                onPress={() => {
+                                    setIntakePolicyAgreed(true);
+                                    setShowPolicyModal(false);
+                                }}
+                            >
+                                <Text style={styles.modalConfirmBtnText}>Confirm Agreement</Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
                 </View>
             </Modal>
+
         </>
     );
 
@@ -3053,71 +4187,6 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                         ? renderTransactions()
                         : renderDesk()}
             {renderModals()}
-            {/* Transaction Details Modal */}
-            <Modal visible={!!selectedTxModal} transparent animationType="fade">
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalCard}>
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>🧾 Receipt & Transaction</Text>
-                            <TouchableOpacity onPress={() => setSelectedTxModal(null)}>
-                                <Feather name="x" size={20} color="#64748b" />
-                            </TouchableOpacity>
-                        </View>
-
-                        {selectedTxModal && (
-                            <View style={{ gap: 12, marginVertical: 8 }}>
-                                <View style={{ backgroundColor: '#f8fafc', padding: 14, borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', gap: 8 }}>
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                                        <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '600' }}>Patient:</Text>
-                                        <Text style={{ fontSize: 13, color: '#0f172a', fontWeight: '800' }}>{selectedTxModal.userId?.name || selectedTxModal.patientName || 'Walk-in'}</Text>
-                                    </View>
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                                        <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '600' }}>Doctor:</Text>
-                                        <Text style={{ fontSize: 13, color: '#334155', fontWeight: '700' }}>{selectedTxModal.doctorName || selectedTxModal.doctorId?.name || 'General'}</Text>
-                                    </View>
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                                        <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '600' }}>Payment Mode:</Text>
-                                        <Text style={{ fontSize: 13, color: '#0f766e', fontWeight: '800' }}>{selectedTxModal.paymentMethod || 'Cash'}</Text>
-                                    </View>
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                                        <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '600' }}>Status:</Text>
-                                        <Text style={{ fontSize: 13, color: (selectedTxModal.paymentStatus || '').toLowerCase() === 'paid' ? '#166534' : '#92400e', fontWeight: '800' }}>
-                                            {selectedTxModal.paymentStatus || 'Paid'}
-                                        </Text>
-                                    </View>
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                                        <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '600' }}>Date & Time:</Text>
-                                        <Text style={{ fontSize: 12, color: '#475569' }}>
-                                            {new Date(selectedTxModal.createdAt).toLocaleString('en-IN')}
-                                        </Text>
-                                    </View>
-                                    <View style={{ height: 1, backgroundColor: '#e2e8f0', marginVertical: 4 }} />
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <Text style={{ fontSize: 14, color: '#0f172a', fontWeight: '800' }}>Total Amount:</Text>
-                                        <Text style={{ fontSize: 20, color: '#0d9488', fontWeight: '900' }}>₹{Number(selectedTxModal.amount || 0).toLocaleString('en-IN')}</Text>
-                                    </View>
-                                </View>
-
-                                <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 6 }}>
-                                    <TouchableOpacity 
-                                        style={styles.modalCancelBtn} 
-                                        onPress={() => setSelectedTxModal(null)}
-                                    >
-                                        <Text style={styles.modalCancelBtnText}>Close</Text>
-                                    </TouchableOpacity>
-                                    <TouchableOpacity 
-                                        style={[styles.modalConfirmBtn, { flexDirection: 'row', alignItems: 'center', gap: 6 }]} 
-                                        onPress={() => handlePrintTransactionReceipt(selectedTxModal)}
-                                    >
-                                        <Feather name="printer" size={14} color="#ffffff" />
-                                        <Text style={styles.modalConfirmBtnText}>Print Receipt</Text>
-                                    </TouchableOpacity>
-                                </View>
-                            </View>
-                        )}
-                    </View>
-                </View>
-            </Modal>
         </View>
     );
 };
@@ -3255,8 +4324,6 @@ const styles = StyleSheet.create({
     tblBtnProfileText: { color: '#0284c7', fontSize: 11, fontWeight: '700' },
     tblBtnPrint: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#ecfdf5', borderColor: '#a7f3d0', borderWidth: 1, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6 },
     tblBtnPrintText: { color: '#059669', fontSize: 11, fontWeight: '700' },
-    tblBtnPay: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#fef3c7', borderColor: '#fde68a', borderWidth: 1, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6 },
-    tblBtnPayText: { color: '#b45309', fontSize: 11, fontWeight: '700' },
     tblBtnHosp: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#eff6ff', borderColor: '#bfdbfe', borderWidth: 1, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6 },
     tblBtnHospText: { color: '#2563eb', fontSize: 11, fontWeight: '700' },
     tblBtnHospActive: { backgroundColor: '#fef2f2', borderColor: '#fecaca' },
@@ -3482,7 +4549,55 @@ const styles = StyleSheet.create({
     txStatusPending: { backgroundColor: '#fef3c7', borderWidth: 1, borderColor: '#fde68a' },
     txStatusText: { fontSize: 11, fontWeight: '800' },
     txStatusTextPaid: { color: '#166534' },
-    txStatusTextPending: { color: '#92400e' }
+    txStatusTextPending: { color: '#92400e' },
+
+    // Desk Global Search Styles (P1.1)
+    deskSearchBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ffffff', borderWidth: 1.5, borderColor: '#e2e8f0', borderRadius: 16, paddingHorizontal: 16, paddingVertical: 10, elevation: 1 },
+    deskSearchInput: { flex: 1, fontSize: 14, color: '#1e293b', fontWeight: '500' },
+    deskSearchResultsDropdown: { backgroundColor: '#ffffff', borderWidth: 1.5, borderColor: '#e2e8f0', borderRadius: 14, marginTop: 6, elevation: 6, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.1, shadowRadius: 20, maxHeight: 300, overflow: 'hidden', padding: 6 },
+    deskSearchResultItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', borderRadius: 8 },
+    deskSearchPatientName: { fontWeight: '700', fontSize: 14, color: '#0f172a' },
+    deskSearchPatientMrn: { color: '#64748b', fontSize: 12, fontWeight: '600' },
+    deskSearchPatientPhone: { fontSize: 12, color: '#94a3b8', marginTop: 2 },
+    deskSearchBookBtn: { paddingVertical: 6, paddingHorizontal: 12, backgroundColor: '#10b981', borderRadius: 8 },
+    deskSearchBookBtnText: { color: '#ffffff', fontWeight: '700', fontSize: 12 },
+    deskSearchViewBtn: { paddingVertical: 6, paddingHorizontal: 12, backgroundColor: '#3b82f6', borderRadius: 8 },
+    deskSearchViewBtnText: { color: '#ffffff', fontWeight: '700', fontSize: 12 },
+
+    // Hero Card Styles (P2.3)
+    heroCard: { backgroundColor: '#eff6ff', borderRadius: 18, padding: 22, marginBottom: 14, borderWidth: 1.5, borderColor: '#bfdbfe' },
+    heroTextCol: { gap: 4 },
+    heroBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#ffffff', paddingVertical: 4, paddingHorizontal: 10, borderRadius: 999, alignSelf: 'flex-start', borderWidth: 1, borderColor: '#bfdbfe', marginBottom: 4 },
+    heroBadgeText: { fontSize: 11, fontWeight: '800', color: '#1e40af', letterSpacing: 0.5 },
+    heroGreet: { fontSize: 14, color: '#3b82f6', fontWeight: '600' },
+    heroTitle: { fontSize: 22, fontWeight: '900', color: '#0f172a' },
+    heroSubtitle: { fontSize: 13, color: '#64748b' },
+
+    // Availability Card Styles (P0.3)
+    availCard: { backgroundColor: '#ffffff', borderRadius: 16, padding: 18, borderWidth: 1.5, borderColor: '#ccfbf1', elevation: 2, marginBottom: 18 },
+    availCalendarIconWrap: { width: 30, height: 30, borderRadius: 8, backgroundColor: '#ccfbf1', justifyContent: 'center', alignItems: 'center' },
+    availTitle: { fontSize: 15, fontWeight: '800', color: '#0f172a' },
+    availPromptBox: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#f0fdfa', padding: 14, borderRadius: 12, borderWidth: 1, borderColor: '#99f6e4' },
+    availPromptIconWrap: { width: 40, height: 40, borderRadius: 10, backgroundColor: '#ccfbf1', justifyContent: 'center', alignItems: 'center' },
+    availPromptTitle: { fontSize: 14, fontWeight: '800', color: '#0f766e' },
+    availPromptSub: { fontSize: 12, color: '#0d9488', marginTop: 2 },
+    availActiveView: { backgroundColor: '#f8fafc', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0' },
+    availActiveHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 6 },
+    availBadgeCount: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#dcfce7', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 6 },
+    availBadgeCountText: { fontSize: 12, fontWeight: '700', color: '#166534' },
+    availDocTag: { fontSize: 12, fontWeight: '700', color: '#475569' },
+    slotsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    slotChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, backgroundColor: '#f0fdfa', borderWidth: 1.5, borderColor: '#99f6e4' },
+    slotChipSelected: { backgroundColor: '#0d9488', borderColor: '#0f766e' },
+    slotChipText: { fontSize: 12, fontWeight: '700', color: '#0f766e' },
+    slotChipTextSelected: { color: '#ffffff' },
+    availNoSlotsBox: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fef2f2', padding: 14, borderRadius: 10, borderWidth: 1, borderColor: '#fecaca' },
+    availNoSlotsTitle: { fontSize: 13, fontWeight: '800', color: '#991b1b' },
+    availNoSlotsSub: { fontSize: 11, color: '#b91c1c', marginTop: 2 },
+
+    // Stay Badge Styles (P1.2)
+    stayBadge: { backgroundColor: '#eff6ff', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 6, alignSelf: 'flex-start', borderWidth: 1, borderColor: '#bfdbfe' },
+    stayBadgeText: { fontSize: 11, fontWeight: '700', color: '#1e40af' }
 });
 
 export default ReceptionDashboard;
