@@ -752,19 +752,26 @@ const Patient = ({ route: propRoute } = {}) => {
                                     {/* Structured Patient Details Box */}
                                     <View style={styles.cardDetailsBox}>
                                         {/* Line 1: Date on Left, Status Badge on Right */}
-                                        <View style={styles.cardDateStatusRow}>
-                                            <View style={styles.schedulePart}>
-                                                <Feather name="calendar" size={13} color="#ea580c" style={{ marginRight: 5 }} />
-                                                <Text style={styles.detailMiniLabel}>Date:</Text>
-                                                <Text style={styles.detailMiniVal}>{dateFormatted}</Text>
-                                            </View>
+                                            <View style={styles.cardDateStatusRow}>
+                                                <View style={styles.schedulePart}>
+                                                    <Feather name="calendar" size={13} color="#ea580c" style={{ marginRight: 5 }} />
+                                                    <Text style={styles.detailMiniLabel}>Date:</Text>
+                                                    <Text style={styles.detailMiniVal}>{dateFormatted}</Text>
+                                                </View>
 
-                                            <View style={[styles.statusBadge, { backgroundColor: stStyle.bg }]}>
-                                                <Text style={[styles.statusBadgeText, { color: stStyle.color }]}>
-                                                    {status.charAt(0).toUpperCase() + status.slice(1)}
-                                                </Text>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                                    {['ready_for_doctor', 'ready'].includes(apt.preparationStatus) && (
+                                                        <View style={styles.preppedBadge}>
+                                                            <Text style={styles.preppedBadgeText}>🩺 Prepped</Text>
+                                                        </View>
+                                                    )}
+                                                    <View style={[styles.statusBadge, { backgroundColor: stStyle.bg }]}>
+                                                        <Text style={[styles.statusBadgeText, { color: stStyle.color }]}>
+                                                            {status.charAt(0).toUpperCase() + status.slice(1)}
+                                                        </Text>
+                                                    </View>
+                                                </View>
                                             </View>
-                                        </View>
 
                                         {/* Line 2: Appointment Time */}
                                         <View style={styles.cardTimeRow}>
@@ -1649,6 +1656,19 @@ const styles = StyleSheet.create({
         fontSize: 10.5,
         fontWeight: '700',
         textTransform: 'capitalize',
+    },
+    preppedBadge: {
+        backgroundColor: '#d1fae5',
+        borderWidth: 1,
+        borderColor: '#a7f3d0',
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderRadius: 12,
+    },
+    preppedBadgeText: {
+        color: '#065f46',
+        fontSize: 10.5,
+        fontWeight: '700',
     },
     cardTimeRow: {
         flexDirection: 'row',

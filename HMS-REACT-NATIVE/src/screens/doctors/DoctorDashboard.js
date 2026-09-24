@@ -16,6 +16,8 @@ import { useNavigation } from '@react-navigation/native';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 import { useAuth } from '../../store/hooks';
 import { doctorAPI } from '../../utils/api';
 
@@ -176,6 +178,111 @@ const DoctorDashboard = () => {
       path: 'DoctorPatients',
     },
   ];
+
+  const downloadReceiptPDF = async (apt) => {
+    try {
+      const ptName = apt.userId?.name || apt.patientName || 'Patient';
+      const rawPtId = apt.userId?.patientId || apt.patientId;
+      const ptId = rawPtId && rawPtId !== '—' && rawPtId !== 'Pending' ? rawPtId : (apt.userId?._id || 'Patient');
+      const ptPhone = apt.userId?.phone || '-';
+      const docName = apt.doctorName || user.name || 'Attending Doctor';
+      const dateDisplay = formatDate(apt.appointmentDate);
+      const timeDisplay = apt.appointmentTime || '09:00 AM';
+      const serviceDisplay = apt.serviceName || 'Consultation';
+      const feeDisplay = `Rs. ${Number(apt.amount || 0).toLocaleString('en-IN')}`;
+      const methodDisplay = apt.paymentMethod || 'Cash';
+      const statusDisplay = (apt.paymentStatus || 'Paid').toUpperCase();
+      const hospitalName = user?.hospitalName || 'TEAM MEDICAL 365';
+      const hospitalAddress = user?.hospitalAddress || 'Clinical Care Facility';
+
+      const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Consultation Receipt - ${ptId}</title>
+  <style>
+    body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; margin: 0; padding: 32px; color: #1e293b; background: #fff; }
+    .header { text-align: center; border-bottom: 2px solid #2563eb; padding-bottom: 16px; margin-bottom: 24px; }
+    .hospital-name { font-size: 24px; font-weight: 800; color: #0f172a; margin: 0; text-transform: uppercase; }
+    .hospital-sub { font-size: 12px; color: #64748b; margin-top: 4px; }
+    .receipt-title { font-size: 16px; font-weight: 700; color: #2563eb; margin-top: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+    .table th, .table td { border: 1px solid #e2e8f0; padding: 10px 14px; font-size: 13px; text-align: left; }
+    .table th { background: #f8fafc; font-weight: 700; color: #334155; width: 35%; }
+    .table td { color: #0f172a; }
+    .badge-paid { color: #166534; font-weight: 700; }
+    .footer { margin-top: 36px; padding-top: 16px; border-top: 1px dashed #cbd5e1; display: flex; justify-content: space-between; font-size: 11px; color: #64748b; }
+    .signature-area { margin-top: 40px; text-align: right; }
+    .signature-line { display: inline-block; width: 180px; border-top: 1px solid #0f172a; margin-top: 30px; text-align: center; font-size: 12px; color: #0f172a; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="hospital-name">${hospitalName}</div>
+    <div class="hospital-sub">${hospitalAddress}</div>
+    <div class="receipt-title">Consultation Receipt</div>
+  </div>
+
+  <table class="table">
+    <tr><th>Patient Name</th><td><strong>${ptName}</strong></td></tr>
+    <tr><th>MRN / Patient ID</th><td>${ptId}</td></tr>
+    <tr><th>Contact Phone</th><td>${ptPhone}</td></tr>
+    <tr><th>Consulting Doctor</th><td>Dr. ${docName}</td></tr>
+    <tr><th>Date & Time</th><td>${dateDisplay} @ ${timeDisplay}</td></tr>
+    <tr><th>Clinical Service</th><td>${serviceDisplay}</td></tr>
+    <tr><th>Consultation Fee</th><td><strong>${feeDisplay}</strong></td></tr>
+    <tr><th>Payment Method</th><td>${methodDisplay}</td></tr>
+    <tr><th>Payment Status</th><td><span class="badge-paid">${statusDisplay} ✓</span></td></tr>
+  </table>
+
+  <div class="signature-area">
+    <div class="signature-line">Authorized Signatory / Doctor</div>
+  </div>
+
+  <div class="footer">
+    <div>Doctor: Dr. ${docName}</div>
+    <div>Generated: ${new Date().toLocaleString('en-IN')}</div>
+    <div>Thank you for choosing ${hospitalName}</div>
+  </div>
+</body>
+</html>`;
+
+      const pdfFileName = `Receipt_${ptId}.pdf`;
+
+      if (Platform.OS === 'web') {
+        try {
+          const res = await Print.printToFileAsync({ html });
+          if (res?.uri && typeof document !== 'undefined') {
+            const link = document.createElement('a');
+            link.href = res.uri;
+            link.download = pdfFileName;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            return;
+          }
+        } catch (webErr) {
+          await Print.printAsync({ html });
+          return;
+        }
+      }
+
+      const file = await Print.printToFileAsync({ html });
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(file.uri, {
+          UTI: '.pdf',
+          mimeType: 'application/pdf',
+          dialogTitle: 'Consultation Receipt'
+        });
+      } else {
+        Alert.alert('Receipt Generated', `Saved to: ${file.uri}`);
+      }
+    } catch (err) {
+      console.error('Error generating receipt PDF:', err);
+      Alert.alert('Error', err.message || 'Failed to generate receipt PDF');
+    }
+  };
 
   return (
     <ScrollView
@@ -421,16 +528,35 @@ const DoctorDashboard = () => {
                       </View>
                     </View>
 
-                    <TouchableOpacity
-                      style={styles.appointmentActionBtn}
-                      onPress={() => navigation.navigate('DoctorPatientDetails', {
-                        appointmentId: apt._id,
-                        patientId: apt.userId?._id || apt.userId?.patientId || apt.patientId
-                      })}
-                    >
-                      <Text style={styles.appointmentActionText}>Consult</Text>
-                      <Feather name="arrow-right" size={13} color="#2563eb" />
-                    </TouchableOpacity>
+                    <View style={styles.appointmentActionsCol}>
+                      {apt.status === 'completed' && (
+                        <TouchableOpacity
+                          style={styles.appointmentReceiptBtn}
+                          onPress={() => downloadReceiptPDF(apt)}
+                          title="Download Consultation Receipt"
+                          activeOpacity={0.8}
+                        >
+                          <Feather name="file-text" size={12} color="#059669" />
+                          <Text style={styles.appointmentReceiptText}>Receipt</Text>
+                        </TouchableOpacity>
+                      )}
+
+                      <TouchableOpacity
+                        style={styles.appointmentActionBtn}
+                        onPress={() => {
+                          const patientMRN = ptId && ptId !== '—' && ptId !== 'Pending' ? ptId : (apt.userId?._id || ptName.replace(/\s+/g, '-'));
+                          navigation.navigate('DoctorPatientDetails', {
+                            id: patientMRN,
+                            patientId: patientMRN,
+                            appointmentId: apt._id
+                          });
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={styles.appointmentActionText}>Consult</Text>
+                        <Feather name="arrow-right" size={13} color="#2563eb" />
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 );
               })}
@@ -808,6 +934,27 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     textTransform: 'capitalize',
+  },
+  appointmentActionsCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  appointmentReceiptBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#a7f3d0',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    gap: 4,
+  },
+  appointmentReceiptText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#059669',
   },
   appointmentActionBtn: {
     flexDirection: 'row',

@@ -18,6 +18,9 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { Feather } from '@expo/vector-icons';
 import { patientAPI, receptionAPI, reportAPI, consentAPI } from '../../utils/api';
 import { useAuth } from '../../store/hooks';
@@ -259,100 +262,105 @@ const UnifiedPatientProfile = () => {
         }
     };
 
-    // PDF Download via expo-print and expo-sharing
+    // PDF Download matching Web 1:1 via jsPDF and autoTable (Zero browser print dialog, direct download)
     const handleDownloadPDF = async () => {
         if (!patientData) return;
         try {
+            const doc = new jsPDF();
             const fp = patientData.fertilityProfile || {};
+            
+            // Title banner
+            doc.setFillColor(37, 99, 235);
+            doc.rect(0, 0, 210, 42, 'F');
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(20);
+            doc.setTextColor(255, 255, 255);
+            doc.text("HOSPITAL PATIENT CLINICAL SUMMARY", 15, 26);
+
+            // Demographics
+            doc.setTextColor(15, 23, 42);
+            doc.setFontSize(11);
+            doc.setFont("helvetica", "bold");
+            doc.text("Patient Name:", 15, 54);
+            doc.setFont("helvetica", "normal");
+            doc.text(patientData.name || '—', 50, 54);
+
+            doc.setFont("helvetica", "bold");
+            doc.text("MRN / Patient ID:", 15, 62);
+            doc.setFont("helvetica", "normal");
+            doc.text(patientData.patientId || patientData.mrn || '—', 50, 62);
+
+            doc.setFont("helvetica", "bold");
+            doc.text("Contact Phone:", 15, 70);
+            doc.setFont("helvetica", "normal");
+            doc.text(patientData.phone || '—', 50, 70);
+
+            doc.setFont("helvetica", "bold");
+            doc.text("Blood Group:", 115, 54);
+            doc.setFont("helvetica", "normal");
+            doc.text(patientData.bloodGroup || '—', 150, 54);
+
+            doc.setFont("helvetica", "bold");
+            doc.text("Gender / DOB:", 115, 62);
+            doc.setFont("helvetica", "normal");
+            const dobStr = patientData.dob ? new Date(patientData.dob).toLocaleDateString('en-IN') : '—';
+            doc.text(`${patientData.gender || '—'} / ${dobStr}`, 150, 62);
+
+            doc.setFont("helvetica", "bold");
+            doc.text("Known Allergies:", 115, 70);
+            doc.setFont("helvetica", "normal");
+            doc.text(fp.allergies || 'None', 150, 70);
+
+            // Vitals Section
+            doc.setFillColor(248, 250, 252);
+            doc.rect(15, 80, 180, 24, 'F');
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(10);
+            doc.setTextColor(37, 99, 235);
+            doc.text("LATEST RECORDED CLINICAL VITALS", 20, 88);
+            doc.setTextColor(15, 23, 42);
+            doc.setFont("helvetica", "normal");
             const vitals = fp.vitals || {};
-            const metrics = calculateMetrics();
+            doc.text(`Weight: ${vitals.weight || '—'} kg`, 20, 97);
+            doc.text(`Height: ${vitals.height || '—'} cm`, 65, 97);
+            doc.text(`BP: ${vitals.bloodPressure || vitals.bp || '—'}`, 110, 97);
+            doc.text(`Pulse: ${vitals.pulse || '—'} bpm`, 150, 97);
 
-            const timelineRowsHtml = timeline.slice(0, 15).map(t => `
-                <tr style="border-bottom: 1px solid #e2e8f0;">
-                    <td style="padding: 8px; font-size: 11px;">${new Date(t.date || Date.now()).toLocaleDateString('en-IN')}</td>
-                    <td style="padding: 8px; font-size: 11px; font-weight: bold; color: #2563eb;">${String(t.type || 'Visit').toUpperCase()}</td>
-                    <td style="padding: 8px; font-size: 11px;">${t.data?.doctorName || t.data?.doctorConsultation?.doctorId || 'Staff'}</td>
-                    <td style="padding: 8px; font-size: 11px;">${t.summary?.primaryComplaint || t.data?.serviceName || t.data?.title || t.data?.testName || 'Consultation'}</td>
-                    <td style="padding: 8px; font-size: 11px;"><span style="background: #e0f2fe; color: #0369a1; padding: 2px 6px; border-radius: 4px;">${t.data?.status || 'Recorded'}</span></td>
-                </tr>
-            `).join('');
+            // Timeline table
+            const timelineRows = (timeline || []).map(t => [
+                new Date(t.date || Date.now()).toLocaleDateString('en-IN'),
+                String(t.type || 'VISIT').toUpperCase(),
+                t.data?.doctorName || t.data?.doctorConsultation?.doctorId || 'Staff',
+                t.summary?.primaryComplaint || t.data?.serviceName || t.data?.title || t.data?.testName || 'Clinical Event',
+                t.data?.status || t.data?.paymentStatus || 'Recorded'
+            ]);
 
-            const html = `
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <meta charset="utf-8" />
-                    <title>Patient Clinical Summary</title>
-                    <style>
-                        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 24px; color: #0f172a; }
-                        .header { background: #2563eb; color: #ffffff; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
-                        .header h1 { margin: 0; font-size: 20px; }
-                        .header p { margin: 4px 0 0 0; font-size: 12px; opacity: 0.9; }
-                        .grid { display: flex; flex-wrap: wrap; margin-bottom: 16px; background: #f8fafc; padding: 14px; border-radius: 8px; border: 1px solid #e2e8f0; }
-                        .col { width: 50%; margin-bottom: 8px; font-size: 12px; }
-                        .col strong { color: #475569; }
-                        .vitals-box { background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; padding: 12px; margin-bottom: 20px; }
-                        .vitals-title { font-size: 12px; font-weight: bold; color: #065f46; margin-bottom: 8px; text-transform: uppercase; }
-                        .vitals-pills { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; }
-                        .pill { background: #ffffff; border: 1px solid #10b981; padding: 4px 10px; border-radius: 6px; color: #047857; font-weight: bold; }
-                        table { width: 100%; border-collapse: collapse; margin-top: 14px; }
-                        th { background: #f1f5f9; padding: 8px; font-size: 11px; text-align: left; color: #475569; border-bottom: 2px solid #cbd5e1; }
-                    </style>
-                </head>
-                <body>
-                    <div class="header">
-                        <h1>PATIENT CLINICAL SUMMARY</h1>
-                        <p>Hospital Medical Record • Generated on ${new Date().toLocaleDateString('en-IN')}</p>
-                    </div>
+            autoTable(doc, {
+                startY: 112,
+                head: [['Date', 'Event Type', 'Provider', 'Description / Diagnosis', 'Status']],
+                body: timelineRows,
+                theme: 'grid',
+                headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255] },
+                styles: { fontSize: 9 }
+            });
 
-                    <div class="grid">
-                        <div class="col"><strong>Patient Name:</strong> ${patientData.name || '—'}</div>
-                        <div class="col"><strong>MRN / Patient ID:</strong> ${patientData.patientId || patientData.mrn || '—'}</div>
-                        <div class="col"><strong>Contact Phone:</strong> ${patientData.phone || '—'}</div>
-                        <div class="col"><strong>Email:</strong> ${patientData.email || '—'}</div>
-                        <div class="col"><strong>Gender / Blood Group:</strong> ${patientData.gender || '—'} / ${patientData.bloodGroup || '—'}</div>
-                        <div class="col"><strong>Known Allergies:</strong> ${fp.allergies || 'None recorded'}</div>
-                    </div>
+            const fileName = `Patient_Profile_${patientData.patientId || patientData.mrn || 'MRN'}.pdf`;
 
-                    <div class="vitals-box">
-                        <div class="vitals-title">Latest Recorded Clinical Vitals</div>
-                        <div class="vitals-pills">
-                            <div class="pill">Weight: ${vitals.weight || '—'} kg</div>
-                            <div class="pill">Height: ${vitals.height || '—'} cm</div>
-                            <div class="pill">BP: ${vitals.bp || vitals.bloodPressure || '—'}</div>
-                            <div class="pill">Pulse: ${vitals.pulse || '—'} bpm</div>
-                            <div class="pill">SpO2: ${vitals.spo2 || '—'}%</div>
-                        </div>
-                    </div>
-
-                    <h3>Clinical History & Timeline</h3>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th>Type</th>
-                                <th>Provider</th>
-                                <th>Description / Diagnosis</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${timelineRowsHtml || '<tr><td colspan="5" style="text-align:center; padding: 12px; color: #94a3b8;">No records found.</td></tr>'}
-                        </tbody>
-                    </table>
-                </body>
-                </html>
-            `;
-
-            const { uri } = await Print.printToFileAsync({ html });
-            if (await Sharing.isAvailableAsync()) {
-                await Sharing.shareAsync(uri, {
-                    UTI: '.pdf',
-                    mimeType: 'application/pdf',
-                    dialogTitle: `Patient_Summary_${patientData.patientId || 'Record'}.pdf`
-                });
+            if (Platform.OS === 'web') {
+                doc.save(fileName);
             } else {
-                Alert.alert('Success', 'PDF generated successfully: ' + uri);
+                const base64 = doc.output('datauristring').split(',')[1];
+                const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
+                await FileSystem.writeAsStringAsync(fileUri, base64, { encoding: FileSystem.EncodingType.Base64 });
+                if (await Sharing.isAvailableAsync()) {
+                    await Sharing.shareAsync(fileUri, {
+                        UTI: '.pdf',
+                        mimeType: 'application/pdf',
+                        dialogTitle: fileName
+                    });
+                } else {
+                    Alert.alert('Success', 'PDF saved to: ' + fileUri);
+                }
             }
         } catch (err) {
             console.error('PDF generation error:', err);
@@ -612,6 +620,11 @@ const UnifiedPatientProfile = () => {
     const userRole = String(authUser?.role || '').toLowerCase();
     const dynRole = String(authUser?._roleData?.name || '').toLowerCase();
     const permissions = authUser?._roleData?.permissions || [];
+    const isReception = ['reception', 'receptionist', 'admin', 'hospitaladmin', 'superadmin', 'centraladmin', 'frontdesk'].includes(userRole) || 
+                        ['reception', 'receptionist', 'admin', 'hospitaladmin', 'superadmin', 'centraladmin', 'frontdesk'].includes(dynRole) || 
+                        permissions.includes('reception_access') || 
+                        permissions.includes('*');
+
     const canViewVials = ['hospitaladmin', 'centraladmin', 'superadmin', 'reception', 'receptionist', 'doctor', 'clinicdoctor', 'clinic doctor', 'staff', 'frontdesk'].includes(userRole) || 
                          ['hospitaladmin', 'centraladmin', 'superadmin', 'reception', 'receptionist', 'doctor', 'clinicdoctor', 'clinic doctor', 'staff', 'frontdesk'].includes(dynRole) ||
                          permissions.includes('reception_access') ||
@@ -713,38 +726,80 @@ const UnifiedPatientProfile = () => {
                     </View>
                 </View>
 
-                {/* Identity Action Buttons */}
+                {/* Identity Action Buttons (Back, Edit Profile for reception, Download PDF) */}
                 <View style={styles.identityActionsRow}>
-                    <TouchableOpacity style={[styles.headerActionBtn, styles.editBtn]} onPress={() => setShowEditModal(true)}>
-                        <Text style={styles.editBtnText}>✏️ Edit Profile</Text>
+                    <TouchableOpacity 
+                        style={[styles.headerActionBtn, styles.backBtn]} 
+                        onPress={() => navigation.goBack()}
+                    >
+                        <Feather name="arrow-left" size={14} color="#334155" style={{ marginRight: 6 }} />
+                        <Text style={styles.backBtnText}>Back</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={[styles.headerActionBtn, styles.downloadPdfBtn]} onPress={handleDownloadPDF}>
-                        <Text style={styles.downloadPdfBtnText}>📄 Download PDF</Text>
+                    {isReception && (
+                        <TouchableOpacity 
+                            style={[styles.headerActionBtn, styles.editBtn]} 
+                            onPress={() => setShowEditModal(true)}
+                        >
+                            <Feather name="edit-3" size={14} color="#1e293b" style={{ marginRight: 6 }} />
+                            <Text style={styles.editBtnText}>Edit Profile</Text>
+                        </TouchableOpacity>
+                    )}
+                    <TouchableOpacity 
+                        style={[styles.headerActionBtn, styles.downloadPdfBtn]} 
+                        onPress={handleDownloadPDF}
+                    >
+                        <Feather name="download" size={14} color="#ffffff" style={{ marginRight: 6 }} />
+                        <Text style={styles.downloadPdfBtnText}>Download PDF</Text>
                     </TouchableOpacity>
                 </View>
             </View>
 
             {/* ====== 5 METRICS CARDS ====== */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.metricsScrollView} contentContainerStyle={styles.metricsContainer}>
-                <View style={[styles.metricCard, { borderLeftColor: '#3b82f6' }]}>
-                    <Text style={styles.metricLabel}>Total Visits</Text>
-                    <Text style={[styles.metricVal, { color: '#1d4ed8' }]}>{metrics.totalVisits}</Text>
+                <View style={styles.metricCard}>
+                    <View style={[styles.metricIconCircle, { backgroundColor: '#eff6ff' }]}>
+                        <Feather name="calendar" size={16} color="#2563eb" />
+                    </View>
+                    <View style={styles.metricInfo}>
+                        <Text style={styles.metricLabel}>Appointments</Text>
+                        <Text style={[styles.metricVal, { color: '#1e293b' }]}>{metrics.totalVisits}</Text>
+                    </View>
                 </View>
-                <View style={[styles.metricCard, { borderLeftColor: '#f59e0b' }]}>
-                    <Text style={styles.metricLabel}>Upcoming</Text>
-                    <Text style={[styles.metricVal, { color: '#b45309' }]}>{metrics.upcomingCount}</Text>
+                <View style={styles.metricCard}>
+                    <View style={[styles.metricIconCircle, { backgroundColor: '#fff7ed' }]}>
+                        <Feather name="clock" size={16} color="#ea580c" />
+                    </View>
+                    <View style={styles.metricInfo}>
+                        <Text style={styles.metricLabel}>Upcoming</Text>
+                        <Text style={[styles.metricVal, { color: '#1e293b' }]}>{metrics.upcomingCount}</Text>
+                    </View>
                 </View>
-                <View style={[styles.metricCard, { borderLeftColor: '#8b5cf6' }]}>
-                    <Text style={styles.metricLabel}>Total Bills</Text>
-                    <Text style={[styles.metricVal, { color: '#6d28d9' }]}>₹{metrics.totalBills.toLocaleString('en-IN')}</Text>
+                <View style={styles.metricCard}>
+                    <View style={[styles.metricIconCircle, { backgroundColor: '#ecfdf5' }]}>
+                        <Feather name="file-text" size={16} color="#059669" />
+                    </View>
+                    <View style={styles.metricInfo}>
+                        <Text style={styles.metricLabel}>Total Bills</Text>
+                        <Text style={[styles.metricVal, { color: '#1e293b' }]}>₹{metrics.totalBills.toLocaleString('en-IN')}</Text>
+                    </View>
                 </View>
-                <View style={[styles.metricCard, { borderLeftColor: '#ef4444' }]}>
-                    <Text style={styles.metricLabel}>Outstanding</Text>
-                    <Text style={[styles.metricVal, { color: '#b91c1c' }]}>₹{metrics.pendingDues.toLocaleString('en-IN')}</Text>
+                <View style={styles.metricCard}>
+                    <View style={[styles.metricIconCircle, { backgroundColor: '#fef2f2' }]}>
+                        <Feather name="alert-circle" size={16} color="#dc2626" />
+                    </View>
+                    <View style={styles.metricInfo}>
+                        <Text style={styles.metricLabel}>Outstanding</Text>
+                        <Text style={[styles.metricVal, { color: '#1e293b' }]}>₹{metrics.pendingDues.toLocaleString('en-IN')}</Text>
+                    </View>
                 </View>
-                <View style={[styles.metricCard, { borderLeftColor: '#10b981' }]}>
-                    <Text style={styles.metricLabel}>Total Paid</Text>
-                    <Text style={[styles.metricVal, { color: '#047857' }]}>₹{metrics.totalPaid.toLocaleString('en-IN')}</Text>
+                <View style={styles.metricCard}>
+                    <View style={[styles.metricIconCircle, { backgroundColor: '#f0fdfa' }]}>
+                        <Feather name="check-circle" size={16} color="#0d9488" />
+                    </View>
+                    <View style={styles.metricInfo}>
+                        <Text style={styles.metricLabel}>Total Paid</Text>
+                        <Text style={[styles.metricVal, { color: '#1e293b' }]}>₹{metrics.totalPaid.toLocaleString('en-IN')}</Text>
+                    </View>
                 </View>
             </ScrollView>
 
@@ -1342,7 +1397,9 @@ const styles = StyleSheet.create({
     tagChipLocationText: { fontSize: 11, color: '#475569', fontWeight: '500' },
 
     identityActionsRow: { flexDirection: 'row', gap: 10, marginTop: 16, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
-    headerActionBtn: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+    headerActionBtn: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' },
+    backBtn: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#cbd5e1' },
+    backBtnText: { color: '#334155', fontWeight: '700', fontSize: 13 },
     editBtn: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#cbd5e1' },
     editBtnText: { color: '#1e293b', fontWeight: '700', fontSize: 13 },
     downloadPdfBtn: { backgroundColor: '#2563eb' },
@@ -1350,8 +1407,10 @@ const styles = StyleSheet.create({
 
     metricsScrollView: { marginHorizontal: 16, marginBottom: 12 },
     metricsContainer: { flexDirection: 'row', gap: 10 },
-    metricCard: { backgroundColor: '#ffffff', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0', borderLeftWidth: 4, minWidth: 110 },
-    metricLabel: { fontSize: 11, color: '#64748b', fontWeight: '600', marginBottom: 4 },
+    metricCard: { backgroundColor: '#ffffff', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0', minWidth: 145, flexDirection: 'row', alignItems: 'center', gap: 10 },
+    metricIconCircle: { width: 38, height: 38, borderRadius: 19, justifyContent: 'center', alignItems: 'center' },
+    metricInfo: { flex: 1 },
+    metricLabel: { fontSize: 11, color: '#64748b', fontWeight: '600', marginBottom: 2 },
     metricVal: { fontSize: 16, fontWeight: '800' },
 
     allergiesBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fef2f2', marginHorizontal: 16, marginBottom: 16, padding: 10, borderRadius: 10, borderWidth: 1, borderColor: '#fecaca' },

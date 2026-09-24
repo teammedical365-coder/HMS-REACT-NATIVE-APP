@@ -894,6 +894,28 @@ const DoctorPatientDetails = () => {
     const handleDownloadPrescriptionPDF = async (isCumulative = false) => {
         try {
             const html = getPrescriptionHTML();
+            const pt = patient || {};
+            const cleanPtId = (pt.patientId || pt.mrn || 'Patient').replace(/[/\\?%*:|"<>]/g, '_');
+            const pdfFileName = isCumulative ? `Clinical_Record_${cleanPtId}.pdf` : `Prescription_${cleanPtId}_${new Date().toISOString().split('T')[0]}.pdf`;
+
+            if (Platform.OS === 'web') {
+                try {
+                    const res = await Print.printToFileAsync({ html });
+                    if (res?.uri && typeof document !== 'undefined') {
+                        const link = document.createElement('a');
+                        link.href = res.uri;
+                        link.download = pdfFileName;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        return;
+                    }
+                } catch (webErr) {
+                    await Print.printAsync({ html });
+                    return;
+                }
+            }
+
             const file = await Print.printToFileAsync({ html });
             const canShare = await Sharing.isAvailableAsync();
             if (canShare) {
@@ -908,6 +930,116 @@ const DoctorPatientDetails = () => {
         } catch (err) {
             console.error("PDF generation error:", err);
             Alert.alert("Export Error", err.message || "Failed to export PDF");
+        }
+    };
+
+    const getReceiptHTML = () => {
+        const pt = patient || {};
+        const ptName = pt.name || appointment?.userId?.name || appointment?.patientName || 'Patient';
+        const ptId = pt.patientId || pt.mrn || appointment?.userId?.patientId || appointment?.patientId || 'N/A';
+        const ptPhone = pt.phone || appointment?.userId?.phone || '-';
+        const docName = appointment?.doctorName || user?.name || 'Attending Physician';
+        const dateDisplay = new Date(appointment?.appointmentDate || Date.now()).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+        const timeDisplay = appointment?.appointmentTime || '-';
+        const serviceDisplay = appointment?.serviceName || 'Consultation';
+        const feeDisplay = `Rs. ${Number(appointment?.amount || 0).toLocaleString('en-IN')}`;
+        const paymentMethod = appointment?.paymentMethod || 'Cash';
+        const paymentStatus = (appointment?.paymentStatus || 'Paid').toUpperCase();
+        const hName = user?.hospitalName || 'TEAM MEDICAL 365';
+        const hAddr = user?.hospitalAddress || 'Clinical Care Facility';
+
+        return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Consultation Receipt - ${ptId}</title>
+  <style>
+    body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; margin: 0; padding: 32px; color: #1e293b; background: #fff; }
+    .header { text-align: center; border-bottom: 2px solid #2563eb; padding-bottom: 16px; margin-bottom: 24px; }
+    .hospital-name { font-size: 24px; font-weight: 800; color: #0f172a; margin: 0; text-transform: uppercase; }
+    .hospital-sub { font-size: 12px; color: #64748b; margin-top: 4px; }
+    .receipt-title { font-size: 16px; font-weight: 700; color: #2563eb; margin-top: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+    .table th, .table td { border: 1px solid #e2e8f0; padding: 10px 14px; font-size: 13px; text-align: left; }
+    .table th { background: #f8fafc; font-weight: 700; color: #334155; width: 35%; }
+    .table td { color: #0f172a; }
+    .badge-paid { color: #166534; font-weight: 700; }
+    .footer { margin-top: 36px; padding-top: 16px; border-top: 1px dashed #cbd5e1; display: flex; justify-content: space-between; font-size: 11px; color: #64748b; }
+    .signature-area { margin-top: 40px; text-align: right; }
+    .signature-line { display: inline-block; width: 180px; border-top: 1px solid #0f172a; margin-top: 30px; text-align: center; font-size: 12px; color: #0f172a; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="hospital-name">${hName}</div>
+    <div class="hospital-sub">${hAddr}</div>
+    <div class="receipt-title">Consultation Receipt</div>
+  </div>
+
+  <table class="table">
+    <tr><th>Patient Name</th><td><strong>${ptName}</strong></td></tr>
+    <tr><th>MRN / ID</th><td>${ptId}</td></tr>
+    <tr><th>Phone</th><td>${ptPhone}</td></tr>
+    <tr><th>Doctor</th><td>Dr. ${docName}</td></tr>
+    <tr><th>Date & Time</th><td>${dateDisplay} @ ${timeDisplay}</td></tr>
+    <tr><th>Service</th><td>${serviceDisplay}</td></tr>
+    <tr><th>Consultation Fee</th><td><strong>${feeDisplay}</strong></td></tr>
+    <tr><th>Payment Method</th><td>${paymentMethod}</td></tr>
+    <tr><th>Payment Status</th><td><span class="badge-paid">${paymentStatus} ✓</span></td></tr>
+  </table>
+
+  <div class="signature-area">
+    <div class="signature-line">Doctor / Authorized Signatory</div>
+  </div>
+
+  <div class="footer">
+    <div>Doctor: Dr. ${docName}</div>
+    <div>Generated: ${new Date().toLocaleString('en-IN')}</div>
+    <div>Thank you for choosing ${hName}</div>
+  </div>
+</body>
+</html>`;
+    };
+
+    const handleDownloadReceiptPDF = async () => {
+        try {
+            const html = getReceiptHTML();
+            const pt = patient || {};
+            const cleanPtId = (pt.patientId || pt.mrn || 'Patient').replace(/[/\\?%*:|"<>]/g, '_');
+            const pdfFileName = `Receipt_${cleanPtId}.pdf`;
+
+            if (Platform.OS === 'web') {
+                try {
+                    const res = await Print.printToFileAsync({ html });
+                    if (res?.uri && typeof document !== 'undefined') {
+                        const link = document.createElement('a');
+                        link.href = res.uri;
+                        link.download = pdfFileName;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        return;
+                    }
+                } catch (webErr) {
+                    await Print.printAsync({ html });
+                    return;
+                }
+            }
+
+            const file = await Print.printToFileAsync({ html });
+            const canShare = await Sharing.isAvailableAsync();
+            if (canShare) {
+                await Sharing.shareAsync(file.uri, {
+                    UTI: '.pdf',
+                    mimeType: 'application/pdf',
+                    dialogTitle: 'Consultation Receipt'
+                });
+            } else {
+                Alert.alert("Receipt Generated", `Saved to: ${file.uri}`);
+            }
+        } catch (err) {
+            console.error("Receipt generation error:", err);
+            Alert.alert("Export Error", err.message || "Failed to export Receipt PDF");
         }
     };
 
@@ -1509,6 +1641,12 @@ const DoctorPatientDetails = () => {
                                                     }}
                                                 >
                                                     <Text style={styles.btnReprintText}>📄 Reprint Prescription</Text>
+                                                </TouchableOpacity>
+                                                <TouchableOpacity
+                                                    style={[styles.btnReprint, { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' }]}
+                                                    onPress={handleDownloadReceiptPDF}
+                                                >
+                                                    <Text style={[styles.btnReprintText, { color: '#166534' }]}>🧾 Download Receipt</Text>
                                                 </TouchableOpacity>
                                                 <TouchableOpacity style={[styles.btnFinish, { backgroundColor: '#64748b' }]} onPress={() => navigation.navigate('DoctorPatients')}>
                                                     <Text style={styles.btnFinishText}>← Back to Queue</Text>
