@@ -392,10 +392,13 @@ export const publicAPI = {
 
 // ─── Report API ───────────────────────────────────────────────────────────────
 export const reportAPI = {
-  uploadReport: async (formData) =>
-    (await apiClient.post('/api/reports/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })).data,
+  uploadReport: async (formData) => {
+    const config = {};
+    if (Platform.OS !== 'web') {
+      config.headers = { 'Content-Type': 'multipart/form-data' };
+    }
+    return (await apiClient.post('/api/reports/upload', formData, config)).data;
+  },
   getReportsByAppointment: async (appointmentId) =>
     (await apiClient.get(`/api/reports/${appointmentId}`)).data,
   generateAISummary: async (fileUrl, mimeType) =>

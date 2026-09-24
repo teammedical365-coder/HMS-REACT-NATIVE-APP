@@ -14,7 +14,7 @@ import {
     doctorAPI, labTestAPI, questionLibraryAPI, hospitalAPI, 
     patientAPI, receptionAPI, otAPI, adminEntitiesAPI, referralAPI, publicAPI 
 } from '../../utils/api';
-import { toast } from '../../utils/confirmToast';
+import { toast, confirmToast } from '../../utils/confirmToast';
 import { useAuth } from '../../store/hooks';
 
 // Dynamic / child components
@@ -129,19 +129,35 @@ const extractLabTestsFromAppt = (appt) => {
     return '';
 };
 
-const formatDiagnosis = (d) => {
-    if (!d) return 'No diagnosis recorded';
-    if (Array.isArray(d)) return d.length > 0 ? d.join(', ') : 'No diagnosis recorded';
-    if (typeof d === 'string') {
-        const trimmed = d.trim();
-        if (trimmed === '[]' || trimmed === '') return 'No diagnosis recorded';
+const safeString = (val) => {
+    if (val === null || val === undefined) return '';
+    if (Array.isArray(val)) return val.filter(Boolean).map(safeString).join(', ');
+    if (typeof val === 'string') {
+        const trimmed = val.trim();
+        if (trimmed === '[]' || trimmed === '{}') return '';
         return trimmed;
     }
-    return String(d);
+    return String(val);
+};
+
+const formatDiagnosis = (d) => {
+    if (!d) return 'No diagnosis recorded';
+    if (Array.isArray(d)) {
+        const filtered = d.map(safeString).filter(Boolean);
+        return filtered.length > 0 ? filtered.join(', ') : 'No diagnosis recorded';
+    }
+    if (typeof d === 'string') {
+        const trimmed = d.trim();
+        if (trimmed === '[]' || trimmed === '{}' || trimmed === '') return 'No diagnosis recorded';
+        return trimmed;
+    }
+    return safeString(d) || 'No diagnosis recorded';
 };
 
 const isValAvailable = (val) => {
-    return Boolean(val && val !== '-' && val !== 'None' && val.toString().trim() !== '');
+    if (!val || val === '-' || val === 'None' || val === '[]' || val === '{}') return false;
+    if (Array.isArray(val)) return val.length > 0;
+    return val.toString().trim() !== '';
 };
 
 const DoctorPatientDetails = () => {
@@ -530,129 +546,127 @@ const DoctorPatientDetails = () => {
         } finally { setSaving(false); }
     };
 
-    const handleSaveAndMerge = () => {
-        Alert.alert(
-            "Confirm Save",
-            "Save all changes and finish session?",
-            [
-                { text: "Cancel", style: "cancel" },
-                { text: "Save", onPress: async () => {
-                    setSaving(true);
-                    try {
-                        // 1. Resolve valid Patient MongoDB _id
-                        const realPatientMongoId = 
-                            (appointment?.clinicPatientId?._id && isMongoId(appointment.clinicPatientId._id) ? appointment.clinicPatientId._id : null) ||
-                            (isMongoId(appointment?.clinicPatientId) ? appointment.clinicPatientId : null) ||
-                            (appointment?.userId?._id && isMongoId(appointment.userId._id) ? appointment.userId._id : null) ||
-                            (isMongoId(appointment?.userId) ? appointment.userId : null) ||
-                            (route.params?.patient?._id && isMongoId(route.params.patient._id) ? route.params.patient._id : null) ||
-                            (intakeData?._id && isMongoId(intakeData._id) ? intakeData._id : null) ||
-                            (isMongoId(id) ? id : null);
+    const handleSaveAndMerge = async () => {
+        const confirmed = await confirmToast("Save all changes and finish session?", {
+            title: "Finish Consultation",
+            danger: false,
+            confirmText: "Save & Finish"
+        });
+        if (!confirmed) return;
 
-                        // Update patient profile if ID exists
-                        const profileTargetId = realPatientMongoId || appointment?.clinicPatientId?._id || appointment?.userId?._id || id;
-                        if (profileTargetId) {
-                            try {
-                                await doctorAPI.updatePatientProfile(profileTargetId, intakeData);
-                            } catch (profErr) {
-                                console.warn("Patient profile update error:", profErr);
-                            }
-                        }
+        setSaving(true);
+        try {
+            // 1. Resolve valid Patient MongoDB _id
+            const realPatientMongoId = 
+                (appointment?.clinicPatientId?._id && isMongoId(appointment.clinicPatientId._id) ? appointment.clinicPatientId._id : null) ||
+                (isMongoId(appointment?.clinicPatientId) ? appointment.clinicPatientId : null) ||
+                (appointment?.userId?._id && isMongoId(appointment.userId._id) ? appointment.userId._id : null) ||
+                (isMongoId(appointment?.userId) ? appointment.userId : null) ||
+                (route.params?.patient?._id && isMongoId(route.params.patient._id) ? route.params.patient._id : null) ||
+                (intakeData?._id && isMongoId(intakeData._id) ? intakeData._id : null) ||
+                (isMongoId(id) ? id : null);
 
-                        // 2. Prepare Web-matching payload structure
-                        // Filter medicines so ONLY actual medicines are saved - never uploaded report/document filenames
-                        const cleanPharmacy = (sessionData.medicines || [])
-                            .filter(isValidMedicineRecord)
-                            .map(m => ({
-                                medicineName: (m.medicineName || m.medicine || m.name || '').trim(),
-                                saltName: (m.saltName || m.genericName || '').trim(),
-                                frequency: (m.dose || m.frequency || '').trim(),
-                                duration: String(m.days || m.duration || '7').trim()
-                            }))
-                            .filter(m => m.medicineName && !isDocumentFileName(m.medicineName));
+            // Update patient profile if ID exists
+            const profileTargetId = realPatientMongoId || appointment?.clinicPatientId?._id || appointment?.userId?._id || id;
+            if (profileTargetId) {
+                try {
+                    await doctorAPI.updatePatientProfile(profileTargetId, intakeData);
+                } catch (profErr) {
+                    console.warn("Patient profile update error:", profErr);
+                }
+            }
 
-                        const cleanLabTests = typeof sessionData.labTests === 'string'
-                            ? sessionData.labTests.split(',').map(s => s.trim()).filter(Boolean).filter(t => !isDocumentFileName(t))
-                            : Array.isArray(sessionData.labTests)
-                                ? sessionData.labTests.map(t => (typeof t === 'string' ? t.trim() : t.name || '')).filter(Boolean).filter(t => !isDocumentFileName(t))
-                                : [];
+            // 2. Prepare Web-matching payload structure
+            // Filter medicines so ONLY actual medicines are saved - never uploaded report/document filenames
+            const cleanPharmacy = (sessionData.medicines || [])
+                .filter(isValidMedicineRecord)
+                .map(m => ({
+                    medicineName: (m.medicineName || m.medicine || m.name || '').trim(),
+                    saltName: (m.saltName || m.genericName || '').trim(),
+                    frequency: (m.dose || m.frequency || '').trim(),
+                    duration: String(m.days || m.duration || '7').trim()
+                }))
+                .filter(m => m.medicineName && !isDocumentFileName(m.medicineName));
 
-                        const payload = {
-                            status: 'completed',
-                            diagnosis: typeof sessionData.diagnosis === 'string' ? sessionData.diagnosis : (Array.isArray(sessionData.diagnosis) ? sessionData.diagnosis.join(', ') : ''),
-                            notes: sessionData.notes || '',
-                            labTests: cleanLabTests,
-                            pharmacy: cleanPharmacy
-                        };
+            const cleanLabTests = typeof sessionData.labTests === 'string'
+                ? sessionData.labTests.split(',').map(s => s.trim()).filter(Boolean).filter(t => !isDocumentFileName(t))
+                : Array.isArray(sessionData.labTests)
+                    ? sessionData.labTests.map(t => (typeof t === 'string' ? t.trim() : t.name || '')).filter(Boolean).filter(t => !isDocumentFileName(t))
+                    : [];
 
-                        // 3. Resolve REAL appointment MongoDB _id
-                        let targetApptId = null;
-                        if (isMongoId(appointmentId)) {
-                            targetApptId = appointmentId;
-                        } else if (appointment?._id && isMongoId(appointment._id) && !String(appointment._id).startsWith('session-')) {
-                            targetApptId = appointment._id;
-                        } else if (isMongoId(route.params?.appointmentId)) {
-                            targetApptId = route.params.appointmentId;
-                        }
+            const payload = {
+                status: 'completed',
+                diagnosis: typeof sessionData.diagnosis === 'string' ? sessionData.diagnosis : (Array.isArray(sessionData.diagnosis) ? sessionData.diagnosis.join(', ') : ''),
+                notes: sessionData.notes || '',
+                labTests: cleanLabTests,
+                pharmacy: cleanPharmacy
+            };
 
-                        // If no real appointment exists, use existing startSession(patientId) to create one
-                        if (!targetApptId) {
-                            const startId = realPatientMongoId || (isMongoId(id) ? id : null);
-                            if (!startId) {
-                                throw new Error("A valid patient record could not be resolved to start an appointment session.");
-                            }
-                            const startRes = await doctorAPI.startSession(startId);
-                            if (startRes?.success && startRes?.appointment?._id && isMongoId(startRes.appointment._id)) {
-                                targetApptId = startRes.appointment._id;
-                                setAppointmentId(targetApptId);
-                            } else {
-                                throw new Error(startRes?.message || "Failed to create consultation session on server.");
-                            }
-                        }
+            // 3. Resolve REAL appointment MongoDB _id
+            let targetApptId = null;
+            if (isMongoId(appointmentId)) {
+                targetApptId = appointmentId;
+            } else if (appointment?._id && isMongoId(appointment._id) && !String(appointment._id).startsWith('session-')) {
+                targetApptId = appointment._id;
+            } else if (isMongoId(route.params?.appointmentId)) {
+                targetApptId = route.params.appointmentId;
+            }
 
-                        // Guarantee: NEVER call updateSession with undefined, null, or session-*
-                        if (!isMongoId(targetApptId)) {
-                            throw new Error("Cannot save prescription: Invalid appointment ID (" + targetApptId + ").");
-                        }
+            // If no real appointment exists, use existing startSession(patientId) to create one
+            if (!targetApptId) {
+                const startId = realPatientMongoId || (isMongoId(id) ? id : null);
+                if (!startId) {
+                    throw new Error("A valid patient record could not be resolved to start an appointment session.");
+                }
+                const startRes = await doctorAPI.startSession(startId);
+                if (startRes?.success && startRes?.appointment?._id && isMongoId(startRes.appointment._id)) {
+                    targetApptId = startRes.appointment._id;
+                    setAppointmentId(targetApptId);
+                } else {
+                    throw new Error(startRes?.message || "Failed to create consultation session on server.");
+                }
+            }
 
-                        // 4. Update session with payload via PATCH /api/doctor/appointments/:id/prescription
-                        await doctorAPI.updateSession(targetApptId, payload);
+            // Guarantee: NEVER call updateSession with undefined, null, or session-*
+            if (!isMongoId(targetApptId)) {
+                throw new Error("Cannot save prescription: Invalid appointment ID (" + targetApptId + ").");
+            }
 
-                        setIsLocked(true);
+            // 4. Update session with payload via PATCH /api/doctor/appointments/:id/prescription
+            await doctorAPI.updateSession(targetApptId, payload);
 
-                        setAppointment(prev => ({
-                            ...prev,
-                            _id: targetApptId,
-                            status: 'completed',
-                            diagnosis: payload.diagnosis,
-                            doctorNotes: payload.notes,
-                            labTests: payload.labTests,
-                            pharmacy: payload.pharmacy,
-                            vitals: {
-                                ...prev?.vitals,
-                                weight: intakeData.weight || prev?.vitals?.weight || '',
-                                height: intakeData.height || prev?.vitals?.height || '',
-                                bmi: intakeData.bmi || prev?.vitals?.bmi || '',
-                                bp: intakeData.historyBp || intakeData.bp || intakeData.bloodPressure || prev?.vitals?.bp || '',
-                                pulse: intakeData.historyPulse || intakeData.pulse || intakeData.pulseRate || prev?.vitals?.pulse || '',
-                                temperature: intakeData.temperature || intakeData.temp || prev?.vitals?.temperature || '',
-                                spo2: intakeData.spo2 || prev?.vitals?.spo2 || '',
-                                rr: intakeData.respiratoryRate || intakeData.rr || prev?.vitals?.rr || ''
-                            }
-                        }));
-                        
-                        setPrescriptionMode('slip');
-                        setShowPrescriptionModal(true);
-                        toast.success("Prescription generated successfully!");
+            setIsLocked(true);
 
-                    } catch (err) {
-                        const errMsg = err.response?.data?.message || err.message || "Failed to save session";
-                        console.error("Save & merge error:", err);
-                        Alert.alert('Error', "Error: " + errMsg);
-                    } finally { setSaving(false); }
-                }}
-            ]
-        );
+            setAppointment(prev => ({
+                ...prev,
+                _id: targetApptId,
+                status: 'completed',
+                diagnosis: payload.diagnosis,
+                doctorNotes: payload.notes,
+                labTests: payload.labTests,
+                pharmacy: payload.pharmacy,
+                vitals: {
+                    ...prev?.vitals,
+                    weight: intakeData.weight || prev?.vitals?.weight || '',
+                    height: intakeData.height || prev?.vitals?.height || '',
+                    bmi: intakeData.bmi || prev?.vitals?.bmi || '',
+                    bp: intakeData.historyBp || intakeData.bp || intakeData.bloodPressure || prev?.vitals?.bp || '',
+                    pulse: intakeData.historyPulse || intakeData.pulse || intakeData.pulseRate || prev?.vitals?.pulse || '',
+                    temperature: intakeData.temperature || intakeData.temp || prev?.vitals?.temperature || '',
+                    spo2: intakeData.spo2 || prev?.vitals?.spo2 || '',
+                    rr: intakeData.respiratoryRate || intakeData.rr || prev?.vitals?.rr || ''
+                }
+            }));
+            
+            setPrescriptionMode('slip');
+            setShowPrescriptionModal(true);
+            toast.success("Prescription generated successfully!");
+
+        } catch (err) {
+            const errMsg = err.response?.data?.message || err.message || "Failed to save session";
+            console.error("Save & merge error:", err);
+            Alert.alert('Error', "Error: " + errMsg);
+        } finally { setSaving(false); }
     };
 
     if (loading) {
@@ -957,20 +971,20 @@ const DoctorPatientDetails = () => {
     // Vitals extraction matching Web
     const apptVitals = appointment?.vitals || {};
     const vitalsInfo = {
-        height: apptVitals.height || profile.height || intakeData.height || intakeData.vitals?.height,
-        weight: apptVitals.weight || profile.weight || intakeData.weight || intakeData.vitals?.weight,
-        bmi: apptVitals.bmi || profile.bmi || intakeData.bmi || intakeData.vitals?.bmi,
-        bp: apptVitals.bp || profile.bp || profile.bloodPressure || profile.historyBp || intakeData.bp || intakeData.bloodPressure || intakeData.historyBp || intakeData.vitals?.bloodPressure || intakeData.vitals?.bp,
-        pulse: apptVitals.pulse || profile.pulse || profile.pulseRate || profile.historyPulse || intakeData.pulse || intakeData.pulseRate || intakeData.historyPulse || intakeData.vitals?.pulse,
-        rr: apptVitals.rr || apptVitals.respiratoryRate || profile.rr || profile.respiratoryRate || intakeData.rr || intakeData.respiratoryRate || intakeData.vitals?.respiratoryRate,
-        temp: apptVitals.temperature || apptVitals.temp || profile.temperature || profile.temp || intakeData.temperature || intakeData.temp || intakeData.vitals?.temperature,
-        spo2: apptVitals.spo2 || profile.spo2 || intakeData.spo2 || intakeData.vitals?.spo2,
-        bloodSugar: apptVitals.bloodSugar || profile.bloodSugar || profile.blood_sugar || intakeData.bloodSugar || intakeData.blood_sugar,
-        heartRate: apptVitals.heartRate || apptVitals.heart_rate || profile.heartRate || profile.heart_rate || intakeData.heartRate || intakeData.heart_rate,
-        painScale: apptVitals.painScale || apptVitals.pain_scale || profile.painScale || profile.pain_scale || intakeData.painScale || intakeData.pain_scale,
-        allergies: (profile.allergies && profile.allergies !== '-') ? profile.allergies : ((intakeData.allergies && intakeData.allergies !== '-') ? intakeData.allergies : ''),
-        medications: profile.currentMedications || profile.currentMedication || intakeData.currentMedications || intakeData.currentMedication || profile.medications || intakeData.medications,
-        history: (profile.chronicConditions && profile.chronicConditions !== '-') ? profile.chronicConditions : ((intakeData.chronicConditions && intakeData.chronicConditions !== '-') ? intakeData.chronicConditions : '')
+        height: safeString(apptVitals.height || profile.height || intakeData.height || intakeData.vitals?.height),
+        weight: safeString(apptVitals.weight || profile.weight || intakeData.weight || intakeData.vitals?.weight),
+        bmi: safeString(apptVitals.bmi || profile.bmi || intakeData.bmi || intakeData.vitals?.bmi),
+        bp: safeString(apptVitals.bp || profile.bp || profile.bloodPressure || profile.historyBp || intakeData.bp || intakeData.bloodPressure || intakeData.historyBp || intakeData.vitals?.bloodPressure || intakeData.vitals?.bp),
+        pulse: safeString(apptVitals.pulse || profile.pulse || profile.pulseRate || profile.historyPulse || intakeData.pulse || intakeData.pulseRate || intakeData.historyPulse || intakeData.vitals?.pulse),
+        rr: safeString(apptVitals.rr || apptVitals.respiratoryRate || profile.rr || profile.respiratoryRate || intakeData.rr || intakeData.respiratoryRate || intakeData.vitals?.respiratoryRate),
+        temp: safeString(apptVitals.temperature || apptVitals.temp || profile.temperature || profile.temp || intakeData.temperature || intakeData.temp || intakeData.vitals?.temperature),
+        spo2: safeString(apptVitals.spo2 || profile.spo2 || intakeData.spo2 || intakeData.vitals?.spo2),
+        bloodSugar: safeString(apptVitals.bloodSugar || profile.bloodSugar || profile.blood_sugar || intakeData.bloodSugar || intakeData.blood_sugar),
+        heartRate: safeString(apptVitals.heartRate || apptVitals.heart_rate || profile.heartRate || profile.heart_rate || intakeData.heartRate || intakeData.heart_rate),
+        painScale: safeString(apptVitals.painScale || apptVitals.pain_scale || profile.painScale || profile.pain_scale || intakeData.painScale || intakeData.pain_scale),
+        allergies: safeString((profile.allergies && profile.allergies !== '-') ? profile.allergies : ((intakeData.allergies && intakeData.allergies !== '-') ? intakeData.allergies : '')),
+        medications: safeString(profile.currentMedications || profile.currentMedication || intakeData.currentMedications || intakeData.currentMedication || profile.medications || intakeData.medications),
+        history: safeString((profile.chronicConditions && profile.chronicConditions !== '-') ? profile.chronicConditions : ((intakeData.chronicConditions && intakeData.chronicConditions !== '-') ? intakeData.chronicConditions : ''))
     };
 
     // Filtered history in current department
@@ -1004,9 +1018,9 @@ const DoctorPatientDetails = () => {
                                     <View style={styles.patientTags}>
                                         <View style={[styles.tag, styles.tagMrn]}><Text style={styles.tagMrnText}>MRN: {patient.patientId || 'N/A'}</Text></View>
                                         <View style={[styles.tag, styles.tagPhone]}><Text style={styles.tagPhoneText}>📱 {patient.phone || '-'}</Text></View>
-                                        {isValAvailable(profile.age) && <View style={[styles.tag, styles.tagAge]}><Text style={styles.tagAgeText}>Age: {profile.age}</Text></View>}
-                                        {isValAvailable(profile.gender) && <View style={[styles.tag, styles.tagGender]}><Text style={styles.tagGenderText}>{profile.gender}</Text></View>}
-                                        {isValAvailable(profile.bloodGroup) && <View style={[styles.tag, styles.tagBlood]}><Text style={styles.tagBloodText}>{profile.bloodGroup}</Text></View>}
+                                        {Boolean(isValAvailable(profile.age)) && <View style={[styles.tag, styles.tagAge]}><Text style={styles.tagAgeText}>Age: {profile.age}</Text></View>}
+                                        {Boolean(isValAvailable(profile.gender)) && <View style={[styles.tag, styles.tagGender]}><Text style={styles.tagGenderText}>{profile.gender}</Text></View>}
+                                        {Boolean(isValAvailable(profile.bloodGroup)) && <View style={[styles.tag, styles.tagBlood]}><Text style={styles.tagBloodText}>{profile.bloodGroup}</Text></View>}
                                     </View>
                                 </View>
                             </View>
@@ -1094,20 +1108,20 @@ const DoctorPatientDetails = () => {
                                         <View style={styles.ovCard}><Text style={styles.ovLabel}>Blood Group</Text><Text style={styles.ovValue}>{profile.bloodGroup || intakeData.bloodGroup || '-'}</Text></View>
                                         
                                         {/* Full Web Vitals & Clinical Cards */}
-                                        {isValAvailable(vitalsInfo.height) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Height</Text><Text style={styles.ovValue}>{vitalsInfo.height} cm</Text></View>}
-                                        {isValAvailable(vitalsInfo.weight) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Weight</Text><Text style={styles.ovValue}>{vitalsInfo.weight} kg</Text></View>}
-                                        {isValAvailable(vitalsInfo.bmi) && <View style={styles.ovCard}><Text style={styles.ovLabel}>BMI</Text><Text style={styles.ovValue}>{vitalsInfo.bmi}</Text></View>}
-                                        {isValAvailable(vitalsInfo.bp) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Blood Pressure</Text><Text style={styles.ovValue}>{vitalsInfo.bp}</Text></View>}
-                                        {isValAvailable(vitalsInfo.pulse) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Pulse Rate</Text><Text style={styles.ovValue}>{vitalsInfo.pulse} bpm</Text></View>}
-                                        {isValAvailable(vitalsInfo.rr) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Respiratory Rate</Text><Text style={styles.ovValue}>{vitalsInfo.rr} breaths/min</Text></View>}
-                                        {isValAvailable(vitalsInfo.temp) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Temperature</Text><Text style={styles.ovValue}>{vitalsInfo.temp} °F</Text></View>}
-                                        {isValAvailable(vitalsInfo.spo2) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Oxygen Saturation (SpO₂)</Text><Text style={styles.ovValue}>{vitalsInfo.spo2}%</Text></View>}
-                                        {isValAvailable(vitalsInfo.bloodSugar) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Blood Sugar</Text><Text style={styles.ovValue}>{vitalsInfo.bloodSugar}</Text></View>}
-                                        {isValAvailable(vitalsInfo.heartRate) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Heart Rate</Text><Text style={styles.ovValue}>{vitalsInfo.heartRate} bpm</Text></View>}
-                                        {isValAvailable(vitalsInfo.painScale) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Pain Scale</Text><Text style={styles.ovValue}>{vitalsInfo.painScale} / 10</Text></View>}
-                                        {isValAvailable(vitalsInfo.allergies) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Allergies</Text><Text style={styles.ovValue}>{vitalsInfo.allergies}</Text></View>}
-                                        {isValAvailable(vitalsInfo.medications) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Current Medications</Text><Text style={styles.ovValue}>{vitalsInfo.medications}</Text></View>}
-                                        {isValAvailable(vitalsInfo.history) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Medical History</Text><Text style={styles.ovValue}>{vitalsInfo.history}</Text></View>}
+                                        {Boolean(isValAvailable(vitalsInfo.height)) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Height</Text><Text style={styles.ovValue}>{vitalsInfo.height} cm</Text></View>}
+                                        {Boolean(isValAvailable(vitalsInfo.weight)) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Weight</Text><Text style={styles.ovValue}>{vitalsInfo.weight} kg</Text></View>}
+                                        {Boolean(isValAvailable(vitalsInfo.bmi)) && <View style={styles.ovCard}><Text style={styles.ovLabel}>BMI</Text><Text style={styles.ovValue}>{vitalsInfo.bmi}</Text></View>}
+                                        {Boolean(isValAvailable(vitalsInfo.bp)) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Blood Pressure</Text><Text style={styles.ovValue}>{vitalsInfo.bp}</Text></View>}
+                                        {Boolean(isValAvailable(vitalsInfo.pulse)) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Pulse Rate</Text><Text style={styles.ovValue}>{vitalsInfo.pulse} bpm</Text></View>}
+                                        {Boolean(isValAvailable(vitalsInfo.rr)) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Respiratory Rate</Text><Text style={styles.ovValue}>{vitalsInfo.rr} breaths/min</Text></View>}
+                                        {Boolean(isValAvailable(vitalsInfo.temp)) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Temperature</Text><Text style={styles.ovValue}>{vitalsInfo.temp} °F</Text></View>}
+                                        {Boolean(isValAvailable(vitalsInfo.spo2)) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Oxygen Saturation (SpO₂)</Text><Text style={styles.ovValue}>{vitalsInfo.spo2}%</Text></View>}
+                                        {Boolean(isValAvailable(vitalsInfo.bloodSugar)) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Blood Sugar</Text><Text style={styles.ovValue}>{vitalsInfo.bloodSugar}</Text></View>}
+                                        {Boolean(isValAvailable(vitalsInfo.heartRate)) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Heart Rate</Text><Text style={styles.ovValue}>{vitalsInfo.heartRate} bpm</Text></View>}
+                                        {Boolean(isValAvailable(vitalsInfo.painScale)) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Pain Scale</Text><Text style={styles.ovValue}>{vitalsInfo.painScale} / 10</Text></View>}
+                                        {Boolean(isValAvailable(vitalsInfo.allergies)) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Allergies</Text><Text style={styles.ovValue}>{vitalsInfo.allergies}</Text></View>}
+                                        {Boolean(isValAvailable(vitalsInfo.medications)) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Current Medications</Text><Text style={styles.ovValue}>{vitalsInfo.medications}</Text></View>}
+                                        {Boolean(isValAvailable(vitalsInfo.history)) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Medical History</Text><Text style={styles.ovValue}>{vitalsInfo.history}</Text></View>}
                                         
                                         <View style={styles.ovCard}><Text style={styles.ovLabel}>Address</Text><Text style={styles.ovValue}>{patient.address || profile.address || '-'}</Text></View>
                                         <View style={styles.ovCard}><Text style={styles.ovLabel}>Reason for Visit</Text><Text style={styles.ovValue}>{profile.reasonForVisit || intakeData.reasonForVisit || '-'}</Text></View>
@@ -1215,7 +1229,7 @@ const DoctorPatientDetails = () => {
                             {/* IPD / ADMISSION ORDERS TAB */}
                             {activeTab === 'ipd_orders' && (
                                 <DoctorIPDOrdersPanel
-                                    patientId={id || patient?._id}
+                                    patientId={patient?._id || (id && id.length === 24 ? id : null) || appointment?.userId?._id || appointment?.userId || id}
                                     patient={patient}
                                     appointment={appointment}
                                     currentUser={user}

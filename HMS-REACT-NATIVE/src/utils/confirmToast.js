@@ -1,4 +1,4 @@
-import { Alert } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import Toast from 'react-native-toast-message';
 
 // Basic wrapper to mimic react-hot-toast API
@@ -12,7 +12,7 @@ export const toast = {
 export const Toaster = () => null; 
 
 /**
- * Native confirmation toast popup using React Native Alert.
+ * Native confirmation toast popup using React Native Alert / Web window.confirm.
  */
 export const confirmToast = (message, options = {}) => {
   return new Promise((resolve) => {
@@ -20,6 +20,19 @@ export const confirmToast = (message, options = {}) => {
     const confirmLabel = (typeof options === 'object' && options.confirmText) || 'Confirm';
     const cancelLabel = (typeof options === 'object' && options.cancelText) || 'Cancel';
     const title = (typeof options === 'object' && options.title) || 'Please Confirm';
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.confirm) {
+      const fullMsg = title ? `${title}\n\n${message}` : message;
+      const ok = window.confirm(fullMsg);
+      if (ok) {
+        if (onConfirmCb) onConfirmCb();
+        resolve(true);
+      } else {
+        if (typeof options === 'object' && options.onCancel) options.onCancel();
+        resolve(false);
+      }
+      return;
+    }
 
     Alert.alert(
       title,

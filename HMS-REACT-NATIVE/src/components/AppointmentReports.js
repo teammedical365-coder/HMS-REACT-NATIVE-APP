@@ -88,11 +88,24 @@ const AppointmentReports = ({ appointmentId, prescriptions = [] }) => {
         setUploading(true);
         const formData = new FormData();
         
-        formData.append('reportFile', {
-            uri: uploadFile.uri,
-            name: uploadFile.name,
-            type: uploadFile.mimeType || 'application/octet-stream'
-        });
+        if (uploadFile.file) {
+            // Expo DocumentPicker on Web provides the native browser File in .file
+            formData.append('reportFile', uploadFile.file);
+        } else if (Platform.OS === 'web' && uploadFile.uri && (uploadFile.uri.startsWith('blob:') || uploadFile.uri.startsWith('data:'))) {
+            try {
+                const resp = await fetch(uploadFile.uri);
+                const blob = await resp.blob();
+                formData.append('reportFile', blob, uploadFile.name || 'report.pdf');
+            } catch (e) {
+                formData.append('reportFile', uploadFile);
+            }
+        } else {
+            formData.append('reportFile', {
+                uri: Platform.OS === 'android' ? uploadFile.uri : uploadFile.uri.replace('file://', ''),
+                name: uploadFile.name || 'report.pdf',
+                type: uploadFile.mimeType || 'application/octet-stream'
+            });
+        }
         formData.append('appointmentId', appointmentId);
         
         try {

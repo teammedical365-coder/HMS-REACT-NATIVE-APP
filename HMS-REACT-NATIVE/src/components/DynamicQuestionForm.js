@@ -94,7 +94,7 @@ const DynamicQuestionForm = ({ categoryName, questions, intakeData, setIntakeDat
                                                 disabled={readOnly}
                                             >
                                                 <View style={[styles.checkboxBox, isChecked && styles.checkboxBoxChecked]}>
-                                                    {isChecked && <Feather name="check" size={14} color="white" />}
+                                                    {Boolean(isChecked) && <Feather name="check" size={14} color="white" />}
                                                 </View>
                                                 <Text style={[styles.checkboxText, isChecked && styles.checkboxTextChecked]}>{opt}</Text>
                                             </TouchableOpacity>
@@ -118,12 +118,12 @@ const DynamicQuestionForm = ({ categoryName, questions, intakeData, setIntakeDat
                                                         disabled={readOnly}
                                                     >
                                                         <View style={[styles.checkboxBox, isChecked && styles.checkboxBoxChecked]}>
-                                                            {isChecked && <Feather name="check" size={14} color="white" />}
+                                                            {Boolean(isChecked) && <Feather name="check" size={14} color="white" />}
                                                         </View>
                                                         <Text style={[styles.checkboxText, isChecked && styles.checkboxTextChecked]}>{opt}</Text>
                                                     </TouchableOpacity>
 
-                                                    {opt !== 'None' && isChecked && (
+                                                    {Boolean(opt !== 'None' && isChecked) && (
                                                         <TextInput
                                                             style={[styles.inputStyle, readOnly && styles.inputDisabled, { paddingVertical: 6, fontSize: 12, marginTop: 4 }]}
                                                             value={dateVal}
@@ -137,7 +137,7 @@ const DynamicQuestionForm = ({ categoryName, questions, intakeData, setIntakeDat
                                         })}
                                     </View>
                                     
-                                    {item.extra && (
+                                    {Boolean(item.extra) && (
                                         <View style={styles.extraRow}>
                                             <Text style={styles.extraLabel}>{item.extra}:</Text>
                                             <TextInput

@@ -607,19 +607,19 @@ const DoctorIPDOrdersPanel = ({
                                         </View>
 
                                         <Text style={styles.orderDiagnosis}><Text style={{ fontWeight: '700' }}>Diagnosis: </Text>{order.diagnosis || 'General'}</Text>
-                                        {order.admissionReason && (
+                                        {Boolean(order.admissionReason) && (
                                             <Text style={styles.orderReason}><Text style={{ fontWeight: '700' }}>Reason: </Text>{order.admissionReason}</Text>
                                         )}
 
-                                        {order.clinicalNotes ? (
+                                        {Boolean(order.clinicalNotes) ? (
                                             <Text style={styles.orderNote}><Text style={{ fontWeight: '700' }}>Clinical/Diet: </Text>{order.clinicalNotes}</Text>
                                         ) : null}
 
-                                        {order.investigationNotes ? (
+                                        {Boolean(order.investigationNotes) ? (
                                             <Text style={styles.orderNote}><Text style={{ fontWeight: '700' }}>Investigations: </Text>{order.investigationNotes}</Text>
                                         ) : null}
 
-                                        {order.medications && order.medications.length > 0 && (
+                                        {Boolean(order.medications && order.medications.length > 0) && (
                                             <View style={styles.orderMedsBox}>
                                                 <Text style={styles.orderMedsTitle}>Medications:</Text>
                                                 {order.medications.map((m, mIdx) => (
