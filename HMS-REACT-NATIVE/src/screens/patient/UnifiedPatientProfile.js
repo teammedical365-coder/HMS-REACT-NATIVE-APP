@@ -18,9 +18,11 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+// NOTE: jspdf and jspdf-autotable are intentionally NOT imported at the top level.
+// Doing so causes jsPDF's browser-oriented IIFE to execute at Android startup (via
+// static import chain: RoleStacks → UnifiedPatientProfile → jspdf) and keeps the
+// app stuck on the splash screen. They are lazy-required inside handleDownloadPDF
+// only when Platform.OS === 'web'. Native PDF uses expo-print + expo-sharing.
 import { Feather } from '@expo/vector-icons';
 import { patientAPI, receptionAPI, reportAPI, consentAPI } from '../../utils/api';
 import { useAuth } from '../../store/hooks';
@@ -262,104 +264,171 @@ const UnifiedPatientProfile = () => {
         }
     };
 
-    // PDF Download matching Web 1:1 via jsPDF and autoTable (Zero browser print dialog, direct download)
+    // PDF Download — Platform-safe implementation:
+    // • Web:            lazy require() jsPDF + autoTable inside this function (never evaluated at Android startup)
+    // • Android/iOS:    expo-print HTML → printToFileAsync + expo-sharing (confirmed working, zero browser globals)
     const handleDownloadPDF = async () => {
         if (!patientData) return;
+        const fp = patientData.fertilityProfile || {};
+        const vitals = fp.vitals || {};
+        const dobStr = patientData.dob ? new Date(patientData.dob).toLocaleDateString('en-IN') : '—';
+        const fileName = `Patient_Profile_${patientData.patientId || patientData.mrn || 'MRN'}.pdf`;
+
         try {
-            const doc = new jsPDF();
-            const fp = patientData.fertilityProfile || {};
-            
-            // Title banner
-            doc.setFillColor(37, 99, 235);
-            doc.rect(0, 0, 210, 42, 'F');
-            doc.setFont("helvetica", "bold");
-            doc.setFontSize(20);
-            doc.setTextColor(255, 255, 255);
-            doc.text("HOSPITAL PATIENT CLINICAL SUMMARY", 15, 26);
-
-            // Demographics
-            doc.setTextColor(15, 23, 42);
-            doc.setFontSize(11);
-            doc.setFont("helvetica", "bold");
-            doc.text("Patient Name:", 15, 54);
-            doc.setFont("helvetica", "normal");
-            doc.text(patientData.name || '—', 50, 54);
-
-            doc.setFont("helvetica", "bold");
-            doc.text("MRN / Patient ID:", 15, 62);
-            doc.setFont("helvetica", "normal");
-            doc.text(patientData.patientId || patientData.mrn || '—', 50, 62);
-
-            doc.setFont("helvetica", "bold");
-            doc.text("Contact Phone:", 15, 70);
-            doc.setFont("helvetica", "normal");
-            doc.text(patientData.phone || '—', 50, 70);
-
-            doc.setFont("helvetica", "bold");
-            doc.text("Blood Group:", 115, 54);
-            doc.setFont("helvetica", "normal");
-            doc.text(patientData.bloodGroup || '—', 150, 54);
-
-            doc.setFont("helvetica", "bold");
-            doc.text("Gender / DOB:", 115, 62);
-            doc.setFont("helvetica", "normal");
-            const dobStr = patientData.dob ? new Date(patientData.dob).toLocaleDateString('en-IN') : '—';
-            doc.text(`${patientData.gender || '—'} / ${dobStr}`, 150, 62);
-
-            doc.setFont("helvetica", "bold");
-            doc.text("Known Allergies:", 115, 70);
-            doc.setFont("helvetica", "normal");
-            doc.text(fp.allergies || 'None', 150, 70);
-
-            // Vitals Section
-            doc.setFillColor(248, 250, 252);
-            doc.rect(15, 80, 180, 24, 'F');
-            doc.setFont("helvetica", "bold");
-            doc.setFontSize(10);
-            doc.setTextColor(37, 99, 235);
-            doc.text("LATEST RECORDED CLINICAL VITALS", 20, 88);
-            doc.setTextColor(15, 23, 42);
-            doc.setFont("helvetica", "normal");
-            const vitals = fp.vitals || {};
-            doc.text(`Weight: ${vitals.weight || '—'} kg`, 20, 97);
-            doc.text(`Height: ${vitals.height || '—'} cm`, 65, 97);
-            doc.text(`BP: ${vitals.bloodPressure || vitals.bp || '—'}`, 110, 97);
-            doc.text(`Pulse: ${vitals.pulse || '—'} bpm`, 150, 97);
-
-            // Timeline table
-            const timelineRows = (timeline || []).map(t => [
-                new Date(t.date || Date.now()).toLocaleDateString('en-IN'),
-                String(t.type || 'VISIT').toUpperCase(),
-                t.data?.doctorName || t.data?.doctorConsultation?.doctorId || 'Staff',
-                t.summary?.primaryComplaint || t.data?.serviceName || t.data?.title || t.data?.testName || 'Clinical Event',
-                t.data?.status || t.data?.paymentStatus || 'Recorded'
-            ]);
-
-            autoTable(doc, {
-                startY: 112,
-                head: [['Date', 'Event Type', 'Provider', 'Description / Diagnosis', 'Status']],
-                body: timelineRows,
-                theme: 'grid',
-                headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255] },
-                styles: { fontSize: 9 }
-            });
-
-            const fileName = `Patient_Profile_${patientData.patientId || patientData.mrn || 'MRN'}.pdf`;
-
             if (Platform.OS === 'web') {
+                // ── WEB PATH ─────────────────────────────────────────────────────────────
+                // jsPDF and autoTable are required lazily here so they are NEVER evaluated
+                // during Android/iOS startup (no top-level import → no IIFE at boot time).
+                // eslint-disable-next-line import/no-extraneous-dependencies
+                const { default: jsPDFClass } = await import('jspdf');
+                const { default: autoTable } = await import('jspdf-autotable');
+
+                const doc = new jsPDFClass();
+
+                // Title banner
+                doc.setFillColor(37, 99, 235);
+                doc.rect(0, 0, 210, 42, 'F');
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(20);
+                doc.setTextColor(255, 255, 255);
+                doc.text('HOSPITAL PATIENT CLINICAL SUMMARY', 15, 26);
+
+                // Demographics
+                doc.setTextColor(15, 23, 42);
+                doc.setFontSize(11);
+                doc.setFont('helvetica', 'bold');
+                doc.text('Patient Name:', 15, 54);
+                doc.setFont('helvetica', 'normal');
+                doc.text(patientData.name || '—', 50, 54);
+
+                doc.setFont('helvetica', 'bold');
+                doc.text('MRN / Patient ID:', 15, 62);
+                doc.setFont('helvetica', 'normal');
+                doc.text(patientData.patientId || patientData.mrn || '—', 50, 62);
+
+                doc.setFont('helvetica', 'bold');
+                doc.text('Contact Phone:', 15, 70);
+                doc.setFont('helvetica', 'normal');
+                doc.text(patientData.phone || '—', 50, 70);
+
+                doc.setFont('helvetica', 'bold');
+                doc.text('Blood Group:', 115, 54);
+                doc.setFont('helvetica', 'normal');
+                doc.text(patientData.bloodGroup || '—', 150, 54);
+
+                doc.setFont('helvetica', 'bold');
+                doc.text('Gender / DOB:', 115, 62);
+                doc.setFont('helvetica', 'normal');
+                doc.text(`${patientData.gender || '—'} / ${dobStr}`, 150, 62);
+
+                doc.setFont('helvetica', 'bold');
+                doc.text('Known Allergies:', 115, 70);
+                doc.setFont('helvetica', 'normal');
+                doc.text(fp.allergies || 'None', 150, 70);
+
+                // Vitals Section
+                doc.setFillColor(248, 250, 252);
+                doc.rect(15, 80, 180, 24, 'F');
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(10);
+                doc.setTextColor(37, 99, 235);
+                doc.text('LATEST RECORDED CLINICAL VITALS', 20, 88);
+                doc.setTextColor(15, 23, 42);
+                doc.setFont('helvetica', 'normal');
+                doc.text(`Weight: ${vitals.weight || '—'} kg`, 20, 97);
+                doc.text(`Height: ${vitals.height || '—'} cm`, 65, 97);
+                doc.text(`BP: ${vitals.bloodPressure || vitals.bp || '—'}`, 110, 97);
+                doc.text(`Pulse: ${vitals.pulse || '—'} bpm`, 150, 97);
+
+                // Timeline table
+                const timelineRows = (timeline || []).map(t => [
+                    new Date(t.date || Date.now()).toLocaleDateString('en-IN'),
+                    String(t.type || 'VISIT').toUpperCase(),
+                    t.data?.doctorName || t.data?.doctorConsultation?.doctorId || 'Staff',
+                    t.summary?.primaryComplaint || t.data?.serviceName || t.data?.title || t.data?.testName || 'Clinical Event',
+                    t.data?.status || t.data?.paymentStatus || 'Recorded',
+                ]);
+
+                autoTable(doc, {
+                    startY: 112,
+                    head: [['Date', 'Event Type', 'Provider', 'Description / Diagnosis', 'Status']],
+                    body: timelineRows,
+                    theme: 'grid',
+                    headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255] },
+                    styles: { fontSize: 9 },
+                });
+
                 doc.save(fileName);
+
             } else {
-                const base64 = doc.output('datauristring').split(',')[1];
-                const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
-                await FileSystem.writeAsStringAsync(fileUri, base64, { encoding: FileSystem.EncodingType.Base64 });
+                // ── ANDROID / iOS PATH ────────────────────────────────────────────────
+                // expo-print + expo-sharing: fully native, zero browser globals, confirmed
+                // working in last known good APK build (commit 6f34488).
+                const timelineRowsHtml = (timeline || []).map(t => `
+                    <tr>
+                        <td>${new Date(t.date || Date.now()).toLocaleDateString('en-IN')}</td>
+                        <td>${String(t.type || 'VISIT').toUpperCase()}</td>
+                        <td>${t.data?.doctorName || t.data?.doctorConsultation?.doctorId || 'Staff'}</td>
+                        <td>${t.summary?.primaryComplaint || t.data?.serviceName || t.data?.title || t.data?.testName || 'Clinical Event'}</td>
+                        <td>${t.data?.status || t.data?.paymentStatus || 'Recorded'}</td>
+                    </tr>`).join('');
+
+                const html = `
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <meta charset="utf-8" />
+                        <style>
+                            body { font-family: Helvetica, Arial, sans-serif; font-size: 11px; color: #0f172a; margin: 0; padding: 0; }
+                            .banner { background: #2563eb; color: #fff; padding: 18px 15px 14px 15px; }
+                            .banner h1 { margin: 0; font-size: 18px; font-weight: bold; letter-spacing: 0.5px; }
+                            .demo { display: flex; flex-wrap: wrap; padding: 10px 15px 0 15px; gap: 6px 20px; }
+                            .demo-item { min-width: 160px; margin-bottom: 6px; }
+                            .demo-label { font-weight: bold; color: #0f172a; }
+                            .vitals { background: #f8fafc; margin: 10px 15px; padding: 8px 12px; border-radius: 4px; }
+                            .vitals-title { color: #2563eb; font-weight: bold; font-size: 10px; margin-bottom: 4px; }
+                            .vitals-row { display: flex; gap: 20px; flex-wrap: wrap; }
+                            table { width: calc(100% - 30px); margin: 12px 15px; border-collapse: collapse; font-size: 9px; }
+                            th { background: #2563eb; color: #fff; padding: 5px 6px; text-align: left; }
+                            td { border: 1px solid #e2e8f0; padding: 4px 6px; }
+                            tr:nth-child(even) td { background: #f8fafc; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="banner"><h1>HOSPITAL PATIENT CLINICAL SUMMARY</h1></div>
+                        <div class="demo">
+                            <div class="demo-item"><span class="demo-label">Patient Name: </span>${patientData.name || '—'}</div>
+                            <div class="demo-item"><span class="demo-label">Blood Group: </span>${patientData.bloodGroup || '—'}</div>
+                            <div class="demo-item"><span class="demo-label">MRN / Patient ID: </span>${patientData.patientId || patientData.mrn || '—'}</div>
+                            <div class="demo-item"><span class="demo-label">Gender / DOB: </span>${patientData.gender || '—'} / ${dobStr}</div>
+                            <div class="demo-item"><span class="demo-label">Contact Phone: </span>${patientData.phone || '—'}</div>
+                            <div class="demo-item"><span class="demo-label">Known Allergies: </span>${fp.allergies || 'None'}</div>
+                        </div>
+                        <div class="vitals">
+                            <div class="vitals-title">LATEST RECORDED CLINICAL VITALS</div>
+                            <div class="vitals-row">
+                                <span><b>Weight:</b> ${vitals.weight || '—'} kg</span>
+                                <span><b>Height:</b> ${vitals.height || '—'} cm</span>
+                                <span><b>BP:</b> ${vitals.bloodPressure || vitals.bp || '—'}</span>
+                                <span><b>Pulse:</b> ${vitals.pulse || '—'} bpm</span>
+                            </div>
+                        </div>
+                        <table>
+                            <thead><tr><th>Date</th><th>Event Type</th><th>Provider</th><th>Description / Diagnosis</th><th>Status</th></tr></thead>
+                            <tbody>${timelineRowsHtml}</tbody>
+                        </table>
+                    </body>
+                    </html>`;
+
+                const { uri } = await Print.printToFileAsync({ html });
                 if (await Sharing.isAvailableAsync()) {
-                    await Sharing.shareAsync(fileUri, {
+                    await Sharing.shareAsync(uri, {
                         UTI: '.pdf',
                         mimeType: 'application/pdf',
-                        dialogTitle: fileName
+                        dialogTitle: fileName,
                     });
                 } else {
-                    Alert.alert('Success', 'PDF saved to: ' + fileUri);
+                    Alert.alert('PDF Ready', 'PDF has been generated successfully.');
                 }
             }
         } catch (err) {
