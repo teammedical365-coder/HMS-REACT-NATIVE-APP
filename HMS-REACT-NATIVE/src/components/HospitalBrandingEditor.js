@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { hospitalAPI } from '../utils/api';
 import { useBranding } from '../context/BrandingContext';
+import { isSafeImageUrl } from '../utils/resourceSecurity';
 
 /* ── Color swatch picker ─────────────────────────────────── */
 const ColorField = ({ label, name, value, onChange }) => (
@@ -43,7 +44,7 @@ const TextField = ({ label, name, value, onChange, placeholder, type = 'text', h
 );
 
 /* ── Main Component ──────────────────────────────────────── */
-const HospitalBrandingEditor = ({ hospital, onClose }) => {
+const HospitalBrandingEditor = ({ hospital, onClose, onSaveSuccess }) => {
     const { loadBranding } = useBranding();
 
     const [tab, setTab] = useState('identity');
@@ -83,12 +84,22 @@ const HospitalBrandingEditor = ({ hospital, onClose }) => {
 
     const handleSave = async () => {
         setSaving(true); setError(''); setSuccess('');
+        if (form.logoUrl && !isSafeImageUrl(form.logoUrl)) {
+            setError('Invalid logo URL: Cross-origin or temporary blob URLs are not permitted.');
+            setSaving(false);
+            return;
+        }
         try {
             const res = await hospitalAPI.updateBranding(hospital._id, form);
             if (res.success) {
                 setSuccess('✅ Branding saved successfully!');
                 if (previewing) {
                     await loadBranding(hospital._id);
+                }
+                if (onSaveSuccess) {
+                    // res.branding is the authoritative saved value from backend
+                    // (backend returns { success, message, branding } — not { hospital })
+                    onSaveSuccess(res.branding || form);
                 }
                 setTimeout(() => setSuccess(''), 4000);
             }
@@ -199,7 +210,7 @@ const HospitalBrandingEditor = ({ hospital, onClose }) => {
                                 <TextField label="Tagline" name="tagline" value={form.tagline} onChange={handleChange} placeholder="Caring for every life" hint="Shows below the logo" />
                                 <TextField label="Logo URL" name="logoUrl" value={form.logoUrl} onChange={handleChange} placeholder="https://cdn.hospital.com/logo.png" hint="Direct image URL" />
                                 
-                                {form.logoUrl ? (
+                                {isSafeImageUrl(form.logoUrl) ? (
                                     <View style={styles.logoPreviewContainer}>
                                         <Text style={styles.previewLabel}>Logo Preview</Text>
                                         <View style={styles.logoBox}>

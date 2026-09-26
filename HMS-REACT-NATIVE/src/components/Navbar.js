@@ -6,6 +6,7 @@ import { logout } from '../store/slices/authSlice';
 import { fetchNotifications, markAsRead } from '../store/slices/notificationSlice';
 import { Ionicons } from '@expo/vector-icons';
 import { useBranding } from '../context/BrandingContext';
+import { isSafeImageUrl } from '../utils/resourceSecurity';
 
 /* ---- Brand Logo ---- */
 const BrandLogo = () => (
@@ -51,7 +52,7 @@ const Navbar = () => {
             style={styles.navbarBrand} 
             onPress={() => navigation.navigate(isAuthenticated ? 'DashboardLayout' : 'Home')}
           >
-            {branding.logoUrl ? (
+            {isSafeImageUrl(branding?.logoUrl) ? (
               <Image source={{ uri: branding.logoUrl }} style={{ height: 36, width: 100, resizeMode: 'contain' }} />
             ) : (
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -59,8 +60,8 @@ const Navbar = () => {
                   <BrandLogo />
                 </View>
                 <View style={styles.navbarLogoText}>
-                  <Text style={styles.navbarLogoMain}>{branding.appName || 'Medical 365'}</Text>
-                  <Text style={styles.navbarLogoSub}>{branding.tagline || 'Healthcare Suite'}</Text>
+                  <Text style={styles.navbarLogoMain}>{branding?.appName || 'Medical 365'}</Text>
+                  <Text style={styles.navbarLogoSub}>{branding?.tagline || 'Healthcare Suite'}</Text>
                 </View>
               </View>
             )}

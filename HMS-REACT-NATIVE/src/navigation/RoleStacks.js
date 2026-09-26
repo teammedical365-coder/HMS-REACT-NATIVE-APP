@@ -20,6 +20,7 @@ import AdminServices from '../screens/admin/AdminServices';
 import AdminLabs from '../screens/admin/AdminLabs';
 import AdminPharmacy from '../screens/admin/AdminPharmacy';
 import AdminReception from '../screens/admin/AdminReception';
+import SuperAdmin from '../screens/administration/SuperAdmin';
 
 // -- Hospital Admin Pages --
 import HospitalAdminDashboard from '../screens/hospitaladmin/HospitalAdminDashboard';
@@ -118,6 +119,7 @@ export const CentralAdminApp = () => (
         <Stack.Screen name="RoleDashboard" component={withLayout(RoleDashboard)} />
         <Stack.Screen name="HospitalAdminDashboard" component={withLayout(HospitalAdminDashboard)} />
         <Stack.Screen name="ClinicDashboard" component={withLayout(ClinicDashboard)} />
+        <Stack.Screen name="SuperAdmin" component={withLayout(SuperAdmin)} />
     </Stack.Navigator>
 );
 

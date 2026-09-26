@@ -30,61 +30,59 @@ export default function RevenuePlanEditorModal({ visible, onClose, hospital, onS
       <KeyboardAvoidingView
         style={styles.overlay}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        pointerEvents="box-none"
       >
         <TouchableOpacity
           activeOpacity={1}
           onPress={onClose}
           style={styles.overlayTouchable}
-          pointerEvents="auto"
         />
-        <View style={styles.modalContainer} pointerEvents="box-auto">
-          <View style={styles.header} pointerEvents="box-none">
+        <View style={[styles.modalContainer, { maxHeight: '90%' }]}>
+          <View style={styles.header}>
             <Text style={styles.title}>Edit Revenue Plan</Text>
             <TouchableOpacity
               onPress={onClose}
               style={styles.closeBtn}
               activeOpacity={0.7}
-              pointerEvents="auto"
             >
               <Text style={styles.closeText}>✕</Text>
             </TouchableOpacity>
           </View>
 
-          <ScrollView contentContainerStyle={styles.content} pointerEvents="box-none">
+          <ScrollView 
+            showsVerticalScrollIndicator={true}
+            nestedScrollEnabled={true}
+            contentContainerStyle={styles.content}
+          >
             <Text style={styles.subtitle}>
               Configure revenue sharing and platform fees for {hospital?.name || 'this hospital'}.
             </Text>
 
-            <View style={styles.inputGroup} pointerEvents="box-none">
+            <View style={styles.inputGroup}>
               <Text style={styles.label}>Platform Fee (₹)</Text>
               <TextInput
                 style={styles.input}
                 keyboardType="numeric"
                 value={formData.platformFee}
                 onChangeText={(val) => setFormData({ ...formData, platformFee: val })}
-                pointerEvents="auto"
               />
             </View>
 
-            <View style={styles.inputGroup} pointerEvents="box-none">
+            <View style={styles.inputGroup}>
               <Text style={styles.label}>Revenue Share (%)</Text>
               <TextInput
                 style={styles.input}
                 keyboardType="numeric"
                 value={formData.revenueShare}
                 onChangeText={(val) => setFormData({ ...formData, revenueShare: val })}
-                pointerEvents="auto"
               />
             </View>
           </ScrollView>
 
-          <View style={styles.footer} pointerEvents="box-none">
+          <View style={styles.footer}>
             <TouchableOpacity
               style={styles.cancelBtn}
               onPress={onClose}
               activeOpacity={0.7}
-              pointerEvents="auto"
             >
               <Text style={styles.cancelText}>Cancel</Text>
             </TouchableOpacity>
@@ -92,7 +90,6 @@ export default function RevenuePlanEditorModal({ visible, onClose, hospital, onS
               style={styles.saveBtn}
               onPress={() => onSave(formData)}
               activeOpacity={0.7}
-              pointerEvents="auto"
             >
               <Text style={styles.saveText}>Save Changes</Text>
             </TouchableOpacity>

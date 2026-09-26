@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
     View, Text, TextInput, TouchableOpacity, ScrollView, Image, 
-    StyleSheet, ActivityIndicator, Alert, Modal, Platform 
+    StyleSheet, ActivityIndicator, Alert, Modal, Platform, useWindowDimensions 
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -9,6 +9,7 @@ import { adminAPI, uploadAPI } from '../../utils/api';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import DropdownSelect from '../../components/common/DropdownSelect';
+import * as DocumentPicker from 'expo-document-picker';
 
 // --- Universal Dropdown Select Wrapper ---
 const CustomSelect = (props) => <DropdownSelect {...props} />;
@@ -16,6 +17,8 @@ const CustomSelect = (props) => <DropdownSelect {...props} />;
 
 const SuperAdmin = () => {
     const navigation = useNavigation();
+    const { width } = useWindowDimensions();
+    const isMobile = width < 768;
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [users, setUsers] = useState([]);
@@ -58,6 +61,50 @@ const SuperAdmin = () => {
         [processFormChange]
     );
 
+    const pickCreateAvatar = async () => {
+        try {
+            const res = await DocumentPicker.getDocumentAsync({
+                type: ['image/jpeg', 'image/png', 'image/webp'],
+                copyToCacheDirectory: true,
+            });
+            if (res && !res.canceled && res.assets && res.assets.length > 0) {
+                const asset = res.assets[0];
+                setCreateForm(prev => ({
+                    ...prev,
+                    file: {
+                        uri: asset.uri,
+                        name: asset.name || 'avatar.jpg',
+                        type: asset.mimeType || 'image/jpeg',
+                    }
+                }));
+            }
+        } catch (err) {
+            console.warn('Avatar picker failed:', err);
+        }
+    };
+
+    const pickEditAvatar = async () => {
+        try {
+            const res = await DocumentPicker.getDocumentAsync({
+                type: ['image/jpeg', 'image/png', 'image/webp'],
+                copyToCacheDirectory: true,
+            });
+            if (res && !res.canceled && res.assets && res.assets.length > 0) {
+                const asset = res.assets[0];
+                setEditForm(prev => ({
+                    ...prev,
+                    newAvatarFile: {
+                        uri: asset.uri,
+                        name: asset.name || 'avatar.jpg',
+                        type: asset.mimeType || 'image/jpeg',
+                    }
+                }));
+            }
+        } catch (err) {
+            console.warn('Avatar picker failed:', err);
+        }
+    };
+
     // Check auth
     useEffect(() => {
         const loadUser = async () => {
@@ -81,7 +128,7 @@ const SuperAdmin = () => {
             setLoadingUsers(true);
             const response = await adminAPI.getUsers();
             if (response.success) {
-                setUsers(response.users);
+                setUsers(response.users || response.data || []);
             }
         } catch (err) {
             console.error('Error fetching users:', err);
@@ -95,7 +142,7 @@ const SuperAdmin = () => {
         try {
             const response = await adminAPI.getRoles();
             if (response.success) {
-                setRoles(response.data);
+                setRoles(response.data || response.roles || []);
             }
         } catch (err) {
             console.error('Error fetching roles:', err);
@@ -244,24 +291,29 @@ const SuperAdmin = () => {
     }));
 
     return (
-        <ScrollView style={styles.superadminPage} contentContainerStyle={styles.superadminContainer}>
+        <ScrollView 
+            style={[styles.superadminPage, { flex: 1, width: '100%' }, isMobile && { padding: 12 }]} 
+            contentContainerStyle={styles.superadminContainer}
+            showsVerticalScrollIndicator={true}
+            nestedScrollEnabled={true}
+        >
             
-            <View style={styles.adminHeader}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+            <View style={[styles.adminHeader, isMobile && { padding: 16, borderRadius: 14, flexDirection: 'column', alignItems: 'flex-start', gap: 14, marginBottom: 20 }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: isMobile ? 8 : 16 }}>
                     <Image source={require('../../../assets/medical365-logo.png')} style={{ height: 36, width: 150, marginRight: 10, resizeMode: 'contain' }} />
                     <View>
-                        <Text style={styles.headerTitle}>SuperAdmin Dashboard</Text>
-                        <Text style={styles.headerSubtitle}>Manage System Users & Staff Accounts</Text>
+                        <Text style={[styles.headerTitle, isMobile && { fontSize: 22 }]}>SuperAdmin Dashboard</Text>
+                        <Text style={[styles.headerSubtitle, isMobile && { fontSize: 13 }]}>Manage System Users & Staff Accounts</Text>
                     </View>
                 </View>
-                <View style={styles.adminUserInfo}>
-                    <Text style={styles.adminUserInfoText}>Welcome, {currentUser.name}</Text>
+                <View style={[styles.adminUserInfo, isMobile && { width: '100%', justifyContent: 'space-between' }]}>
+                    <Text style={[styles.adminUserInfoText, isMobile && { fontSize: 14 }]}>Welcome, {currentUser.name}</Text>
                     <View style={{ flexDirection: 'row', gap: 10 }}>
-                        <TouchableOpacity onPress={() => navigation.navigate('AdminRoles')} style={[styles.btnEdit, { paddingHorizontal: 16, paddingVertical: 8 }]}>
-                            <Text style={{ color: '#2563eb', fontWeight: '600' }}>🔑 Manage Roles</Text>
+                        <TouchableOpacity onPress={() => navigation.navigate('AdminRoles')} style={[styles.btnEdit, { paddingHorizontal: isMobile ? 10 : 16, paddingVertical: 8 }]}>
+                            <Text style={{ color: '#2563eb', fontWeight: '600', fontSize: isMobile ? 12 : 14 }}>🔑 Roles</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
-                            <Text style={styles.logoutBtnText}>Logout</Text>
+                        <TouchableOpacity onPress={handleLogout} style={[styles.logoutBtn, isMobile && { paddingHorizontal: 16, paddingVertical: 8 }]}>
+                            <Text style={[styles.logoutBtnText, isMobile && { fontSize: 12 }]}>Logout</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -273,7 +325,7 @@ const SuperAdmin = () => {
             {/* ==========================================
                 QUICK CONFIGURATIONS SECTION
                 ========================================== */}
-            <View style={[styles.adminCard, { marginBottom: 20 }]}>
+            <View style={[styles.adminCard, isMobile && { padding: 16, borderRadius: 14, marginBottom: 16 }, { marginBottom: 20 }]}>
                 <Text style={styles.cardTitle}>⚙️ Quick Configurations</Text>
                 <Text style={{ color: '#888', fontSize: 14, marginVertical: 10 }}>
                     Setup forms, catalogs, and permissions for the hospital system.
@@ -300,7 +352,7 @@ const SuperAdmin = () => {
             {/* ==========================================
                 CREATE STAFF ACCOUNT SECTION
                 ========================================== */}
-            <View style={[styles.adminCard, { marginBottom: 20 }]}>
+            <View style={[styles.adminCard, isMobile && { padding: 16, borderRadius: 14, marginBottom: 16 }, { marginBottom: 20 }]}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                     <Text style={styles.cardTitle}>👤 Create Staff Account</Text>
                     <TouchableOpacity
@@ -321,37 +373,49 @@ const SuperAdmin = () => {
 
                 {showCreateForm && (
                     <View style={styles.userForm}>
-                        <View style={styles.formRow}>
-                            <View style={styles.formGroup}>
+                        <View style={[styles.formRow, isMobile && { flexDirection: 'column', gap: 12 }]}>
+                            <View style={[styles.formGroup, isMobile && { minWidth: '100%' }]}>
                                 <Text style={styles.staffLabel}>Full Name *</Text>
                                 <TextInput style={styles.staffInput} placeholder="e.g. Dr. Sharma" placeholderTextColor="#94a3b8" value={createForm.name} onChangeText={(t) => handleCreateFormChange('name', t)} />
                             </View>
-                            <View style={styles.formGroup}>
+                            <View style={[styles.formGroup, isMobile && { minWidth: '100%' }]}>
                                 <Text style={styles.staffLabel}>Email Address *</Text>
                                 <TextInput style={styles.staffInput} placeholder="e.g. dr.sharma@hospital.com" placeholderTextColor="#94a3b8" value={createForm.email} onChangeText={(t) => handleCreateFormChange('email', t)} keyboardType="email-address" autoCapitalize="none" />
                             </View>
                         </View>
 
-                        <View style={styles.formRow}>
-                            <View style={styles.formGroup}>
+                        <View style={[styles.formRow, isMobile && { flexDirection: 'column', gap: 12 }]}>
+                            <View style={[styles.formGroup, isMobile && { minWidth: '100%' }]}>
                                 <Text style={styles.staffLabel}>Password *</Text>
                                 <TextInput style={styles.staffInput} placeholder="Set a temporary password" placeholderTextColor="#94a3b8" value={createForm.password} onChangeText={(t) => handleCreateFormChange('password', t)} />
                                 <Text style={styles.formHint}>Share this password with the staff member</Text>
                             </View>
-                            <View style={styles.formGroup}>
+                            <View style={[styles.formGroup, isMobile && { minWidth: '100%' }]}>
                                 <Text style={styles.staffLabel}>Phone Number *</Text>
                                 <TextInput style={styles.staffInput} placeholder="Enter 10-digit phone number" placeholderTextColor="#94a3b8" value={createForm.phone} onChangeText={(t) => handleCreateFormChange('phone', t)} keyboardType="numeric" maxLength={10} />
                             </View>
                         </View>
 
-                        <View style={styles.formRow}>
-                            <View style={styles.formGroup}>
-                                <Text style={styles.staffLabel}>Profile Image (Mock)</Text>
-                                <TouchableOpacity style={[styles.staffInput, { justifyContent: 'center', backgroundColor: '#f8fafc' }]}>
-                                    <Text style={{ color: '#64748b' }}>Upload Image...</Text>
+                        <View style={[styles.formRow, isMobile && { flexDirection: 'column', gap: 12 }]}>
+                            <View style={[styles.formGroup, isMobile && { minWidth: '100%' }]}>
+                                <Text style={styles.staffLabel}>Profile Photo</Text>
+                                <TouchableOpacity 
+                                    style={[styles.staffInput, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f8fafc' }]}
+                                    onPress={pickCreateAvatar}
+                                >
+                                    <Text style={{ color: createForm.file ? '#0f172a' : '#64748b', fontSize: 13, flex: 1 }} numberOfLines={1}>
+                                        {createForm.file ? createForm.file.name : 'Select Profile Photo...'}
+                                    </Text>
+                                    {createForm.file ? (
+                                        <TouchableOpacity onPress={(e) => { e.stopPropagation(); setCreateForm(prev => ({ ...prev, file: null })); }}>
+                                             <Text style={{ color: '#ef4444', fontWeight: 'bold', fontSize: 14 }}>✕</Text>
+                                        </TouchableOpacity>
+                                    ) : (
+                                        <Text style={{ fontSize: 14 }}>📷</Text>
+                                    )}
                                 </TouchableOpacity>
                             </View>
-                            <View style={[styles.formGroup, { zIndex: 10 }]}>
+                            <View style={[styles.formGroup, isMobile && { minWidth: '100%' }, { zIndex: 10 }]}>
                                 <Text style={styles.staffLabel}>
                                     Assign Role * <Text style={{ fontWeight: '400', color: '#94a3b8', fontSize: 12, textTransform: 'none' }}>(Don't see your role? </Text><Text style={{ fontWeight: '400', color: '#0ea5e9', fontSize: 12, textTransform: 'none' }} onPress={() => navigation.navigate('AdminRoles')}>Create one here</Text><Text style={{ fontWeight: '400', color: '#94a3b8', fontSize: 12, textTransform: 'none' }}>)</Text>
                                 </Text>
@@ -374,7 +438,7 @@ const SuperAdmin = () => {
             {/* ==========================================
                 USER TABLE
                 ========================================== */}
-            <View style={styles.adminCard}>
+            <View style={[styles.adminCard, isMobile && { padding: 16, borderRadius: 14, marginBottom: 16 }]}>
                 <Text style={[styles.cardTitle, { marginBottom: 20 }]}>All Staff & Users</Text>
                 
                 {loadingUsers ? (
@@ -382,7 +446,7 @@ const SuperAdmin = () => {
                 ) : users.length === 0 ? (
                     <View style={{ padding: 20, alignItems: 'center' }}><Text style={{ color: '#64748b' }}>No users found</Text></View>
                 ) : (
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.usersTableWrapper}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={true} nestedScrollEnabled={true} style={styles.usersTableWrapper}>
                         <View style={styles.usersTable}>
                             <View style={styles.tableHeaderRow}>
                                 <Text style={[styles.th, { width: 60 }]}>Avatar</Text>
@@ -447,64 +511,78 @@ const SuperAdmin = () => {
             {/* EDIT USER MODAL */}
             <Modal visible={editModal} transparent={true} animationType="fade">
                 <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
+                    <View style={[styles.modalContent, { maxHeight: '90%' }, isMobile && { padding: 18, borderRadius: 16 }]}>
                         <Text style={styles.modalTitle}>Edit Staff Details</Text>
-                        <View style={styles.userForm}>
-                            <View style={{ flexDirection: 'row', gap: 20, alignItems: 'center', marginBottom: 20 }}>
-                                <View>
-                                    {editForm.newAvatarFile ? (
-                                        <Image source={{ uri: editForm.newAvatarFile.uri }} style={{ width: 80, height: 80, borderRadius: 40 }} />
-                                    ) : editForm.currentAvatar ? (
-                                        <Image source={{ uri: editForm.currentAvatar }} style={{ width: 80, height: 80, borderRadius: 40 }} />
-                                    ) : (
-                                        <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#cbd5e1' }} />
-                                    )}
+                        <ScrollView showsVerticalScrollIndicator={true} nestedScrollEnabled={true} contentContainerStyle={{ paddingBottom: 10 }}>
+                            <View style={styles.userForm}>
+                                <View style={[{ flexDirection: 'row', gap: 20, alignItems: 'center', marginBottom: 20 }, isMobile && { flexDirection: 'column', alignItems: 'center', gap: 12 }]}>
+                                    <View>
+                                        {editForm.newAvatarFile ? (
+                                            <Image source={{ uri: editForm.newAvatarFile.uri }} style={{ width: 80, height: 80, borderRadius: 40 }} />
+                                        ) : editForm.currentAvatar ? (
+                                            <Image source={{ uri: editForm.currentAvatar }} style={{ width: 80, height: 80, borderRadius: 40 }} />
+                                        ) : (
+                                            <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#cbd5e1' }} />
+                                        )}
+                                    </View>
+                                    <View style={{ flex: 1, width: isMobile ? '100%' : 'auto' }}>
+                                        <Text style={styles.staffLabel}>Change Photo</Text>
+                                        <TouchableOpacity 
+                                            style={[styles.staffInput, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f8fafc' }]}
+                                            onPress={pickEditAvatar}
+                                        >
+                                            <Text style={{ color: editForm.newAvatarFile ? '#0f172a' : '#64748b', fontSize: 13, flex: 1 }} numberOfLines={1}>
+                                                {editForm.newAvatarFile ? editForm.newAvatarFile.name : 'Select New Photo...'}
+                                            </Text>
+                                            {editForm.newAvatarFile ? (
+                                                <TouchableOpacity onPress={(e) => { e.stopPropagation(); setEditForm(prev => ({ ...prev, newAvatarFile: null })); }}>
+                                                    <Text style={{ color: '#ef4444', fontWeight: 'bold', fontSize: 14 }}>✕</Text>
+                                                </TouchableOpacity>
+                                            ) : (
+                                                <Text style={{ fontSize: 14 }}>📷</Text>
+                                            )}
+                                        </TouchableOpacity>
+                                    </View>
                                 </View>
-                                <View style={{ flex: 1 }}>
-                                    <Text style={styles.staffLabel}>Change Photo (Native Mock)</Text>
-                                    <TouchableOpacity style={[styles.staffInput, { justifyContent: 'center', backgroundColor: '#f8fafc' }]}>
-                                        <Text style={{ color: '#64748b' }}>Select Image...</Text>
+
+                                <View style={[styles.formRow, isMobile && { flexDirection: 'column', gap: 12 }]}>
+                                    <View style={[styles.formGroup, isMobile && { minWidth: '100%' }]}>
+                                        <Text style={styles.staffLabel}>Name *</Text>
+                                        <TextInput style={styles.staffInput} value={editForm.name} onChangeText={(t) => handleEditFormChange('name', t)} />
+                                    </View>
+                                    <View style={[styles.formGroup, isMobile && { minWidth: '100%' }]}>
+                                        <Text style={styles.staffLabel}>Email</Text>
+                                        <TextInput style={styles.staffInput} value={editForm.email} onChangeText={(t) => handleEditFormChange('email', t)} />
+                                    </View>
+                                </View>
+
+                                <View style={[styles.formRow, isMobile && { flexDirection: 'column', gap: 12 }]}>
+                                    <View style={[styles.formGroup, isMobile && { minWidth: '100%' }]}>
+                                        <Text style={styles.staffLabel}>Phone *</Text>
+                                        <TextInput style={styles.staffInput} placeholder="Enter 10-digit phone number" value={editForm.phone} onChangeText={(t) => handleEditFormChange('phone', t)} keyboardType="numeric" maxLength={10} />
+                                    </View>
+                                    <View style={[styles.formGroup, isMobile && { minWidth: '100%' }, { zIndex: 10 }]}>
+                                        <Text style={styles.staffLabel}>Role</Text>
+                                        <CustomSelect 
+                                            options={availableRoles}
+                                            value={editForm.roleId}
+                                            onChange={() => {}}
+                                            disabled={true}
+                                            placeholder="Role"
+                                        />
+                                    </View>
+                                </View>
+
+                                <View style={styles.modalButtons}>
+                                    <TouchableOpacity onPress={handleUpdateUser} disabled={updating} style={styles.btnSave}>
+                                        <Text style={styles.btnSaveText}>{updating ? 'Saving...' : 'Save Changes'}</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity onPress={() => setEditModal(false)} style={styles.btnCancel}>
+                                        <Text style={styles.btnCancelText}>Cancel</Text>
                                     </TouchableOpacity>
                                 </View>
                             </View>
-
-                            <View style={styles.formRow}>
-                                <View style={styles.formGroup}>
-                                    <Text style={styles.staffLabel}>Name *</Text>
-                                    <TextInput style={styles.staffInput} value={editForm.name} onChangeText={(t) => handleEditFormChange('name', t)} />
-                                </View>
-                                <View style={styles.formGroup}>
-                                    <Text style={styles.staffLabel}>Email</Text>
-                                    <TextInput style={styles.staffInput} value={editForm.email} onChangeText={(t) => handleEditFormChange('email', t)} />
-                                </View>
-                            </View>
-
-                            <View style={styles.formRow}>
-                                <View style={styles.formGroup}>
-                                    <Text style={styles.staffLabel}>Phone *</Text>
-                                    <TextInput style={styles.staffInput} placeholder="Enter 10-digit phone number" value={editForm.phone} onChangeText={(t) => handleEditFormChange('phone', t)} keyboardType="numeric" maxLength={10} />
-                                </View>
-                                <View style={[styles.formGroup, { zIndex: 10 }]}>
-                                    <Text style={styles.staffLabel}>Role</Text>
-                                    <CustomSelect 
-                                        options={availableRoles}
-                                        value={editForm.roleId}
-                                        onChange={() => {}}
-                                        disabled={true}
-                                        placeholder="Role"
-                                    />
-                                </View>
-                            </View>
-
-                            <View style={styles.modalButtons}>
-                                <TouchableOpacity onPress={handleUpdateUser} disabled={updating} style={styles.btnSave}>
-                                    <Text style={styles.btnSaveText}>{updating ? 'Saving...' : 'Save Changes'}</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity onPress={() => setEditModal(false)} style={styles.btnCancel}>
-                                    <Text style={styles.btnCancelText}>Cancel</Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
+                        </ScrollView>
                     </View>
                 </View>
             </Modal>
@@ -512,7 +590,7 @@ const SuperAdmin = () => {
             {/* DELETE MODAL */}
             <Modal visible={!!deleteConfirm} transparent={true} animationType="fade">
                 <View style={styles.modalOverlay}>
-                    <View style={[styles.modalContent, { maxWidth: 400 }]}>
+                    <View style={[styles.modalContent, isMobile && { padding: 20, borderRadius: 16 }, { maxWidth: 400 }]}>
                         <Text style={styles.modalTitle}>Confirm Delete</Text>
                         <Text style={styles.modalText}>Are you sure?</Text>
                         <View style={styles.modalButtons}>

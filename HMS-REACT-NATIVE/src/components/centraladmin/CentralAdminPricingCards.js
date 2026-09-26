@@ -117,6 +117,7 @@ export default function CentralAdminPricingCards({
   const { width } = useWindowDimensions();
   const isDesktop = width >= 1024;
   const isMobile = width < 768;
+  const isSmallPhone = width < 480;
 
   const config = getPlanConfig(activeTab);
   if (!config) {
@@ -126,7 +127,7 @@ export default function CentralAdminPricingCards({
   const isFormOpen = Boolean(showHospitalForm || showHospitalAdminForm || editHospital);
 
   return (
-    <View style={styles.featuredPlanSection}>
+    <View style={[styles.featuredPlanSection, isMobile && { paddingHorizontal: 12, paddingVertical: 14, borderRadius: 16 }]}>
       
       {/* SECTION HEADER */}
       <View style={[styles.planHeaderRow, isMobile && { flexDirection: 'column', alignItems: 'stretch', gap: 14 }]}>
@@ -211,10 +212,14 @@ export default function CentralAdminPricingCards({
 
       {/* TWO INFORMATION CARDS ROW - Hidden when form is open */}
       {!isFormOpen && (
-        <View style={[styles.planCardsGrid, { flexDirection: isDesktop ? 'row' : 'column' }]}>
+        <View style={[styles.planCardsGrid, { flexDirection: isDesktop ? 'row' : 'column', gap: 16 }]}>
           
           {/* Left Card: Plan Operational Provision */}
-          <View style={[styles.planInfoCard, { position: 'relative', overflow: 'hidden', width: isDesktop ? undefined : '100%', flex: isDesktop ? 1 : 0 }]}>
+          <View style={[
+            styles.planInfoCard, 
+            { position: 'relative', overflow: 'hidden', width: isDesktop ? undefined : '100%', flex: isDesktop ? 1 : 0 },
+            isSmallPhone && { padding: 14, borderRadius: 14 }
+          ]}>
             <View style={styles.infoCardHeader}>
               <Text style={styles.infoPlanName}>
                 {config.planName}
@@ -251,7 +256,8 @@ export default function CentralAdminPricingCards({
           <View style={[
             styles.addonCard, 
             { width: isDesktop ? undefined : '100%', flex: isDesktop ? 1.25 : 0 },
-            isMobile && { flexDirection: 'column', alignItems: 'stretch', gap: 14 }
+            isMobile && { flexDirection: 'column', alignItems: 'stretch', gap: 14 },
+            isSmallPhone && { padding: 14, borderRadius: 14 }
           ]}>
             <View style={styles.addonContentCol}>
               <View style={styles.addonTag}>

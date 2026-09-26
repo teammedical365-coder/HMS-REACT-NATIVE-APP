@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { API_BASE_URL, STORAGE_KEYS } from '../utils/Constants';
 import { buildTheme } from '../Theme';
+import { isSafeImageUrl } from '../utils/resourceSecurity';
 
 const BrandingContext = createContext();
 
@@ -35,6 +36,8 @@ export const BrandingProvider = ({ children }) => {
         
         const brandingData = {
           ...rawBranding,
+          logoUrl: isSafeImageUrl(rawBranding.logoUrl) ? rawBranding.logoUrl : null,
+          faviconUrl: isSafeImageUrl(rawBranding.faviconUrl) ? rawBranding.faviconUrl : null,
           primaryColor: customTheme.primary || rawBranding.primaryColor,
           secondaryColor: customTheme.secondary || rawBranding.secondaryColor,
           backgroundColor: customTheme.background || rawBranding.backgroundColor,

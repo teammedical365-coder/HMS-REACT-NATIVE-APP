@@ -8,7 +8,8 @@ import {
     ScrollView,
     Alert,
     Dimensions,
-    Platform
+    Platform,
+    useWindowDimensions
 } from 'react-native';
 import { adminAPI } from '../../utils/api';
 import { FontAwesome5 } from '@expo/vector-icons';
@@ -32,9 +33,12 @@ const confirmToast = (msg, options) => {
     });
 };
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
 const AdminRoles = () => {
+    const { width: windowWidth } = useWindowDimensions();
+    const isDesktop = windowWidth > 1024;
+    const isMobile = windowWidth <= 768;
+    const isSmall = windowWidth <= 480;
+
     const [roles, setRoles] = useState([]);
     const [formData, setFormData] = useState({
         name: '',
@@ -279,7 +283,16 @@ const AdminRoles = () => {
     const permCount = formData.permissions.length;
 
     return (
-        <ScrollView style={styles.rpmMainWrapper} contentContainerStyle={styles.rpmMainWrapperContent} ref={scrollViewRef}>
+        <ScrollView 
+            style={styles.rpmMainWrapper} 
+            contentContainerStyle={[
+                styles.rpmMainWrapperContent,
+                { paddingHorizontal: isDesktop ? 40 : isMobile ? 12 : 20 }
+            ]} 
+            ref={scrollViewRef}
+            showsVerticalScrollIndicator={true}
+            nestedScrollEnabled={true}
+        >
             <View style={styles.rpmHeaderRow}>
                 <View style={styles.rpmHeaderLeft}>
                     <Text style={styles.rpmHeaderTitle}>Role & Permission Manager</Text>
@@ -287,9 +300,9 @@ const AdminRoles = () => {
                 </View>
             </View>
 
-            <View style={styles.rpmDashboardGrid}>
+            <View style={[styles.rpmDashboardGrid, { flexDirection: isDesktop ? 'row' : 'column', gap: isMobile ? 18 : 24 }]}>
                 {/* ─── LEFT PANEL: CREATE / EDIT ROLE ─── */}
-                <View style={styles.rpmPanel}>
+                <View style={[styles.rpmPanel, isDesktop ? { flex: 1, minWidth: 0 } : { width: '100%' }, isMobile && { paddingHorizontal: 16, paddingVertical: 18 }]}>
                     <View style={styles.rpmPanelHeader}>
                         <Text style={styles.rpmPanelHeaderTitle}>{editingRoleId ? 'Edit Role' : 'Create New Role'}</Text>
                         {editingRoleId && (
@@ -387,7 +400,12 @@ const AdminRoles = () => {
                             </View>
 
                             <View style={styles.rpmPermGridWrapper}>
-                                <View style={styles.rpmPermCategoriesList}>
+                                <ScrollView 
+                                    style={[styles.rpmPermCategoriesListScroll, { maxHeight: isMobile ? 260 : 340 }]}
+                                    contentContainerStyle={styles.rpmPermCategoriesListContent}
+                                    nestedScrollEnabled={true}
+                                    showsVerticalScrollIndicator={true}
+                                >
                                     {PERMISSIONS.map((cat) => (
                                         <View key={cat.category} style={styles.rpmCatBlock}>
                                             <Text style={styles.rpmPermSub}>{cat.category}</Text>
@@ -411,10 +429,10 @@ const AdminRoles = () => {
                                             </View>
                                         </View>
                                     ))}
-                                </View>
+                                </ScrollView>
 
                                 {/* Hexagonal Nodes Visual Overlay (Simplified for React Native) */}
-                                {Platform.OS === 'web' && SCREEN_WIDTH > 480 && (
+                                {Platform.OS === 'web' && windowWidth > 480 && (
                                     <View style={styles.rpmHexMatrixContainer}>
                                         <View style={styles.rpmHexRow}>
                                             <View style={[styles.rpmHexCell, permCount >= 1 && styles.rpmHexCellActive]}><Text style={[styles.rpmHexCellText, permCount >= 1 && styles.rpmHexCellTextActive]}>{permCount >= 1 ? '✓' : ''}</Text></View>
@@ -450,7 +468,7 @@ const AdminRoles = () => {
                 </View>
 
                 {/* ─── RIGHT PANEL: ACTIVE ROLES ─── */}
-                <View style={styles.rpmPanel}>
+                <View style={[styles.rpmPanel, isDesktop ? { flex: 1, minWidth: 0 } : { width: '100%' }, isMobile && { paddingHorizontal: 16, paddingVertical: 18 }]}>
                     <View style={styles.rpmPanelHeader}>
                         <Text style={styles.rpmPanelHeaderTitle}>Active Roles</Text>
                         <View style={styles.rpmBadgeCountContainer}>
@@ -458,7 +476,12 @@ const AdminRoles = () => {
                         </View>
                     </View>
 
-                    <View style={styles.rpmRolesList}>
+                    <ScrollView 
+                        style={styles.rpmRolesListScroll} 
+                        contentContainerStyle={styles.rpmRolesListContent}
+                        nestedScrollEnabled={true}
+                        showsVerticalScrollIndicator={true}
+                    >
                         {roles.length === 0 && (
                             <View style={styles.rpmEmptyState}>
                                 <Text style={styles.rpmEmptyStateText}>No roles defined yet. Create one on the left!</Text>
@@ -466,25 +489,28 @@ const AdminRoles = () => {
                         )}
 
                         {roles.map((role, idx) => {
-                            const isSelected = editingRoleId === role._id || (!editingRoleId && idx === 0);
-                            const perms = role.permissions || [];
+                            const roleId = role._id || role.id || `role-${idx}`;
+                            const isSelected = editingRoleId === roleId || (!editingRoleId && idx === 0);
+                            const perms = Array.isArray(role.permissions) ? role.permissions : [];
 
                             return (
                                 <View
-                                    key={role._id}
+                                    key={roleId}
                                     style={[styles.rpmRoleCard, isSelected && styles.rpmRoleCardHighlight]}
                                 >
                                     <View style={styles.rpmCardActions}>
                                         <TouchableOpacity
                                             style={styles.rpmActionBtn}
                                             onPress={() => handleEdit(role)}
+                                            activeOpacity={0.7}
                                         >
                                             <FontAwesome5 name="edit" size={12} color="#627d98" />
                                         </TouchableOpacity>
                                         {!role.isSystemRole && (
                                             <TouchableOpacity
                                                 style={[styles.rpmActionBtn, styles.deleteActionBtn]}
-                                                onPress={() => handleDelete(role._id, role.name)}
+                                                onPress={() => handleDelete(roleId, role.name)}
+                                                activeOpacity={0.7}
                                             >
                                                 <FontAwesome5 name="trash" size={12} color="#ef4444" />
                                             </TouchableOpacity>
@@ -531,7 +557,7 @@ const AdminRoles = () => {
                                 </View>
                             );
                         })}
-                    </View>
+                    </ScrollView>
                 </View>
             </View>
         </ScrollView>
@@ -543,12 +569,12 @@ const AdminRoles = () => {
 const styles = StyleSheet.create({
     rpmMainWrapper: {
         flex: 1,
+        width: '100%',
         backgroundColor: '#e2eaf0', // Fallback for radial-gradient(circle at 50% 50%, #e2eaf0 0%, #bdcdd7 100%)
     },
     rpmMainWrapperContent: {
         paddingVertical: 30,
-        paddingHorizontal: Platform.OS === 'web' && SCREEN_WIDTH > 1024 ? 40 : 16,
-        minHeight: '100%',
+        flexGrow: 1,
     },
     rpmHeaderRow: {
         marginBottom: 24,
@@ -570,14 +596,11 @@ const styles = StyleSheet.create({
         fontWeight: '500',
     },
     rpmDashboardGrid: {
-        flexDirection: Platform.OS === 'web' && SCREEN_WIDTH > 1024 ? 'row' : 'column',
-        gap: 30,
         zIndex: 1,
         alignItems: 'flex-start',
+        width: '100%',
     },
     rpmPanel: {
-        flex: Platform.OS === 'web' && SCREEN_WIDTH > 1024 ? 1 : 0,
-        width: Platform.OS === 'web' && SCREEN_WIDTH > 1024 ? 'auto' : '100%',
         backgroundColor: 'rgba(235, 244, 249, 0.95)', // Simulated blur fallback
         borderRadius: 22,
         borderWidth: 1,
@@ -717,8 +740,12 @@ const styles = StyleSheet.create({
     rpmPermGridWrapper: {
         position: 'relative',
     },
-    rpmPermCategoriesList: {
-        maxHeight: 380,
+    rpmPermCategoriesListScroll: {
+        width: '100%',
+    },
+    rpmPermCategoriesListContent: {
+        paddingRight: 6,
+        paddingBottom: 8,
     },
     rpmCatBlock: {
         marginBottom: 16,
@@ -841,10 +868,15 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: '#4a6072',
     },
-    rpmRolesList: {
+    rpmRolesListScroll: {
+        maxHeight: 720,
+        width: '100%',
+    },
+    rpmRolesListContent: {
         flexDirection: 'column',
         gap: 12,
-        maxHeight: Platform.OS === 'web' ? 720 : undefined,
+        paddingRight: 4,
+        paddingBottom: 16,
     },
     rpmEmptyState: {
         paddingVertical: 40,
@@ -899,13 +931,14 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     deleteActionBtn: {
-        // Red overrides inline
+        borderColor: '#fca5a5',
+        backgroundColor: '#fef2f2',
     },
     rpmRoleCardTop: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 10,
-        paddingRight: Platform.OS === 'web' && SCREEN_WIDTH > 480 ? 68 : 0,
+        paddingRight: 70,
         flexWrap: 'wrap',
     },
     rpmRoleName: {

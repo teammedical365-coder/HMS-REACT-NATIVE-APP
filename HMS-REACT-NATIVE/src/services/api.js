@@ -1,8 +1,9 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_BASE_URL } from '../utils/Constants';
 
-// 🌐 Get Base URL from .env (Fallback to local IP just in case)
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.38.171:3000';
+// 🌐 Use central API_BASE_URL (respects EXPO_PUBLIC_API_URL with live backend fallback)
+const BASE_URL = API_BASE_URL;
 
 // 🚀 Create Axios Instance
 const api = axios.create({

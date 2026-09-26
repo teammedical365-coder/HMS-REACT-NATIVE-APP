@@ -8,6 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path, Defs, LinearGradient as SvgLinearGradient, Stop, Circle, Rect, G } from 'react-native-svg';
 import { useNavigation } from '@react-navigation/native';
 import { hospitalAPI, rnBuildAPI } from '../../utils/api';
+import { isSafeImageUrl } from '../../utils/resourceSecurity';
 
 function WhiteLabelBuilder({ hospital }) {
     const hospitalId = hospital?._id || hospital?.id;
@@ -365,14 +366,15 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
         return true;
     });
 
-    const logoUrl = hospital?.brandingSchema?.logoUrl || hospital?.branding?.logoUrl;
+    const rawLogo = hospital?.brandingSchema?.logoUrl || hospital?.branding?.logoUrl;
+    const logoUrl = isSafeImageUrl(rawLogo) ? rawLogo : null;
     const hospitalName = hospital?.name || 'Apollo Hospital';
     const hospitalLocation = hospital?.city ? `${hospital.city}${hospital.state ? `, ${hospital.state}` : ''}` : (hospital?.address || 'Jaipur, Rajasthan');
     const hospitalPhone = hospital?.phone || '8795719836';
     const doctorCount = s?.doctorCount ?? s?.totalDoctors ?? s?.staffCounts?.doctor ?? 0;
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+        <ScrollView style={[styles.container, { flex: 1, width: '100%' }]} contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={true} nestedScrollEnabled={true}>
             {/* 1. Hospital Profile Hero Header Banner (100% Web Parity with SVG Wave, Hexagon Logo, ECG Heartbeat Widget) */}
             <View style={styles.heroBanner}>
                 {/* Left Organic Deep Blue / Indigo Wave Background (Desktop/Tablet only, matching Web 1:1) */}
@@ -817,7 +819,7 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
                         </View>
                     </View>
 
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={true} nestedScrollEnabled={true} style={{ flex: 1 }}>
                         <View style={styles.recentApptTableContainer}>
                             <View style={styles.recentApptHeaderRow}>
                                 <Text style={[styles.recentApptTh, { width: 130 }]}>PATIENT</Text>
@@ -827,7 +829,7 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
                                 <Text style={[styles.recentApptTh, { width: 80, textAlign: 'right' }]}>AMOUNT</Text>
                             </View>
 
-                            <ScrollView style={{ maxHeight: 210 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                            <ScrollView style={{ maxHeight: 210 }} nestedScrollEnabled={true} showsVerticalScrollIndicator={true}>
                                 {appointmentsToRender.length > 0 ? (
                                     appointmentsToRender.map((appt, idx) => {
                                         const pName = appt.userId?.name || appt.patientName || appt.patient || 'Patient';
@@ -1247,7 +1249,7 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
                                 <Feather name="chevron-down" size={12} color="#64748b" style={styles.roleSelectArrow} />
                             </View>
                         ) : (
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxWidth: 260 }}>
+                            <ScrollView horizontal showsHorizontalScrollIndicator={true} nestedScrollEnabled={true} style={{ maxWidth: 260 }}>
                                 <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
                                     {uniqueRoleNames.map(r => (
                                         <TouchableOpacity
@@ -1285,7 +1287,7 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
 
                 {/* Staff Table */}
                 <View style={styles.staffTableWrap}>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={true} nestedScrollEnabled={true}>
                         <View style={{ minWidth: 700 }}>
                             <View style={styles.staffThead}>
                                 <Text style={[styles.staffTh, { width: 220 }]}>NAME</Text>
@@ -1294,7 +1296,7 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
                                 <Text style={[styles.staffTh, { width: 140 }]}>PHONE</Text>
                             </View>
 
-                            <ScrollView style={{ maxHeight: 280 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                            <ScrollView style={{ maxHeight: 280 }} nestedScrollEnabled={true} showsVerticalScrollIndicator={true}>
                                 {loadingStats ? (
                                     <View style={{ padding: 30, alignItems: 'center' }}>
                                         <ActivityIndicator size="small" color="#6366f1" />

@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, Image, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
+import { isSafeImageUrl } from '../../utils/resourceSecurity';
 import { styles } from './CentralAdminDashboardStyles';
 
 export default function CentralAdminHospitalList({ 
@@ -97,7 +98,8 @@ export default function CentralAdminHospitalList({
       {/* HOSPITAL CARDS GRID */}
       <View style={styles.hospitalsGrid}>
         {filteredHospitals.map((hospital) => {
-          const logoUrl = hospital.brandingSchema?.logoUrl || hospital.branding?.logoUrl;
+          const rawLogo = hospital.brandingSchema?.logoUrl || hospital.branding?.logoUrl;
+          const logoUrl = isSafeImageUrl(rawLogo) ? rawLogo : null;
           
           return (
             <TouchableOpacity 

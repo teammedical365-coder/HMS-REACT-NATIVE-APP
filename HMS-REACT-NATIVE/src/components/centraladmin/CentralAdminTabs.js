@@ -40,11 +40,25 @@ const TAB_THEMES = {
     color: '#0d9488',
     shadow: 'rgba(13, 148, 136, 0.18)',
   },
+  labs: {
+    bg: '#f0f9ff',
+    border: '#bae6fd',
+    color: '#0ea5e9',
+    shadow: 'rgba(14, 165, 233, 0.18)',
+  },
+  pharmacy: {
+    bg: '#fff1f2',
+    border: '#fecdd3',
+    color: '#f43f5e',
+    shadow: 'rgba(244, 63, 94, 0.18)',
+  },
 };
 
 export default function CentralAdminTabs({ activeTab, setActiveTab, onRevenueAnalyticsPress, onRefreshPress, isRefreshing = false }) {
   const { width } = useWindowDimensions();
   const isMobile = width < 768;
+  const isSmallPhone = width < 480;
+  const isTinyPhone = width < 390;
 
   const spinAnim = useRef(new Animated.Value(0)).current;
 
@@ -71,7 +85,7 @@ export default function CentralAdminTabs({ activeTab, setActiveTab, onRevenueAna
     outputRange: ['0deg', '360deg'],
   });
 
-  const tabs = [
+  const baseTabs = [
     { id: 'hospitals', label: 'Enterprise Plan', iconType: 'user' },
     { id: 'multi-speciality', label: 'Multi-Speciality Starter', iconType: 'file' },
     { id: 'clinic-basic', label: 'Clinic Basic Plan', iconType: 'edit' },
@@ -79,6 +93,13 @@ export default function CentralAdminTabs({ activeTab, setActiveTab, onRevenueAna
     { id: 'revenue-plans', label: 'Revenue Plans', iconType: 'credit-card' },
     { id: 'configurations', label: 'Configurations', iconType: 'settings' },
   ];
+
+  const tabs = [...baseTabs];
+  if (activeTab === 'labs') {
+    tabs.push({ id: 'labs', label: 'Labs Catalog', iconType: 'activity' });
+  } else if (activeTab === 'pharmacy') {
+    tabs.push({ id: 'pharmacy', label: 'Pharmacy Catalog', iconType: 'grid' });
+  }
 
   const renderTabIcon = (type, isActive, activeColor) => {
     const strokeColor = isActive ? activeColor : '#64748b';
@@ -120,6 +141,21 @@ export default function CentralAdminTabs({ activeTab, setActiveTab, onRevenueAna
             <Path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
           </Svg>
         );
+      case 'activity':
+        return (
+          <Svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke={strokeColor} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <Path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+          </Svg>
+        );
+      case 'grid':
+        return (
+          <Svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke={strokeColor} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <Rect x="3" y="3" width="7" height="7" rx="1" />
+            <Rect x="14" y="3" width="7" height="7" rx="1" />
+            <Rect x="14" y="14" width="7" height="7" rx="1" />
+            <Rect x="3" y="14" width="7" height="7" rx="1" />
+          </Svg>
+        );
       default:
         return null;
     }
@@ -128,11 +164,11 @@ export default function CentralAdminTabs({ activeTab, setActiveTab, onRevenueAna
   return (
     <View style={{ marginBottom: 16 }}>
       {/* 1. Header Row */}
-      <View style={[styles.headerRow, isMobile && { flexDirection: 'column', alignItems: 'stretch', gap: 14 }]}>
-        <View style={styles.titleGroup}>
-          <View style={styles.titleIconBox}>
+      <View style={[styles.headerRow, isMobile && { flexDirection: 'column', alignItems: 'stretch', gap: isSmallPhone ? 10 : 14 }]}>
+        <View style={[styles.titleGroup, isSmallPhone && { gap: 10 }]}>
+          <View style={[styles.titleIconBox, isMobile && { width: 44, height: 44, borderRadius: 12 }, isSmallPhone && { width: 40, height: 40, borderRadius: 10 }]}>
             {/* Exact Web 3D Hospital Building SVG */}
-            <Svg width={28} height={28} viewBox="0 0 40 40" fill="none">
+            <Svg width={isSmallPhone ? 24 : 28} height={isSmallPhone ? 24 : 28} viewBox="0 0 40 40" fill="none">
               <Rect width="40" height="40" rx="10" fill="#2563EB" />
               <Rect x="8" y="10" width="24" height="22" rx="4" fill="#ffffff" />
               <Rect x="17" y="5" width="6" height="6" rx="2" fill="#60A5FA" />
@@ -144,21 +180,21 @@ export default function CentralAdminTabs({ activeTab, setActiveTab, onRevenueAna
             </Svg>
           </View>
           <View style={styles.titleTextCol}>
-            <Text style={[styles.mainTitle, isMobile && { fontSize: 20 }]}>
+            <Text style={[styles.mainTitle, isMobile && { fontSize: 20 }, isSmallPhone && { fontSize: 18 }, isTinyPhone && { fontSize: 16.5 }]}>
               Central Administration Dashboard
             </Text>
-            <Text style={[styles.mainSubtitle, isMobile && { fontSize: 12.5 }]}>
+            <Text style={[styles.mainSubtitle, isMobile && { fontSize: 12.5 }, isSmallPhone && { fontSize: 11.5 }]}>
               Manage all hospitals, staff, and system configurations
             </Text>
           </View>
         </View>
         
         {/* Header Actions */}
-        <View style={[styles.headerActionsRow, isMobile && { width: '100%', justifyContent: 'space-between' }]}>
+        <View style={[styles.headerActionsRow, isMobile && { width: '100%', gap: 8 }]}>
           <Pressable 
             style={({ pressed, hovered }) => [
               styles.revenueAnalyticsBtn, 
-              isMobile && { flex: 1, paddingVertical: 10, paddingHorizontal: 12 },
+              isMobile && { flex: 1, paddingVertical: 10, paddingHorizontal: isSmallPhone ? 8 : 12, justifyContent: 'center' },
               hovered && {
                 backgroundColor: '#1d4ed8',
                 transform: [{ translateY: -1 }],
@@ -177,10 +213,10 @@ export default function CentralAdminTabs({ activeTab, setActiveTab, onRevenueAna
             ]} 
             onPress={onRevenueAnalyticsPress}
           >
-            <Svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth={2.2} style={{ marginRight: 6 }}>
+            <Svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth={2.2} style={{ marginRight: 6 }}>
               <Path d="M3 3v18h18" /><Path d="m19 9-5 5-4-4-3 3" />
             </Svg>
-            <Text style={[styles.revenueAnalyticsBtnText, isMobile && { fontSize: 12.5 }]}>
+            <Text style={[styles.revenueAnalyticsBtnText, isMobile && { fontSize: isSmallPhone ? 11.5 : 12.5 }]}>
               System Revenue Analytics
             </Text>
             <Text style={{ color: '#ffffff', fontSize: 10, marginLeft: 6 }}>▼</Text>
@@ -189,7 +225,7 @@ export default function CentralAdminTabs({ activeTab, setActiveTab, onRevenueAna
           <Pressable 
             style={({ pressed, hovered }) => [
               localStyles.refreshBtn, 
-              isMobile && { paddingVertical: 10, paddingHorizontal: 12 },
+              isMobile && { paddingVertical: 10, paddingHorizontal: isSmallPhone ? 10 : 14, flexShrink: 0 },
               hovered && !isRefreshing && {
                 backgroundColor: '#eff6ff',
                 borderColor: '#93c5fd',
@@ -214,14 +250,14 @@ export default function CentralAdminTabs({ activeTab, setActiveTab, onRevenueAna
             disabled={isRefreshing}
           >
             <Animated.View style={{ transform: [{ rotate: spinInterpolate }], marginRight: 6 }}>
-              <Svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke={isRefreshing ? '#1d4ed8' : '#2563eb'} strokeWidth={2.2}>
+              <Svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={isRefreshing ? '#1d4ed8' : '#2563eb'} strokeWidth={2.2}>
                 <Path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
                 <Path d="M3 3v5h5"/>
                 <Path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
                 <Path d="M16 21h5v-5"/>
               </Svg>
             </Animated.View>
-            <Text style={[localStyles.refreshBtnText, isMobile && { fontSize: 12.5 }, isRefreshing && { color: '#1d4ed8' }]}>
+            <Text style={[localStyles.refreshBtnText, isMobile && { fontSize: isSmallPhone ? 11.5 : 12.5 }, isRefreshing && { color: '#1d4ed8' }]}>
               {isRefreshing ? 'Refreshing...' : 'Refresh'}
             </Text>
           </Pressable>
@@ -229,11 +265,12 @@ export default function CentralAdminTabs({ activeTab, setActiveTab, onRevenueAna
       </View>
 
       {/* 2. Category / Plan Tabs Navigation (Multi-Colored Web Themes) */}
-      <View style={styles.tabsNavContainer}>
+      <View style={[styles.tabsNavContainer, isMobile && { marginTop: 10, marginBottom: 18 }]}>
         <ScrollView 
           horizontal 
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.tabsScrollWrapper} 
+          nestedScrollEnabled={true}
+          contentContainerStyle={[styles.tabsScrollWrapper, isMobile && { gap: 8, paddingBottom: 8 }]} 
         >
           {tabs.map((tab) => {
             const isActive = activeTab === tab.id;
@@ -244,7 +281,9 @@ export default function CentralAdminTabs({ activeTab, setActiveTab, onRevenueAna
                 key={tab.id}
                 style={({ pressed, hovered }) => [
                   localStyles.tabPill, 
-                  isMobile && { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 10 },
+                  isMobile && { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 10, gap: 6 },
+                  isSmallPhone && { paddingVertical: 7, paddingHorizontal: 11, borderRadius: 9, gap: 5 },
+                  isTinyPhone && { paddingVertical: 6, paddingHorizontal: 9 },
                   isActive ? {
                     backgroundColor: theme.bg,
                     borderColor: theme.border,
@@ -285,6 +324,8 @@ export default function CentralAdminTabs({ activeTab, setActiveTab, onRevenueAna
                 <Text style={[
                   localStyles.tabPillText, 
                   isMobile && { fontSize: 12.5 },
+                  isSmallPhone && { fontSize: 11.5 },
+                  isTinyPhone && { fontSize: 11 },
                   isActive ? { color: theme.color, fontWeight: '800' } : localStyles.tabPillTextInactive
                 ]}>
                   {tab.label}

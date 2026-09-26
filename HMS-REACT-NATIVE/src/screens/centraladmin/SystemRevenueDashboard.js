@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { 
     View, Text, TouchableOpacity, ScrollView, TextInput, 
-    StyleSheet, ActivityIndicator, Dimensions 
+    StyleSheet, ActivityIndicator, Dimensions, Modal, Pressable,
+    useWindowDimensions, Platform
 } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { revenueAPI } from '../../utils/api';
@@ -39,12 +41,46 @@ const fmt = (n) =>
 
 const SystemRevenueDashboard = () => {
     const navigation = useNavigation();
+    const { width } = useWindowDimensions();
+    const isDesktop = width >= 1100;
+    const isTablet = width >= 768 && width < 1100;
+    const isMobile = width < 768;
+    const isSmallPhone = width < 480;
+
+    const kpiCardWidth = Platform.select({
+        web: isDesktop
+            ? 'calc((100% - 48px) / 4)'
+            : (isSmallPhone ? '100%' : 'calc((100% - 10px) / 2)'),
+        default: isDesktop
+            ? '23.5%'
+            : (isSmallPhone ? '100%' : '48%'),
+    });
+
+    const modelCardWidth = Platform.select({
+        web: isDesktop
+            ? 'calc((100% - 32px) / 3)'
+            : (isTablet ? 'calc((100% - 16px) / 2)' : '100%'),
+        default: isDesktop
+            ? '31.5%'
+            : (isTablet ? '48%' : '100%'),
+    });
+
+    const quarterlyCardWidth = Platform.select({
+        web: isDesktop
+            ? 'calc((100% - 36px) / 4)'
+            : (isSmallPhone ? '100%' : 'calc((100% - 10px) / 2)'),
+        default: isDesktop
+            ? '23%'
+            : (isSmallPhone ? '100%' : '48%'),
+    });
+
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [activeView, setActiveView] = useState('overview'); // overview | hospitals | monthly | quarterly
     const [search, setSearch] = useState('');
     const [filterModel, setFilterModel] = useState('all');
+    const [filterModalVisible, setFilterModalVisible] = useState(false);
     const [currentUser, setCurrentUser] = useState({});
 
     useEffect(() => {
@@ -114,10 +150,15 @@ const SystemRevenueDashboard = () => {
     const quarterlyTotal = quarterlyBreakdown.reduce((s, q) => s + q.total, 0);
 
     return (
-        <ScrollView style={styles.srdPage} contentContainerStyle={styles.srdContainer}>
+        <ScrollView 
+            style={[styles.srdPage, { flex: 1, width: '100%' }]} 
+            contentContainerStyle={[styles.srdContainer, isMobile && { padding: 14 }]}
+            showsVerticalScrollIndicator={true}
+            nestedScrollEnabled={true}
+        >
 
             {/* ── Header ───────────────────────────────────── */}
-            <View style={styles.srdHeader}>
+            <View style={[styles.srdHeader, isMobile && { padding: 18, flexDirection: 'column', gap: 14, borderRadius: 14 }]}>
                 <View style={styles.srdHeaderLeft}>
                     <TouchableOpacity style={styles.srdBackBtn} onPress={() => navigation.navigate('CentralAdminDashboard')}>
                         <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13 }}>← Back to Dashboard</Text>
@@ -125,10 +166,10 @@ const SystemRevenueDashboard = () => {
                     <View style={styles.srdBrandBadge}>
                         <Text style={styles.srdBrandBadgeText}>REVENUE INTELLIGENCE</Text>
                     </View>
-                    <Text style={styles.headerTitle}>System Revenue Analytics</Text>
-                    <Text style={styles.headerSubtitle}>Complete financial overview of your SaaS platform across all hospitals & clinics</Text>
+                    <Text style={[styles.headerTitle, isMobile && { fontSize: 21 }]}>System Revenue Analytics</Text>
+                    <Text style={[styles.headerSubtitle, isMobile && { fontSize: 12.5 }]}>Complete financial overview of your SaaS platform across all hospitals & clinics</Text>
                 </View>
-                <View style={styles.srdHeaderRight}>
+                <View style={[styles.srdHeaderRight, isMobile && { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
                     <Text style={styles.srdAdminName}>{currentUser?.name}</Text>
                     <TouchableOpacity style={styles.srdRefreshBtn} onPress={load}>
                         <Text style={{ color: '#a5b4fc', fontSize: 13, fontWeight: '600' }}>↻ Refresh</Text>
@@ -137,48 +178,48 @@ const SystemRevenueDashboard = () => {
             </View>
 
             {/* ── Top KPI Cards ─────────────────────────────────── */}
-            <View style={styles.srdKpiGrid}>
-                <View style={[styles.srdKpiCard, styles.srdKpiPrimary]}>
-                    <Text style={styles.srdKpiIcon}>💰</Text>
+            <View style={[styles.srdKpiGrid, isMobile && { gap: 10 }]}>
+                <View style={[styles.srdKpiCard, styles.srdKpiPrimary, { width: kpiCardWidth, minWidth: isSmallPhone ? '100%' : undefined }, isMobile && { padding: 14, borderRadius: 12, gap: 10 }]}>
+                    <Text style={[styles.srdKpiIcon, isMobile && { fontSize: 22 }]}>💰</Text>
                     <View style={styles.srdKpiBody}>
                         <Text style={styles.srdKpiLabel}>Current Month Revenue</Text>
-                        <Text style={styles.srdKpiValue}>{fmt(summary?.totalCurrentMonthRevenue)}</Text>
+                        <Text style={[styles.srdKpiValue, isMobile && { fontSize: 17 }]}>{fmt(summary?.totalCurrentMonthRevenue)}</Text>
                         <Text style={styles.srdKpiDesc}>All models combined</Text>
                     </View>
                 </View>
-                <View style={styles.srdKpiCard}>
-                    <Text style={styles.srdKpiIcon}>📊</Text>
+                <View style={[styles.srdKpiCard, { width: kpiCardWidth, minWidth: isSmallPhone ? '100%' : undefined }, isMobile && { padding: 14, borderRadius: 12, gap: 10 }]}>
+                    <Text style={[styles.srdKpiIcon, isMobile && { fontSize: 22 }]}>📊</Text>
                     <View style={styles.srdKpiBody}>
                         <Text style={styles.srdKpiLabel}>Annual Projected</Text>
-                        <Text style={styles.srdKpiValue}>{fmt(annualProjected)}</Text>
+                        <Text style={[styles.srdKpiValue, isMobile && { fontSize: 17 }]}>{fmt(annualProjected)}</Text>
                         <Text style={styles.srdKpiDesc}>Based on 12-month average</Text>
                     </View>
                 </View>
-                <View style={styles.srdKpiCard}>
-                    <Text style={styles.srdKpiIcon}>🏥</Text>
+                <View style={[styles.srdKpiCard, { width: kpiCardWidth, minWidth: isSmallPhone ? '100%' : undefined }, isMobile && { padding: 14, borderRadius: 12, gap: 10 }]}>
+                    <Text style={[styles.srdKpiIcon, isMobile && { fontSize: 22 }]}>🏥</Text>
                     <View style={styles.srdKpiBody}>
                         <Text style={styles.srdKpiLabel}>Total Entities</Text>
-                        <Text style={styles.srdKpiValue}>{summary?.totalEntities || 0}</Text>
+                        <Text style={[styles.srdKpiValue, isMobile && { fontSize: 17 }]}>{summary?.totalEntities || 0}</Text>
                         <Text style={styles.srdKpiDesc}>Active hospitals & clinics</Text>
                     </View>
                 </View>
-                <View style={styles.srdKpiCard}>
-                    <Text style={styles.srdKpiIcon}>📆</Text>
+                <View style={[styles.srdKpiCard, { width: kpiCardWidth, minWidth: isSmallPhone ? '100%' : undefined }, isMobile && { padding: 14, borderRadius: 12, gap: 10 }]}>
+                    <Text style={[styles.srdKpiIcon, isMobile && { fontSize: 22 }]}>📆</Text>
                     <View style={styles.srdKpiBody}>
                         <Text style={styles.srdKpiLabel}>Last 4 Quarters</Text>
-                        <Text style={styles.srdKpiValue}>{fmt(quarterlyTotal)}</Text>
+                        <Text style={[styles.srdKpiValue, isMobile && { fontSize: 17 }]}>{fmt(quarterlyTotal)}</Text>
                         <Text style={styles.srdKpiDesc}>Total collected</Text>
                     </View>
                 </View>
             </View>
 
             {/* ── Model Breakdown Cards ─────────────────────────── */}
-            <View style={styles.srdModelGrid}>
+            <View style={[styles.srdModelGrid, isMobile && { gap: 12 }]}>
                 {['fixed_monthly', 'per_patient', 'per_login'].map(key => {
                     const meta = MODEL_META[key];
                     const s = summary?.[key === 'fixed_monthly' ? 'fixedMonthly' : key === 'per_patient' ? 'perPatient' : 'perLogin'];
                     return (
-                        <View key={key} style={[styles.srdModelCard, { borderColor: meta.border, backgroundColor: meta.bg }]}>
+                        <View key={key} style={[styles.srdModelCard, { width: modelCardWidth, minWidth: isMobile ? '100%' : undefined, borderColor: meta.border, backgroundColor: meta.bg }, isMobile && { padding: 16, borderRadius: 14 }]}>
                             <View style={styles.srdModelHeader}>
                                 <Text style={styles.srdModelIcon}>{meta.icon}</Text>
                                 <View>
@@ -220,7 +261,7 @@ const SystemRevenueDashboard = () => {
 
             {/* ── View Tabs ─────────────────────────────────────── */}
             <View style={styles.srdViewTabs}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={true} nestedScrollEnabled={true}>
                     {[
                         { id: 'overview', label: '📈 Monthly Chart' },
                         { id: 'quarterly', label: '📆 Quarterly' },
@@ -239,7 +280,7 @@ const SystemRevenueDashboard = () => {
 
             {/* ── Monthly Chart ─────────────────────────────────── */}
             {activeView === 'overview' && (
-                <View style={styles.srdCard}>
+                <View style={[styles.srdCard, isMobile && { padding: 16, borderRadius: 14 }]}>
                     <View style={styles.srdCardHeader}>
                         <Text style={styles.srdCardTitle}>Monthly Revenue — Last 12 Months</Text>
                         <Text style={styles.srdCardSubtitle}>Breakdown by revenue model per month</Text>
@@ -257,7 +298,7 @@ const SystemRevenueDashboard = () => {
                         ))}
                     </View>
 
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={true} nestedScrollEnabled={true}>
                         <View style={styles.srdBarChart}>
                             {monthlyBreakdown.map((m, i) => (
                                 <View key={i} style={styles.srdBarCol}>
@@ -287,7 +328,7 @@ const SystemRevenueDashboard = () => {
                     )}
 
                     {/* Monthly table */}
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 24 }}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={true} nestedScrollEnabled={true} style={{ marginTop: 24 }}>
                         <View style={styles.srdTable}>
                             <View style={styles.srdTableRowHeader}>
                                 <Text style={[styles.th, { width: 100 }]}>Month</Text>
@@ -312,15 +353,15 @@ const SystemRevenueDashboard = () => {
 
             {/* ── Quarterly View ────────────────────────────────── */}
             {activeView === 'quarterly' && (
-                <View style={styles.srdCard}>
+                <View style={[styles.srdCard, isMobile && { padding: 16, borderRadius: 14 }]}>
                     <View style={styles.srdCardHeader}>
                         <Text style={styles.srdCardTitle}>Quarterly Revenue Breakdown</Text>
                         <Text style={styles.srdCardSubtitle}>Revenue summaries across last 4 quarters</Text>
                     </View>
 
-                    <View style={styles.srdQuarterlyGrid}>
+                    <View style={[styles.srdQuarterlyGrid, isMobile && { gap: 10 }]}>
                         {quarterlyBreakdown.map((q, i) => (
-                            <View key={i} style={styles.srdQuarterCard}>
+                            <View key={i} style={[styles.srdQuarterCard, { width: quarterlyCardWidth, minWidth: isSmallPhone ? '100%' : undefined }]}>
                                 <Text style={styles.srdQuarterLabel}>{q.label}</Text>
                                 <Text style={styles.srdQuarterAmount}>{fmt(q.total)}</Text>
                                 <View style={styles.srdQuarterBarWrap}>
@@ -354,7 +395,7 @@ const SystemRevenueDashboard = () => {
 
             {/* ── All Hospitals ─────────────────────────────────── */}
             {activeView === 'hospitals' && (
-                <View style={styles.srdCard}>
+                <View style={[styles.srdCard, isMobile && { padding: 16, borderRadius: 14 }]}>
                     <View style={styles.srdCardHeader}>
                         <Text style={styles.srdCardTitle}>All Hospitals & Clinics</Text>
                         <Text style={styles.srdCardSubtitle}>Revenue model, rate, and current month charge for each entity</Text>
@@ -368,17 +409,69 @@ const SystemRevenueDashboard = () => {
                             value={search}
                             onChangeText={setSearch}
                         />
-                        {/* Fake Select for RN. Since standard React Native doesn't have an inbuilt dropdown component matching standard CSS, we render a disabled input-like view or just standard TextInput. We will map it to a simple custom button for demonstration or leave as simple input. Since no CustomSelect was explicitly provided in this component unlike Admin.js, I will use a simple TouchableOpacity with a prompt (if we had access to ActionSheet) or just keep it simple. */}
-                        <TouchableOpacity style={styles.srdSelect} onPress={() => Alert.alert('Filter', 'Implement Picker Component here')}>
-                            <Text style={{ color: '#1e293b' }}>
+                        <TouchableOpacity 
+                            style={styles.srdSelect} 
+                            onPress={() => setFilterModalVisible(true)}
+                            accessibilityLabel="Filter by revenue model"
+                        >
+                            <Text style={{ color: '#1e293b', flex: 1, fontSize: 13 }}>
                                 {filterModel === 'all' ? 'All Models' : 
                                  filterModel === 'fixed_monthly' ? 'Model A — Fixed Monthly' : 
                                  filterModel === 'per_patient' ? 'Model B — Per Patient' : 'Model C — Per Login'}
                             </Text>
+                            <Feather name="chevron-down" size={16} color="#64748b" />
                         </TouchableOpacity>
+
+                        {/* Revenue Model Filter Modal */}
+                        <Modal
+                            visible={filterModalVisible}
+                            transparent={true}
+                            animationType="fade"
+                            onRequestClose={() => setFilterModalVisible(false)}
+                        >
+                            <Pressable 
+                                style={styles.pickerOverlay} 
+                                onPress={() => setFilterModalVisible(false)}
+                            >
+                                <View style={styles.pickerModalContent} onStartShouldSetResponder={() => true}>
+                                    <View style={styles.pickerHeader}>
+                                        <Text style={styles.pickerTitle}>Filter by Revenue Model</Text>
+                                        <TouchableOpacity 
+                                            onPress={() => setFilterModalVisible(false)}
+                                            style={styles.pickerCloseBtn}
+                                        >
+                                            <Feather name="x" size={18} color="#64748b" />
+                                        </TouchableOpacity>
+                                    </View>
+                                    {[
+                                        { value: 'all', label: 'All Models' },
+                                        { value: 'fixed_monthly', label: 'Model A — Fixed Monthly' },
+                                        { value: 'per_patient', label: 'Model B — Per Patient' },
+                                        { value: 'per_login', label: 'Model C — Per Login' }
+                                    ].map(opt => {
+                                        const isSelected = filterModel === opt.value;
+                                        return (
+                                            <TouchableOpacity
+                                                key={opt.value}
+                                                style={[styles.pickerItem, isSelected && styles.pickerItemActive]}
+                                                onPress={() => {
+                                                    setFilterModel(opt.value);
+                                                    setFilterModalVisible(false);
+                                                }}
+                                            >
+                                                <Text style={[styles.pickerItemText, isSelected && styles.pickerItemTextActive]}>
+                                                    {opt.label}
+                                                </Text>
+                                                {isSelected && <Feather name="check" size={18} color="#6366f1" />}
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
+                            </Pressable>
+                        </Modal>
                     </View>
 
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={true} nestedScrollEnabled={true}>
                         <View style={styles.srdTable}>
                             <View style={styles.srdTableRowHeader}>
                                 <Text style={[styles.th, { width: 40 }]}>#</Text>
@@ -921,7 +1014,64 @@ const styles = StyleSheet.create({
         color: '#374151',
         fontSize: 12,
         fontWeight: '600',
-    }
+    },
+    pickerOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(15, 23, 42, 0.45)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20,
+    },
+    pickerModalContent: {
+        backgroundColor: '#ffffff',
+        borderRadius: 16,
+        padding: 20,
+        width: '100%',
+        maxWidth: 380,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.15,
+        shadowRadius: 16,
+        elevation: 8,
+    },
+    pickerHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 16,
+        paddingBottom: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: '#f1f5f9',
+    },
+    pickerTitle: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: '#0f172a',
+    },
+    pickerCloseBtn: {
+        padding: 4,
+    },
+    pickerItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingVertical: 12,
+        paddingHorizontal: 14,
+        borderRadius: 10,
+        marginBottom: 6,
+    },
+    pickerItemActive: {
+        backgroundColor: '#f5f3ff',
+    },
+    pickerItemText: {
+        fontSize: 14,
+        color: '#334155',
+        fontWeight: '500',
+    },
+    pickerItemTextActive: {
+        color: '#6366f1',
+        fontWeight: '700',
+    },
 });
 
 export default SystemRevenueDashboard;

@@ -1,7 +1,9 @@
 import React from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Switch } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Switch, Image, useWindowDimensions } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
 import { styles } from './CentralAdminDashboardStyles';
 import DropdownSelect from '../common/DropdownSelect';
+import HospitalAdminHUDForm from '../HospitalAdminHUDForm';
 
 export default function CentralAdminForms({
   showHospitalForm,
@@ -16,21 +18,172 @@ export default function CentralAdminForms({
   onAddCustomDept,
   onCreateAdmin,
   hospitals = [],
+  // Simple Clinic Form Props (1:1 Web Parity)
+  showClinicForm,
+  editClinic,
+  clinicForm = { name: '', slug: '', address: '', city: '', state: '', phone: '', email: '', website: '', defaultFee: 0 },
+  setClinicForm,
+  handleSaveClinic,
+  savingClinic = false,
 }) {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
+  const formRowStyle = { flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 12 : 20 };
+
   const [deptDropdownOpen, setDeptDropdownOpen] = React.useState(false);
   const [newDeptInput, setNewDeptInput] = React.useState('');
-  const [adminForm, setAdminForm] = React.useState({ name: '', email: '', phone: '', password: '', hospitalId: '' });
+  const [adminForm, setAdminForm] = React.useState({ 
+    name: '', email: '', phone: '', password: '', hospitalId: '', file: null, age: '', aadhaarNumber: '' 
+  });
   const [adminFormError, setAdminFormError] = React.useState('');
 
   React.useEffect(() => {
     if (showHospitalAdminForm) {
-      setAdminForm({ name: '', email: '', phone: '', password: '', hospitalId: '' });
+      setAdminForm({ name: '', email: '', phone: '', password: '', hospitalId: '', file: null, age: '', aadhaarNumber: '' });
       setAdminFormError('');
     }
   }, [showHospitalAdminForm]);
 
-  if (!showHospitalForm && !showHospitalAdminForm) {
+  if (!showHospitalForm && !showHospitalAdminForm && !showClinicForm) {
     return null;
+  }
+
+  if (showClinicForm) {
+    return (
+      <View style={{ width: '100%', marginVertical: 20 }}>
+        <View style={[styles.chMainCard, isMobile && { padding: 14, borderRadius: 16 }]}>
+          <View style={[styles.chCardHeader, isMobile && { gap: 10 }]}>
+            <View style={{
+              width: 54, height: 54, backgroundColor: '#fdf2f8',
+              borderWidth: 1.5, borderColor: '#fbcfe8', borderRadius: 14,
+              alignItems: 'center', justifyContent: 'center'
+            }}>
+              <Text style={{ fontSize: 24 }}>🏪</Text>
+            </View>
+            
+            <View style={styles.chTitleCol}>
+              <Text style={styles.chTitleText}>
+                {editClinic ? 'Edit Starter Clinic' : 'Create Starter Clinic'}
+              </Text>
+              <Text style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>
+                {editClinic ? 'Update clinic details and consultation fee' : 'Small clinic managed by 1 doctor. All features included.'}
+              </Text>
+            </View>
+            
+            <TouchableOpacity 
+              onPress={onClose}
+              style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#f8fafc', borderWidth: 1.5, borderColor: '#e2e8f0', alignItems: 'center', justifyContent: 'center', marginLeft: 'auto' }}
+            >
+              <Text style={{ fontSize: 16, color: '#64748b', fontWeight: 'bold' }}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={{ gap: 20 }}>
+            {/* Row 1: Name and Slug */}
+            <View style={formRowStyle}>
+              <View style={{ flex: 1, gap: 6 }}>
+                <Text style={styles.chLabel}>Clinic Name <Text style={{ color: '#059669' }}>*</Text></Text>
+                <TextInput 
+                  style={styles.chInput} 
+                  placeholder="e.g. City Care Clinic" 
+                  value={clinicForm.name}
+                  onChangeText={t => setClinicForm(prev => ({ ...prev, name: t }))}
+                />
+              </View>
+              <View style={{ flex: 1, gap: 6 }}>
+                <Text style={styles.chLabel}>Subdomain Prefix <Text style={{ color: '#059669' }}>*</Text></Text>
+                <TextInput 
+                  style={styles.chInput} 
+                  placeholder="e.g. citycare" 
+                  value={clinicForm.slug}
+                  onChangeText={t => setClinicForm(prev => ({ ...prev, slug: t.toLowerCase().replace(/[^a-z0-9-]/g, '') }))}
+                />
+              </View>
+            </View>
+
+            {/* Row 2: City, State, Phone */}
+            <View style={formRowStyle}>
+              <View style={{ flex: 1, gap: 6 }}>
+                <Text style={styles.chLabel}>City <Text style={{ color: '#059669' }}>*</Text></Text>
+                <TextInput 
+                  style={styles.chInput} 
+                  placeholder="e.g. Mumbai" 
+                  value={clinicForm.city} 
+                  onChangeText={t => setClinicForm(prev => ({ ...prev, city: t }))} 
+                />
+              </View>
+              <View style={{ flex: 1, gap: 6 }}>
+                <Text style={styles.chLabel}>State <Text style={{ color: '#059669' }}>*</Text></Text>
+                <TextInput 
+                  style={styles.chInput} 
+                  placeholder="e.g. Maharashtra" 
+                  value={clinicForm.state} 
+                  onChangeText={t => setClinicForm(prev => ({ ...prev, state: t }))} 
+                />
+              </View>
+              <View style={{ flex: 1.2, gap: 6 }}>
+                <Text style={styles.chLabel}>Phone <Text style={{ color: '#059669' }}>*</Text></Text>
+                <TextInput 
+                  style={styles.chInput} 
+                  placeholder="10-digit mobile number" 
+                  maxLength={10} 
+                  keyboardType="phone-pad" 
+                  value={clinicForm.phone} 
+                  onChangeText={t => setClinicForm(prev => ({ ...prev, phone: t.replace(/\D/g, '') }))} 
+                />
+              </View>
+            </View>
+
+            {/* Row 3: Email and Consultation Fee */}
+            <View style={formRowStyle}>
+              <View style={{ flex: 1.2, gap: 6 }}>
+                <Text style={styles.chLabel}>Email Address <Text style={{ color: '#059669' }}>*</Text></Text>
+                <TextInput 
+                  style={styles.chInput} 
+                  placeholder="clinic@email.com" 
+                  keyboardType="email-address" 
+                  autoCapitalize="none"
+                  value={clinicForm.email} 
+                  onChangeText={t => setClinicForm(prev => ({ ...prev, email: t }))} 
+                />
+              </View>
+              <View style={{ flex: 1, gap: 6 }}>
+                <Text style={styles.chLabel}>Consultation Fee (₹)</Text>
+                <TextInput 
+                  style={styles.chInput} 
+                  placeholder="e.g. 300" 
+                  keyboardType="numeric" 
+                  value={clinicForm.defaultFee !== undefined && clinicForm.defaultFee !== null ? String(clinicForm.defaultFee) : ''} 
+                  onChangeText={t => setClinicForm(prev => ({ ...prev, defaultFee: Number(t.replace(/\D/g, '')) }))} 
+                />
+              </View>
+            </View>
+
+            {/* Row 4: Address */}
+            <View style={{ gap: 6 }}>
+              <Text style={styles.chLabel}>Address <Text style={{ color: '#059669' }}>*</Text></Text>
+              <TextInput 
+                style={styles.chInput} 
+                placeholder="Enter complete clinic address" 
+                value={clinicForm.address} 
+                onChangeText={t => setClinicForm(prev => ({ ...prev, address: t }))} 
+              />
+            </View>
+
+            {/* Submit Button */}
+            <TouchableOpacity 
+              style={[styles.chSubmitBtn, { backgroundColor: '#db2777' }]} 
+              onPress={handleSaveClinic}
+              disabled={savingClinic}
+            >
+              <Text style={styles.chSubmitBtnText}>
+                {savingClinic ? 'Saving...' : editClinic ? '✅ Update Clinic' : '✅ Create Clinic'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    );
   }
 
   if (showHospitalAdminForm) {
@@ -38,6 +191,20 @@ export default function CentralAdminForms({
       label: `${h.name || 'Unnamed'}${h.city ? ` (${h.city})` : ''}`,
       value: h._id || h.id
     }));
+
+    const pickAvatar = async () => {
+      try {
+        const result = await DocumentPicker.getDocumentAsync({
+          type: 'image/*',
+          copyToCacheDirectory: true,
+        });
+        if (!result.canceled && result.assets?.[0]) {
+          setAdminForm(prev => ({ ...prev, file: result.assets[0] }));
+        }
+      } catch (err) {
+        console.log('Error picking avatar:', err);
+      }
+    };
 
     return (
       <View style={{ width: '100%', marginVertical: 20 }}>
@@ -82,7 +249,7 @@ export default function CentralAdminForms({
               />
             </View>
 
-            <View style={{ flexDirection: 'row', gap: 20 }}>
+            <View style={formRowStyle}>
               <View style={{ flex: 1, gap: 6 }}>
                 <Text style={styles.chLabel}>Admin Name <Text style={{ color: '#059669' }}>*</Text></Text>
                 <TextInput 
@@ -105,7 +272,7 @@ export default function CentralAdminForms({
               </View>
             </View>
 
-            <View style={{ flexDirection: 'row', gap: 20 }}>
+            <View style={formRowStyle}>
               <View style={{ flex: 1, gap: 6 }}>
                 <Text style={styles.chLabel}>Email Address <Text style={{ color: '#059669' }}>*</Text></Text>
                 <TextInput 
@@ -127,6 +294,68 @@ export default function CentralAdminForms({
                   onChangeText={t => setAdminForm(prev => ({ ...prev, password: t }))}
                 />
               </View>
+            </View>
+
+            {/* Age & Aadhaar Row (Web Parity) */}
+            <View style={formRowStyle}>
+              <View style={{ flex: 1, gap: 6 }}>
+                <Text style={styles.chLabel}>Age</Text>
+                <TextInput 
+                  style={styles.chInput} 
+                  placeholder="e.g. 35" 
+                  keyboardType="numeric"
+                  maxLength={3}
+                  value={adminForm.age}
+                  onChangeText={t => setAdminForm(prev => ({ ...prev, age: t.replace(/\D/g, '') }))}
+                />
+              </View>
+              <View style={{ flex: 1.5, gap: 6 }}>
+                <Text style={styles.chLabel}>Aadhaar Number</Text>
+                <TextInput 
+                  style={styles.chInput} 
+                  placeholder="12-digit Aadhaar number" 
+                  keyboardType="numeric"
+                  maxLength={12}
+                  value={adminForm.aadhaarNumber}
+                  onChangeText={t => setAdminForm(prev => ({ ...prev, aadhaarNumber: t.replace(/\D/g, '') }))}
+                />
+              </View>
+            </View>
+
+            {/* Profile Photo Picker (Web Parity) */}
+            <View style={{ gap: 6 }}>
+              <Text style={styles.chLabel}>Admin Profile Photo</Text>
+              <TouchableOpacity 
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  padding: 12,
+                  borderWidth: 1.5,
+                  borderColor: '#cbd5e1',
+                  borderStyle: 'dashed',
+                  borderRadius: 10,
+                  backgroundColor: '#f8fafc',
+                  gap: 12,
+                }}
+                onPress={pickAvatar}
+              >
+                <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#eff6ff', alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ fontSize: 18 }}>📷</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#0f172a' }}>
+                    {adminForm.file ? adminForm.file.name : 'Click to select profile photo'}
+                  </Text>
+                  <Text style={{ fontSize: 11.5, color: '#64748b' }}>
+                    {adminForm.file ? 'Photo selected. Will upload automatically.' : 'PNG, JPG, or WEBP up to 5MB'}
+                  </Text>
+                </View>
+                {adminForm.file && (
+                  <TouchableOpacity onPress={() => setAdminForm(prev => ({ ...prev, file: null }))}>
+                    <Text style={{ fontSize: 16, color: '#ef4444', fontWeight: 'bold' }}>✕</Text>
+                  </TouchableOpacity>
+                )}
+              </TouchableOpacity>
             </View>
 
             {adminFormError ? (
@@ -190,7 +419,7 @@ export default function CentralAdminForms({
 
         <View style={{ gap: 20 }}>
           {/* Row 1 */}
-          <View style={{ flexDirection: 'row', gap: 20 }}>
+          <View style={formRowStyle}>
             <View style={{ flex: 1, gap: 6 }}>
               <Text style={styles.chLabel}>Hospital Name <Text style={{ color: '#059669' }}>*</Text></Text>
               <TextInput 
@@ -212,7 +441,7 @@ export default function CentralAdminForms({
           </View>
 
           {/* Row 2: City, State, Phone */}
-          <View style={{ flexDirection: 'row', gap: 20 }}>
+          <View style={formRowStyle}>
             <View style={{ flex: 1, gap: 6 }}>
               <Text style={styles.chLabel}>City <Text style={{ color: '#059669' }}>*</Text></Text>
               <TextInput style={styles.chInput} placeholder="e.g. Mumbai" value={hospitalForm.city} onChangeText={t => setHospitalForm({ ...hospitalForm, city: t })} />
@@ -228,7 +457,7 @@ export default function CentralAdminForms({
           </View>
 
           {/* Row 3: Email & Website */}
-          <View style={{ flexDirection: 'row', gap: 20 }}>
+          <View style={formRowStyle}>
             <View style={{ flex: 1, gap: 6 }}>
               <Text style={styles.chLabel}>Email <Text style={{ color: '#059669' }}>*</Text></Text>
               <TextInput style={styles.chInput} placeholder="example@gmail.com" keyboardType="email-address" value={hospitalForm.email} onChangeText={t => setHospitalForm({ ...hospitalForm, email: t })} />
@@ -318,7 +547,7 @@ export default function CentralAdminForms({
 
             {hospitalForm.whiteLabelEnabled && (
               <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#e2e8f0', gap: 16 }}>
-                <View style={{ flexDirection: 'row', gap: 20 }}>
+                <View style={formRowStyle}>
                   <View style={{ flex: 1, gap: 6 }}>
                     <Text style={styles.chLabel}>Custom Domain</Text>
                     <TextInput style={styles.chInput} placeholder="portal.cityhospital.com" value={hospitalForm.customDomain || ''} onChangeText={t => setHospitalForm({ ...hospitalForm, customDomain: t })} />

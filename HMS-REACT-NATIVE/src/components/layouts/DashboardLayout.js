@@ -4,6 +4,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSelector, useDispatch } from 'react-redux';
 import { logout } from '../../store/slices/authSlice';
 import { useBranding } from '../../context/BrandingContext';
+import { isSafeImageUrl } from '../../utils/resourceSecurity';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import GlobalSearch from '../GlobalSearch';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -244,7 +245,7 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
                         <View style={styles.brandDot} />
                     ) : (
                         <Image
-                            source={(isCentralAdmin || user?.hospitalName?.includes('Metropolis') || !branding?.logoUrl || branding?.hospitalName === 'City Hospital') ? require('../../assets/medical365-logo.png') : (branding?.logoUrl ? { uri: branding.logoUrl } : require('../../assets/medical365-logo.png'))}
+                            source={(isCentralAdmin || user?.hospitalName?.includes('Metropolis') || !isSafeImageUrl(branding?.logoUrl) || branding?.hospitalName === 'City Hospital') ? require('../../assets/medical365-logo.png') : { uri: branding.logoUrl }}
                             style={styles.brandLogo}
                             resizeMode="contain"
                         />
