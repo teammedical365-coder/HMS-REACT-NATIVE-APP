@@ -354,9 +354,9 @@ const AdminDoctors = () => {
                     </View>
 
                     {/* Right Side Quota & Action Button */}
-                    <View style={[styles.adHeroRight, isMobile && { marginTop: 12, flexWrap: 'wrap' }]}>
+                    <View style={[styles.adHeroRight, isMobile && { width: '100%', marginTop: 12, flexWrap: 'wrap', gap: 8 }]}>
                         {/* Used Quota Card */}
-                        <View style={styles.adQuotaCard}>
+                        <View style={[styles.adQuotaCard, isMobile && { flex: 1, minWidth: 130 }]}>
                             <View style={styles.adQuotaIcon}>
                                 <Feather name="users" size={18} color="#6366f1" />
                             </View>
@@ -367,7 +367,7 @@ const AdminDoctors = () => {
                         </View>
 
                         {/* Remaining Quota Card */}
-                        <View style={[styles.adQuotaCard, remainingDocs === 0 ? styles.quotaFull : styles.quotaRemaining]}>
+                        <View style={[styles.adQuotaCard, remainingDocs === 0 ? styles.quotaFull : styles.quotaRemaining, isMobile && { flex: 1, minWidth: 130 }]}>
                             <View style={styles.adQuotaIcon}>
                                 <Feather name="user-plus" size={18} color={remainingDocs === 0 ? '#dc2626' : '#16a34a'} />
                             </View>
@@ -387,7 +387,7 @@ const AdminDoctors = () => {
                                     setShowForm(!showForm);
                                 }
                             }}
-                            style={[styles.adToggleBtn, showForm && styles.btnCancel, isQuotaReached && !showForm && { backgroundColor: '#94a3b8' }]}
+                            style={[styles.adToggleBtn, showForm && styles.btnCancel, isQuotaReached && !showForm && { backgroundColor: '#94a3b8' }, isMobile && { width: '100%', alignItems: 'center' }]}
                             disabled={isQuotaReached && !showForm}
                         >
                             <Text style={[styles.adToggleBtnText, showForm && styles.btnCancelText]}>
@@ -1551,6 +1551,7 @@ const styles = StyleSheet.create({
     },
     adDocCardActions: {
         flexDirection: 'row',
+        flexWrap: 'wrap',
         gap: 8,
         paddingTop: 12,
         borderTopWidth: 1,

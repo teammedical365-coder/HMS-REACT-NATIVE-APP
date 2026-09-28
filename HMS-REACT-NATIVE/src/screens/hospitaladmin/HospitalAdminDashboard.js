@@ -29,6 +29,7 @@ const HospitalAdminDashboard = () => {
     const dispatch = useAppDispatch();
     const { width } = useWindowDimensions();
     const isMobile = width < 768;
+    const isSmallMobile = width <= 430;
     const [activeTab, setActiveTab] = useState('overview');
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
@@ -804,11 +805,11 @@ const HospitalAdminDashboard = () => {
                 dispatch(updateUserAction({ avatar: avatarUrl }));
                 setCurrentUser(prev => ({ ...prev, avatar: avatarUrl }));
 
-                if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
                     try {
-                        const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
+                        const storedUser = JSON.parse(window.localStorage.getItem('user') || '{}');
                         storedUser.avatar = avatarUrl;
-                        localStorage.setItem('user', JSON.stringify(storedUser));
+                        window.localStorage.setItem('user', JSON.stringify(storedUser));
                     } catch (e) {}
                 }
                 try {
@@ -1198,7 +1199,7 @@ const HospitalAdminDashboard = () => {
     }));
 
     return (
-        <ScrollView style={styles.hospitaladminPage} contentContainerStyle={styles.hospitaladminContainer}>
+        <ScrollView style={[styles.hospitaladminPage, isMobile && { padding: 12 }]} contentContainerStyle={styles.hospitaladminContainer}>
             {/* 1. Modern Hero Header Banner (Matching Web ha-ai-hero-banner) */}
             <View style={styles.haAiHeroBannerWrapper}>
                 <ExpoLinearGradient
@@ -1206,7 +1207,7 @@ const HospitalAdminDashboard = () => {
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     locations={[0, 0.32, 0.68, 1]}
-                    style={styles.haAiHeroBanner}
+                    style={[styles.haAiHeroBanner, isMobile && { paddingHorizontal: 16, paddingVertical: 18 }]}
                 >
                     {/* Circuit / Grid Background overlay */}
                     <Svg style={styles.haAiCircuitBg} width="100%" height="100%">
@@ -1339,62 +1340,128 @@ const HospitalAdminDashboard = () => {
                             <Text style={styles.haAiTimeframeTitleText}>Analytics Timeframe</Text>
                         </View>
 
-                        <View style={styles.haAiTimeframeControls}>
-                            <View style={styles.haAiPresetPills}>
-                                <TouchableOpacity 
-                                    style={[styles.haAiPresetBtn, datePreset === 'all' && styles.haAiPresetBtnActive]} 
-                                    onPress={() => handleDatePresetChange('all')}
-                                    activeOpacity={0.7}
-                                >
-                                    <Text style={[styles.haAiPresetBtnText, datePreset === 'all' && styles.haAiPresetBtnTextActive]}>All Time</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity 
-                                    style={[styles.haAiPresetBtn, datePreset === 'today' && styles.haAiPresetBtnActive]} 
-                                    onPress={() => handleDatePresetChange('today')}
-                                    activeOpacity={0.7}
-                                >
-                                    <Text style={[styles.haAiPresetBtnText, datePreset === 'today' && styles.haAiPresetBtnTextActive]}>Today</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity 
-                                    style={[styles.haAiPresetBtn, datePreset === '30' && styles.haAiPresetBtnActive]} 
-                                    onPress={() => handleDatePresetChange('30')}
-                                    activeOpacity={0.7}
-                                >
-                                    <Text style={[styles.haAiPresetBtnText, datePreset === '30' && styles.haAiPresetBtnTextActive]}>30 Days</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity 
-                                    style={[styles.haAiPresetBtn, styles.haAiApplyCustomBtn, datePreset === 'custom' && styles.haAiPresetBtnActive]} 
-                                    onPress={() => setShowCustomDateModal(true)}
-                                    activeOpacity={0.7}
-                                >
-                                    <Feather name="calendar" size={13} color={datePreset === 'custom' ? '#ffffff' : '#2563eb'} />
-                                    <Text style={[styles.haAiPresetBtnText, datePreset === 'custom' && styles.haAiPresetBtnTextActive, { marginLeft: 5 }]}>
-                                        {datePreset === 'custom' && customStartDate && customEndDate
-                                            ? `${customStartDate} → ${customEndDate}`
-                                            : 'Apply Custom'}
-                                    </Text>
-                                    {datePreset === 'custom' && <View style={styles.haAiCustomBadgeDot} />}
-                                </TouchableOpacity>
-                            </View>
+                        <View style={[styles.haAiTimeframeControls, isMobile && { width: '100%' }]}>
+                            {isMobile ? (
+                                <View style={{ width: '100%', gap: 8, marginTop: 4 }}>
+                                    {/* Row 1: All Time, Today, 30 Days */}
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, width: '100%' }}>
+                                        <TouchableOpacity 
+                                            style={[styles.haAiPresetBtn, { flex: 1, justifyContent: 'center', paddingHorizontal: 4 }, datePreset === 'all' && styles.haAiPresetBtnActive]} 
+                                            onPress={() => handleDatePresetChange('all')}
+                                            activeOpacity={0.7}
+                                        >
+                                            <Text style={[styles.haAiPresetBtnText, datePreset === 'all' && styles.haAiPresetBtnTextActive]}>All Time</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity 
+                                            style={[styles.haAiPresetBtn, { flex: 1, justifyContent: 'center', paddingHorizontal: 4 }, datePreset === 'today' && styles.haAiPresetBtnActive]} 
+                                            onPress={() => handleDatePresetChange('today')}
+                                            activeOpacity={0.7}
+                                        >
+                                            <Text style={[styles.haAiPresetBtnText, datePreset === 'today' && styles.haAiPresetBtnTextActive]}>Today</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity 
+                                            style={[styles.haAiPresetBtn, { flex: 1, justifyContent: 'center', paddingHorizontal: 4 }, datePreset === '30' && styles.haAiPresetBtnActive]} 
+                                            onPress={() => handleDatePresetChange('30')}
+                                            activeOpacity={0.7}
+                                        >
+                                            <Text style={[styles.haAiPresetBtnText, datePreset === '30' && styles.haAiPresetBtnTextActive]}>30 Days</Text>
+                                        </TouchableOpacity>
+                                    </View>
 
-                            {/* Refresh Button */}
-                            <TouchableOpacity 
-                                style={[styles.haAiRefreshBtn, isRefreshing && styles.haAiRefreshBtnActive]} 
-                                onPress={handleRefreshData}
-                                disabled={isRefreshing}
-                                activeOpacity={0.7}
-                            >
-                                <Animated.View style={{ transform: [{ rotate: spinInterpolate }] }}>
-                                    <Feather 
-                                        name="refresh-cw" 
-                                        size={13} 
-                                        color={isRefreshing ? '#94a3b8' : '#334155'} 
-                                    />
-                                </Animated.View>
-                                <Text style={styles.haAiRefreshBtnText}>
-                                    {isRefreshing ? 'Refreshing...' : 'Refresh'}
-                                </Text>
-                            </TouchableOpacity>
+                                    {/* Row 2: Apply Custom Date + Refresh */}
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, width: '100%' }}>
+                                        <TouchableOpacity 
+                                            style={[styles.haAiPresetBtn, styles.haAiApplyCustomBtn, { flex: 1, justifyContent: 'center' }, datePreset === 'custom' && styles.haAiPresetBtnActive]} 
+                                            onPress={() => setShowCustomDateModal(true)}
+                                            activeOpacity={0.7}
+                                        >
+                                            <Feather name="calendar" size={13} color={datePreset === 'custom' ? '#ffffff' : '#2563eb'} />
+                                            <Text style={[styles.haAiPresetBtnText, datePreset === 'custom' && styles.haAiPresetBtnTextActive, { marginLeft: 5 }]} numberOfLines={1}>
+                                                {datePreset === 'custom' && customStartDate && customEndDate
+                                                    ? `${customStartDate} → ${customEndDate}`
+                                                    : 'Apply Custom Date'}
+                                            </Text>
+                                            {datePreset === 'custom' && <View style={styles.haAiCustomBadgeDot} />}
+                                        </TouchableOpacity>
+
+                                        <TouchableOpacity 
+                                            style={[styles.haAiRefreshBtn, isRefreshing && styles.haAiRefreshBtnActive, { justifyContent: 'center', paddingHorizontal: 12 }]} 
+                                            onPress={handleRefreshData}
+                                            disabled={isRefreshing}
+                                            activeOpacity={0.7}
+                                        >
+                                            <Animated.View style={{ transform: [{ rotate: spinInterpolate }] }}>
+                                                <Feather 
+                                                    name="refresh-cw" 
+                                                    size={13} 
+                                                    color={isRefreshing ? '#94a3b8' : '#334155'} 
+                                                />
+                                            </Animated.View>
+                                            <Text style={styles.haAiRefreshBtnText}>
+                                                {isRefreshing ? 'Refreshing...' : 'Refresh'}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                            ) : (
+                                <>
+                                    <View style={styles.haAiPresetPills}>
+                                        <TouchableOpacity 
+                                            style={[styles.haAiPresetBtn, datePreset === 'all' && styles.haAiPresetBtnActive]} 
+                                            onPress={() => handleDatePresetChange('all')}
+                                            activeOpacity={0.7}
+                                        >
+                                            <Text style={[styles.haAiPresetBtnText, datePreset === 'all' && styles.haAiPresetBtnTextActive]}>All Time</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity 
+                                            style={[styles.haAiPresetBtn, datePreset === 'today' && styles.haAiPresetBtnActive]} 
+                                            onPress={() => handleDatePresetChange('today')}
+                                            activeOpacity={0.7}
+                                        >
+                                            <Text style={[styles.haAiPresetBtnText, datePreset === 'today' && styles.haAiPresetBtnTextActive]}>Today</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity 
+                                            style={[styles.haAiPresetBtn, datePreset === '30' && styles.haAiPresetBtnActive]} 
+                                            onPress={() => handleDatePresetChange('30')}
+                                            activeOpacity={0.7}
+                                        >
+                                            <Text style={[styles.haAiPresetBtnText, datePreset === '30' && styles.haAiPresetBtnTextActive]}>30 Days</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity 
+                                            style={[styles.haAiPresetBtn, styles.haAiApplyCustomBtn, datePreset === 'custom' && styles.haAiPresetBtnActive]} 
+                                            onPress={() => setShowCustomDateModal(true)}
+                                            activeOpacity={0.7}
+                                        >
+                                            <Feather name="calendar" size={13} color={datePreset === 'custom' ? '#ffffff' : '#2563eb'} />
+                                            <Text style={[styles.haAiPresetBtnText, datePreset === 'custom' && styles.haAiPresetBtnTextActive, { marginLeft: 5 }]}>
+                                                {datePreset === 'custom' && customStartDate && customEndDate
+                                                    ? `${customStartDate} → ${customEndDate}`
+                                                    : 'Apply Custom'}
+                                            </Text>
+                                            {datePreset === 'custom' && <View style={styles.haAiCustomBadgeDot} />}
+                                        </TouchableOpacity>
+                                    </View>
+
+                                    {/* Refresh Button */}
+                                    <TouchableOpacity 
+                                        style={[styles.haAiRefreshBtn, isRefreshing && styles.haAiRefreshBtnActive]} 
+                                        onPress={handleRefreshData}
+                                        disabled={isRefreshing}
+                                        activeOpacity={0.7}
+                                    >
+                                        <Animated.View style={{ transform: [{ rotate: spinInterpolate }] }}>
+                                            <Feather 
+                                                name="refresh-cw" 
+                                                size={13} 
+                                                color={isRefreshing ? '#94a3b8' : '#334155'} 
+                                            />
+                                        </Animated.View>
+                                        <Text style={styles.haAiRefreshBtnText}>
+                                            {isRefreshing ? 'Refreshing...' : 'Refresh'}
+                                        </Text>
+                                    </TouchableOpacity>
+                                </>
+                            )}
                         </View>
                     </View>
 
@@ -1434,8 +1501,8 @@ const HospitalAdminDashboard = () => {
                                 </View>
 
                                 <View style={styles.haCustomModalBody}>
-                                    <View style={styles.haDateInputsRow}>
-                                        <View style={styles.haDateFieldGroup}>
+                                    <View style={[styles.haDateInputsRow, isSmallMobile && { flexDirection: 'column', alignItems: 'stretch', gap: 10 }]}>
+                                        <View style={[styles.haDateFieldGroup, isSmallMobile && { width: '100%' }]}>
                                             <Text style={styles.haDateFieldLabel}>Start Date</Text>
                                             <DatePickerInput
                                                 value={customStartDate}
@@ -1447,10 +1514,12 @@ const HospitalAdminDashboard = () => {
                                                 title="Select Start Date"
                                             />
                                         </View>
-                                        <View style={styles.haDateArrowSeparator}>
-                                            <Text style={{ color: '#64748b', fontSize: 12, fontWeight: '700' }}>to</Text>
-                                        </View>
-                                        <View style={styles.haDateFieldGroup}>
+                                        {!isSmallMobile && (
+                                            <View style={styles.haDateArrowSeparator}>
+                                                <Text style={{ color: '#64748b', fontSize: 12, fontWeight: '700' }}>to</Text>
+                                            </View>
+                                        )}
+                                        <View style={[styles.haDateFieldGroup, isSmallMobile && { width: '100%' }]}>
                                             <Text style={styles.haDateFieldLabel}>End Date</Text>
                                             <DatePickerInput
                                                 value={customEndDate}
@@ -1539,7 +1608,7 @@ const HospitalAdminDashboard = () => {
                         const getKpiCardResponsiveStyle = (isOccupancy = false) => {
                             if (width > 1300) return { width: '18.8%' };
                             if (width > 900) return { width: '31.8%' };
-                            if (isOccupancy) return { width: '100%' };
+                            if (isOccupancy || width < 500) return { width: '100%' };
                             return { width: width <= 768 ? '48.2%' : '48.8%' };
                         };
                         return (
@@ -2722,45 +2791,47 @@ const HospitalAdminDashboard = () => {
             <Modal visible={editModal} transparent={true} animationType="fade">
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>Edit Staff Details</Text>
-                        <View style={styles.userForm}>
-                            <View style={{ flexDirection: 'row', gap: 20, alignItems: 'center', marginBottom: 20 }}>
-                                <View>
-                                    {editForm.newAvatarFile ? (
-                                        <Image source={{ uri: editForm.newAvatarFile.uri }} style={{ width: 80, height: 80, borderRadius: 40 }} />
-                                    ) : editForm.currentAvatar ? (
-                                        <Image source={{ uri: editForm.currentAvatar }} style={{ width: 80, height: 80, borderRadius: 40 }} />
-                                    ) : (
-                                        <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#cbd5e1' }} />
-                                    )}
-                                </View>
-                                <View style={{ flex: 1 }}>
-                                    <Text style={styles.staffLabel}>Change Photo</Text>
-                                    <TouchableOpacity style={[styles.staffInput, { justifyContent: 'center', backgroundColor: '#f8fafc' }]}>
-                                        <Text style={{ color: '#64748b' }}>Select Image...</Text>
-                                    </TouchableOpacity>
-                                </View>
-                            </View>
-                            <View style={styles.formRow}>
-                                <View style={styles.formGroup}><Text style={styles.staffLabel}>Name *</Text><TextInput style={styles.staffInput} value={editForm.name} onChangeText={t => setEditForm({ ...editForm, name: t })} /></View>
-                                <View style={styles.formGroup}><Text style={styles.staffLabel}>Email</Text><TextInput style={styles.staffInput} value={editForm.email} onChangeText={t => setEditForm({ ...editForm, email: t })} /></View>
-                            </View>
-                            <View style={styles.formRow}>
-                                <View style={styles.formGroup}><Text style={styles.staffLabel}>Phone *</Text><TextInput style={styles.staffInput} placeholder="e.g. 9876543210" value={editForm.phone || ''} keyboardType="numeric" maxLength={10} onChangeText={t => { const clean = t.replace(/\D/g, '').slice(0, 10); setEditForm({ ...editForm, phone: clean }); }} /></View>
-                                <View style={[styles.formGroup, { zIndex: 10 }]}><Text style={styles.staffLabel}>Role</Text><CustomSelect options={availableRoles} value={editForm.roleId} onChange={() => {}} disabled={true} placeholder="Role" /></View>
-                            </View>
-                            {hospitalInfo && hospitalInfo.departments && hospitalInfo.departments.length > 0 && (
-                                <View style={[styles.formRow, { marginTop: 10 }]}>
-                                    <View style={[styles.formGroup, { flex: 1, zIndex: 5 }]}><Text style={styles.staffLabel}>Assign Department (Optional)</Text>
-                                        <CustomSelect options={hospitalInfo.departments.map(d => ({label: d, value: d}))} value={editForm.department} onChange={v => setEditForm({ ...editForm, department: v })} placeholder="-- Select Department --" />
+                        <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                            <Text style={styles.modalTitle}>Edit Staff Details</Text>
+                            <View style={styles.userForm}>
+                                <View style={{ flexDirection: 'row', gap: 20, alignItems: 'center', marginBottom: 20 }}>
+                                    <View>
+                                        {editForm.newAvatarFile ? (
+                                            <Image source={{ uri: editForm.newAvatarFile.uri }} style={{ width: 80, height: 80, borderRadius: 40 }} />
+                                        ) : editForm.currentAvatar ? (
+                                            <Image source={{ uri: editForm.currentAvatar }} style={{ width: 80, height: 80, borderRadius: 40 }} />
+                                        ) : (
+                                            <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#cbd5e1' }} />
+                                        )}
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={styles.staffLabel}>Change Photo</Text>
+                                        <TouchableOpacity style={[styles.staffInput, { justifyContent: 'center', backgroundColor: '#f8fafc' }]}>
+                                            <Text style={{ color: '#64748b' }}>Select Image...</Text>
+                                        </TouchableOpacity>
                                     </View>
                                 </View>
-                            )}
-                            <View style={styles.modalButtons}>
-                                <TouchableOpacity onPress={handleUpdateUser} disabled={updating} style={styles.btnSave}><Text style={styles.btnSaveText}>{updating ? 'Saving...' : 'Save Changes'}</Text></TouchableOpacity>
-                                <TouchableOpacity onPress={() => setEditModal(false)} style={styles.btnCancel}><Text style={styles.btnCancelText}>Cancel</Text></TouchableOpacity>
+                                <View style={styles.formRow}>
+                                    <View style={styles.formGroup}><Text style={styles.staffLabel}>Name *</Text><TextInput style={styles.staffInput} value={editForm.name} onChangeText={t => setEditForm({ ...editForm, name: t })} /></View>
+                                    <View style={styles.formGroup}><Text style={styles.staffLabel}>Email</Text><TextInput style={styles.staffInput} value={editForm.email} onChangeText={t => setEditForm({ ...editForm, email: t })} /></View>
+                                </View>
+                                <View style={styles.formRow}>
+                                    <View style={styles.formGroup}><Text style={styles.staffLabel}>Phone *</Text><TextInput style={styles.staffInput} placeholder="e.g. 9876543210" value={editForm.phone || ''} keyboardType="numeric" maxLength={10} onChangeText={t => { const clean = t.replace(/\D/g, '').slice(0, 10); setEditForm({ ...editForm, phone: clean }); }} /></View>
+                                    <View style={[styles.formGroup, { zIndex: 10 }]}><Text style={styles.staffLabel}>Role</Text><CustomSelect options={availableRoles} value={editForm.roleId} onChange={() => {}} disabled={true} placeholder="Role" /></View>
+                                </View>
+                                {hospitalInfo && hospitalInfo.departments && hospitalInfo.departments.length > 0 && (
+                                    <View style={[styles.formRow, { marginTop: 10 }]}>
+                                        <View style={[styles.formGroup, { flex: 1, zIndex: 5 }]}><Text style={styles.staffLabel}>Assign Department (Optional)</Text>
+                                            <CustomSelect options={hospitalInfo.departments.map(d => ({label: d, value: d}))} value={editForm.department} onChange={v => setEditForm({ ...editForm, department: v })} placeholder="-- Select Department --" />
+                                        </View>
+                                    </View>
+                                )}
+                                <View style={styles.modalButtons}>
+                                    <TouchableOpacity onPress={handleUpdateUser} disabled={updating} style={styles.btnSave}><Text style={styles.btnSaveText}>{updating ? 'Saving...' : 'Save Changes'}</Text></TouchableOpacity>
+                                    <TouchableOpacity onPress={() => setEditModal(false)} style={styles.btnCancel}><Text style={styles.btnCancelText}>Cancel</Text></TouchableOpacity>
+                                </View>
                             </View>
-                        </View>
+                        </ScrollView>
                     </View>
                 </View>
             </Modal>
@@ -3492,9 +3563,9 @@ const styles = StyleSheet.create({
     },
     haChartPanel: {
         flex: 1.55,
-        minWidth: 320,
-        minHeight: 300,
-        padding: 18,
+        minWidth: 260,
+        minHeight: 280,
+        padding: 14,
         borderWidth: 1,
         borderColor: '#dfecec',
         borderRadius: 19,
@@ -3654,6 +3725,7 @@ const styles = StyleSheet.create({
     },
     haCardHeaderWrap: {
         flexDirection: 'row',
+        flexWrap: 'wrap',
         alignItems: 'center',
         gap: 12,
         marginBottom: 20,
@@ -3985,17 +4057,17 @@ const styles = StyleSheet.create({
     },
     kpiSkeleton: {
         flex: 1,
-        minWidth: 300,
+        minWidth: 160,
         height: 120,
         borderRadius: 16,
         backgroundColor: '#e2e8f0',
     },
     kpiCard: {
         flex: 1,
-        minWidth: 280,
+        minWidth: 160,
         borderRadius: 16,
-        paddingVertical: 22,
-        paddingHorizontal: 24,
+        paddingVertical: 18,
+        paddingHorizontal: 16,
     },
     kpiBlue: { backgroundColor: '#3b82f6' },
     kpiGreen: { backgroundColor: '#10b981' },
@@ -4259,9 +4331,10 @@ const styles = StyleSheet.create({
     modalContent: {
         backgroundColor: 'white',
         borderRadius: 24,
-        padding: 30,
+        padding: 20,
         width: '100%',
-        maxWidth: 600,
+        maxWidth: 540,
+        maxHeight: '88%',
     },
     modalTitle: {
         fontSize: 22,
@@ -4271,6 +4344,7 @@ const styles = StyleSheet.create({
     },
     modalButtons: {
         flexDirection: 'row',
+        flexWrap: 'wrap',
         justifyContent: 'flex-end',
         gap: 12,
         marginTop: 20,
@@ -5028,9 +5102,10 @@ const styles = StyleSheet.create({
     modalContent: {
         backgroundColor: 'white',
         borderRadius: 24,
-        padding: 30,
+        padding: 20,
         width: '100%',
-        maxWidth: 600,
+        maxWidth: 540,
+        maxHeight: '88%',
     },
     modalTitle: {
         fontSize: 22,
@@ -5040,6 +5115,7 @@ const styles = StyleSheet.create({
     },
     modalButtons: {
         flexDirection: 'row',
+        flexWrap: 'wrap',
         justifyContent: 'flex-end',
         gap: 12,
         marginTop: 20,

@@ -965,20 +965,231 @@ const OverviewMode = () => {
 };
 
 // ═══════════════════════════════════════════════════
-// PATIENTS MODE
+// REPORT VIEWER MODAL
+// ═══════════════════════════════════════════════════
+const ReportViewerModal = ({ report, onClose }) => {
+    if (!report) return null;
+    const url = reportURL(report.filename);
+    const isPDF = report.mimetype === 'application/pdf' ||
+        (report.filename || '').toLowerCase().endsWith('.pdf') ||
+        (report.name || '').toLowerCase().endsWith('.pdf');
+
+    return (
+        <Modal visible={true} transparent animationType="fade" onRequestClose={onClose}>
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', padding: 16 }}>
+                <View style={{ width: '100%', maxWidth: 500, backgroundColor: '#1e293b', borderRadius: 12, overflow: 'hidden' }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderColor: '#334155' }}>
+                        <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14, flex: 1 }} numberOfLines={1}>
+                            📄 {report.name || 'Report'}
+                        </Text>
+                        <TouchableOpacity onPress={onClose} style={{ padding: 4 }}>
+                            <Ionicons name="close" size={20} color="#94a3b8" />
+                        </TouchableOpacity>
+                    </View>
+
+                    <View style={{ height: 350, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center', padding: 10 }}>
+                        {isPDF ? (
+                            <View style={{ alignItems: 'center', padding: 20 }}>
+                                <Ionicons name="document-text" size={64} color="#38bdf8" />
+                                <Text style={{ color: '#94a3b8', fontSize: 13, marginTop: 10, textAlign: 'center' }}>PDF Document</Text>
+                                <TouchableOpacity
+                                    style={{ backgroundColor: '#0284c7', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, marginTop: 16 }}
+                                    onPress={() => Linking.openURL(url)}
+                                >
+                                    <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 13 }}>Open PDF in Browser ↗</Text>
+                                </TouchableOpacity>
+                            </View>
+                        ) : (
+                            <Image
+                                source={{ uri: url }}
+                                style={{ width: '100%', height: '100%', resizeMode: 'contain' }}
+                            />
+                        )}
+                    </View>
+
+                    <View style={{ flexDirection: 'row', justifyContent: 'flex-end', padding: 12, gap: 10, backgroundColor: '#1e293b' }}>
+                        <TouchableOpacity
+                            style={{ paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#334155', borderRadius: 6 }}
+                            onPress={() => Linking.openURL(url)}
+                        >
+                            <Text style={{ color: '#38bdf8', fontSize: 12, fontWeight: '600' }}>Open External ↗</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={{ paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#475569', borderRadius: 6 }}
+                            onPress={onClose}
+                        >
+                            <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>Close</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </View>
+        </Modal>
+    );
+};
+
+// ═══════════════════════════════════════════════════
+// PATIENTS MODE (1:1 Web Parity)
 // ═══════════════════════════════════════════════════
 const PatientsMode = ({ onBookToken, setPendingDownload }) => {
+    const [tab, setTab] = useState('list');
+    const [patients, setPatients] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [search, setSearch] = useState('');
+    const [searching, setSearching] = useState(false);
+    const [selectedPatient, setSelectedPatient] = useState(null);
+    const [patientHistory, setPatientHistory] = useState(null);
+    const [loadingHistory, setLoadingHistory] = useState(false);
+    const [patientReports, setPatientReports] = useState([]);
+    const [viewReport, setViewReport] = useState(null);
+    const [uploading, setUploading] = useState(false);
+    const [reportName, setReportName] = useState('');
+    const [reportsTab, setReportsTab] = useState('upload'); // 'upload' | 'view'
     const [justRegistered, setJustRegistered] = useState(null);
-    const [tab, setTab] = useState('register');
-    const [form, setForm] = useState({
-        name: '', phone: '', age: '', aadhaarNumber: '', email: '',
-        dob: '', gender: '', bloodGroup: '', address: '', city: '', state: '', pincode: '',
-        allergies: '', chronicConditions: '', relatives: []
-    });
     const [saving, setSaving] = useState(false);
-    const [showGenderDropdown, setShowGenderDropdown] = useState(false);
-    const [showBloodGroupDropdown, setShowBloodGroupDropdown] = useState(false);
-    const [openRelationIdx, setOpenRelationIdx] = useState(null);
+    const [msg, setMsg] = useState({ type: '', text: '' });
+    const [form, setForm] = useState({
+        name: '', phone: '', email: '', dob: '', gender: 'Male',
+        address: '', city: '', state: '', pincode: '',
+        bloodGroup: '', allergies: '', chronicConditions: '',
+        relatives: [], age: '', aadhaarNumber: ''
+    });
+
+    const flash = (type, text) => {
+        setMsg({ type, text });
+        setTimeout(() => setMsg({ type: '', text: '' }), 5000);
+    };
+
+    const loadPatients = () => {
+        setLoading(true);
+        clinicAPI.getPatients()
+            .then(r => {
+                if (r.success) setPatients(r.patients || []);
+                else flash('error', r.message || 'Failed to load patients');
+            })
+            .catch(e => flash('error', e.response?.data?.message || e.message))
+            .finally(() => setLoading(false));
+    };
+
+    useEffect(() => {
+        loadPatients();
+    }, []);
+
+    const handleSearch = async () => {
+        setSearching(true);
+        try {
+            const r = await clinicAPI.getPatients(search.trim());
+            if (r.success) setPatients(r.patients || []);
+            else flash('error', r.message || 'Search failed');
+        } catch (e) {
+            flash('error', e.response?.data?.message || e.message);
+        } finally {
+            setSearching(false);
+        }
+    };
+
+    const openHistory = async (p) => {
+        setSelectedPatient(p);
+        setLoadingHistory(true);
+        setPatientHistory(null);
+        setPatientReports([]);
+        try {
+            const r = await clinicAPI.getPatientHistory(p._id);
+            if (r.success) {
+                const cleanedAppts = filterValidVisits(r.appointments || []);
+                setPatientHistory({ ...r, appointments: cleanedAppts });
+                setPatientReports(r.patient?.reports || []);
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoadingHistory(false);
+        }
+    };
+
+    const handleUploadReport = async () => {
+        if (!selectedPatient) return;
+        try {
+            const res = await DocumentPicker.getDocumentAsync({
+                type: ['application/pdf', 'image/*'],
+                copyToCacheDirectory: true,
+            });
+            if (res.canceled || !res.assets?.length) return;
+            const fileAsset = res.assets[0];
+            setUploading(true);
+            const fd = new FormData();
+            if (Platform.OS === 'web' && fileAsset.file) {
+                fd.append('file', fileAsset.file);
+            } else {
+                fd.append('file', {
+                    uri: fileAsset.uri,
+                    name: fileAsset.name || 'report.pdf',
+                    type: fileAsset.mimeType || 'application/pdf',
+                });
+            }
+            if (reportName.trim()) {
+                fd.append('name', reportName.trim());
+            } else {
+                fd.append('name', fileAsset.name || 'Report');
+            }
+            const r = await clinicAPI.uploadPatientReport(selectedPatient._id, fd);
+            if (r.success) {
+                setPatientReports(prev => [...prev, r.report]);
+                setReportName('');
+                flash('success', 'Report uploaded successfully');
+            } else {
+                flash('error', r.message || 'Failed to upload report');
+            }
+        } catch (e) {
+            flash('error', e.message);
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    const handleDeleteReport = (reportId) => {
+        if (!selectedPatient) return;
+        Alert.alert(
+            "Delete Report",
+            "Are you sure you want to delete this report?",
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Delete",
+                    style: "destructive",
+                    onPress: async () => {
+                        try {
+                            const r = await clinicAPI.deletePatientReport(selectedPatient._id, reportId);
+                            if (r.success) {
+                                setPatientReports(prev => prev.filter(rp => rp._id !== reportId));
+                                flash('success', 'Report deleted');
+                            } else {
+                                flash('error', r.message || 'Failed to delete report');
+                            }
+                        } catch (e) {
+                            flash('error', e.message);
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
+    const handleDownloadReport = async (report) => {
+        const url = reportURL(report.filename);
+        if (Platform.OS === 'web') {
+            Linking.openURL(url);
+        } else {
+            try {
+                if (await Sharing.isAvailableAsync()) {
+                    await Sharing.shareAsync(url);
+                } else {
+                    Linking.openURL(url);
+                }
+            } catch {
+                Linking.openURL(url);
+            }
+        }
+    };
 
     const handleRegister = async () => {
         if (!form.name || !form.phone || !form.age || !form.aadhaarNumber || !form.email || !form.dob || !form.gender || !form.address || !form.city || !form.state) {
@@ -990,12 +1201,14 @@ const PatientsMode = ({ onBookToken, setPendingDownload }) => {
         try {
             const r = await clinicAPI.registerPatient(form);
             if (r.success) {
+                if (!r.existing) setPatients(prev => [r.patient, ...prev]);
                 setJustRegistered(r.patient);
                 printRegistrationSlip(r.patient);
                 setForm({
-                    name: '', phone: '', age: '', aadhaarNumber: '', email: '',
-                    dob: '', gender: '', bloodGroup: '', address: '', city: '', state: '', pincode: '',
-                    allergies: '', chronicConditions: '', relatives: []
+                    name: '', phone: '', email: '', dob: '', gender: 'Male',
+                    address: '', city: '', state: '', pincode: '',
+                    bloodGroup: '', allergies: '', chronicConditions: '',
+                    relatives: [], age: '', aadhaarNumber: ''
                 });
             } else {
                 Alert.alert("Error", r.message || "Failed to register");
@@ -1007,153 +1220,479 @@ const PatientsMode = ({ onBookToken, setPendingDownload }) => {
         }
     };
 
-    return (
-        <ScrollView style={{ flex: 1 }}>
-            <View style={styles.clinicCard}>
-                {justRegistered ? (
-                    <View style={{ alignItems: 'center', paddingVertical: 24 }}>
-                        <Text style={{ fontSize: 48, marginBottom: 8 }}>✅</Text>
-                        <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 4 }}>Patient Registered!</Text>
-                        <Text style={{ color: '#64748b', marginBottom: 20, textAlign: 'center' }}>
-                            <Text style={{ fontWeight: 'bold' }}>{justRegistered.name}</Text> · <Text style={{ backgroundColor: '#eef2ff', color: '#6366f1', fontWeight: 'bold' }}> {justRegistered.patientUid} </Text> · {justRegistered.phone}
-                        </Text>
-                        <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
-                            <TouchableOpacity style={styles.btnPrimary} onPress={() => onBookToken(justRegistered)}>
-                                <Text style={styles.btnPrimaryText}>🎟️ Book Token Now</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={[styles.btnSecondary, { borderColor: '#16a34a' }]} onPress={() => printRegistrationSlip(justRegistered)}>
-                                <Text style={[styles.btnSecondaryText, { color: '#16a34a' }]}>🖨️ Print Slip</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.btnSecondary} onPress={() => setJustRegistered(null)}>
-                                <Text style={styles.btnSecondaryText}>+ Register Another</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.btnSecondary} onPress={() => { setJustRegistered(null); setTab('list'); }}>
-                                <Text style={styles.btnSecondaryText}>View All Patients</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                ) : (
-                    <View style={{ paddingBottom: 120 }}>
-                        <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 16 }}>👤 Register New Patient</Text>
-                        <View style={{ gap: 12 }}>
-                            <View>
-                                <Text style={styles.label}>Full Name *</Text>
-                                <TextInput style={styles.input} placeholder="Patient's full name" value={form.name} onChangeText={t => setForm({ ...form, name: t })} maxLength={50} />
-                            </View>
-                            <View>
-                                <Text style={styles.label}>Phone *</Text>
-                                <TextInput style={styles.input} keyboardType="phone-pad" placeholder="10-digit mobile number" maxLength={10} value={form.phone} onChangeText={t => setForm({ ...form, phone: t.replace(/\D/g, '').slice(0, 10) })} />
-                            </View>
-                            <View>
-                                <Text style={styles.label}>Age *</Text>
-                                <TextInput style={styles.input} keyboardType="numeric" placeholder="Age" maxLength={3} value={form.age} onChangeText={t => setForm({ ...form, age: t.replace(/\D/g, '').slice(0, 3) })} />
-                            </View>
-                            <View>
-                                <Text style={styles.label}>Aadhaar Number *</Text>
-                                <TextInput style={styles.input} keyboardType="numeric" placeholder="12-digit Aadhaar" maxLength={12} value={form.aadhaarNumber} onChangeText={t => setForm({ ...form, aadhaarNumber: t.replace(/\D/g, '').slice(0, 12) })} />
-                            </View>
-                            <View>
-                                <Text style={styles.label}>Email *</Text>
-                                <TextInput style={styles.input} keyboardType="email-address" placeholder="Enter Email" value={form.email} onChangeText={t => setForm({ ...form, email: t })} />
-                            </View>
-                            <View>
-                                <Text style={styles.label}>Date of Birth *</Text>
-                                <DatePickerInput
-                                    value={form.dob}
-                                    onChange={t => setForm({ ...form, dob: t })}
-                                    placeholder="YYYY-MM-DD"
-                                    title="Date of Birth"
-                                />
-                            </View>
-                            <View>
-                                <Text style={styles.label}>Gender *</Text>
-                                <View style={styles.pickerWrapper}>
-                                    <Picker selectedValue={form.gender} onValueChange={v => setForm({ ...form, gender: v })}>
-                                        <Picker.Item label="Select Gender" value="" />
-                                        <Picker.Item label="Male" value="Male" />
-                                        <Picker.Item label="Female" value="Female" />
-                                        <Picker.Item label="Other" value="Other" />
-                                    </Picker>
-                                </View>
-                            </View>
-                            <View>
-                                <Text style={styles.label}>Blood Group</Text>
-                                <View style={styles.pickerWrapper}>
-                                    <Picker selectedValue={form.bloodGroup} onValueChange={v => setForm({ ...form, bloodGroup: v })}>
-                                        <Picker.Item label="Unknown" value="" />
-                                        <Picker.Item label="A+" value="A+" />
-                                        <Picker.Item label="A-" value="A-" />
-                                        <Picker.Item label="B+" value="B+" />
-                                        <Picker.Item label="B-" value="B-" />
-                                        <Picker.Item label="AB+" value="AB+" />
-                                        <Picker.Item label="AB-" value="AB-" />
-                                        <Picker.Item label="O+" value="O+" />
-                                        <Picker.Item label="O-" value="O-" />
-                                    </Picker>
-                                </View>
-                            </View>
-                            <View>
-                                <Text style={styles.label}>Address *</Text>
-                                <TextInput style={styles.input} placeholder="Enter Address" value={form.address} onChangeText={t => setForm({ ...form, address: t })} maxLength={50} />
-                            </View>
-                            <View>
-                                <Text style={styles.label}>City *</Text>
-                                <TextInput style={styles.input} placeholder="Enter City" value={form.city} onChangeText={t => setForm({ ...form, city: t.replace(/[0-9]/g, '') })} maxLength={20} />
-                            </View>
-                            <View>
-                                <Text style={styles.label}>State *</Text>
-                                <TextInput style={styles.input} placeholder="Enter State" value={form.state} onChangeText={t => setForm({ ...form, state: t.replace(/[0-9]/g, '') })} maxLength={15} />
-                            </View>
-                            <View>
-                                <Text style={styles.label}>Pincode</Text>
-                                <TextInput style={styles.input} keyboardType="numeric" placeholder="Enter Pincode" value={form.pincode} onChangeText={t => setForm({ ...form, pincode: t.replace(/\D/g, '') })} maxLength={6} />
-                            </View>
-                            <View>
-                                <Text style={styles.label}>Known Allergies</Text>
-                                <TextInput style={styles.input} placeholder="e.g. Penicillin, Dust (optional)" value={form.allergies} onChangeText={t => setForm({ ...form, allergies: t })} maxLength={100} />
-                            </View>
-                            <View>
-                                <Text style={styles.label}>Chronic Conditions</Text>
-                                <TextInput style={styles.input} placeholder="e.g. Diabetes, Hypertension (optional)" value={form.chronicConditions} onChangeText={t => setForm({ ...form, chronicConditions: t })} maxLength={100} />
-                            </View>
+    // ── Patient Detail View ──
+    if (selectedPatient) {
+        return (
+            <ScrollView style={{ flex: 1 }}>
+                {viewReport && <ReportViewerModal report={viewReport} onClose={() => setViewReport(null)} />}
+                
+                <TouchableOpacity
+                    style={[styles.btnSecondary, { alignSelf: 'flex-start', marginBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 6 }]}
+                    onPress={() => { setSelectedPatient(null); setPatientHistory(null); }}
+                >
+                    <Ionicons name="arrow-back" size={16} color="#334155" />
+                    <Text style={styles.btnSecondaryText}>Back to Patients</Text>
+                </TouchableOpacity>
 
-                            <View style={{ marginTop: 8 }}>
-                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                                    <Text style={{ fontWeight: 'bold', fontSize: 13, color: '#374151' }}>👨‍👩‍👧 Relatives / Emergency Contacts</Text>
-                                    <TouchableOpacity style={[styles.btnSecondary, { paddingVertical: 4, paddingHorizontal: 12, backgroundColor: '#f0fdf4', borderColor: '#86efac' }]} onPress={() => setForm(f => ({ ...f, relatives: [...f.relatives, { name: '', relation: '', phone: '' }] }))}>
-                                        <Text style={{ fontSize: 12, color: '#16a34a', fontWeight: 'bold' }}>+ Add Contact</Text>
-                                    </TouchableOpacity>
+                {/* Patient Header Card */}
+                <View style={[styles.clinicCard, { marginBottom: 16 }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+                        <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: '#e0e7ff', justifyContent: 'center', alignItems: 'center' }}>
+                            <Text style={{ color: '#6366f1', fontSize: 22, fontWeight: 'bold' }}>
+                                {selectedPatient.name?.charAt(0)?.toUpperCase()}
+                            </Text>
+                        </View>
+                        <View style={{ flex: 1, minWidth: 200 }}>
+                            <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#1e293b' }}>{selectedPatient.name}</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                                <View style={{ backgroundColor: '#eef2ff', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                                    <Text style={{ color: '#6366f1', fontWeight: 'bold', fontSize: 11 }}>{selectedPatient.patientUid}</Text>
                                 </View>
-                                {form.relatives.length === 0 ? (
-                                    <View style={{ padding: 10, backgroundColor: '#f8fafc', borderRadius: 8, borderWidth: 1, borderStyle: 'dashed', borderColor: '#e2e8f0' }}>
-                                        <Text style={{ fontSize: 12, color: '#94a3b8' }}>No contacts added. Click "+ Add Contact" to add a relative or emergency contact.</Text>
+                                {selectedPatient.phone && <Text style={{ color: '#64748b', fontSize: 13 }}>📞 {selectedPatient.phone}</Text>}
+                                {selectedPatient.gender && <Text style={{ color: '#64748b', fontSize: 13 }}>· {selectedPatient.gender}</Text>}
+                                {selectedPatient.dob && <Text style={{ color: '#64748b', fontSize: 13 }}>· DOB: {fmtDate(selectedPatient.dob)}</Text>}
+                            </View>
+                            {selectedPatient.address && <Text style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>📍 {selectedPatient.address}</Text>}
+                            <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                                {selectedPatient.bloodGroup && (
+                                    <View style={{ backgroundColor: '#fee2e2', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                                        <Text style={{ color: '#dc2626', fontSize: 11, fontWeight: 'bold' }}>🩸 {selectedPatient.bloodGroup}</Text>
                                     </View>
-                                ) : (
-                                    form.relatives.map((rel, idx) => (
-                                        <View key={idx} style={{ padding: 10, backgroundColor: idx % 2 === 0 ? '#fff' : '#f8fafc', borderWidth: 1, borderColor: '#f1f5f9', borderRadius: 8, marginBottom: 8 }}>
-                                            <TextInput style={[styles.input, { marginBottom: 4 }]} placeholder="Name e.g. Ramesh Kumar" value={rel.name} onChangeText={t => { const r = [...form.relatives]; r[idx].name = t; setForm({ ...form, relatives: r }); }} />
-                                            <View style={[styles.pickerWrapper, { marginBottom: 4 }]}>
-                                                <Picker selectedValue={rel.relation} onValueChange={v => { const r = [...form.relatives]; r[idx].relation = v; setForm({ ...form, relatives: r }); }}>
-                                                    <Picker.Item label="Select Relation" value="" />
-                                                    {['Father', 'Mother', 'Spouse', 'Son', 'Daughter', 'Brother', 'Sister', 'Guardian', 'Friend', 'Other'].map(r => <Picker.Item key={r} label={r} value={r} />)}
-                                                </Picker>
-                                            </View>
-                                            <TextInput style={[styles.input, { marginBottom: 4 }]} keyboardType="phone-pad" placeholder="10-digit number" value={rel.phone} maxLength={10} onChangeText={t => { const r = [...form.relatives]; r[idx].phone = t.replace(/\D/g, '').slice(0, 10); setForm({ ...form, relatives: r }); }} />
-                                            <TouchableOpacity style={{ backgroundColor: '#fee2e2', alignSelf: 'flex-end', padding: 6, borderRadius: 4 }} onPress={() => setForm(f => ({ ...f, relatives: f.relatives.filter((_, i) => i !== idx) }))}>
-                                                <Text style={{ color: '#dc2626', fontSize: 12, fontWeight: 'bold' }}>Remove</Text>
-                                            </TouchableOpacity>
-                                        </View>
-                                    ))
+                                )}
+                                {selectedPatient.allergies && (
+                                    <View style={{ backgroundColor: '#fef3c7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                                        <Text style={{ color: '#92400e', fontSize: 11 }}>⚠️ {selectedPatient.allergies}</Text>
+                                    </View>
+                                )}
+                                {selectedPatient.chronicConditions && (
+                                    <View style={{ backgroundColor: '#f0f9ff', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                                        <Text style={{ color: '#0369a1', fontSize: 11 }}>🏥 {selectedPatient.chronicConditions}</Text>
+                                    </View>
                                 )}
                             </View>
-
-                            <TouchableOpacity style={[styles.btnPrimary, { marginTop: 16 }]} onPress={handleRegister} disabled={saving}>
-                                <Text style={styles.btnPrimaryText}>{saving ? 'Registering...' : '✅ Register Patient'}</Text>
-                            </TouchableOpacity>
                         </View>
                     </View>
-                )}
+
+                    {/* Action Buttons */}
+                    <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap', marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderColor: '#f1f5f9' }}>
+                        <TouchableOpacity
+                            style={[styles.btnSecondary, { borderColor: '#bae6fd', backgroundColor: '#e0f2fe', flexDirection: 'row', alignItems: 'center', gap: 6 }]}
+                            onPress={() => printRegistrationSlip(selectedPatient)}
+                        >
+                            <Ionicons name="document-text-outline" size={16} color="#0369a1" />
+                            <Text style={{ color: '#0369a1', fontWeight: 'bold', fontSize: 12 }}>📄 Registration Slip</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.btnSecondary, { borderColor: '#a7f3d0', backgroundColor: '#ecfdf5', flexDirection: 'row', alignItems: 'center', gap: 6 }]}
+                            onPress={() => generatePatientProfilePDF(selectedPatient, patientHistory?.appointments || [])}
+                        >
+                            <Ionicons name="download-outline" size={16} color="#059669" />
+                            <Text style={{ color: '#059669', fontWeight: 'bold', fontSize: 12 }}>📥 Download Profile PDF</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Relatives / Emergency Contacts */}
+                    {selectedPatient.relatives?.length > 0 && (
+                        <View style={{ marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderColor: '#f1f5f9' }}>
+                            <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#64748b', marginBottom: 8 }}>👨‍👩‍👧 Emergency Contacts</Text>
+                            <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                                {selectedPatient.relatives.map((rel, i) => (
+                                    <View key={i} style={{ backgroundColor: '#f0f9ff', borderWidth: 1, borderColor: '#bae6fd', borderRadius: 8, padding: 8, minWidth: 120 }}>
+                                        <Text style={{ fontWeight: 'bold', color: '#0f172a', fontSize: 12 }}>{rel.name}</Text>
+                                        {rel.relation && <Text style={{ color: '#0369a1', fontSize: 11 }}>{rel.relation}</Text>}
+                                        {rel.phone && <Text style={{ color: '#475569', fontSize: 11, marginTop: 2 }}>📞 {rel.phone}</Text>}
+                                    </View>
+                                ))}
+                            </View>
+                        </View>
+                    )}
+                </View>
+
+                {/* Medical Reports Card */}
+                <View style={[styles.clinicCard, { marginBottom: 16 }]}>
+                    <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#1e293b', marginBottom: 12 }}>
+                        📄 Medical Reports ({patientReports.length})
+                    </Text>
+
+                    <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14, borderBottomWidth: 1, borderColor: '#e2e8f0', paddingBottom: 10 }}>
+                        <TouchableOpacity
+                            style={[styles.btnSecondary, { paddingVertical: 6, paddingHorizontal: 12, backgroundColor: reportsTab === 'upload' ? '#6366f1' : '#f1f5f9', borderColor: reportsTab === 'upload' ? '#6366f1' : '#e2e8f0' }]}
+                            onPress={() => setReportsTab('upload')}
+                        >
+                            <Text style={{ color: reportsTab === 'upload' ? '#fff' : '#475569', fontWeight: 'bold', fontSize: 12 }}>Upload Reports</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.btnSecondary, { paddingVertical: 6, paddingHorizontal: 12, backgroundColor: reportsTab === 'view' ? '#6366f1' : '#f1f5f9', borderColor: reportsTab === 'view' ? '#6366f1' : '#e2e8f0' }]}
+                            onPress={() => setReportsTab('view')}
+                        >
+                            <Text style={{ color: reportsTab === 'view' ? '#fff' : '#475569', fontWeight: 'bold', fontSize: 12 }}>View Reports ({patientReports.length})</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {reportsTab === 'upload' && (
+                        <View style={{ backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#cbd5e1', borderStyle: 'dashed', borderRadius: 8, padding: 12 }}>
+                            <TextInput
+                                style={[styles.input, { marginBottom: 10, backgroundColor: '#fff' }]}
+                                placeholder="Report name (optional)"
+                                value={reportName}
+                                onChangeText={setReportName}
+                            />
+                            <TouchableOpacity
+                                style={[styles.btnPrimary, { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }]}
+                                onPress={handleUploadReport}
+                                disabled={uploading}
+                            >
+                                <Ionicons name="cloud-upload-outline" size={18} color="#fff" />
+                                <Text style={styles.btnPrimaryText}>{uploading ? 'Uploading...' : '⬆ Upload PDF / Image'}</Text>
+                            </TouchableOpacity>
+                            <Text style={{ fontSize: 11, color: '#94a3b8', marginTop: 6, textAlign: 'center' }}>Supports PDF, JPG, PNG · max 20 MB</Text>
+                        </View>
+                    )}
+
+                    {reportsTab === 'view' && (
+                        patientReports.length === 0 ? (
+                            <Text style={{ color: '#94a3b8', fontSize: 13, textAlign: 'center', paddingVertical: 14 }}>No reports uploaded yet.</Text>
+                        ) : (
+                            <View style={{ gap: 8 }}>
+                                {patientReports.map(r => {
+                                    const isPdf = r.mimetype === 'application/pdf' || (r.filename || '').toLowerCase().endsWith('.pdf') || (r.name || '').toLowerCase().endsWith('.pdf');
+                                    return (
+                                        <View key={r._id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fff', borderWidth: 1, borderColor: '#e0e7ff', borderRadius: 8, padding: 10 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, marginRight: 8 }}>
+                                                <Text style={{ fontSize: 20 }}>{isPdf ? '📄' : '🖼️'}</Text>
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={{ fontWeight: 'bold', fontSize: 13, color: '#1e293b' }} numberOfLines={1}>{r.name}</Text>
+                                                    <Text style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                                                        {isPdf ? 'PDF' : 'Image'} · {r.uploadedAt ? new Date(r.uploadedAt).toLocaleDateString('en-IN') : ''}
+                                                    </Text>
+                                                </View>
+                                            </View>
+                                            <View style={{ flexDirection: 'row', gap: 6 }}>
+                                                <TouchableOpacity
+                                                    style={{ backgroundColor: '#6366f1', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6 }}
+                                                    onPress={() => setViewReport(r)}
+                                                >
+                                                    <Text style={{ color: '#fff', fontSize: 11, fontWeight: 'bold' }}>View</Text>
+                                                </TouchableOpacity>
+                                                <TouchableOpacity
+                                                    style={{ backgroundColor: '#10b981', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6 }}
+                                                    onPress={() => handleDownloadReport(r)}
+                                                >
+                                                    <Text style={{ color: '#fff', fontSize: 11, fontWeight: 'bold' }}>Open</Text>
+                                                </TouchableOpacity>
+                                                <TouchableOpacity
+                                                    style={{ backgroundColor: '#fee2e2', paddingHorizontal: 8, paddingVertical: 5, borderRadius: 6 }}
+                                                    onPress={() => handleDeleteReport(r._id)}
+                                                >
+                                                    <Text style={{ color: '#dc2626', fontSize: 11, fontWeight: 'bold' }}>✕</Text>
+                                                </TouchableOpacity>
+                                            </View>
+                                        </View>
+                                    );
+                                })}
+                            </View>
+                        )
+                    )}
+                </View>
+
+                {/* Visit History Card */}
+                <View style={[styles.clinicCard, { marginBottom: 30 }]}>
+                    <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#1e293b', marginBottom: 12 }}>
+                        📋 Visit History ({patientHistory?.appointments?.length || 0} visits)
+                    </Text>
+
+                    {loadingHistory ? (
+                        <Spinner text="Loading history..." />
+                    ) : patientHistory?.appointments?.length === 0 ? (
+                        <Text style={{ color: '#94a3b8', textAlign: 'center', paddingVertical: 16 }}>No visits recorded yet.</Text>
+                    ) : (
+                        <ScrollView horizontal showsHorizontalScrollIndicator={true}>
+                            <View style={{ minWidth: 600 }}>
+                                <View style={styles.tableHeader}>
+                                    <Text style={[styles.th, { width: 120 }]}>Date & Time</Text>
+                                    <Text style={[styles.th, { width: 80 }]}>Token</Text>
+                                    <Text style={[styles.th, { width: 150 }]}>Diagnosis</Text>
+                                    <Text style={[styles.th, { width: 150 }]}>Medicines</Text>
+                                    <Text style={[styles.th, { width: 90 }]}>Status</Text>
+                                    <Text style={[styles.th, { width: 80, textAlign: 'right' }]}>Fee</Text>
+                                </View>
+                                {patientHistory?.appointments?.map(a => (
+                                    <View key={a._id} style={styles.tableRow}>
+                                        <View style={{ width: 120 }}>
+                                            <Text style={{ fontSize: 12, fontWeight: '600', color: '#1e293b' }}>{fmtDate(a.appointmentDate)}</Text>
+                                            <Text style={{ fontSize: 11, color: '#94a3b8' }}>{fmtTime(a.appointmentDate)}</Text>
+                                        </View>
+                                        <Text style={{ width: 80, fontWeight: 'bold', color: '#6366f1' }}>#{a.tokenNumber || '—'}</Text>
+                                        <Text style={{ width: 150, fontSize: 12, color: '#334155' }} numberOfLines={2}>{a.diagnosis || '—'}</Text>
+                                        <View style={{ width: 150 }}>
+                                            {(a.pharmacy || a.medicines || []).slice(0, 2).map((m, i) => (
+                                                <Text key={i} style={{ fontSize: 11, color: '#64748b' }} numberOfLines={1}>• {m.medicineName || m.name}</Text>
+                                            ))}
+                                            {(a.pharmacy || a.medicines || []).length > 2 && (
+                                                <Text style={{ fontSize: 10, color: '#94a3b8' }}>+{(a.pharmacy || a.medicines || []).length - 2} more</Text>
+                                            )}
+                                        </View>
+                                        <View style={{ width: 90 }}>
+                                            <StatusBadge status={a.status} />
+                                        </View>
+                                        <Text style={{ width: 80, textAlign: 'right', fontWeight: 'bold', color: '#16a34a' }}>
+                                            {fmt(a.amount)}
+                                        </Text>
+                                    </View>
+                                ))}
+                            </View>
+                        </ScrollView>
+                    )}
+                </View>
+            </ScrollView>
+        );
+    }
+
+    // ── All Patients View & Register Sub-Tabs ──
+    return (
+        <ScrollView style={{ flex: 1 }}>
+            {/* Sub-Tabs Bar */}
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
+                <TouchableOpacity
+                    style={[styles.btnSecondary, { paddingVertical: 8, paddingHorizontal: 14, backgroundColor: tab === 'list' ? '#6366f1' : '#f1f5f9', borderColor: tab === 'list' ? '#6366f1' : '#e2e8f0' }]}
+                    onPress={() => setTab('list')}
+                >
+                    <Text style={{ color: tab === 'list' ? '#fff' : '#475569', fontWeight: 'bold', fontSize: 13 }}>
+                        👥 All Patients ({patients.length})
+                    </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[styles.btnSecondary, { paddingVertical: 8, paddingHorizontal: 14, backgroundColor: tab === 'register' ? '#6366f1' : '#f1f5f9', borderColor: tab === 'register' ? '#6366f1' : '#e2e8f0' }]}
+                    onPress={() => setTab('register')}
+                >
+                    <Text style={{ color: tab === 'register' ? '#fff' : '#475569', fontWeight: 'bold', fontSize: 13 }}>
+                        + Register New
+                    </Text>
+                </TouchableOpacity>
             </View>
+
+            {msg.text ? (
+                <View style={{ padding: 10, borderRadius: 8, backgroundColor: msg.type === 'error' ? '#fee2e2' : '#ecfdf5', marginBottom: 12 }}>
+                    <Text style={{ color: msg.type === 'error' ? '#dc2626' : '#065f46', fontWeight: 'bold', fontSize: 12 }}>{msg.text}</Text>
+                </View>
+            ) : null}
+
+            {/* TAB: LIST */}
+            {tab === 'list' && (
+                <View style={styles.clinicCard}>
+                    <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+                        <TextInput
+                            style={[styles.input, { flex: 1 }]}
+                            placeholder="Search by name, phone, patient ID, or Aadhaar..."
+                            value={search}
+                            onChangeText={setSearch}
+                            onSubmitEditing={handleSearch}
+                        />
+                        <TouchableOpacity
+                            style={[styles.btnSecondary, { paddingHorizontal: 16, justifyContent: 'center' }]}
+                            onPress={handleSearch}
+                            disabled={searching}
+                        >
+                            <Text style={styles.btnSecondaryText}>{searching ? '...' : '🔍 Search'}</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {loading ? (
+                        <Spinner text="Loading patients..." />
+                    ) : patients.length === 0 ? (
+                        <Empty text="No patients yet. Register your first patient." />
+                    ) : (
+                        <ScrollView horizontal showsHorizontalScrollIndicator={true}>
+                            <View style={{ minWidth: 650 }}>
+                                <View style={styles.tableHeader}>
+                                    <Text style={[styles.th, { width: 110 }]}>Patient ID</Text>
+                                    <Text style={[styles.th, { width: 180 }]}>Name</Text>
+                                    <Text style={[styles.th, { width: 120 }]}>Phone</Text>
+                                    <Text style={[styles.th, { width: 80 }]}>Gender</Text>
+                                    <Text style={[styles.th, { width: 110 }]}>Registered</Text>
+                                    <Text style={[styles.th, { width: 90, textAlign: 'center' }]}>Action</Text>
+                                </View>
+                                {patients.map(p => (
+                                    <TouchableOpacity
+                                        key={p._id}
+                                        style={styles.tableRow}
+                                        onPress={() => openHistory(p)}
+                                    >
+                                        <View style={{ width: 110 }}>
+                                            <View style={{ backgroundColor: '#eef2ff', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, alignSelf: 'flex-start' }}>
+                                                <Text style={{ color: '#6366f1', fontWeight: 'bold', fontSize: 11 }}>{p.patientUid}</Text>
+                                            </View>
+                                        </View>
+                                        <View style={{ width: 180, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                            <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: '#e0e7ff', justifyContent: 'center', alignItems: 'center' }}>
+                                                <Text style={{ color: '#6366f1', fontWeight: 'bold', fontSize: 12 }}>{p.name?.charAt(0)?.toUpperCase()}</Text>
+                                            </View>
+                                            <Text style={{ fontWeight: 'bold', color: '#1e293b', fontSize: 13, flex: 1 }} numberOfLines={1}>{p.name}</Text>
+                                        </View>
+                                        <Text style={{ width: 120, fontSize: 13, color: '#475569' }}>{p.phone || '—'}</Text>
+                                        <Text style={{ width: 80, fontSize: 13, color: '#475569' }}>{p.gender || '—'}</Text>
+                                        <Text style={{ width: 110, fontSize: 12, color: '#94a3b8' }}>{fmtDate(p.createdAt)}</Text>
+                                        <View style={{ width: 90, alignItems: 'center' }}>
+                                            <View style={{ backgroundColor: '#f1f5f9', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 }}>
+                                                <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#6366f1' }}>View →</Text>
+                                            </View>
+                                        </View>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        </ScrollView>
+                    )}
+                </View>
+            )}
+
+            {/* TAB: REGISTER */}
+            {tab === 'register' && (
+                <View style={styles.clinicCard}>
+                    {justRegistered ? (
+                        <View style={{ alignItems: 'center', paddingVertical: 24 }}>
+                            <Text style={{ fontSize: 48, marginBottom: 8 }}>✅</Text>
+                            <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 4 }}>Patient Registered!</Text>
+                            <Text style={{ color: '#64748b', marginBottom: 20, textAlign: 'center' }}>
+                                <Text style={{ fontWeight: 'bold' }}>{justRegistered.name}</Text> · <Text style={{ backgroundColor: '#eef2ff', color: '#6366f1', fontWeight: 'bold' }}> {justRegistered.patientUid} </Text> · {justRegistered.phone}
+                            </Text>
+                            <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
+                                <TouchableOpacity style={styles.btnPrimary} onPress={() => onBookToken(justRegistered)}>
+                                    <Text style={styles.btnPrimaryText}>🎟️ Book Token Now</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={[styles.btnSecondary, { borderColor: '#16a34a' }]} onPress={() => printRegistrationSlip(justRegistered)}>
+                                    <Text style={[styles.btnSecondaryText, { color: '#16a34a' }]}>🖨️ Print Slip</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={styles.btnSecondary} onPress={() => setJustRegistered(null)}>
+                                    <Text style={styles.btnSecondaryText}>+ Register Another</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={styles.btnSecondary} onPress={() => { setJustRegistered(null); setTab('list'); }}>
+                                    <Text style={styles.btnSecondaryText}>View All Patients</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    ) : (
+                        <View style={{ paddingBottom: 120 }}>
+                            <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 16 }}>👤 Register New Patient</Text>
+                            <View style={{ gap: 12 }}>
+                                <View>
+                                    <Text style={styles.label}>Full Name *</Text>
+                                    <TextInput style={styles.input} placeholder="Patient's full name" value={form.name} onChangeText={t => setForm({ ...form, name: t })} maxLength={50} />
+                                </View>
+                                <View>
+                                    <Text style={styles.label}>Phone *</Text>
+                                    <TextInput style={styles.input} keyboardType="phone-pad" placeholder="10-digit mobile number" maxLength={10} value={form.phone} onChangeText={t => setForm({ ...form, phone: t.replace(/\D/g, '').slice(0, 10) })} />
+                                </View>
+                                <View>
+                                    <Text style={styles.label}>Age *</Text>
+                                    <TextInput style={styles.input} keyboardType="numeric" placeholder="Age" maxLength={3} value={form.age} onChangeText={t => setForm({ ...form, age: t.replace(/\D/g, '').slice(0, 3) })} />
+                                </View>
+                                <View>
+                                    <Text style={styles.label}>Aadhaar Number *</Text>
+                                    <TextInput style={styles.input} keyboardType="numeric" placeholder="12-digit Aadhaar" maxLength={12} value={form.aadhaarNumber} onChangeText={t => setForm({ ...form, aadhaarNumber: t.replace(/\D/g, '').slice(0, 12) })} />
+                                </View>
+                                <View>
+                                    <Text style={styles.label}>Email *</Text>
+                                    <TextInput style={styles.input} keyboardType="email-address" placeholder="Enter Email" value={form.email} onChangeText={t => setForm({ ...form, email: t })} />
+                                </View>
+                                <View>
+                                    <Text style={styles.label}>Date of Birth *</Text>
+                                    <DatePickerInput
+                                        value={form.dob}
+                                        onChange={t => setForm({ ...form, dob: t })}
+                                        placeholder="YYYY-MM-DD"
+                                        title="Date of Birth"
+                                    />
+                                </View>
+                                <View>
+                                    <Text style={styles.label}>Gender *</Text>
+                                    <View style={styles.pickerWrapper}>
+                                        <Picker selectedValue={form.gender} onValueChange={v => setForm({ ...form, gender: v })}>
+                                            <Picker.Item label="Select Gender" value="" />
+                                            <Picker.Item label="Male" value="Male" />
+                                            <Picker.Item label="Female" value="Female" />
+                                            <Picker.Item label="Other" value="Other" />
+                                        </Picker>
+                                    </View>
+                                </View>
+                                <View>
+                                    <Text style={styles.label}>Blood Group</Text>
+                                    <View style={styles.pickerWrapper}>
+                                        <Picker selectedValue={form.bloodGroup} onValueChange={v => setForm({ ...form, bloodGroup: v })}>
+                                            <Picker.Item label="Unknown" value="" />
+                                            <Picker.Item label="A+" value="A+" />
+                                            <Picker.Item label="A-" value="A-" />
+                                            <Picker.Item label="B+" value="B+" />
+                                            <Picker.Item label="B-" value="B-" />
+                                            <Picker.Item label="AB+" value="AB+" />
+                                            <Picker.Item label="AB-" value="AB-" />
+                                            <Picker.Item label="O+" value="O+" />
+                                            <Picker.Item label="O-" value="O-" />
+                                        </Picker>
+                                    </View>
+                                </View>
+                                <View>
+                                    <Text style={styles.label}>Address *</Text>
+                                    <TextInput style={styles.input} placeholder="Enter Address" value={form.address} onChangeText={t => setForm({ ...form, address: t })} maxLength={50} />
+                                </View>
+                                <View>
+                                    <Text style={styles.label}>City *</Text>
+                                    <TextInput style={styles.input} placeholder="Enter City" value={form.city} onChangeText={t => setForm({ ...form, city: t.replace(/[0-9]/g, '') })} maxLength={20} />
+                                </View>
+                                <View>
+                                    <Text style={styles.label}>State *</Text>
+                                    <TextInput style={styles.input} placeholder="Enter State" value={form.state} onChangeText={t => setForm({ ...form, state: t.replace(/[0-9]/g, '') })} maxLength={15} />
+                                </View>
+                                <View>
+                                    <Text style={styles.label}>Pincode</Text>
+                                    <TextInput style={styles.input} keyboardType="numeric" placeholder="Enter Pincode" value={form.pincode} onChangeText={t => setForm({ ...form, pincode: t.replace(/\D/g, '') })} maxLength={6} />
+                                </View>
+                                <View>
+                                    <Text style={styles.label}>Known Allergies</Text>
+                                    <TextInput style={styles.input} placeholder="e.g. Penicillin, Dust (optional)" value={form.allergies} onChangeText={t => setForm({ ...form, allergies: t })} maxLength={100} />
+                                </View>
+                                <View>
+                                    <Text style={styles.label}>Chronic Conditions</Text>
+                                    <TextInput style={styles.input} placeholder="e.g. Diabetes, Hypertension (optional)" value={form.chronicConditions} onChangeText={t => setForm({ ...form, chronicConditions: t })} maxLength={100} />
+                                </View>
+
+                                <View style={{ marginTop: 8 }}>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                        <Text style={{ fontWeight: 'bold', fontSize: 13, color: '#374151' }}>👨‍👩‍👧 Relatives / Emergency Contacts</Text>
+                                        <TouchableOpacity style={[styles.btnSecondary, { paddingVertical: 4, paddingHorizontal: 12, backgroundColor: '#f0fdf4', borderColor: '#86efac' }]} onPress={() => setForm(f => ({ ...f, relatives: [...f.relatives, { name: '', relation: '', phone: '' }] }))}>
+                                            <Text style={{ fontSize: 12, color: '#16a34a', fontWeight: 'bold' }}>+ Add Contact</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                    {form.relatives.length === 0 ? (
+                                        <View style={{ padding: 10, backgroundColor: '#f8fafc', borderRadius: 8, borderWidth: 1, borderStyle: 'dashed', borderColor: '#e2e8f0' }}>
+                                            <Text style={{ fontSize: 12, color: '#94a3b8' }}>No contacts added. Click "+ Add Contact" to add a relative or emergency contact.</Text>
+                                        </View>
+                                    ) : (
+                                        form.relatives.map((rel, idx) => (
+                                            <View key={idx} style={{ padding: 10, backgroundColor: idx % 2 === 0 ? '#fff' : '#f8fafc', borderWidth: 1, borderColor: '#f1f5f9', borderRadius: 8, marginBottom: 8 }}>
+                                                <TextInput style={[styles.input, { marginBottom: 4 }]} placeholder="Name e.g. Ramesh Kumar" value={rel.name} onChangeText={t => { const r = [...form.relatives]; r[idx].name = t; setForm({ ...form, relatives: r }); }} />
+                                                <View style={[styles.pickerWrapper, { marginBottom: 4 }]}>
+                                                    <Picker selectedValue={rel.relation} onValueChange={v => { const r = [...form.relatives]; r[idx].relation = v; setForm({ ...form, relatives: r }); }}>
+                                                        <Picker.Item label="Select Relation" value="" />
+                                                        {['Father', 'Mother', 'Spouse', 'Son', 'Daughter', 'Brother', 'Sister', 'Guardian', 'Friend', 'Other'].map(r => <Picker.Item key={r} label={r} value={r} />)}
+                                                    </Picker>
+                                                </View>
+                                                <TextInput style={[styles.input, { marginBottom: 4 }]} keyboardType="phone-pad" placeholder="10-digit number" value={rel.phone} maxLength={10} onChangeText={t => { const r = [...form.relatives]; r[idx].phone = t.replace(/\D/g, '').slice(0, 10); setForm({ ...form, relatives: r }); }} />
+                                                <TouchableOpacity style={{ backgroundColor: '#fee2e2', alignSelf: 'flex-end', padding: 6, borderRadius: 4 }} onPress={() => setForm(f => ({ ...f, relatives: f.relatives.filter((_, i) => i !== idx) }))}>
+                                                    <Text style={{ color: '#dc2626', fontSize: 12, fontWeight: 'bold' }}>Remove</Text>
+                                                </TouchableOpacity>
+                                            </View>
+                                        ))
+                                    )}
+                                </View>
+
+                                <TouchableOpacity style={[styles.btnPrimary, { marginTop: 16 }]} onPress={handleRegister} disabled={saving}>
+                                    <Text style={styles.btnPrimaryText}>{saving ? 'Registering...' : '✅ Register Patient'}</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    )}
+                </View>
+            )}
         </ScrollView>
     );
 };
@@ -1242,6 +1781,24 @@ const BookTokenForm = ({ patient, onBook, onCancel, flash, mode = 'token', defau
         if (fee > 0 && !form.paymentMethod) { flash('error', 'Select a payment method to collect the fee'); return; }
         setBooking(true);
         try {
+            let upiScreenshotUrl = null;
+            if (isUpi && form.upiScreenshot) {
+                const fd = new FormData();
+                if (Platform.OS === 'web' && form.upiScreenshot.file) {
+                    fd.append('images', form.upiScreenshot.file);
+                } else {
+                    fd.append('images', {
+                        uri: form.upiScreenshot.uri,
+                        name: form.upiScreenshot.name || 'screenshot.jpg',
+                        type: form.upiScreenshot.mimeType || 'image/jpeg',
+                    });
+                }
+                try {
+                    const ur = await uploadAPI.uploadImages(fd);
+                    if (ur.success && ur.urls?.length) upiScreenshotUrl = ur.urls[0];
+                } catch (_) { /* screenshot upload is optional; proceed without it */ }
+            }
+
             const payload = {
                 patientId: patient._id,
                 amount: fee,
@@ -1251,6 +1808,7 @@ const BookTokenForm = ({ patient, onBook, onCancel, flash, mode = 'token', defau
                 appointmentDate: form.appointmentDate || getTodayString(),
                 ...(isSlotMode && { appointmentTime: form.appointmentTime }),
                 ...(form.cardRef && { cardRef: form.cardRef }),
+                ...(upiScreenshotUrl && { upiScreenshotUrl }),
             };
             const r = await clinicAPI.bookAppointment(payload);
             if (r.success) {
@@ -1343,6 +1901,43 @@ const BookTokenForm = ({ patient, onBook, onCancel, flash, mode = 'token', defau
                     <View>
                         <Text style={styles.label}>Card Last 4 / Reference</Text>
                         <TextInput style={styles.input} placeholder="e.g. 4242" value={form.cardRef} onChangeText={t => setForm({ ...form, cardRef: t })} maxLength={20} />
+                    </View>
+                )}
+
+                {fee > 0 && isUpi && (
+                    <View style={{ marginTop: 4 }}>
+                        <Text style={styles.label}>Payment Screenshot (Optional)</Text>
+                        <TouchableOpacity
+                            style={[styles.btnSecondary, { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingVertical: 8, paddingHorizontal: 12, backgroundColor: '#f0fdf4', borderColor: '#86efac' }]}
+                            onPress={async () => {
+                                try {
+                                    const res = await DocumentPicker.getDocumentAsync({
+                                        type: 'image/*',
+                                        copyToCacheDirectory: true,
+                                    });
+                                    if (!res.canceled && res.assets?.length) {
+                                        setForm(f => ({ ...f, upiScreenshot: res.assets[0] }));
+                                    }
+                                } catch (e) {
+                                    console.warn(e);
+                                }
+                            }}
+                        >
+                            <Ionicons name="cloud-upload-outline" size={16} color="#16a34a" />
+                            <Text style={{ fontSize: 12, color: '#16a34a', fontWeight: 'bold' }}>
+                                {form.upiScreenshot ? 'Change Screenshot' : '📎 Upload UPI Screenshot'}
+                            </Text>
+                        </TouchableOpacity>
+                        {form.upiScreenshot && (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                                <Text style={{ fontSize: 11, color: '#16a34a', fontWeight: '600' }}>
+                                    ✓ {form.upiScreenshot.name}
+                                </Text>
+                                <TouchableOpacity onPress={() => setForm(f => ({ ...f, upiScreenshot: null }))}>
+                                    <Text style={{ fontSize: 11, color: '#dc2626', fontWeight: 'bold' }}>✕</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
                     </View>
                 )}
 
@@ -1612,6 +2207,10 @@ const MedicineTable = ({ rx, setRx, inventory }) => {
         setActiveRow(idx);
     };
 
+    const handleNameBlur = () => {
+        setTimeout(() => setActiveRow(null), 200);
+    };
+
     return (
         <View style={{ borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
             {/* Table Header */}
@@ -1638,6 +2237,7 @@ const MedicineTable = ({ rx, setRx, inventory }) => {
                                     value={displayVal}
                                     onChangeText={val => handleNameChange(idx, val)}
                                     onFocus={() => setActiveRow(idx)}
+                                    onBlur={handleNameBlur}
                                     placeholder="Search medicine..."
                                     style={[styles.input, { paddingVertical: 4, paddingHorizontal: 6, fontSize: 12, borderColor: showDropdown ? '#6366f1' : '#e2e8f0' }]}
                                 />
@@ -2450,15 +3050,40 @@ const TreatmentPlanMode = () => {
         finally { setSaving(false); }
     };
 
+    const isLastScheduled = (visitId) => {
+        if (!selectedPlan || !selectedPlan.visits) return false;
+        const remaining = selectedPlan.visits.filter(vis => ['scheduled', 'rescheduled'].includes(vis.status));
+        return remaining.length === 1 && remaining[0]._id === visitId;
+    };
+
     const handleComplete = async (planId, visitId) => {
-        try {
-            const r = await clinicAPI.completeVisit(planId, visitId, {});
-            if (r.success) {
-                setSelectedPlan(r.plan);
-                setPlans(prev => prev.map(p => p._id === r.plan._id ? r.plan : p));
-                flash('success', r.plan.status === 'completed' ? '🎉 Treatment plan completed!' : 'Visit marked completed.');
-            } else flash('error', r.message);
-        } catch (e) { flash('error', e.response?.data?.message || e.message); }
+        if (selectedPlan && isLastScheduled(visitId) && (selectedPlan.pendingBalance || 0) > 0) {
+            Alert.alert(
+                'Payment Required',
+                `Please collect the pending balance of ₹${Number(selectedPlan.pendingBalance).toLocaleString('en-IN')} before completing the final visit.`
+            );
+            return;
+        }
+        Alert.alert(
+            'Complete Visit',
+            'Mark this visit as completed?',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Complete',
+                    onPress: async () => {
+                        try {
+                            const r = await clinicAPI.completeVisit(planId, visitId, {});
+                            if (r.success) {
+                                setSelectedPlan(r.plan);
+                                setPlans(prev => prev.map(p => p._id === r.plan._id ? r.plan : p));
+                                flash('success', r.plan.status === 'completed' ? '🎉 Treatment plan completed!' : 'Visit marked completed.');
+                            } else flash('error', r.message);
+                        } catch (e) { flash('error', e.response?.data?.message || e.message); }
+                    }
+                }
+            ]
+        );
     };
 
     // 1:1 Web Parity: Mark Visit as Missed (GAP 10)
@@ -2510,6 +3135,34 @@ const TreatmentPlanMode = () => {
         } finally {
             setSaving(false);
         }
+    };
+
+    const handleCancel = (planId) => {
+        Alert.alert(
+            "Cancel Treatment Plan",
+            "Are you sure you want to cancel this treatment plan?",
+            [
+                { text: "No", style: "cancel" },
+                {
+                    text: "Cancel Plan",
+                    style: "destructive",
+                    onPress: async () => {
+                        try {
+                            const r = await clinicAPI.cancelTreatmentPlan(planId);
+                            if (r.success) {
+                                setPlans(prev => prev.map(p => p._id === planId ? { ...p, status: 'cancelled' } : p));
+                                if (selectedPlan?._id === planId) setSelectedPlan(prev => ({ ...prev, status: 'cancelled' }));
+                                flash('success', 'Plan cancelled.');
+                            } else {
+                                flash('error', r.message || 'Failed to cancel plan');
+                            }
+                        } catch (e) {
+                            flash('error', e.response?.data?.message || e.message);
+                        }
+                    }
+                }
+            ]
+        );
     };
 
     const planStatusColor = { active: '#0891b2', completed: '#16a34a', cancelled: '#dc2626' };
@@ -2680,13 +3333,23 @@ const TreatmentPlanMode = () => {
                             <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#0f172a' }}>{selectedPlan.title}</Text>
                             <Text style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>👤 {selectedPlan.clinicPatientId?.name}</Text>
                         </View>
-                        <TouchableOpacity
-                            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#ecfeff', borderWidth: 1, borderColor: '#0891b2', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}
-                            onPress={() => downloadTreatmentPlanPDF(selectedPlan)}
-                        >
-                            <Text style={{ fontSize: 13 }}>📄</Text>
-                            <Text style={{ color: '#0891b2', fontWeight: 'bold', fontSize: 12 }}>Invoice PDF</Text>
-                        </TouchableOpacity>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <TouchableOpacity
+                                style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#ecfeff', borderWidth: 1, borderColor: '#0891b2', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}
+                                onPress={() => downloadTreatmentPlanPDF(selectedPlan)}
+                            >
+                                <Text style={{ fontSize: 13 }}>📄</Text>
+                                <Text style={{ color: '#0891b2', fontWeight: 'bold', fontSize: 12 }}>Invoice PDF</Text>
+                            </TouchableOpacity>
+                            {selectedPlan.status === 'active' && (
+                                <TouchableOpacity
+                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#fee2e2', borderWidth: 1, borderColor: '#fca5a5', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}
+                                    onPress={() => handleCancel(selectedPlan._id)}
+                                >
+                                    <Text style={{ color: '#dc2626', fontWeight: 'bold', fontSize: 12 }}>✕ Cancel Plan</Text>
+                                </TouchableOpacity>
+                            )}
+                        </View>
                     </View>
 
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
@@ -2701,6 +3364,15 @@ const TreatmentPlanMode = () => {
                             </View>
                         ))}
                     </View>
+
+                    {/* Warning if last visit and balance pending */}
+                    {selectedPlan.status === 'active' && selectedPlan.pendingBalance > 0 && selectedPlan.visits.filter(v => ['scheduled', 'rescheduled'].includes(v.status)).length === 1 && (
+                        <View style={{ backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fecaca', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+                            <Text style={{ fontSize: 13, color: '#dc2626', fontWeight: 'bold' }}>
+                                ⚠️ Last visit remaining. <Text style={{ fontWeight: 'normal' }}>Patient must pay ₹{Number(selectedPlan.pendingBalance).toLocaleString('en-IN')} before this visit can be closed.</Text>
+                            </Text>
+                        </View>
+                    )}
 
                     <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#0f172a', marginBottom: 12 }}>Visit Schedule</Text>
                     <View style={{ borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
@@ -2717,21 +3389,40 @@ const TreatmentPlanMode = () => {
                                     {v.procedure ? <Text style={{ fontSize: 12, color: '#475569', marginBottom: 6 }}>{v.procedure}</Text> : null}
 
                                     <View style={{ flexDirection: 'row', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-                                        {selectedPlan.status === 'active' && !['completed', 'missed'].includes(v.status) && (
-                                            <>
-                                                {selectedPlan.pendingBalance > 0 && v.amountPaid === 0 && (
-                                                    <TouchableOpacity style={{ backgroundColor: '#dcfce7', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }} onPress={() => { setPayModal({ visit: v, planId: selectedPlan._id }); }}>
-                                                        <Text style={{ color: '#16a34a', fontSize: 12, fontWeight: 'bold' }}>💵 Pay</Text>
+                                        {selectedPlan.status === 'active' && !['completed', 'missed'].includes(v.status) && (() => {
+                                            const isLast = isLastScheduled(v._id);
+                                            const isBlocked = isLast && (selectedPlan.pendingBalance || 0) > 0;
+                                            return (
+                                                <>
+                                                    {selectedPlan.pendingBalance > 0 && v.amountPaid === 0 && (
+                                                        <TouchableOpacity style={{ backgroundColor: '#dcfce7', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }} onPress={() => { setPayModal({ visit: v, planId: selectedPlan._id }); }}>
+                                                            <Text style={{ color: '#16a34a', fontSize: 12, fontWeight: 'bold' }}>💵 Pay</Text>
+                                                        </TouchableOpacity>
+                                                    )}
+                                                    <TouchableOpacity
+                                                        style={[
+                                                            { backgroundColor: isBlocked ? '#f1f5f9' : '#dbeafe', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 },
+                                                            isBlocked && { borderWidth: 1, borderColor: '#cbd5e1' }
+                                                        ]}
+                                                        onPress={() => {
+                                                            if (isBlocked) {
+                                                                Alert.alert(
+                                                                    'Payment Required',
+                                                                    `Please collect ₹${Number(selectedPlan.pendingBalance).toLocaleString('en-IN')} first before closing the final visit.`
+                                                                );
+                                                            } else {
+                                                                handleComplete(selectedPlan._id, v._id);
+                                                            }
+                                                        }}
+                                                    >
+                                                        <Text style={{ color: isBlocked ? '#94a3b8' : '#1d4ed8', fontSize: 12, fontWeight: 'bold' }}>✓ Done</Text>
                                                     </TouchableOpacity>
-                                                )}
-                                                <TouchableOpacity style={{ backgroundColor: '#dbeafe', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }} onPress={() => handleComplete(selectedPlan._id, v._id)}>
-                                                    <Text style={{ color: '#1d4ed8', fontSize: 12, fontWeight: 'bold' }}>✓ Done</Text>
-                                                </TouchableOpacity>
-                                                <TouchableOpacity style={{ backgroundColor: '#fee2e2', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }} onPress={() => handleMiss(selectedPlan._id, v._id)}>
-                                                    <Text style={{ color: '#dc2626', fontSize: 12, fontWeight: 'bold' }}>✗ Missed</Text>
-                                                </TouchableOpacity>
-                                            </>
-                                        )}
+                                                    <TouchableOpacity style={{ backgroundColor: '#fee2e2', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }} onPress={() => handleMiss(selectedPlan._id, v._id)}>
+                                                        <Text style={{ color: '#dc2626', fontSize: 12, fontWeight: 'bold' }}>✗ Missed</Text>
+                                                    </TouchableOpacity>
+                                                </>
+                                            );
+                                        })()}
                                         {v.status === 'missed' && !v.rescheduledToDate && selectedPlan.status === 'active' && (
                                             <TouchableOpacity
                                                 style={{ backgroundColor: '#f3e8ff', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}
@@ -2839,97 +3530,473 @@ const BillingMode = () => {
     const [loading, setLoading] = useState(true);
     const [stats, setStats] = useState(null);
     const [patSearch, setPatSearch] = useState('');
+    const [detailsModal, setDetailsModal] = useState(null);
 
     useEffect(() => {
         Promise.all([clinicAPI.getAppointments(), clinicAPI.getTreatmentPlans(), clinicAPI.getStats()])
             .then(([apptR, plansR, statsR]) => {
                 let combined = [];
+
+                // 1. Consultation Bills (appointments with paid status or amount > 0)
                 if (apptR.success && Array.isArray(apptR.appointments)) {
-                    apptR.appointments.filter(a => a.paymentStatus === 'paid' || a.amount > 0).forEach(a => {
-                        combined.push({
-                            _id: a._id, date: a.appointmentDate, tokenOrSlot: a.tokenNumber ? `#${a.tokenNumber}` : 'Token',
-                            patientName: a.clinicPatientId?.name || '—', patientUid: a.clinicPatientId?.patientUid || a.patientId || '—',
-                            serviceName: a.serviceName || 'General Consultation', amount: a.amount || 0, pendingAmount: 0,
-                            paymentMethod: a.paymentMethod || 'Cash', status: a.status || 'completed', type: 'consultation', rawRecord: a
+                    apptR.appointments
+                        .filter(a => a.paymentStatus === 'paid' || (a.amount && a.amount > 0))
+                        .forEach(a => {
+                            combined.push({
+                                _id: a._id,
+                                date: a.appointmentDate,
+                                tokenOrSlot: a.tokenNumber ? `#${a.tokenNumber}` : (a.appointmentTime ? `🕐 ${a.appointmentTime}` : 'Token'),
+                                patientName: a.clinicPatientId?.name || '—',
+                                patientUid: a.clinicPatientId?.patientUid || a.patientId || '—',
+                                serviceName: a.serviceName || 'General Consultation',
+                                category: 'Consultation Fee',
+                                amount: a.amount || 0,
+                                pendingAmount: 0,
+                                paymentMethod: a.paymentMethod || 'Cash',
+                                status: a.status || 'completed',
+                                cardRef: a.cardRef,
+                                upiScreenshotUrl: a.upiScreenshotUrl,
+                                type: 'consultation',
+                                rawRecord: a
+                            });
                         });
-                    });
                 }
+
+                // 2. Treatment Plan Bills / Procedures
                 if (plansR.success && Array.isArray(plansR.plans)) {
                     plansR.plans.forEach(plan => {
-                        if (Array.isArray(plan.visits)) {
-                            plan.visits.filter(v => v.amountPaid > 0).forEach((v, idx) => {
-                                combined.push({
-                                    _id: `${plan._id}_v${v._id || idx}`, date: v.paidAt || v.completedAt || plan.createdAt,
-                                    tokenOrSlot: `Plan: ${plan.title}`, patientName: plan.clinicPatientId?.name || '—',
-                                    patientUid: plan.clinicPatientId?.patientUid || '—', serviceName: `Treatment Plan (Visit ${v.visitNumber})`,
-                                    amount: v.amountPaid, pendingAmount: plan.pendingBalance || 0, paymentMethod: v.paymentMethod || 'Cash',
-                                    status: 'completed', type: 'treatment_plan'
-                                });
+                        const pName = plan.clinicPatientId?.name || plan.patientName || '—';
+                        const pUid = plan.clinicPatientId?.patientUid || '—';
+
+                        if (Array.isArray(plan.visits) && plan.visits.length > 0) {
+                            plan.visits.forEach((v, idx) => {
+                                if (v.isPaid || (v.amountPaid && v.amountPaid > 0) || (v.cost && v.cost > 0)) {
+                                    combined.push({
+                                        _id: `${plan._id}_v${v._id || idx}`,
+                                        date: v.paidAt || v.completedAt || v.dueDate || plan.createdAt,
+                                        tokenOrSlot: `Plan: ${plan.title || 'Procedure'}`,
+                                        patientName: pName,
+                                        patientUid: pUid,
+                                        serviceName: `Treatment Plan: ${plan.title || 'Procedure'} (Visit #${v.visitNumber || (idx + 1)})`,
+                                        category: 'Treatment Plan / Procedure',
+                                        amount: v.amountPaid || (v.isPaid ? (v.cost || 0) : 0),
+                                        pendingAmount: plan.pendingBalance || 0,
+                                        paymentMethod: v.paymentMethod || 'Cash',
+                                        status: v.isPaid ? 'completed' : (v.status || plan.status || 'pending'),
+                                        type: 'treatment_plan',
+                                        cardRef: v.cardRef,
+                                        upiScreenshotUrl: v.upiScreenshotUrl,
+                                        rawRecord: plan,
+                                        rawVisit: v
+                                    });
+                                }
+                            });
+                        } else {
+                            combined.push({
+                                _id: plan._id,
+                                date: plan.createdAt,
+                                tokenOrSlot: `Plan: ${plan.title || 'Procedure'}`,
+                                patientName: pName,
+                                patientUid: pUid,
+                                serviceName: `Treatment Plan: ${plan.title || 'Procedure'}`,
+                                category: 'Treatment Plan / Procedure',
+                                amount: plan.totalPaid || 0,
+                                pendingAmount: plan.pendingBalance || 0,
+                                paymentMethod: 'Multiple / Cash',
+                                status: plan.status || 'active',
+                                type: 'treatment_plan',
+                                rawRecord: plan
                             });
                         }
                     });
                 }
+
+                // Sort by date descending
                 combined.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
-                setAllRecords(combined); setDisplayRecords(combined);
+
+                setAllRecords(combined);
+                setDisplayRecords(combined);
                 if (statsR.success) setStats(statsR.stats);
-            }).catch(console.error).finally(() => setLoading(false));
+            })
+            .catch(console.error)
+            .finally(() => setLoading(false));
     }, []);
 
     const filterByPatient = () => {
-        if (!patSearch.trim()) { setDisplayRecords(allRecords); return; }
+        if (!patSearch.trim()) {
+            setDisplayRecords(allRecords);
+            return;
+        }
         const q = patSearch.trim().toLowerCase();
-        setDisplayRecords(allRecords.filter(r => (r.patientName || '').toLowerCase().includes(q) || (r.serviceName || '').toLowerCase().includes(q)));
+        setDisplayRecords(allRecords.filter(r =>
+            (r.patientName || '').toLowerCase().includes(q) ||
+            (r.patientUid || '').toLowerCase().includes(q) ||
+            (r.serviceName || '').toLowerCase().includes(q)
+        ));
+    };
+
+    const todayTotal = allRecords
+        .filter(r => new Date(r.date).toDateString() === new Date().toDateString())
+        .reduce((s, r) => s + (r.amount || 0), 0);
+
+    const handleInvoice = async (r, action = 'view') => {
+        try {
+            const { hName, hAddr, hPhone, issuedBy } = await getClinicInfo();
+            const html = `
+                <!DOCTYPE html>
+                <html>
+                    <head>
+                        <meta charset="utf-8" />
+                        <title>Invoice - ${r.patientName || 'Receipt'}</title>
+                        <style>
+                            body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 24px; color: #1e293b; margin: 0; }
+                            .header { text-align: center; margin-bottom: 24px; border-bottom: 2px solid #2563eb; padding-bottom: 12px; }
+                            .title { font-size: 20px; font-weight: 800; color: #2563eb; margin: 6px 0; text-transform: uppercase; }
+                            .sub { font-size: 12px; color: #64748b; margin: 2px 0; }
+                            .card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin-bottom: 16px; }
+                            .grid { display: flex; justify-content: space-between; font-size: 13px; }
+                            table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13px; }
+                            th { background-color: #2980b9; color: white; padding: 10px; text-align: left; }
+                            td { border: 1px solid #e2e8f0; padding: 10px; }
+                            .paid { color: #16a34a; font-weight: bold; background-color: #f0fdf4; }
+                            .footer { margin-top: 40px; display: flex; justify-content: space-between; align-items: flex-end; font-size: 12px; color: #64748b; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="header">
+                            <h2 style="margin: 0; color: #0f172a;">${hName}</h2>
+                            <p class="sub">${hAddr || ''} ${hPhone ? `| Ph: ${hPhone}` : ''}</p>
+                            <div class="title">INVOICE / RECEIPT</div>
+                        </div>
+
+                        <div class="card">
+                            <div style="font-size: 11px; font-weight: bold; color: #64748b; text-transform: uppercase; margin-bottom: 8px;">Patient Information</div>
+                            <div class="grid">
+                                <div><strong>Name:</strong> ${r.patientName || '—'}</div>
+                                <div><strong>Patient ID:</strong> ${r.patientUid || '—'}</div>
+                                <div><strong>Date:</strong> ${new Date(r.date || Date.now()).toLocaleDateString('en-IN')}</div>
+                            </div>
+                        </div>
+
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Description</th>
+                                    <th style="text-align: right;">Details</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>Date & Time</td>
+                                    <td style="text-align: right;">${new Date(r.date || Date.now()).toLocaleString('en-IN')}</td>
+                                </tr>
+                                <tr>
+                                    <td>Service / Procedure</td>
+                                    <td style="text-align: right;">${r.serviceName || '—'}</td>
+                                </tr>
+                                <tr>
+                                    <td>Token / Plan Reference</td>
+                                    <td style="text-align: right;">${r.tokenOrSlot || '—'}</td>
+                                </tr>
+                                <tr>
+                                    <td>Payment Method</td>
+                                    <td style="text-align: right;">${r.paymentMethod || 'Cash'}${r.cardRef ? ` (Ref: ${r.cardRef})` : ''}</td>
+                                </tr>
+                                <tr class="paid">
+                                    <td>Paid Amount</td>
+                                    <td style="text-align: right; color: #16a34a;">₹${Number(r.amount || 0).toLocaleString('en-IN')}</td>
+                                </tr>
+                                <tr>
+                                    <td>Pending Balance</td>
+                                    <td style="text-align: right; color: ${Number(r.pendingAmount || 0) > 0 ? '#dc2626' : '#64748b'}; font-weight: ${Number(r.pendingAmount || 0) > 0 ? 'bold' : 'normal'};">₹${Number(r.pendingAmount || 0).toLocaleString('en-IN')}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <div class="footer">
+                            <div>
+                                <p style="margin: 0;">Issued by: <strong>${issuedBy}</strong></p>
+                                <p style="margin: 4px 0 0 0;">Thank you for your visit!</p>
+                            </div>
+                            <div style="text-align: right;">
+                                <div style="height: 40px; border-bottom: 1px solid #94a3b8; width: 140px; margin-bottom: 4px;"></div>
+                                <p style="margin: 0; font-weight: bold;">Authorized Signatory</p>
+                            </div>
+                        </div>
+                    </body>
+                </html>
+            `;
+            if (action === 'download') {
+                const { uri } = await Print.printToFileAsync({ html });
+                if (await Sharing.isAvailableAsync()) {
+                    await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+                } else {
+                    Alert.alert('Invoice Saved', `PDF created at: ${uri}`);
+                }
+            } else {
+                await Print.printAsync({ html });
+            }
+        } catch (e) {
+            console.warn('Invoice generation error:', e);
+            Alert.alert('Error', 'Failed to generate invoice.');
+        }
     };
 
     return (
         <ScrollView style={styles.container}>
+            {/* Collection Summary Strip */}
             {stats && (
-                <View style={styles.kpiGrid}>
-                    <View style={[styles.kpiCard, { borderTopColor: '#f59e0b' }]}>
-                        <Text style={{ fontSize: 24 }}>💰</Text>
-                        <Text style={{ fontSize: 20, fontWeight: '800', color: '#f59e0b' }}>₹{stats.totalRevenue || 0}</Text>
-                        <Text style={{ fontSize: 12, color: '#64748b' }}>Total Collection</Text>
-                    </View>
-                    <View style={[styles.kpiCard, { borderTopColor: '#10b981' }]}>
-                        <Text style={{ fontSize: 24 }}>📅</Text>
-                        <Text style={{ fontSize: 20, fontWeight: '800', color: '#10b981' }}>₹{stats.todayRevenue || 0}</Text>
-                        <Text style={{ fontSize: 12, color: '#64748b' }}>Today's Collection</Text>
-                    </View>
+                <View style={[styles.kpiGrid, { marginBottom: 16 }]}>
+                    {[
+                        { label: 'Total Collection', value: fmt(stats.totalRevenue || allRecords.reduce((sum, r) => sum + (r.amount || 0), 0)), icon: '💰', color: '#f59e0b' },
+                        { label: "Today's Collection", value: fmt(stats.todayRevenue || todayTotal), icon: '📅', color: '#10b981' },
+                        { label: 'Treatment Plan Revenue', value: fmt(stats.treatmentPlanRevenue || 0), icon: '📋', color: '#0891b2' },
+                        { label: 'Treatment Plan Pending', value: fmt(stats.treatmentPlanPending || 0), icon: '⏳', color: '#dc2626' },
+                        { label: 'Total Paid Transactions', value: String(allRecords.filter(r => (r.amount || 0) > 0).length), icon: '✅', color: '#0ea5e9' },
+                    ].map((k, i) => (
+                        <View key={i} style={[styles.kpiCard, { borderTopColor: k.color, minWidth: '45%' }]}>
+                            <Text style={{ fontSize: 24 }}>{k.icon}</Text>
+                            <Text style={{ fontSize: 20, fontWeight: '800', color: k.color, marginVertical: 4 }}>{k.value}</Text>
+                            <Text style={{ fontSize: 12, color: '#64748b' }}>{k.label}</Text>
+                        </View>
+                    ))}
                 </View>
             )}
 
             <View style={styles.clinicCard}>
-                <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 14, color: '#1e293b' }}>🧾 Billing Records</Text>
-
-                <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
-                    <TextInput style={[styles.input, { flex: 1 }]} placeholder="Search patient..." value={patSearch} onChangeText={setPatSearch} />
-                    <TouchableOpacity style={[styles.btnPrimary, { paddingHorizontal: 16, paddingVertical: 12 }]} onPress={filterByPatient}>
-                        <Text style={styles.btnPrimaryText}>Search</Text>
-                    </TouchableOpacity>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+                    <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1e293b' }}>🧾 Billing & Collection Records</Text>
+                    <View style={{ backgroundColor: '#dcfce7', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 }}>
+                        <Text style={{ fontSize: 11, color: '#16a34a', fontWeight: 'bold' }}>Consultations & Treatment Plans</Text>
+                    </View>
                 </View>
 
-                {loading ? <Spinner /> : displayRecords.length === 0 ? <Empty text="No records found." /> : (
-                    <FlatList
-                        data={displayRecords}
-                        keyExtractor={r => r._id}
-                        renderItem={({ item: r }) => (
-                            <View style={[styles.tableRow, { flexWrap: 'wrap' }]}>
-                                <View style={{ flex: 1, minWidth: '40%' }}>
-                                    <Text style={{ fontWeight: 'bold', color: '#1e293b' }}>{r.patientName}</Text>
-                                    <Text style={{ fontSize: 12, color: '#64748b' }}>{new Date(r.date).toLocaleDateString('en-IN')} · {r.serviceName}</Text>
-                                </View>
-                                <View style={{ alignItems: 'flex-end', minWidth: '30%' }}>
-                                    <Text style={{ fontWeight: 'bold', color: '#16a34a', fontSize: 15 }}>₹{r.amount}</Text>
-                                    <View style={{ backgroundColor: '#f1f5f9', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginTop: 4 }}>
-                                        <Text style={{ fontSize: 10, color: '#475569', fontWeight: 'bold' }}>{r.paymentMethod}</Text>
+                <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
+                    <TextInput
+                        style={[styles.input, { flex: 1 }]}
+                        placeholder="Search by patient name, ID or procedure..."
+                        value={patSearch}
+                        onChangeText={setPatSearch}
+                        onSubmitEditing={filterByPatient}
+                    />
+                    <TouchableOpacity style={[styles.btnSecondary, { paddingHorizontal: 14, justifyContent: 'center' }]} onPress={filterByPatient}>
+                        <Text style={styles.btnSecondaryText}>Search</Text>
+                    </TouchableOpacity>
+                    {patSearch ? (
+                        <TouchableOpacity style={[styles.btnSecondary, { paddingHorizontal: 12, justifyContent: 'center', backgroundColor: '#fee2e2', borderColor: '#fca5a5' }]} onPress={() => { setPatSearch(''); setDisplayRecords(allRecords); }}>
+                            <Text style={{ color: '#dc2626', fontWeight: 'bold', fontSize: 12 }}>✕ Clear</Text>
+                        </TouchableOpacity>
+                    ) : null}
+                </View>
+
+                {loading ? (
+                    <Spinner />
+                ) : displayRecords.length === 0 ? (
+                    <Empty text="No collection records found." />
+                ) : (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={true}>
+                        <View style={{ minWidth: 1000 }}>
+                            {/* Table Header */}
+                            <View style={[styles.tableHeader, { paddingHorizontal: 8 }]}>
+                                <Text style={[styles.th, { width: 90 }]}>Date</Text>
+                                <Text style={[styles.th, { width: 110 }]}>Type</Text>
+                                <Text style={[styles.th, { width: 100 }]}>Token / Plan</Text>
+                                <Text style={[styles.th, { width: 140 }]}>Patient</Text>
+                                <Text style={[styles.th, { width: 160 }]}>Service / Procedure</Text>
+                                <Text style={[styles.th, { width: 90 }]}>Paid Fee</Text>
+                                <Text style={[styles.th, { width: 90 }]}>Pending</Text>
+                                <Text style={[styles.th, { width: 110 }]}>Method</Text>
+                                <Text style={[styles.th, { width: 100 }]}>Status</Text>
+                                <Text style={[styles.th, { width: 140, textAlign: 'right' }]}>Actions</Text>
+                            </View>
+
+                            {/* Table Rows */}
+                            {displayRecords.map((r, i) => (
+                                <View key={r._id || i} style={[styles.tableRow, { paddingHorizontal: 8, backgroundColor: i % 2 === 0 ? '#fff' : '#f8fafc' }]}>
+                                    <View style={{ width: 90 }}>
+                                        <Text style={{ fontSize: 12, color: '#334155' }}>{fmtDate(r.date)}</Text>
+                                    </View>
+                                    <View style={{ width: 110 }}>
+                                        <View style={{
+                                            backgroundColor: r.type === 'treatment_plan' ? '#ecfeff' : '#f0fdf4',
+                                            paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, alignSelf: 'flex-start'
+                                        }}>
+                                            <Text style={{
+                                                color: r.type === 'treatment_plan' ? '#0891b2' : '#16a34a',
+                                                fontSize: 10, fontWeight: '700'
+                                            }}>
+                                                {r.category || (r.type === 'treatment_plan' ? 'Treatment Plan' : 'Consultation')}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                    <View style={{ width: 100 }}>
+                                        <Text style={{ fontWeight: 'bold', color: '#6366f1', fontSize: 12 }}>{r.tokenOrSlot}</Text>
+                                    </View>
+                                    <View style={{ width: 140 }}>
+                                        <Text style={{ fontWeight: '600', color: '#1e293b', fontSize: 12 }} numberOfLines={1}>{r.patientName}</Text>
+                                        <Text style={{ fontSize: 11, color: '#94a3b8' }}>{r.patientUid}</Text>
+                                    </View>
+                                    <View style={{ width: 160 }}>
+                                        <Text style={{ fontSize: 12, color: '#334155' }} numberOfLines={2}>{r.serviceName}</Text>
+                                    </View>
+                                    <View style={{ width: 90 }}>
+                                        <Text style={{ fontWeight: 'bold', color: '#16a34a', fontSize: 13 }}>{fmt(r.amount)}</Text>
+                                    </View>
+                                    <View style={{ width: 90 }}>
+                                        {r.pendingAmount > 0 ? (
+                                            <Text style={{ fontWeight: 'bold', color: '#dc2626', fontSize: 13 }}>{fmt(r.pendingAmount)}</Text>
+                                        ) : (
+                                            <Text style={{ color: '#94a3b8', fontSize: 12 }}>₹0</Text>
+                                        )}
+                                    </View>
+                                    <View style={{ width: 110 }}>
+                                        <View style={{ backgroundColor: '#f1f5f9', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, alignSelf: 'flex-start' }}>
+                                            <Text style={{ fontSize: 10, color: '#475569', fontWeight: '600' }}>{r.paymentMethod || 'Cash'}</Text>
+                                        </View>
+                                        {r.cardRef ? <Text style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>Ref: {r.cardRef}</Text> : null}
+                                        {r.upiScreenshotUrl ? (
+                                            <TouchableOpacity onPress={() => Linking.openURL(r.upiScreenshotUrl)}>
+                                                <Text style={{ fontSize: 10, color: '#3b82f6', marginTop: 2, textDecorationLine: 'underline' }}>📎 Screenshot</Text>
+                                            </TouchableOpacity>
+                                        ) : null}
+                                    </View>
+                                    <View style={{ width: 100 }}>
+                                        <StatusBadge status={r.status} />
+                                        {r.type === 'treatment_plan' && r.rawVisit?.rescheduledToDate ? (
+                                            <TouchableOpacity
+                                                style={{ marginTop: 4, backgroundColor: '#f5f3ff', borderWidth: 1, borderColor: '#ddd6fe', paddingHorizontal: 4, paddingVertical: 2, borderRadius: 4, alignSelf: 'flex-start' }}
+                                                onPress={() => setDetailsModal(r)}
+                                            >
+                                                <Text style={{ fontSize: 9, color: '#8b5cf6', fontWeight: '700' }}>🔄 Rescheduled</Text>
+                                            </TouchableOpacity>
+                                        ) : null}
+                                    </View>
+                                    <View style={{ width: 140, flexDirection: 'row', gap: 4, justifyContent: 'flex-end', alignItems: 'center' }}>
+                                        <TouchableOpacity
+                                            style={[styles.btnSecondary, { paddingHorizontal: 6, paddingVertical: 4 }]}
+                                            onPress={() => setDetailsModal(r)}
+                                        >
+                                            <Text style={{ fontSize: 11, color: '#334155' }}>👁️ Details</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={[styles.btnSecondary, { paddingHorizontal: 6, paddingVertical: 4, backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' }]}
+                                            onPress={() => handleInvoice(r, 'view')}
+                                        >
+                                            <Text style={{ fontSize: 11, color: '#16a34a', fontWeight: 'bold' }}>📄</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={[styles.btnSecondary, { paddingHorizontal: 6, paddingVertical: 4 }]}
+                                            onPress={() => handleInvoice(r, 'download')}
+                                        >
+                                            <Text style={{ fontSize: 11 }}>⬇️</Text>
+                                        </TouchableOpacity>
                                     </View>
                                 </View>
-                            </View>
-                        )}
-                        scrollEnabled={false}
-                    />
+                            ))}
+                        </View>
+                    </ScrollView>
                 )}
             </View>
+
+            {/* View Details Modal */}
+            {detailsModal && (
+                <Modal transparent visible animationType="fade">
+                    <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 }}>
+                        <View style={{ backgroundColor: '#fff', borderRadius: 14, padding: 20, width: '100%', maxWidth: 520, maxHeight: '90%' }}>
+                            <ScrollView showsVerticalScrollIndicator={false}>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottomWidth: 1, borderColor: '#e2e8f0', paddingBottom: 10 }}>
+                                    <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#0f172a' }}>📑 Billing Details</Text>
+                                    <TouchableOpacity onPress={() => setDetailsModal(null)}>
+                                        <Ionicons name="close" size={24} color="#64748b" />
+                                    </TouchableOpacity>
+                                </View>
+
+                                {/* Patient Information */}
+                                <View style={{ backgroundColor: '#f8fafc', padding: 12, borderRadius: 8, marginBottom: 16, flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+                                    <View>
+                                        <Text style={{ fontSize: 10, color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase' }}>Patient</Text>
+                                        <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#1e293b' }}>{detailsModal.patientName}</Text>
+                                        <Text style={{ fontSize: 12, color: '#64748b' }}>{detailsModal.patientUid}</Text>
+                                        {detailsModal.rawRecord?.clinicPatientId?.phone ? (
+                                            <Text style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>📞 {detailsModal.rawRecord.clinicPatientId.phone}</Text>
+                                        ) : null}
+                                    </View>
+                                    <View style={{ alignItems: 'flex-end' }}>
+                                        <Text style={{ fontSize: 10, color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase' }}>Date</Text>
+                                        <Text style={{ fontSize: 13, fontWeight: '600', color: '#334155' }}>{fmtDate(detailsModal.date)}</Text>
+                                        <View style={{ marginTop: 4 }}>
+                                            <StatusBadge status={detailsModal.status} />
+                                        </View>
+                                        {detailsModal.type === 'treatment_plan' && detailsModal.rawVisit?.rescheduledToDate ? (
+                                            <View style={{ marginTop: 4, backgroundColor: '#f5f3ff', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                                                <Text style={{ fontSize: 10, color: '#8b5cf6', fontWeight: 'bold' }}>
+                                                    🔄 Rescheduled: {fmtDate(detailsModal.rawVisit.rescheduledToDate)}
+                                                </Text>
+                                            </View>
+                                        ) : null}
+                                    </View>
+                                </View>
+
+                                {/* Treatment & Payment Summary */}
+                                <View style={{ marginBottom: 16 }}>
+                                    <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#475569', marginBottom: 8, borderBottomWidth: 1, borderColor: '#e2e8f0', paddingBottom: 4 }}>
+                                        Treatment & Payment Summary
+                                    </Text>
+                                    <View style={{ gap: 8 }}>
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                            <Text style={{ color: '#64748b', fontSize: 13 }}>Service / Procedure:</Text>
+                                            <Text style={{ fontWeight: '600', color: '#1e293b', fontSize: 13, flex: 1, textAlign: 'right' }}>{detailsModal.serviceName}</Text>
+                                        </View>
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                            <Text style={{ color: '#64748b', fontSize: 13 }}>Payment Method:</Text>
+                                            <Text style={{ fontWeight: '600', color: '#1e293b', fontSize: 13 }}>{detailsModal.paymentMethod}</Text>
+                                        </View>
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                            <Text style={{ color: '#64748b', fontSize: 13 }}>Paid Amount:</Text>
+                                            <Text style={{ fontWeight: 'bold', color: '#16a34a', fontSize: 15 }}>₹{detailsModal.amount}</Text>
+                                        </View>
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                            <Text style={{ color: '#64748b', fontSize: 13 }}>Pending Balance:</Text>
+                                            <Text style={{ fontWeight: 'bold', color: (detailsModal.pendingAmount > 0) ? '#dc2626' : '#94a3b8', fontSize: 15 }}>
+                                                ₹{detailsModal.pendingAmount}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                </View>
+
+                                {/* Complete Payment History for Treatment Plans */}
+                                {detailsModal.type === 'treatment_plan' && detailsModal.rawVisit?.paymentHistory?.length > 0 && (
+                                    <View style={{ marginBottom: 16 }}>
+                                        <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#475569', marginBottom: 8, borderBottomWidth: 1, borderColor: '#e2e8f0', paddingBottom: 4 }}>
+                                            Complete Payment History
+                                        </Text>
+                                        {detailsModal.rawVisit.paymentHistory.map((ph, idx) => (
+                                            <View key={idx} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderColor: '#f1f5f9' }}>
+                                                <Text style={{ fontSize: 12, color: '#475569' }}>{fmtDate(ph.date)}</Text>
+                                                <Text style={{ fontSize: 12, color: '#64748b' }}>{ph.method}</Text>
+                                                <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#16a34a' }}>₹{ph.amount}</Text>
+                                            </View>
+                                        ))}
+                                    </View>
+                                )}
+
+                                {/* Action Buttons */}
+                                <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                                    <TouchableOpacity style={[styles.btnSecondary, { flex: 1 }]} onPress={() => setDetailsModal(null)}>
+                                        <Text style={styles.btnSecondaryText}>Close</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity style={[styles.btnPrimary, { flex: 1.2, alignItems: 'center' }]} onPress={() => handleInvoice(detailsModal, 'view')}>
+                                        <Text style={styles.btnPrimaryText}>📄 View</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity style={[styles.btnPrimary, { flex: 1.4, alignItems: 'center', backgroundColor: '#10b981' }]} onPress={() => handleInvoice(detailsModal, 'download')}>
+                                        <Text style={styles.btnPrimaryText}>⬇️ Download</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </ScrollView>
+                        </View>
+                    </View>
+                </Modal>
+            )}
         </ScrollView>
     );
 };
@@ -2969,65 +4036,6 @@ const PayBadge = ({ status }) => {
     return <Text style={{ color, fontWeight: 'bold', fontSize: 12 }}>{status}</Text>;
 };
 
-const ReportViewerModal = ({ report, onClose }) => {
-    if (!report) return null;
-    const url = reportURL(report.filename);
-    const isPDF = report.mimetype === 'application/pdf' ||
-        (report.filename || '').toLowerCase().endsWith('.pdf') ||
-        (report.name || '').toLowerCase().endsWith('.pdf');
-
-    return (
-        <Modal visible={true} transparent animationType="fade" onRequestClose={onClose}>
-            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', padding: 16 }}>
-                <View style={{ width: '100%', maxWidth: 500, backgroundColor: '#1e293b', borderRadius: 12, overflow: 'hidden' }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderColor: '#334155' }}>
-                        <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14, flex: 1 }} numberOfLines={1}>
-                            📄 {report.name || 'Report'}
-                        </Text>
-                        <TouchableOpacity onPress={onClose} style={{ padding: 4 }}>
-                            <Ionicons name="close" size={20} color="#94a3b8" />
-                        </TouchableOpacity>
-                    </View>
-
-                    <View style={{ height: 350, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center', padding: 10 }}>
-                        {isPDF ? (
-                            <View style={{ alignItems: 'center', padding: 20 }}>
-                                <Ionicons name="document-text" size={64} color="#38bdf8" />
-                                <Text style={{ color: '#94a3b8', fontSize: 13, marginTop: 10, textAlign: 'center' }}>PDF Document</Text>
-                                <TouchableOpacity
-                                    style={{ backgroundColor: '#0284c7', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, marginTop: 16 }}
-                                    onPress={() => Linking.openURL(url)}
-                                >
-                                    <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 13 }}>Open PDF in Browser ↗</Text>
-                                </TouchableOpacity>
-                            </View>
-                        ) : (
-                            <Image
-                                source={{ uri: url }}
-                                style={{ width: '100%', height: '100%', resizeMode: 'contain' }}
-                            />
-                        )}
-                    </View>
-
-                    <View style={{ flexDirection: 'row', justifyContent: 'flex-end', padding: 12, gap: 10, backgroundColor: '#1e293b' }}>
-                        <TouchableOpacity
-                            style={{ paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#334155', borderRadius: 6 }}
-                            onPress={() => Linking.openURL(url)}
-                        >
-                            <Text style={{ color: '#38bdf8', fontSize: 12, fontWeight: '600' }}>Open External ↗</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={{ paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#475569', borderRadius: 6 }}
-                            onPress={onClose}
-                        >
-                            <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>Close</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </View>
-        </Modal>
-    );
-};
 
 const PatientReportPanel = ({ patientId, patientName }) => {
     const [reports, setReports] = useState([]);
@@ -3223,6 +4231,10 @@ const styles = StyleSheet.create({
     pickerWrapper: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden' },
     btnPrimary: { backgroundColor: '#6366f1', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
     btnPrimaryText: { color: '#fff', fontWeight: 'bold' },
+    btnSecondary: { backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#cbd5e1', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+    btnSecondaryText: { color: '#334155', fontWeight: 'bold', fontSize: 13 },
+    clinicAvatarSm: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#e0e7ff', justifyContent: 'center', alignItems: 'center' },
+    clinicAvatarLg: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#e0e7ff', justifyContent: 'center', alignItems: 'center' },
 });
 
 export default ClinicDashboard;

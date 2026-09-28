@@ -5,7 +5,8 @@ import {
 } from 'react-native';
 import { hospitalAPI } from '../utils/api';
 import { useBranding } from '../context/BrandingContext';
-import { isSafeImageUrl } from '../utils/resourceSecurity';
+
+const isSafeLogo = (u) => Boolean(u && typeof u === 'string' && u.trim() && !u.includes('gemini.google.com'));
 
 /* ── Color swatch picker ─────────────────────────────────── */
 const ColorField = ({ label, name, value, onChange }) => (
@@ -84,7 +85,7 @@ const HospitalBrandingEditor = ({ hospital, onClose, onSaveSuccess }) => {
 
     const handleSave = async () => {
         setSaving(true); setError(''); setSuccess('');
-        if (form.logoUrl && !isSafeImageUrl(form.logoUrl)) {
+        if (form.logoUrl && !isSafeLogo(form.logoUrl)) {
             setError('Invalid logo URL: Cross-origin or temporary blob URLs are not permitted.');
             setSaving(false);
             return;
@@ -210,7 +211,7 @@ const HospitalBrandingEditor = ({ hospital, onClose, onSaveSuccess }) => {
                                 <TextField label="Tagline" name="tagline" value={form.tagline} onChange={handleChange} placeholder="Caring for every life" hint="Shows below the logo" />
                                 <TextField label="Logo URL" name="logoUrl" value={form.logoUrl} onChange={handleChange} placeholder="https://cdn.hospital.com/logo.png" hint="Direct image URL" />
                                 
-                                {isSafeImageUrl(form.logoUrl) ? (
+                                {isSafeLogo(form.logoUrl) ? (
                                     <View style={styles.logoPreviewContainer}>
                                         <Text style={styles.previewLabel}>Logo Preview</Text>
                                         <View style={styles.logoBox}>

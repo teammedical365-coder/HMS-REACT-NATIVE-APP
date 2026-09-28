@@ -2,8 +2,9 @@ import React from 'react';
 import { View, Text, TouchableOpacity, Image, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
-import { isSafeImageUrl } from '../../utils/resourceSecurity';
 import { styles } from './CentralAdminDashboardStyles';
+
+const isSafeLogo = (u) => Boolean(u && typeof u === 'string' && u.trim() && !u.includes('gemini.google.com'));
 
 export default function CentralAdminHospitalList({ 
   loading,
@@ -99,7 +100,7 @@ export default function CentralAdminHospitalList({
       <View style={styles.hospitalsGrid}>
         {filteredHospitals.map((hospital) => {
           const rawLogo = hospital.brandingSchema?.logoUrl || hospital.branding?.logoUrl;
-          const logoUrl = isSafeImageUrl(rawLogo) ? rawLogo : null;
+          const logoUrl = isSafeLogo(rawLogo) ? rawLogo : null;
           
           return (
             <TouchableOpacity 

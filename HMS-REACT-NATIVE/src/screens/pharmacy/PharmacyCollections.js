@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Dimensions, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Dimensions, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { pharmacyAPI } from '../../utils/api';
 import { Picker } from '@react-native-picker/picker'; // Fallback if installed, or just simulate dropdown structure
 
-const { width } = Dimensions.get('window');
-
 const PharmacyCollections = () => {
+    const { width } = useWindowDimensions();
+    const isLargeScreen = width > 768;
+    const isDesktop = width > 1024;
     const [dateRange, setDateRange] = useState('today'); // today, week, month, custom
     const [customStart, setCustomStart] = useState('');
     const [customEnd, setCustomEnd] = useState('');
@@ -79,7 +80,7 @@ const PharmacyCollections = () => {
 
     return (
         <ScrollView style={styles.collectionsContainer} contentContainerStyle={{ paddingBottom: 40 }}>
-            <View style={styles.collectionsHeader}>
+            <View style={[styles.collectionsHeader, { flexDirection: isLargeScreen ? 'row' : 'column', alignItems: isLargeScreen ? 'center' : 'flex-start' }]}>
                 <Text style={styles.headerTitle}>📊 Pharmacy Collections & Analytics</Text>
                 
                 <View style={styles.filters}>
@@ -159,7 +160,7 @@ const PharmacyCollections = () => {
                         </View>
                     </View>
 
-                    <View style={styles.chartsSection}>
+                    <View style={[styles.chartsSection, { flexDirection: isDesktop ? 'row' : 'column' }]}>
                         {/* Top Selling Items */}
                         <View style={styles.chartCard}>
                             <Text style={styles.chartTitle}>Top Selling Items</Text>
@@ -249,9 +250,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#f1f5f9',
     },
     collectionsHeader: {
-        flexDirection: width > 768 ? 'row' : 'column',
         justifyContent: 'space-between',
-        alignItems: width > 768 ? 'center' : 'flex-start',
         marginBottom: 25,
         gap: 15,
     },
@@ -350,7 +349,6 @@ const styles = StyleSheet.create({
     },
 
     chartsSection: {
-        flexDirection: width > 1024 ? 'row' : 'column',
         gap: 20,
     },
     chartCard: {

@@ -3,8 +3,17 @@ import { View, Text, TextInput, Image, TouchableOpacity, Pressable, useWindowDim
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { rnBuildAPI } from '../../utils/api';
-import { isSafeImageUrl } from '../../utils/resourceSecurity';
 import { styles } from './CentralAdminDashboardStyles';
+
+const isValidLogoUrl = (url) => {
+  if (!url || typeof url !== 'string') return false;
+  const trimmed = url.trim();
+  if (!trimmed || trimmed.includes('gemini.google.com')) return false;
+  if (trimmed.startsWith('blob:') && typeof window !== 'undefined' && window.location?.origin) {
+    return trimmed.startsWith(`blob:${window.location.origin}/`);
+  }
+  return true;
+};
 
 const normalizePlan = (value) => {
   const plan = String(value || '').trim().toLowerCase().replace(/[\s-]/g, '_');
@@ -213,7 +222,7 @@ export default function CentralAdminHospitalCards({
           {filteredHospitals.map((hospital) => {
             const isClinicCard = hospital.clinicType === 'clinic';
             const rawLogo = hospital.brandingSchema?.logoUrl || hospital.branding?.logoUrl;
-            const logoUrl = isSafeImageUrl(rawLogo) ? rawLogo : null;
+            const logoUrl = isValidLogoUrl(rawLogo) ? rawLogo : null;
             const hospitalId = hospital._id || hospital.id;
             // Version key: combines logoUrl + save counter so the Image remounts
             // even if the URL string happens to be identical between two saves.

@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
     View, Text, TextInput, TouchableOpacity, ScrollView, Image, 
-    StyleSheet, ActivityIndicator, Alert, Modal, Platform 
+    StyleSheet, ActivityIndicator, Alert, Modal, Platform, useWindowDimensions 
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
-import { adminAPI, uploadAPI, hospitalAPI } from '../../utils/api';
+import { adminAPI, uploadAPI, hospitalAPI, publicAPI } from '../../utils/api';
 import { getSubscriptionLimits } from '../../utils/subscriptionPlans';
 
 import DropdownSelect from '../../components/common/DropdownSelect';
@@ -48,6 +48,8 @@ const StaffInput = ({ style, onFocus, onBlur, ...props }) => {
 const Admin = () => {
     const navigation = useNavigation();
     const route = useRoute();
+    const { width: windowWidth } = useWindowDimensions();
+    const isMobile = windowWidth < 768;
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [users, setUsers] = useState([]);
@@ -56,9 +58,52 @@ const Admin = () => {
     const [hospital, setHospital] = useState(null);
     const [currentUser, setCurrentUser] = useState({});
 
+    // Available doctors for doctor assistant queue assignment (Exact Web parity)
+    const [availableDoctors, setAvailableDoctors] = useState([]);
+
+    // UPI state (Exact Web parity)
+    const [upiList, setUpiList] = useState([]);
+    const [upiLoading, setUpiLoading] = useState(false);
+    const [upiError, setUpiError] = useState('');
+    const [upiSuccess, setUpiSuccess] = useState('');
+
+    const fetchDocs = async () => {
+        try {
+            const res = await publicAPI.getDoctors();
+            if (res.success) setAvailableDoctors(res.doctors || res.data || []);
+        } catch (err) { }
+    };
+
+    const fetchUpiIds = async () => {
+        try {
+            const res = await hospitalAPI.getUpiIds();
+            if (res.success) setUpiList(res.upiIds || []);
+        } catch (err) {
+            console.error('Error fetching UPI IDs:', err);
+        }
+    };
+
+    const handleSaveUpi = async (newList) => {
+        setUpiLoading(true);
+        setUpiError('');
+        setUpiSuccess('');
+        try {
+            const res = await hospitalAPI.updateUpiIds(newList || upiList);
+            if (res.success) {
+                setUpiSuccess('UPI IDs updated');
+            } else {
+                setUpiError('Failed to update UPI IDs');
+            }
+        } catch (err) {
+            setUpiError(err.response?.data?.message || 'Error updating UPI IDs');
+        } finally {
+            setUpiLoading(false);
+        }
+    };
+
     const [editModal, setEditModal] = useState(false);
     const [editForm, setEditForm] = useState({
-        id: '', name: '', email: '', phone: '', roleId: '', currentAvatar: '', newAvatarFile: null, specialty: '', department: ''
+        id: '', name: '', email: '', phone: '', roleId: '', currentAvatar: '', newAvatarFile: null, specialty: '', department: '', assignedDoctors: []
     });
     const [updating, setUpdating] = useState(false);
 
@@ -68,7 +113,7 @@ const Admin = () => {
     // Create Staff Form state
     const [showCreateForm, setShowCreateForm] = useState(false);
     const [createForm, setCreateForm] = useState({
-        name: '', email: '', password: '', phone: '', age: '', aadhaar: '', roleId: '', file: null, department: ''
+        name: '', email: '', password: '', phone: '', age: '', aadhaar: '', roleId: '', file: null, department: '', assignedDoctors: []
     });
     const [creating, setCreating] = useState(false);
     const [clinicDoctorExists, setClinicDoctorExists] = useState(false);
@@ -104,7 +149,12 @@ const Admin = () => {
         fetchUsers();
         fetchRoles();
         fetchHospital();
+        fetchDocs();
     }, []);
+
+    useEffect(() => {
+        if (hospital) fetchUpiIds();
+    }, [hospital]);
 
     useEffect(() => {
         if (route.params?.openCreateForm) {
@@ -230,7 +280,8 @@ const Admin = () => {
             currentAvatar: userItem.avatar,
             newAvatarFile: null,
             specialty: '',
-            department: (userItem.departments && userItem.departments.length > 0) ? userItem.departments[0] : ''
+            department: (userItem.departments && userItem.departments.length > 0) ? userItem.departments[0] : '',
+            assignedDoctors: Array.isArray(userItem.assignedDoctors) ? userItem.assignedDoctors.map(d => d._id || d) : []
         });
         setEditModal(true);
         setError('');
@@ -271,7 +322,8 @@ const Admin = () => {
                 roleId: editForm.roleId,
                 avatar: avatarUrl,
                 specialty: editForm.specialty,
-                departments: editForm.department ? [editForm.department] : []
+                departments: editForm.department ? [editForm.department] : [],
+                assignedDoctors: editForm.assignedDoctors || []
             };
 
             const response = await adminAPI.updateUser(editForm.id, updateData);
@@ -880,8 +932,9 @@ const Admin = () => {
             <Modal visible={editModal} transparent={true} animationType="fade">
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>Edit Staff Details</Text>
-                        <View style={styles.userForm}>
+                        <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                            <Text style={styles.modalTitle}>Edit Staff Details</Text>
+                            <View style={styles.userForm}>
                             <View style={{ flexDirection: 'row', gap: 20, alignItems: 'center', marginBottom: 20 }}>
                                 <View>
                                     {editForm.currentAvatar ? (
@@ -949,6 +1002,54 @@ const Admin = () => {
                                 </View>
                             )}
 
+                            {/* Assign Responsible Doctors for Doctor Assistant (Exact Web lines 1210-1248) */}
+                            {(() => {
+                                const selectedRoleObj = roles.find(r => r._id === editForm.roleId || r.roleKey === editForm.roleId || r.name === editForm.roleId);
+                                const isAssistant = (selectedRoleObj?.roleKey || selectedRoleObj?.name || '').toLowerCase().includes('assistant');
+                                if (isAssistant && availableDoctors.length > 0) {
+                                    const selectedDocIds = editForm.assignedDoctors || [];
+                                    return (
+                                        <View style={{ marginTop: 14, backgroundColor: '#f8fafc', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' }}>
+                                            <Text style={{ fontSize: 13, fontWeight: '700', color: '#0369a1', marginBottom: 8 }}>
+                                                👨‍⚕️ Assign Responsible Doctors (Queue & Prep Management)
+                                            </Text>
+                                            <View style={{ gap: 6 }}>
+                                                {availableDoctors.map(doc => {
+                                                    const isChecked = selectedDocIds.includes(doc._id);
+                                                    return (
+                                                        <TouchableOpacity
+                                                            key={doc._id}
+                                                            onPress={() => {
+                                                                const updated = isChecked
+                                                                    ? selectedDocIds.filter(id => id !== doc._id)
+                                                                    : [...selectedDocIds, doc._id];
+                                                                setEditForm(prev => ({ ...prev, assignedDoctors: updated }));
+                                                            }}
+                                                            style={{
+                                                                flexDirection: 'row',
+                                                                alignItems: 'center',
+                                                                gap: 8,
+                                                                padding: 8,
+                                                                borderRadius: 6,
+                                                                borderWidth: 1,
+                                                                borderColor: isChecked ? '#0ea5e9' : '#cbd5e1',
+                                                                backgroundColor: isChecked ? '#f0f9ff' : '#ffffff'
+                                                            }}
+                                                        >
+                                                            <Feather name={isChecked ? "check-square" : "square"} size={16} color={isChecked ? "#0ea5e9" : "#94a3b8"} />
+                                                            <Text style={{ fontSize: 12.5, fontWeight: '600', color: '#0f172a' }}>
+                                                                {doc.name} ({doc.departments?.[0] || doc.specialty || 'General'})
+                                                            </Text>
+                                                        </TouchableOpacity>
+                                                    );
+                                                })}
+                                            </View>
+                                        </View>
+                                    );
+                                }
+                                return null;
+                            })()}
+
                             <View style={styles.modalButtons}>
                                 <TouchableOpacity onPress={() => setEditModal(false)} style={styles.btnCancel}>
                                     <Text style={{ color: '#64748b', fontWeight: '600' }}>Cancel</Text>
@@ -958,6 +1059,7 @@ const Admin = () => {
                                 </TouchableOpacity>
                             </View>
                         </View>
+                        </ScrollView>
                     </View>
                 </View>
             </Modal>
@@ -1143,6 +1245,8 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         overflow: 'hidden',
         backgroundColor: '#ffffff',
+        width: '100%',
+        maxWidth: '100%',
     },
     usersTable: {
         minWidth: 800,
@@ -1210,31 +1314,33 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(15, 23, 42, 0.6)',
         justifyContent: 'center',
         alignItems: 'center',
-        padding: 20,
+        padding: 12,
     },
     modalContent: {
         backgroundColor: 'white',
-        borderRadius: 24,
-        padding: 30,
-        width: '100%',
-        maxWidth: 480,
+        borderRadius: 20,
+        padding: 16,
+        width: '94%',
+        maxWidth: 500,
+        maxHeight: '88%',
     },
     modalTitle: {
-        fontSize: 22,
+        fontSize: 20,
         fontWeight: '800',
         color: '#0f172a',
         marginBottom: 16,
     },
     modalText: {
         color: '#64748b',
-        fontSize: 15,
-        marginBottom: 24,
+        fontSize: 14,
+        marginBottom: 20,
     },
     modalButtons: {
         flexDirection: 'row',
+        flexWrap: 'wrap',
         justifyContent: 'flex-end',
-        gap: 12,
-        marginTop: 20,
+        gap: 10,
+        marginTop: 18,
     },
     btnConfirmDelete: {
         backgroundColor: '#ef4444',

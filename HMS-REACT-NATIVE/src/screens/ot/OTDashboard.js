@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-    View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, Dimensions, ActivityIndicator
+    View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, Dimensions, ActivityIndicator, useWindowDimensions
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
@@ -18,6 +18,9 @@ import {
 
 const OTDashboard = () => {
     const navigation = useNavigation();
+    const { width } = useWindowDimensions();
+    const isMobile = width < 768;
+    const isSmallMobile = width <= 430;
 
     // Data states
     const [stats, setStats] = useState({
@@ -866,7 +869,7 @@ const styles = StyleSheet.create({
     },
     roomCard: {
         flex: 1,
-        minWidth: 200,
+        minWidth: 140,
         borderRadius: 10,
         borderWidth: 1,
         padding: 14,
@@ -957,6 +960,7 @@ const styles = StyleSheet.create({
     },
     plannedActionArea: {
         flexDirection: 'row',
+        flexWrap: 'wrap',
         justifyContent: 'flex-end',
         gap: 8,
         marginTop: 14,

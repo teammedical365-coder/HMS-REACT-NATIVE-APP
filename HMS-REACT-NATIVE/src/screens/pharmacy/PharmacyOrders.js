@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
     View, Text, TextInput, TouchableOpacity, ScrollView, 
-    StyleSheet, ActivityIndicator, Alert, Dimensions, Modal, Platform 
+    StyleSheet, ActivityIndicator, Alert, Dimensions, Modal, Platform, useWindowDimensions 
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { pharmacyOrderAPI, pharmacyAPI, hospitalAPI, apiClient } from '../../utils/api';
@@ -11,7 +11,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 
-const { width } = Dimensions.get('window');
 const backendUrl = API_BASE_URL;
 
 const getAuthToken = async () => {
@@ -24,6 +23,7 @@ const getAuthToken = async () => {
 };
 
 const PharmacyOrders = () => {
+    const { width } = useWindowDimensions();
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [checkedItems, setCheckedItems] = useState({});

@@ -1655,7 +1655,6 @@ const styles = StyleSheet.create({
     flexBasis: 285,
     minWidth: 280,
     maxWidth: 380,
-    width: undefined,
   },
   flowColumnTablet: {
     flexGrow: 1,
@@ -1663,7 +1662,6 @@ const styles = StyleSheet.create({
     flexBasis: 320,
     minWidth: 300,
     maxWidth: 480,
-    width: undefined,
   },
   flowColumnSingle: {
     maxWidth: '100%',
@@ -2007,13 +2005,11 @@ const styles = StyleSheet.create({
     flexBasis: 320,
     minWidth: 300,
     maxWidth: 480,
-    width: undefined,
   },
   wardCardTablet: {
     flexGrow: 1,
     flexBasis: 320,
     minWidth: 300,
-    width: undefined,
   },
   wardCardHeader: {
     flexDirection: 'row',
@@ -2516,7 +2512,7 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   modalCard: {
-    width: '100%',
+    width: '94%',
     maxWidth: 550,
     maxHeight: '85%',
     backgroundColor: '#0f172a',
@@ -2654,6 +2650,7 @@ const styles = StyleSheet.create({
   },
   modalFooter: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'flex-end',
     alignItems: 'center',
     gap: 10,

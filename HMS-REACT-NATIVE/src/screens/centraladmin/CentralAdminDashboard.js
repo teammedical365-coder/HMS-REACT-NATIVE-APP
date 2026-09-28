@@ -25,7 +25,16 @@ import {
   uploadAPI, 
   adminAPI 
 } from '../../utils/api';
-import { isSafeImageUrl } from '../../utils/resourceSecurity';
+
+const isSafeUrl = (url) => {
+  if (!url || typeof url !== 'string') return false;
+  const trimmed = url.trim();
+  if (!trimmed || trimmed.includes('gemini.google.com')) return false;
+  if (trimmed.startsWith('blob:') && typeof window !== 'undefined' && window.location?.origin) {
+    return trimmed.startsWith(`blob:${window.location.origin}/`);
+  }
+  return true;
+};
 
 export default function CentralAdminDashboard() {
   const navigation = useNavigation(); 
@@ -202,11 +211,11 @@ export default function CentralAdminDashboard() {
         ...item,
         brandingSchema: item.brandingSchema ? {
           ...item.brandingSchema,
-          logoUrl: isSafeImageUrl(item.brandingSchema.logoUrl) ? item.brandingSchema.logoUrl : '',
+          logoUrl: isSafeUrl(item.brandingSchema.logoUrl) ? item.brandingSchema.logoUrl : '',
         } : item.brandingSchema,
         branding: item.branding ? {
           ...item.branding,
-          logoUrl: isSafeImageUrl(item.branding.logoUrl) ? item.branding.logoUrl : '',
+          logoUrl: isSafeUrl(item.branding.logoUrl) ? item.branding.logoUrl : '',
         } : item.branding,
         isSimpleClinic: item.clinicType === 'clinic',
         clinicType: item.clinicType === 'clinic' ? 'clinic' : (item.clinicType || 'hospital'),
@@ -217,11 +226,11 @@ export default function CentralAdminDashboard() {
         ...item,
         brandingSchema: item.brandingSchema ? {
           ...item.brandingSchema,
-          logoUrl: isSafeImageUrl(item.brandingSchema.logoUrl) ? item.brandingSchema.logoUrl : '',
+          logoUrl: isSafeUrl(item.brandingSchema.logoUrl) ? item.brandingSchema.logoUrl : '',
         } : item.brandingSchema,
         branding: item.branding ? {
           ...item.branding,
-          logoUrl: isSafeImageUrl(item.branding.logoUrl) ? item.branding.logoUrl : '',
+          logoUrl: isSafeUrl(item.branding.logoUrl) ? item.branding.logoUrl : '',
         } : item.branding,
         isSimpleClinic: true,
         clinicType: 'clinic',
@@ -265,7 +274,7 @@ export default function CentralAdminDashboard() {
         ...hospitalForm,
         brandingSchema: hospitalForm.brandingSchema ? {
           ...hospitalForm.brandingSchema,
-          logoUrl: isSafeImageUrl(hospitalForm.brandingSchema?.logoUrl) ? hospitalForm.brandingSchema.logoUrl : '',
+          logoUrl: isSafeUrl(hospitalForm.brandingSchema?.logoUrl) ? hospitalForm.brandingSchema.logoUrl : '',
         } : hospitalForm.brandingSchema,
         plan: activeTab === 'multi-speciality' ? 'multi_speciality_starter' : activeTab === 'clinic-basic' ? 'clinic_basic' : 'enterprise',
       };

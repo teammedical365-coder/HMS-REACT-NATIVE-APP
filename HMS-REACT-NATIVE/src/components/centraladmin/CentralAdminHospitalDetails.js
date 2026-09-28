@@ -8,7 +8,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path, Defs, LinearGradient as SvgLinearGradient, Stop, Circle, Rect, G } from 'react-native-svg';
 import { useNavigation } from '@react-navigation/native';
 import { hospitalAPI, rnBuildAPI } from '../../utils/api';
-import { isSafeImageUrl } from '../../utils/resourceSecurity';
+
+const isSafeLogo = (u) => Boolean(u && typeof u === 'string' && u.trim() && !u.includes('gemini.google.com'));
 
 function WhiteLabelBuilder({ hospital }) {
     const hospitalId = hospital?._id || hospital?.id;
@@ -367,7 +368,7 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
     });
 
     const rawLogo = hospital?.brandingSchema?.logoUrl || hospital?.branding?.logoUrl;
-    const logoUrl = isSafeImageUrl(rawLogo) ? rawLogo : null;
+    const logoUrl = isSafeLogo(rawLogo) ? rawLogo : null;
     const hospitalName = hospital?.name || 'Apollo Hospital';
     const hospitalLocation = hospital?.city ? `${hospital.city}${hospital.state ? `, ${hospital.state}` : ''}` : (hospital?.address || 'Jaipur, Rajasthan');
     const hospitalPhone = hospital?.phone || '8795719836';

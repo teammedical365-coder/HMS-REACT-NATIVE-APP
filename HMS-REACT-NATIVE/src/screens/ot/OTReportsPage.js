@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Dimensions, TextInput } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { otAPI } from '../../utils/api';
+import socket from '../../utils/socket';
 import OTHeader from './OTHeader';
 
 const { width } = Dimensions.get('window');
@@ -9,6 +10,7 @@ const { width } = Dimensions.get('window');
 const OTReportsPage = () => {
     const navigation = useNavigation();
     const [allSurgeries, setAllSurgeries] = useState([]);
+    const [rooms, setRooms] = useState([]);
     const [loading, setLoading] = useState(true);
     const [lastUpdated, setLastUpdated] = useState(null);
 
@@ -19,10 +21,13 @@ const OTReportsPage = () => {
     const fetchReportsData = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await otAPI.getScheduledSurgeries();
-            if (res.success) {
-                setAllSurgeries(res.surgeries || []);
-            }
+            const [schedRes, roomsRes] = await Promise.all([
+                otAPI.getScheduledSurgeries().catch(() => ({ surgeries: [] })),
+                otAPI.getRooms().catch(() => ({ rooms: [] }))
+            ]);
+
+            if (schedRes.surgeries) setAllSurgeries(schedRes.surgeries || []);
+            if (roomsRes.rooms) setRooms(roomsRes.rooms || []);
             setLastUpdated(new Date());
         } catch (err) {
             console.error('Fetch reports error:', err);
@@ -33,6 +38,19 @@ const OTReportsPage = () => {
 
     useEffect(() => {
         fetchReportsData();
+
+        const handleUpdate = () => fetchReportsData();
+        if (socket) {
+            socket.on('ot_update', handleUpdate);
+            socket.on('ot_surgery_scheduled', handleUpdate);
+        }
+
+        return () => {
+            if (socket) {
+                socket.off('ot_update', handleUpdate);
+                socket.off('ot_surgery_scheduled', handleUpdate);
+            }
+        };
     }, [fetchReportsData]);
 
     const filteredSurgeries = allSurgeries.filter(s => {

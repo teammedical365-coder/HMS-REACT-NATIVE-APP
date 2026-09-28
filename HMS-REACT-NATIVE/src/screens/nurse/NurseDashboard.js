@@ -117,10 +117,11 @@ const NurseDashboard = () => {
     const fetchDashboardData = useCallback(async () => {
         setLoading(true);
         try {
-            const [admissionsRes, metricsRes, nursesRes] = await Promise.all([
+            const [admissionsRes, metricsRes, nursesRes, summaryRes] = await Promise.all([
                 admissionAPI.getActiveAdmissions().catch(() => ({ admissions: [] })),
                 ipdNursingAPI.getOperationsMetrics().catch(() => ({ metrics: null })),
-                ipdNursingAPI.getHospitalNurses().catch(() => ({ nurses: [] }))
+                ipdNursingAPI.getHospitalNurses().catch(() => ({ nurses: [] })),
+                ipdNursingAPI.getDashboardSummary().catch(() => null)
             ]);
 
             const list = admissionsRes.admissions || admissionsRes.data || [];

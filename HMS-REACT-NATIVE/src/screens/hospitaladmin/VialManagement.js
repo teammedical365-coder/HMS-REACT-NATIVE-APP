@@ -24,6 +24,8 @@ const STATUS_OPTIONS = ['All', 'Received', 'Stored', 'Moved', 'Retrieved', 'Retu
 
 const VialManagement = () => {
     const { width: windowWidth } = useWindowDimensions();
+    const isMobile = windowWidth < 768;
+    const isSmallMobile = windowWidth <= 430;
 
     // Data State (Direct 1:1 with Web VialManagement.jsx)
     const [vials, setVials] = useState([]);
@@ -631,7 +633,7 @@ const VialManagement = () => {
                         Track, store, move, retrieve, and audit laboratory and biological patient vials
                     </Text>
                 </View>
-                <View style={styles.headerActions}>
+                <View style={[styles.headerActions, isMobile && { width: '100%', flexWrap: 'wrap', gap: 8, marginTop: 8 }]}>
                     <TouchableOpacity
                         style={styles.btnSecondary}
                         onPress={() => { fetchVials(); fetchStats(); }}
@@ -710,7 +712,7 @@ const VialManagement = () => {
             <View style={styles.filterCard}>
                 <View style={styles.filterRow}>
                     {/* Search Input */}
-                    <View style={styles.searchBox}>
+                    <View style={[styles.searchBox, isMobile && { width: '100%', minWidth: '100%' }]}>
                         <Feather name="search" size={16} color="#94a3b8" style={{ marginRight: 8 }} />
                         <TextInput
                             style={styles.searchInput}
@@ -727,7 +729,7 @@ const VialManagement = () => {
                     </View>
 
                     {/* Vial Type Select */}
-                    <View style={{ width: 165 }}>
+                    <View style={isMobile ? { flex: 1, minWidth: 140 } : { width: 165 }}>
                         <DropdownSelect
                             options={['All', ...VIAL_TYPES].map(t => ({
                                 label: t === 'All' ? 'All Vial Types' : t,
@@ -740,7 +742,7 @@ const VialManagement = () => {
                     </View>
 
                     {/* Status Select */}
-                    <View style={{ width: 150 }}>
+                    <View style={isMobile ? { flex: 1, minWidth: 140 } : { width: 150 }}>
                         <DropdownSelect
                             options={STATUS_OPTIONS.map(s => ({
                                 label: s === 'All' ? 'All Statuses' : s,
@@ -753,7 +755,7 @@ const VialManagement = () => {
                     </View>
 
                     {/* Storage Unit Input */}
-                    <View style={[styles.searchBox, { maxWidth: 160, flex: 0, minWidth: 130 }]}>
+                    <View style={[styles.searchBox, isMobile ? { width: '100%' } : { maxWidth: 160, flex: 0, minWidth: 130 }]}>
                         <TextInput
                             style={styles.searchInput}
                             placeholder="Storage Unit..."
@@ -769,9 +771,9 @@ const VialManagement = () => {
                     </View>
 
                     {/* Date Filter Group */}
-                    <View style={styles.dateFilterGroup}>
+                    <View style={[styles.dateFilterGroup, isMobile && { width: '100%', flexWrap: 'wrap' }]}>
                         <Text style={styles.datePrefix}>From</Text>
-                        <View style={{ width: 125 }}>
+                        <View style={isMobile ? { flex: 1, minWidth: 120 } : { width: 125 }}>
                             <DatePickerInput
                                 value={startDate}
                                 onChange={(d) => { setStartDate(d); setPage(1); }}
@@ -780,7 +782,7 @@ const VialManagement = () => {
                             />
                         </View>
                         <Text style={styles.datePrefix}>To</Text>
-                        <View style={{ width: 125 }}>
+                        <View style={isMobile ? { flex: 1, minWidth: 120 } : { width: 125 }}>
                             <DatePickerInput
                                 value={endDate}
                                 onChange={(d) => { setEndDate(d); setPage(1); }}
@@ -2344,6 +2346,8 @@ const styles = StyleSheet.create({
     },
     tableWrapper: {
         width: '100%',
+        maxWidth: '100%',
+        overflow: 'hidden',
     },
     tableHeader: {
         flexDirection: 'row',
@@ -2623,16 +2627,17 @@ const styles = StyleSheet.create({
         padding: 24,
     },
     modalFooter: {
-        paddingVertical: 16,
-        paddingHorizontal: 24,
+        paddingVertical: 14,
+        paddingHorizontal: 18,
         borderTopWidth: 1,
         borderTopColor: '#e2e8f0',
         backgroundColor: '#f8fafc',
         borderBottomLeftRadius: 18,
         borderBottomRightRadius: 18,
         flexDirection: 'row',
+        flexWrap: 'wrap',
         justifyContent: 'flex-end',
-        gap: 12,
+        gap: 10,
     },
 
     /* Form Inputs */

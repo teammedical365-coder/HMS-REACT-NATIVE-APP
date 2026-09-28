@@ -1,7 +1,4 @@
-import { StyleSheet, Dimensions, Platform } from 'react-native';
-
-const { width, height } = Dimensions.get('window');
-export const isMobile = width <= 1024;
+import { StyleSheet, Platform } from 'react-native';
 export const SIDEBAR_WIDTH = 238;
 export const SIDEBAR_COLLAPSED = 72;
 export const TOPBAR_HEIGHT = 64;
@@ -12,11 +9,17 @@ export const styles = StyleSheet.create({
         flex: 1,
         flexDirection: 'row',
         backgroundColor: '#f8fafc',
+        width: '100%',
+        height: '100%',
     },
     erpMainArea: {
         flex: 1,
         backgroundColor: '#f8fafc',
         height: '100%',
+        width: '100%',
+        minWidth: 0,
+        maxWidth: '100%',
+        overflow: 'hidden',
     },
 
     /* Sidebar Styling */
@@ -36,11 +39,17 @@ export const styles = StyleSheet.create({
     },
     erpSidebarMobileHidden: {
         position: 'absolute',
+        top: 0,
+        bottom: 0,
         left: -SIDEBAR_WIDTH,
+        width: SIDEBAR_WIDTH,
     },
     erpSidebarMobileVisible: {
         position: 'absolute',
+        top: 0,
+        bottom: 0,
         left: 0,
+        width: SIDEBAR_WIDTH,
         shadowColor: '#000',
         shadowOffset: { width: 4, height: 0 },
         shadowOpacity: 0.15,
@@ -52,10 +61,11 @@ export const styles = StyleSheet.create({
         height: TOPBAR_HEIGHT,
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 16,
+        justifyContent: 'space-between',
+        paddingHorizontal: 12,
         borderBottomWidth: 1,
         borderBottomColor: '#e2e8f0',
-        gap: 10,
+        gap: 8,
     },
     sidebarBrandCollapsed: {
         justifyContent: 'center',
@@ -237,7 +247,7 @@ export const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingHorizontal: isMobile ? 16 : 32,
+        paddingHorizontal: 24,
         gap: 12,
         zIndex: 999,
     },
@@ -452,7 +462,9 @@ export const styles = StyleSheet.create({
         borderRadius: 20,
         paddingHorizontal: 16,
         paddingVertical: 8,
-        width: 300,
+        flex: 1,
+        maxWidth: 300,
+        minWidth: 0,
     },
     globalSearchText: {
         color: '#94a3b8',
@@ -781,8 +793,10 @@ export const styles = StyleSheet.create({
     /* Main Content Area */
     erpPageContent: {
         flex: 1,
-        padding: isMobile ? 16 : 24,
         minHeight: 0,
+        minWidth: 0,
+        width: '100%',
+        maxWidth: '100%',
         overflow: 'hidden',
     },
 

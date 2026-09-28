@@ -7,7 +7,8 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather, FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
 import Svg, { Path } from 'react-native-svg';
-import { isSafeImageUrl } from '../../utils/resourceSecurity';
+
+const isSafeLogo = (u) => Boolean(u && typeof u === 'string' && u.trim() && !u.includes('gemini.google.com'));
 
 const __DISABLE_LOGIN_VISUALS__ = true;
 
@@ -165,7 +166,7 @@ const NeuralAuthPortal = ({
     };
 
     const primarySession = Array.isArray(activeSession) ? activeSession[0] : typeof activeSession === 'object' ? activeSession : null;
-    const logoSrc = isSafeImageUrl(branding?.logoUrl) ? { uri: branding.logoUrl } : require('../../../assets/medical365-logo.png');
+    const logoSrc = isSafeLogo(branding?.logoUrl) ? { uri: branding.logoUrl } : require('../../../assets/medical365-logo.png');
 
     return (
         <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>

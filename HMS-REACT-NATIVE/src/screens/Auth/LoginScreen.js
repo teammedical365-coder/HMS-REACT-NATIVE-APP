@@ -18,7 +18,8 @@ import { useBranding } from '../../context/BrandingContext';
 import { sendOtp, clearError } from '../../store/slices/authSlice';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '../../utils/Constants';
-import { isSafeImageUrl } from '../../utils/resourceSecurity';
+
+const isSafeLogo = (u) => Boolean(u && typeof u === 'string' && u.trim() && !u.includes('gemini.google.com'));
 
 // IMPORTING THE OTP SCREEN DIRECTLY
 import OTPVerificationScreen from './OTPVerificationScreen';
@@ -86,7 +87,7 @@ const LoginScreen = ({ navigation }) => {
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.container}>
             <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
                 <View style={styles.header}>
-                    {isSafeImageUrl(branding?.logoUrl) && (
+                    {isSafeLogo(branding?.logoUrl) && (
                         <Image source={{ uri: branding.logoUrl }} style={styles.logo} resizeMode="contain" />
                     )}
                     <Text style={[styles.title, { color: theme.secondary }]}>

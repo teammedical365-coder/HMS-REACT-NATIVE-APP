@@ -28,6 +28,7 @@ import ClinicDashboard from '../screens/hospitaladmin/ClinicDashboard';
 import VialManagement from '../screens/hospitaladmin/VialManagement';
 import HospitalAdminQuestionLibrary from '../screens/hospitaladmin/HospitalAdminQuestionLibrary';
 import BedManagement from '../screens/hospitaladmin/BedManagement'; // Based on audit
+import HospitalAdminRefunds from '../screens/hospitaladmin/HospitalAdminRefunds';
 
 // -- Doctor Pages --
 import DoctorDashboard from '../screens/doctors/DoctorDashboard';
@@ -67,6 +68,7 @@ import PharmacyDepartments from '../screens/pharmacy/PharmacyDepartments';
 // -- Reception Pages --
 import ReceptionDashboard from '../screens/reception/ReceptionDashboard';
 import ReceptionPatients from '../screens/reception/ReceptionPatients';
+import ReceptionRefunds from '../screens/reception/ReceptionRefunds';
 
 // -- Nurse Pages --
 import NurseDashboard from '../screens/nurse/NurseDashboard';
@@ -131,7 +133,7 @@ import RoleDashboard from '../screens/RoleDashboard';
 export const HospitalAdminApp = () => {
     const { user } = useSelector(state => state.auth);
     const isClinicHub = user?.clinicType === 'clinic' || user?.subscriptionPlan === 'starter';
-    const initialScreen = isClinicHub ? "ClinicDashboard" : "RoleDashboard";
+    const initialScreen = isClinicHub ? "ClinicDashboard" : "HospitalAdminDashboard";
 
     return (
         <Stack.Navigator initialRouteName={initialScreen} screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
@@ -142,6 +144,7 @@ export const HospitalAdminApp = () => {
             <Stack.Screen name="VialManagement" component={withLayout(VialManagement)} />
             <Stack.Screen name="HospitalAdminQuestionLibrary" component={withLayout(HospitalAdminQuestionLibrary)} />
             <Stack.Screen name="BedManagement" component={withLayout(BedManagement)} />
+            <Stack.Screen name="HospitalAdminRefunds" component={withLayout(HospitalAdminRefunds)} />
 
             {/* Admin Management Modules */}
             <Stack.Screen name="AdminMainDashboard" component={withLayout(AdminMainDashboard)} />
@@ -195,6 +198,8 @@ export const HospitalAdminApp = () => {
             {/* Reception & Registration */}
             <Stack.Screen name="ReceptionDashboard" component={withLayout(ReceptionDashboard)} />
             <Stack.Screen name="ReceptionPatients" component={withLayout(ReceptionPatients)} />
+            <Stack.Screen name="ReceptionRefunds" component={withLayout(ReceptionRefunds)} />
+
 
             {/* Nurse & Inpatient (IPD) Command Center */}
             <Stack.Screen name="IPDCommandCenter" component={withLayout(IPDCommandCenter)} />
@@ -275,6 +280,7 @@ export const ReceptionApp = () => (
     <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
         <Stack.Screen name="ReceptionDashboard" component={withLayout(ReceptionDashboard)} />
         <Stack.Screen name="ReceptionPatients" component={withLayout(ReceptionPatients)} />
+        <Stack.Screen name="ReceptionRefunds" component={withLayout(ReceptionRefunds)} />
         <Stack.Screen name="PatientBillingProfile" component={withLayout(PatientBillingProfile)} />
         <Stack.Screen name="UnifiedPatientProfile" component={withLayout(UnifiedPatientProfile)} />
         <Stack.Screen name="DoctorPatientDetails" component={withLayout(DoctorPatientDetails)} />

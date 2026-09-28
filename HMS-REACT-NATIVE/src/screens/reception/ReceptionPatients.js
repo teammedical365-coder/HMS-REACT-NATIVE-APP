@@ -12,7 +12,8 @@ import {
     Alert,
     Platform,
     Animated,
-    Easing
+    Easing,
+    useWindowDimensions
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { receptionAPI, reportAPI, consentAPI } from '../../utils/api';
@@ -20,12 +21,18 @@ import * as DocumentPicker from 'expo-document-picker';
 import Svg, { Circle, Path, Defs, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
 import { MaterialCommunityIcons, Ionicons, Feather } from '@expo/vector-icons';
 
-const { width } = Dimensions.get('window');
+// NOTE: Do NOT use Dimensions.get at module scope — it is static.
+// useWindowDimensions() is called inside the component below.
 
 const PAGE_CHUNK_SIZE = 15;
 
 const ReceptionPatients = () => {
     const navigation = useNavigation();
+
+    // ── Responsive layout helpers (dynamic, rotation-safe) ──────────────────
+    const { width } = useWindowDimensions();
+    const isMobile = width < 600;
+    const isTablet = width >= 600 && width < 960;
 
     // Data states
     const [appointments, setAppointments] = useState([]);
@@ -445,9 +452,9 @@ const ReceptionPatients = () => {
             </View>
 
             {/* 2. UNIFIED HERO: TODAY'S ACTIVITY (LEFT) + 4 STAT CARDS 2x2 (RIGHT) */}
-            <View style={styles.heroSection}>
+            <View style={[styles.heroSection, { flexDirection: width > 900 ? 'row' : 'column' }]}>
                 {/* Left: Today's Activity Donut Card */}
-                <View style={styles.activityCard}>
+                <View style={[styles.activityCard, { flex: width > 900 ? 0.38 : undefined, width: width > 900 ? undefined : '100%' }]}>
                     <Text style={styles.activityCardTitle}>Today's Activity</Text>
                     <View style={styles.activityBody}>
                         <View style={styles.donutWrapper}>
@@ -508,10 +515,10 @@ const ReceptionPatients = () => {
                 </View>
 
                 {/* Right: 4 Stat Cards in 2x2 Grid */}
-                <View style={styles.kpiGrid2x2}>
+                <View style={[styles.kpiGrid2x2, { flex: width > 900 ? 0.62 : undefined, width: width > 900 ? undefined : '100%' }]}>
                     {/* Card 1: Total Patients */}
                     <TouchableOpacity
-                        style={[styles.kpiCard, styles.kpiCardPurple]}
+                        style={[styles.kpiCard, styles.kpiCardPurple, { width: width > 900 ? '48.5%' : (width < 480 ? '100%' : '48%') }]}
                         onPress={() => { setActiveTab('all'); setSearchText(''); }}
                         activeOpacity={0.85}
                     >
@@ -539,7 +546,7 @@ const ReceptionPatients = () => {
 
                     {/* Card 2: Upcoming Appointments */}
                     <TouchableOpacity
-                        style={[styles.kpiCard, styles.kpiCardAmber]}
+                        style={[styles.kpiCard, styles.kpiCardAmber, { width: width > 900 ? '48.5%' : (width < 480 ? '100%' : '48%') }]}
                         onPress={() => setActiveTab('today')}
                         activeOpacity={0.85}
                     >
@@ -567,7 +574,7 @@ const ReceptionPatients = () => {
 
                     {/* Card 3: Completed Today */}
                     <TouchableOpacity
-                        style={[styles.kpiCard, styles.kpiCardMint]}
+                        style={[styles.kpiCard, styles.kpiCardMint, { width: width > 900 ? '48.5%' : (width < 480 ? '100%' : '48%') }]}
                         onPress={() => { setActiveTab('today'); setFilterStatus('completed'); }}
                         activeOpacity={0.85}
                     >
@@ -595,7 +602,7 @@ const ReceptionPatients = () => {
 
                     {/* Card 4: Pending Bills */}
                     <TouchableOpacity
-                        style={[styles.kpiCard, styles.kpiCardBlue]}
+                        style={[styles.kpiCard, styles.kpiCardBlue, { width: width > 900 ? '48.5%' : (width < 480 ? '100%' : '48%') }]}
                         onPress={() => navigation.navigate('PatientBillingProfile')}
                         activeOpacity={0.85}
                     >
@@ -624,7 +631,7 @@ const ReceptionPatients = () => {
             </View>
 
             {/* 3. SEARCH & TOGGLE TABS & FILTER BAR */}
-            <View style={styles.controlsBarRow}>
+            <View style={[styles.controlsBarRow, { flexDirection: width > 768 ? 'row' : 'column', alignItems: width > 768 ? 'center' : 'stretch' }]}>
                 {/* Search Input Box */}
                 <View style={styles.searchInputWrapper}>
                     <Feather name="search" size={18} color="#94a3b8" style={{ marginRight: 10 }} />
@@ -1227,13 +1234,11 @@ const styles = StyleSheet.create({
 
     // 2. Hero Section
     heroSection: {
-        flexDirection: width > 900 ? 'row' : 'column',
         gap: 16,
         marginBottom: 20,
         alignItems: 'stretch',
     },
     activityCard: {
-        flex: width > 900 ? 0.38 : 1,
         backgroundColor: '#ffffff',
         borderRadius: 16,
         padding: 18,
@@ -1307,13 +1312,11 @@ const styles = StyleSheet.create({
 
     // 2x2 KPI Grid
     kpiGrid2x2: {
-        flex: width > 900 ? 0.62 : 1,
         flexDirection: 'row',
         flexWrap: 'wrap',
         gap: 14,
     },
     kpiCard: {
-        width: width > 900 ? '48.5%' : '48%',
         minHeight: 90,
         borderRadius: 14,
         padding: 12,
@@ -1393,9 +1396,7 @@ const styles = StyleSheet.create({
 
     // 3. Search & Tabs Bar
     controlsBarRow: {
-        flexDirection: width > 768 ? 'row' : 'column',
         justifyContent: 'space-between',
-        alignItems: width > 768 ? 'center' : 'stretch',
         gap: 14,
         marginBottom: 18,
     },
@@ -1422,6 +1423,7 @@ const styles = StyleSheet.create({
     tabAndFilterWrapper: {
         flexDirection: 'row',
         alignItems: 'center',
+        flexWrap: 'wrap',
         gap: 10,
     },
     tabToggleGroup: {

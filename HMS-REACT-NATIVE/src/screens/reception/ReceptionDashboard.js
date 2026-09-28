@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { 
     View, Text, TouchableOpacity, ScrollView, StyleSheet, 
-    TextInput, ActivityIndicator, Alert, Dimensions, Modal, Image 
+    TextInput, ActivityIndicator, Alert, Dimensions, Modal, Image,
+    useWindowDimensions 
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSelector } from 'react-redux';
@@ -15,7 +16,8 @@ import { receptionAPI, hospitalAPI, publicAPI, bedAPI, admissionAPI, uploadAPI, 
 import { getSubdomain } from '../../utils/subdomain';
 import SlotPicker from '../../components/SlotPicker';
 
-const { width } = Dimensions.get('window');
+// NOTE: Do NOT use Dimensions.get at module scope — it is static and
+// won't reflect orientation changes. Use useWindowDimensions() inside component.
 
 const timeSlots = [
     '09:00', '09:30', '10:00', '10:30', '11:00', '11:30',
@@ -110,6 +112,13 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
     const route = useRoute();
     const { user: currentUser } = useSelector(state => state.auth);
 
+    // ── Responsive layout helpers (dynamic, rotation-safe) ──────────────────
+    const { width: windowWidth } = useWindowDimensions();
+    const isMobile  = windowWidth < 600;   // phone portrait / narrow
+    const isTablet  = windowWidth >= 600 && windowWidth < 960; // tablet
+    // Alias used in legacy render helpers below (all isMobile refs now use this)
+    const width = windowWidth;
+
     const [loading, setLoading] = useState(false);
     const [viewMode, setViewMode] = useState('welcome'); // 'welcome', 'desk', 'intake'
     const [listTab, setListTab] = useState('queue'); // 'queue', 'hospitalized'
@@ -146,8 +155,10 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
     const [wardFilter, setWardFilter] = useState('all');
     const [bedStatusFilter, setBedStatusFilter] = useState('all');
 
-    // Queue filter
+    // Queue filter + server-side filter parity (Web: departmentFilter, debouncedSearch)
     const [queueSearch, setQueueSearch] = useState('');
+    const [departmentFilter, setDepartmentFilter] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
 
     // Availability Check State
     const [availabilityCheck, setAvailabilityCheck] = useState({
@@ -285,24 +296,6 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         }
 
         try {
-            const apptsRes = await receptionAPI.getAllAppointments();
-            if (apptsRes?.success) {
-                setAppointments(apptsRes.appointments || []);
-            }
-        } catch (err) {
-            console.warn('Failed to fetch appointments:', err);
-        }
-
-        try {
-            const admRes = await admissionAPI.getActiveAdmissions();
-            if (admRes?.success) {
-                setHospitalizedPatients(admRes.admissions || []);
-            }
-        } catch (err) {
-            console.warn('Failed to fetch admissions:', err);
-        }
-
-        try {
             const bedsRes = await bedAPI.getBeds({ status: 'AVAILABLE' });
             if (bedsRes?.success) {
                 setAvailableBeds(bedsRes.beds || []);
@@ -353,6 +346,58 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         setLoading(false);
     }, []);
 
+    // ─── SERVER-SIDE FILTER PARITY (1:1 Web) ─────────────────────────────────
+    // Web: fetchAppointments() passes { all, department, search } params
+    const fetchAppointments = useCallback(async () => {
+        setLoading(true);
+        try {
+            const params = {
+                all: listTab === 'all' ? 'true' : 'false',
+                department: departmentFilter,
+                search: debouncedSearch
+            };
+            const response = await receptionAPI.getAllAppointments(params);
+            if (response?.success) setAppointments(response.appointments || []);
+        } catch (err) {
+            console.warn('Failed to fetch appointments:', err);
+        } finally {
+            setLoading(false);
+        }
+    }, [listTab, departmentFilter, debouncedSearch]);
+
+    // Web: fetchHospitalizedPatients() passes { department, search } params
+    const fetchHospitalizedPatients = useCallback(async () => {
+        try {
+            const params = {
+                department: departmentFilter,
+                search: debouncedSearch
+            };
+            const res = await admissionAPI.getActiveAdmissions(params);
+            if (res?.success) {
+                setHospitalizedPatients(res.admissions || []);
+            }
+        } catch (err) {
+            console.warn('Failed to fetch hospitalized patients:', err);
+        }
+    }, [departmentFilter, debouncedSearch]);
+
+    // Web: debounce queueSearch → debouncedSearch (400 ms)
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedSearch(queueSearch);
+        }, 400);
+        return () => clearTimeout(timer);
+    }, [queueSearch]);
+
+    // Web: re-fetch appointments + admissions whenever tab/dept/search changes
+    // Mirrors Web line 932-940: useEffect([listTab, departmentFilter, debouncedSearch, isPatientPortal])
+    useEffect(() => {
+        if (!isPatientPortal) {
+            fetchAppointments();
+            fetchHospitalizedPatients();
+        }
+    }, [listTab, departmentFilter, debouncedSearch, isPatientPortal, fetchAppointments, fetchHospitalizedPatients]);
+
     const fetchTransactions = async () => {
         setLoadingTransactions(true);
         try {
@@ -379,7 +424,10 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
             socket.emit('joinHospitalRoom', hospitalContext._id);
         }
         const handleRealtimeRefresh = () => {
-            fetchData();
+            // Re-fetch only the filter-sensitive lists (appointments + admissions)
+            // to respect current departmentFilter / debouncedSearch state
+            fetchAppointments();
+            fetchHospitalizedPatients();
         };
 
         socket.on('admission_created', handleRealtimeRefresh);
@@ -401,7 +449,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
             socket.off('appointment_booked', handleRealtimeRefresh);
             socket.off('appointment_cancelled', handleRealtimeRefresh);
         };
-    }, [hospitalContext?._id, fetchData]);
+    }, [hospitalContext?._id, fetchAppointments, fetchHospitalizedPatients]);
 
     const fetchDoctors = async (hospitalId) => {
         try {
@@ -1608,7 +1656,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
 
     // ─── 0. WELCOME HUB VIEW ─────────────────────────────────────────────────
     const renderWelcome = () => {
-        const isMobile = width < 768;
+        // isMobile is now derived from useWindowDimensions at component scope (above)
         return (
             <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
                 {Boolean(pendingDownload) ? (
@@ -1753,7 +1801,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
 
     // ─── 1. RECEPTION DESK / LIST VIEW (SLICE 2) ─────────────────────────────
     const renderDesk = () => {
-        const isMobile = width < 768;
+        // isMobile is now derived from useWindowDimensions at component scope (above)
 
         const totalTodayPatients = appointments.length || stats?.todayAppointments || 0;
         const totalHospitalized = hospitalizedPatients.filter(adm => adm.status === 'Admitted').length || stats?.currentlyHospitalized || 0;
@@ -1868,8 +1916,8 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                     </TouchableOpacity>
                 </View>
 
-                {/* 4 KPI Cards with Real API Data & Sparkline SVGs */}
-                <View style={[styles.kpiGrid, isMobile && styles.kpiGridMobile]}>
+                {/* 4 KPI Cards with Real API Data & Sparkline SVGs — flexWrap provides 2x2 on mobile */}
+                <View style={styles.kpiGrid}>
                     <TouchableOpacity style={[styles.kpiCard, { borderColor: '#ccfbf1' }]} onPress={() => setListTab('queue')} activeOpacity={0.8}>
                         <View style={styles.kpiTopRow}>
                             <View style={[styles.kpiIconWrap, { backgroundColor: '#ccfbf1' }]}><Feather name="users" size={18} color="#0d9488" /></View>
@@ -2326,7 +2374,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
 
     // ─── 2. PATIENT REGISTRATION & INTAKE (SLICE 3 CORE) ─────────────────────
     const renderIntake = () => {
-        const isMobile = width < 768;
+        // isMobile is now derived from useWindowDimensions at component scope (above)
         const isTokenMode = hospitalContext?.appointmentMode === 'token';
         const availableDepartments = [...new Set([
             ...(hospitalContext?.departments || []),
@@ -4257,32 +4305,33 @@ const styles = StyleSheet.create({
     switchHubBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, backgroundColor: '#ccfbf1', borderWidth: 1, borderColor: '#99f6e4' },
     switchHubBtnText: { fontSize: 12, fontWeight: '700', color: '#0f766e' },
 
-    // Mini Chips
+    // Mini Chips — flexWrap ensures 2-per-row on small screens without overflow
     miniChipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 },
-    miniChip: { flex: 1, minWidth: 160, flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, elevation: 1 },
+    miniChip: { flex: 1, minWidth: 100, flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, elevation: 1 },
     miniChipIcon: { width: 28, height: 28, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
     miniChipTitle: { fontSize: 13, fontWeight: '800', color: '#0f172a' },
     miniChipSub: { fontSize: 11, color: '#64748b' },
 
-    // KPI Grid
-    kpiGrid: { flexDirection: 'row', gap: 14, marginBottom: 20 },
+    // KPI Grid — flexWrap allows 2×2 layout on narrow screens (mirrors Web 640px breakpoint)
+    kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14, marginBottom: 20 },
     kpiGridMobile: { flexDirection: 'column' },
-    kpiCard: { flex: 1, minWidth: 160, backgroundColor: '#ffffff', borderRadius: 16, padding: 18, borderWidth: 1.5, elevation: 2 },
+    kpiCard: { flex: 1, minWidth: '45%', backgroundColor: '#ffffff', borderRadius: 16, padding: 18, borderWidth: 1.5, elevation: 2 },
     kpiTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
     kpiIconWrap: { width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
     kpiValue: { fontSize: 26, fontWeight: '900', color: '#0f172a', marginBottom: 2 },
     kpiLabel: { fontSize: 13, fontWeight: '800', color: '#1e293b' },
     kpiSub: { fontSize: 11, fontWeight: '600', marginTop: 2 },
 
-    // Queue Header & Tabs
-    queueControlHeader: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16 },
-    tabPillContainer: { flexDirection: 'row', backgroundColor: '#e2e8f0', borderRadius: 10, padding: 3 },
-    tabPill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8 },
+    // Queue Header & Tabs — wraps to 2 lines on narrow screens (mirrors Web 680px breakpoint)
+    queueControlHeader: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 16 },
+    tabPillContainer: { flexDirection: 'row', backgroundColor: '#e2e8f0', borderRadius: 10, padding: 3, flexShrink: 1 },
+    tabPill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8 },
     tabPillActive: { backgroundColor: '#0d9488' },
     tabPillActiveHosp: { backgroundColor: '#8b5cf6' },
-    tabPillText: { fontSize: 13, fontWeight: '700', color: '#475569' },
+    tabPillText: { fontSize: 12, fontWeight: '700', color: '#475569' },
     tabPillTextActive: { color: '#ffffff' },
-    queueSearchBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ffffff', borderWidth: 1.5, borderColor: '#cbd5e1', borderRadius: 10, paddingHorizontal: 12, flex: 1, minWidth: 260 },
+    // flex: 1 + minWidth: 0 lets it shrink on narrow screens; no fixed minWidth
+    queueSearchBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ffffff', borderWidth: 1.5, borderColor: '#cbd5e1', borderRadius: 10, paddingHorizontal: 12, flex: 1, minWidth: 0 },
     queueSearchInput: { flex: 1, paddingVertical: 8, paddingHorizontal: 8, fontSize: 13, color: '#0f172a' },
 
     // Table Card
@@ -4408,11 +4457,12 @@ const styles = StyleSheet.create({
     fieldBlock: { marginBottom: 14 },
     fieldLabel: { fontSize: 12, fontWeight: '700', color: '#475569', marginBottom: 6 },
     formInput: { borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, padding: 10, backgroundColor: '#f8fafc', fontSize: 13, color: '#0f172a' },
-    formRow2: { flexDirection: 'row', gap: 12, marginBottom: 14 },
-    col1: { flex: 1 },
-    col2: { flex: 1 },
-    formRow3: { flexDirection: 'row', gap: 8, marginBottom: 14 },
-    col3: { flex: 1 },
+    // formRow2/formRow3: row on tablet+, column on mobile (mirrors Web @768px reg-fields flex-direction: column)
+    formRow2: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 14 },
+    col1: { flex: 1, minWidth: '45%' },
+    col2: { flex: 1, minWidth: '45%' },
+    formRow3: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
+    col3: { flex: 1, minWidth: '30%' },
     pillSelector: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
     miniPill: { paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6, backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#e2e8f0' },
     miniPillActive: { backgroundColor: '#ccfbf1', borderColor: '#0d9488' },
@@ -4480,9 +4530,9 @@ const styles = StyleSheet.create({
     stepperSubmitBtnDisabled: { backgroundColor: '#94a3b8' },
     stepperSubmitBtnText: { fontSize: 15, fontWeight: '800', color: '#ffffff' },
 
-    // Modals
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.65)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-    modalCard: { backgroundColor: '#ffffff', width: '100%', maxWidth: 500, borderRadius: 18, padding: 22, elevation: 6 },
+    // Modals — 92% screen width, keyboard-safe (matches Web modal pattern)
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.65)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 24 },
+    modalCard: { backgroundColor: '#ffffff', width: '100%', maxWidth: 500, alignSelf: 'center', borderRadius: 18, padding: 22, elevation: 6 },
     modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
     modalTitle: { fontSize: 17, fontWeight: '800', color: '#0f172a' },
     modalPatientSub: { fontSize: 13, color: '#475569', marginBottom: 12 },

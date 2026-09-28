@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { 
     View, Text, TextInput, TouchableOpacity, ScrollView, 
-    StyleSheet, ActivityIndicator, Alert, Dimensions 
+    StyleSheet, ActivityIndicator, Alert, Dimensions, useWindowDimensions 
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { pharmacyAPI } from '../../utils/api';
 
-const { width } = Dimensions.get('window');
-
 const VendorReturns = () => {
+    const { width } = useWindowDimensions();
     const [returnsHistory, setReturnsHistory] = useState([]);
     const [inventory, setInventory] = useState([]);
     
@@ -117,7 +116,7 @@ const VendorReturns = () => {
                 <View style={[styles.panel, isLargeScreen && { flex: 1 }]}>
                     <Text style={styles.panelTitle}>New Return to Vendor</Text>
                     
-                    <View style={styles.formGrid}>
+                    <View style={[styles.formGrid, { flexDirection: isLargeScreen ? 'row' : 'column' }]}>
                         <View style={styles.formGroup}>
                             <Text style={styles.label}>Vendor Name *</Text>
                             <TextInput 
@@ -317,7 +316,6 @@ const styles = StyleSheet.create({
         color: '#000',
     },
     formGrid: {
-        flexDirection: width > 768 ? 'row' : 'column',
         gap: 15,
         marginBottom: 20,
     },

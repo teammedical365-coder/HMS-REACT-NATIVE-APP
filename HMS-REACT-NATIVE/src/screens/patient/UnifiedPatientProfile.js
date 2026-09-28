@@ -12,7 +12,7 @@ import {
     TextInput,
     Platform,
     RefreshControl,
-    Dimensions
+    useWindowDimensions
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import * as Print from 'expo-print';
@@ -30,9 +30,10 @@ import DoctorIPDOrdersPanel from '../../components/ipd/DoctorIPDOrdersPanel';
 import FamilyHealthTree from './FamilyHealthTree';
 import PatientVialsSection from '../../components/vials/PatientVialsSection';
 
-const { width } = Dimensions.get('window');
+// NOTE: useWindowDimensions() is called inside the component for orientation-safe responsive logic.
 
 const UnifiedPatientProfile = () => {
+    const { width } = useWindowDimensions();
     const route = useRoute();
     const navigation = useNavigation();
     const { user: authUser } = useAuth();

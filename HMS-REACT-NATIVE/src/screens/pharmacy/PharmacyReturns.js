@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { 
     View, Text, TextInput, TouchableOpacity, ScrollView, 
-    StyleSheet, ActivityIndicator, Alert, Dimensions 
+    StyleSheet, ActivityIndicator, Alert, Dimensions, useWindowDimensions 
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { pharmacyOrderAPI, pharmacyAPI } from '../../utils/api';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 
-const { width } = Dimensions.get('window');
-
 const PharmacyReturns = () => {
+    const { width } = useWindowDimensions();
+    const isDesktop = width > 768;
     const [searchQuery, setSearchQuery] = useState('');
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -347,7 +347,7 @@ const PharmacyReturns = () => {
             </View>
 
             <View style={styles.searchSection}>
-                <View style={styles.searchForm}>
+                <View style={[styles.searchForm, { flexDirection: isDesktop ? 'row' : 'column' }]}>
                     <TextInput 
                         style={styles.searchInput}
                         placeholder="Search by Invoice ID, MRN, Name, or Mobile..."
@@ -603,7 +603,6 @@ const styles = StyleSheet.create({
         marginBottom: 20,
     },
     searchForm: {
-        flexDirection: width > 768 ? 'row' : 'column',
         gap: 15,
     },
     searchInput: {

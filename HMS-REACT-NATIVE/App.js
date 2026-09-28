@@ -11,10 +11,6 @@ import { AuthProvider } from './src/context/AuthContext';
 
 // --- ROOT NAVIGATOR ---
 import AppNavigator from './src/navigation/AppNavigator';
-import { installWebResourceGuard } from './src/utils/resourceSecurity';
-
-// Immediate web guard activation to prevent cross-origin blob requests
-installWebResourceGuard();
 
 export default function App() {
   useEffect(() => {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
     View, Text, TextInput, TouchableOpacity, ScrollView,
-    StyleSheet, ActivityIndicator, Alert, Modal
+    StyleSheet, ActivityIndicator, Alert, Modal, useWindowDimensions
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { bedAPI } from '../../utils/api';
@@ -10,6 +10,9 @@ import DropdownSelect from '../../components/common/DropdownSelect';
 const CustomSelect = (props) => <DropdownSelect {...props} />;
 
 const BedManagement = () => {
+    const { width } = useWindowDimensions();
+    const isMobile = width < 768;
+    const isSmallMobile = width <= 430;
     const [beds, setBeds] = useState([]);
     const [loading, setLoading] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -428,6 +431,7 @@ const BedManagement = () => {
             <Modal visible={modalOpen} transparent={true} animationType="fade">
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
+                        <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                         <View style={styles.modalHeaderRow}>
                             <View>
                                 <Text style={styles.modalTitle}>{editingBed ? 'Edit Bed Details' : 'Add New Hospital Bed'}</Text>
@@ -509,6 +513,7 @@ const BedManagement = () => {
                                 )}
                             </TouchableOpacity>
                         </View>
+                        </ScrollView>
                     </View>
                 </View>
             </Modal>
@@ -803,11 +808,11 @@ const styles = StyleSheet.create({
     },
     bedCard: {
         flex: 1,
-        minWidth: 260,
+        minWidth: 160,
         backgroundColor: '#fff',
         borderRadius: 12,
         borderWidth: 1,
-        padding: 16,
+        padding: 14,
         elevation: 1,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
@@ -906,10 +911,11 @@ const styles = StyleSheet.create({
     },
     modalContent: {
         backgroundColor: '#fff',
-        padding: 24,
+        padding: 16,
         borderRadius: 14,
-        width: '100%',
+        width: '94%',
         maxWidth: 440,
+        maxHeight: '88%',
         elevation: 6,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 10 },
@@ -943,9 +949,10 @@ const styles = StyleSheet.create({
     },
     modalButtons: {
         flexDirection: 'row',
+        flexWrap: 'wrap',
         justifyContent: 'flex-end',
-        gap: 12,
-        marginTop: 20,
+        gap: 10,
+        marginTop: 18,
     },
     btnCancel: {
         backgroundColor: '#f1f5f9',

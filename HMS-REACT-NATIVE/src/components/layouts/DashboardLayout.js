@@ -4,8 +4,9 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSelector, useDispatch } from 'react-redux';
 import { logout } from '../../store/slices/authSlice';
 import { useBranding } from '../../context/BrandingContext';
-import { isSafeImageUrl } from '../../utils/resourceSecurity';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const isSafeLogo = (u) => Boolean(u && typeof u === 'string' && u.trim() && !u.includes('gemini.google.com'));
 import GlobalSearch from '../GlobalSearch';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
@@ -130,6 +131,7 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
                 return [
                     { label: 'Clinic Hub', path: 'ClinicDashboard', icon: <Feather name="home" size={18} /> },
                     { label: 'Billing & Payments', path: 'PatientBillingProfile', icon: <Feather name="file-text" size={18} /> },
+                    { label: 'Refund Approvals', path: 'HospitalAdminRefunds', icon: <Feather name="dollar-sign" size={18} /> },
                     { label: 'Vial Management', path: 'VialManagement', icon: <Feather name="box" size={18} /> },
                 ];
             }
@@ -141,6 +143,7 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
                 { label: 'Doctors Feed', path: 'AdminDoctors', icon: <Feather name="activity" size={18} /> },
                 { label: 'Pharma Inventory', path: 'PharmacyInventory', icon: <Feather name="package" size={18} /> },
                 { label: 'Billing & Payments', path: 'PatientBillingProfile', icon: <Feather name="file-text" size={18} /> },
+                { label: 'Refund Approvals', path: 'HospitalAdminRefunds', icon: <Feather name="dollar-sign" size={18} /> },
             ];
         }
 
@@ -162,8 +165,10 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
                 { label: 'Patient Registration', path: 'ReceptionDashboard', params: { view: 'intake' }, icon: <Feather name="user-plus" size={18} /> },
                 { label: 'Patient Search', path: 'ReceptionPatients', icon: <Feather name="users" size={18} /> },
                 { label: 'Patient Billing', path: 'PatientBillingProfile', icon: <Feather name="file-text" size={18} /> },
+                { label: 'Cash Refunds', path: 'ReceptionRefunds', icon: <Feather name="dollar-sign" size={18} /> },
             ];
         }
+
 
         const isLabRoute = currentPath && (currentPath === 'LabDashboard' || currentPath === 'AssignedTests' || currentPath === 'CompletedReports');
         if (role === 'lab' || role === 'pathologist' || roleClean === 'lab' || roleClean === 'labtechnician' || role.includes('lab') || isLabRoute) {
@@ -230,30 +235,32 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
         ];
     };
 
+    const { width: windowWidth } = useWindowDimensions();
     const menuItems = getMenu();
+    const mobileSidebarWidth = Math.min(260, Math.max(220, windowWidth * 0.8));
 
     return (
         <View style={[
             styles.erpSidebar,
             isOpen ? styles.erpSidebarOpen : styles.erpSidebarCollapsed,
-            isMobile && !isOpen && styles.erpSidebarMobileHidden,
-            isMobile && isOpen && styles.erpSidebarMobileVisible
+            isMobile && !isOpen && [styles.erpSidebarMobileHidden, { left: -mobileSidebarWidth, width: mobileSidebarWidth }],
+            isMobile && isOpen && [styles.erpSidebarMobileVisible, { width: mobileSidebarWidth }]
         ]}>
             <View style={[styles.sidebarBrand, !isOpen && styles.sidebarBrandCollapsed, isCentralAdmin && styles.caSidebarBrand]}>
-                <View style={styles.caBrandContainer}>
+                <View style={[styles.caBrandContainer, { flex: 1, minWidth: 0 }]}>
                     {!isOpen ? (
                         <View style={styles.brandDot} />
                     ) : (
                         <Image
-                            source={(isCentralAdmin || user?.hospitalName?.includes('Metropolis') || !isSafeImageUrl(branding?.logoUrl) || branding?.hospitalName === 'City Hospital') ? require('../../assets/medical365-logo.png') : { uri: branding.logoUrl }}
-                            style={styles.brandLogo}
+                            source={(isCentralAdmin || user?.hospitalName?.includes('Metropolis') || !isSafeLogo(branding?.logoUrl) || branding?.hospitalName === 'City Hospital') ? require('../../assets/medical365-logo.png') : { uri: branding.logoUrl }}
+                            style={[styles.brandLogo, { maxWidth: isMobile ? 140 : 180 }]}
                             resizeMode="contain"
                         />
                     )}
                 </View>
 
                 {isMobile && isOpen && (
-                    <TouchableOpacity style={styles.mobileCloseBtn} onPress={() => setOpen(false)}>
+                    <TouchableOpacity style={styles.mobileCloseBtn} onPress={() => setOpen(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                         <Feather name="x" size={24} color="#64748b" />
                     </TouchableOpacity>
                 )}
@@ -439,6 +446,7 @@ const TopBar = ({ toggleSidebar, sidebarOpen, isMobile }) => {
         if (name === 'AdminServices') return 'Services';
         if (name === 'HospitalAdminDashboard') return 'Hospital Overview';
         if (name === 'ClinicDashboard') return 'Clinic Hub';
+        if (name === 'HospitalAdminRefunds') return 'Refund Authorizations';
         if (name === 'VialManagement') return 'Vial Management';
         if (name === 'HospitalAdminQuestionLibrary') return 'Clinical Questions';
         if (name === 'Admin') return 'Staff Management';
@@ -488,7 +496,7 @@ const TopBar = ({ toggleSidebar, sidebarOpen, isMobile }) => {
     };
 
     return (
-        <View style={[styles.erpTopbar, isCentralAdmin && styles.caErpTopbar]}>
+        <View style={[styles.erpTopbar, isCentralAdmin && styles.caErpTopbar, isMobile && { paddingHorizontal: 10, gap: 8 }]}>
             <View style={styles.topbarLeft}>
                 <TouchableOpacity style={styles.sidebarToggle} onPress={toggleSidebar} activeOpacity={0.6}>
                     <Feather name="menu" size={24} color="#1e293b" />
@@ -512,7 +520,9 @@ const TopBar = ({ toggleSidebar, sidebarOpen, isMobile }) => {
                                 <Text style={styles.pathSlash}>/</Text>
                             </>
                         )}
-                        <Text style={styles.pathUserRole}>{(user?.role || 'Hospital Admin').toUpperCase()}</Text>
+                        <Text style={[styles.pathUserRole, isMobile && { fontSize: 10.5, paddingHorizontal: 6 }]} numberOfLines={1}>
+                            {(user?.role || 'Hospital Admin').toUpperCase()}
+                        </Text>
                     </View>
                 )}
             </View>
@@ -665,7 +675,13 @@ const DashboardLayout = ({ children }) => {
             <View style={[styles.erpMainArea, isDarkModule && { backgroundColor: '#0b1120' }]}>
                 <TopBar sidebarOpen={sidebarOpen} toggleSidebar={() => setSidebarOpen(!sidebarOpen)} isMobile={isMobileView} />
                 <OfflineBanner />
-                <View style={[styles.erpPageContent, isDarkModule && { padding: 0, backgroundColor: '#0b1120' }]}>
+                <View style={[
+                    styles.erpPageContent,
+                    {
+                        padding: isDarkModule ? 0 : windowWidth < 400 ? 10 : windowWidth < 768 ? 14 : 24,
+                        backgroundColor: isDarkModule ? '#0b1120' : '#f8fafc',
+                    }
+                ]}>
                     {children}
                 </View>
             </View>

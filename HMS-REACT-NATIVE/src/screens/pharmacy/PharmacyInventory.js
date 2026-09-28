@@ -1,12 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Modal, Dimensions, ActivityIndicator, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Modal, ActivityIndicator, Alert, Platform, useWindowDimensions } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { pharmacyAPI } from '../../utils/api';
 import PurchaseInvoiceHistory from './PurchaseInvoiceHistory';
 import DropdownSelect from '../../components/common/DropdownSelect';
 import DatePickerInput from '../../components/common/DatePickerInput';
-
-const { width } = Dimensions.get('window');
 
 const UNIT_OPTIONS = [
     { label: 'Tablets', value: 'Tablets' },
@@ -34,6 +32,12 @@ const DISCOUNT_OPTIONS = [
 ];
 
 const PharmacyInventory = () => {
+    const { width: windowWidth } = useWindowDimensions();
+    const isDesktop = windowWidth >= 1024;
+    const isTablet = windowWidth >= 600 && windowWidth < 1024;
+    const isMobile = windowWidth < 768;
+    const isNarrow = windowWidth <= 600;
+    const isSmallMobile = windowWidth <= 430;
     const [activeTab, setActiveTab] = useState('inventory');
     const [medicines, setMedicines] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -520,17 +524,53 @@ const PharmacyInventory = () => {
     return (
         <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
             <View style={styles.header}>
-                <View>
+                <View style={{ flex: 1, minWidth: 200 }}>
                     <Text style={styles.headerTitle}>💊 Medicine Inventory</Text>
                     <Text style={styles.headerSubtitle}>Manage your hospital's medicine stock, pricing, and expiry tracking</Text>
                 </View>
-                <View style={styles.headerButtons}>
-                    <TouchableOpacity style={[styles.btnAction, { backgroundColor: '#fee2e2', borderColor: '#fecaca' }]} onPress={() => setShowConsumptionModal(true)}>
+                <View style={[styles.headerButtons, isMobile && { width: '100%', flexDirection: isSmallMobile ? 'column' : 'row', marginTop: 12 }]}>
+                    <TouchableOpacity 
+                        style={[styles.btnAction, { backgroundColor: '#fee2e2', borderColor: '#fecaca' }, isSmallMobile && { width: '100%', alignItems: 'center' }]} 
+                        onPress={() => setShowConsumptionModal(true)}
+                        activeOpacity={0.7}
+                    >
                         <Text style={[styles.btnActionText, { color: '#b91c1c' }]}>📌 Record Consumption</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={[styles.btnAction, { backgroundColor: '#e0e7ff', borderColor: '#c7d2fe' }]} onPress={() => setShowVendorModal(true)}>
+                    <TouchableOpacity 
+                        style={[styles.btnAction, { backgroundColor: '#e0e7ff', borderColor: '#c7d2fe' }, isSmallMobile && { width: '100%', alignItems: 'center' }]} 
+                        onPress={() => setShowVendorModal(true)}
+                        activeOpacity={0.7}
+                    >
                         <Text style={[styles.btnActionText, { color: '#4338ca' }]}>👥 Manage Vendors</Text>
                     </TouchableOpacity>
+                </View>
+            </View>
+
+            {/* KPI Cards: Responsive 1-2 columns mobile, 4 columns desktop */}
+            <View style={styles.pharmaKpiGrid}>
+                <View style={[styles.pharmaKpiCard, isMobile && { minWidth: '47%' }]}>
+                    <Text style={styles.pharmaKpiLabel}>Total Medicines</Text>
+                    <Text style={styles.pharmaKpiValue}>{medicines.length}</Text>
+                    <Text style={styles.pharmaKpiSub}>Unique formulations</Text>
+                </View>
+                <View style={[styles.pharmaKpiCard, { borderColor: '#fecaca', backgroundColor: '#fff5f5' }, isMobile && { minWidth: '47%' }]}>
+                    <Text style={[styles.pharmaKpiLabel, { color: '#991b1b' }]}>Low Stock Alert</Text>
+                    <Text style={[styles.pharmaKpiValue, { color: '#dc2626' }]}>
+                        {medicines.filter(m => m.stock < (m.minStockAlertLevel || 50)).length}
+                    </Text>
+                    <Text style={[styles.pharmaKpiSub, { color: '#b91c1c' }]}>Requires reordering</Text>
+                </View>
+                <View style={[styles.pharmaKpiCard, isMobile && { minWidth: '47%' }]}>
+                    <Text style={styles.pharmaKpiLabel}>Total Units</Text>
+                    <Text style={styles.pharmaKpiValue}>
+                        {medicines.reduce((acc, m) => acc + (Number(m.stock) || 0), 0)}
+                    </Text>
+                    <Text style={styles.pharmaKpiSub}>In pharmacy stock</Text>
+                </View>
+                <View style={[styles.pharmaKpiCard, isMobile && { minWidth: '47%' }]}>
+                    <Text style={styles.pharmaKpiLabel}>Active Vendors</Text>
+                    <Text style={styles.pharmaKpiValue}>{vendors.length}</Text>
+                    <Text style={styles.pharmaKpiSub}>Registered suppliers</Text>
                 </View>
             </View>
 
@@ -612,8 +652,9 @@ const PharmacyInventory = () => {
                         <Text style={styles.pharmaFormTitle}>{isEditing ? 'Edit Medicine' : 'Add New Medicine'}</Text>
                         
                         <View style={styles.formSection}>
-                            <View style={styles.formRow}>
-                                <View style={styles.formGroup}>
+                            {/* Row 1: Medicine Name, Salt / Composition, Category */}
+                            <View style={[styles.formRow, isNarrow && { flexDirection: 'column', gap: 12 }]}>
+                                <View style={[styles.formGroup, isNarrow ? { width: '100%', minWidth: '100%', flex: 0 } : (isTablet ? { width: '100%', minWidth: '100%', flex: 0 } : { flex: 2 })]}>
                                     <Text style={styles.formLabel}>MEDICINE NAME *</Text>
                                     {pendingInvoice ? (
                                         <DropdownSelect
@@ -674,7 +715,7 @@ const PharmacyInventory = () => {
                                         </View>
                                     )}
                                 </View>
-                                <View style={styles.formGroup}>
+                                <View style={[styles.formGroup, isNarrow ? { width: '100%', minWidth: '100%', flex: 0 } : (isTablet ? { width: '48%', minWidth: 160, flex: 1 } : { flex: 1.5 })]}>
                                     <Text style={styles.formLabel}>SALT / COMPOSITION</Text>
                                     <TextInput 
                                         style={styles.formInput}
@@ -683,7 +724,7 @@ const PharmacyInventory = () => {
                                         placeholder="e.g. Acetaminophen"
                                     />
                                 </View>
-                                <View style={styles.formGroup}>
+                                <View style={[styles.formGroup, isNarrow ? { width: '100%', minWidth: '100%', flex: 0 } : (isTablet ? { width: '48%', minWidth: 160, flex: 1 } : { flex: 1 })]}>
                                     <Text style={styles.formLabel}>CATEGORY *</Text>
                                     <TextInput 
                                         style={styles.formInput}
@@ -704,8 +745,8 @@ const PharmacyInventory = () => {
                             </TouchableOpacity>
 
                             {newMedicine.isMultiDose && (
-                                <View style={styles.formRow}>
-                                    <View style={styles.formGroup}>
+                                <View style={[styles.formRow, isNarrow && { flexDirection: 'column', gap: 12 }]}>
+                                    <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flex: 0 }]}>
                                         <Text style={styles.formLabel}>VOLUME / DOSAGE PER UNIT *</Text>
                                         <TextInput 
                                             style={styles.formInput}
@@ -715,7 +756,7 @@ const PharmacyInventory = () => {
                                             placeholder="e.g. 900"
                                         />
                                     </View>
-                                    <View style={styles.formGroup}>
+                                    <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flex: 0 }]}>
                                         <Text style={styles.formLabel}>VOLUME UNIT *</Text>
                                         <DropdownSelect
                                             options={[
@@ -736,8 +777,8 @@ const PharmacyInventory = () => {
                             )}
 
                             {/* Quantities & Unit */}
-                            <View style={styles.formRow}>
-                                <View style={styles.formGroup}>
+                            <View style={[styles.formRow, isNarrow && { flexDirection: 'row', flexWrap: 'wrap', gap: 12 }]}>
+                                <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flex: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
                                     <Text style={styles.formLabel}>PURCHASE QTY *</Text>
                                     <TextInput 
                                         style={styles.formInput}
@@ -749,7 +790,7 @@ const PharmacyInventory = () => {
                                         placeholder="e.g. 10"
                                     />
                                 </View>
-                                <View style={styles.formGroup}>
+                                <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flex: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
                                     <Text style={styles.formLabel}>FREE QTY (SCHEME)</Text>
                                     <TextInput 
                                         style={styles.formInput}
@@ -761,7 +802,7 @@ const PharmacyInventory = () => {
                                         placeholder="e.g. 2"
                                     />
                                 </View>
-                                <View style={styles.formGroup}>
+                                <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flex: 0 }]}>
                                     <Text style={styles.formLabel}>UNIT</Text>
                                     <DropdownSelect
                                         options={UNIT_OPTIONS}
@@ -771,7 +812,7 @@ const PharmacyInventory = () => {
                                     />
                                 </View>
                                 {['Strip', 'Capsules', 'Tablets'].includes(newMedicine.unit) && (
-                                    <View style={styles.formGroup}>
+                                    <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flex: 0 }]}>
                                         <Text style={styles.formLabel}>{newMedicine.unit === 'Strip' ? 'UNITS PER STRIP' : 'UNITS PER PACK'}</Text>
                                         <TextInput 
                                             style={styles.formInput}
@@ -785,8 +826,8 @@ const PharmacyInventory = () => {
                             </View>
 
                             {/* Pricing & GST */}
-                            <View style={styles.formRow}>
-                                <View style={styles.formGroup}>
+                            <View style={[styles.formRow, isNarrow && { flexDirection: 'row', flexWrap: 'wrap', gap: 12 }]}>
+                                <View style={[styles.formGroup, isNarrow ? { width: '100%', minWidth: '100%', flex: 0 } : {}]}>
                                     <Text style={styles.formLabel}>BUYING PRICE (₹) *</Text>
                                     <TextInput 
                                         style={styles.formInput}
@@ -796,7 +837,7 @@ const PharmacyInventory = () => {
                                         placeholder="0.00"
                                     />
                                 </View>
-                                <View style={styles.formGroup}>
+                                <View style={[styles.formGroup, isSmallMobile ? { width: '48%', minWidth: 120, flex: 1 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
                                     <Text style={styles.formLabel}>CGST (%)</Text>
                                     <TextInput 
                                         style={styles.formInput}
@@ -806,7 +847,7 @@ const PharmacyInventory = () => {
                                         placeholder="0"
                                     />
                                 </View>
-                                <View style={styles.formGroup}>
+                                <View style={[styles.formGroup, isSmallMobile ? { width: '48%', minWidth: 120, flex: 1 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
                                     <Text style={styles.formLabel}>SGST (%)</Text>
                                     <TextInput 
                                         style={styles.formInput}
@@ -816,7 +857,7 @@ const PharmacyInventory = () => {
                                         placeholder="0"
                                     />
                                 </View>
-                                <View style={styles.formGroup}>
+                                <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flex: 0 }]}>
                                     <Text style={styles.formLabel}>FINAL AMOUNT (₹)</Text>
                                     <View style={[styles.formInput, { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', justifyContent: 'center' }]}>
                                         <Text style={{ color: '#0369a1', fontWeight: 'bold' }}>
@@ -838,8 +879,8 @@ const PharmacyInventory = () => {
                             </View>
 
                             {/* Selling Price & Batch */}
-                            <View style={styles.formRow}>
-                                <View style={styles.formGroup}>
+                            <View style={[styles.formRow, isNarrow && { flexDirection: 'row', flexWrap: 'wrap', gap: 12 }]}>
+                                <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flex: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
                                     <Text style={styles.formLabel}>SELLING PRICE (₹) *</Text>
                                     <TextInput 
                                         style={styles.formInput}
@@ -849,7 +890,7 @@ const PharmacyInventory = () => {
                                         placeholder="0.00"
                                     />
                                 </View>
-                                <View style={styles.formGroup}>
+                                <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flex: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
                                     <Text style={styles.formLabel}>BATCH NUMBER</Text>
                                     <TextInput 
                                         style={styles.formInput}
@@ -858,7 +899,7 @@ const PharmacyInventory = () => {
                                         placeholder="e.g. BT-2026-001"
                                     />
                                 </View>
-                                <View style={styles.formGroup}>
+                                <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flex: 0 }]}>
                                     <Text style={styles.formLabel}>EXPIRY DATE *</Text>
                                     <DatePickerInput
                                         value={newMedicine.expiryDate}
@@ -866,7 +907,7 @@ const PharmacyInventory = () => {
                                         placeholder="Expiry Date"
                                     />
                                 </View>
-                                <View style={styles.formGroup}>
+                                <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flex: 0 }]}>
                                     <Text style={styles.formLabel}>VENDOR / SUPPLIER</Text>
                                     <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
                                         <View style={{ flex: 1 }}>
@@ -888,8 +929,8 @@ const PharmacyInventory = () => {
                             </View>
 
                             {/* Rack & Min Alert */}
-                            <View style={styles.formRow}>
-                                <View style={styles.formGroup}>
+                            <View style={[styles.formRow, isNarrow && { flexDirection: 'row', flexWrap: 'wrap', gap: 12 }]}>
+                                <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flex: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
                                     <Text style={styles.formLabel}>RACK LOCATION</Text>
                                     <TextInput 
                                         style={styles.formInput}
@@ -898,7 +939,7 @@ const PharmacyInventory = () => {
                                         placeholder="e.g. Rack A-3"
                                     />
                                 </View>
-                                <View style={styles.formGroup}>
+                                <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flex: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
                                     <Text style={styles.formLabel}>MIN STOCK ALERT LEVEL</Text>
                                     <TextInput 
                                         style={styles.formInput}
@@ -911,17 +952,17 @@ const PharmacyInventory = () => {
                             </View>
 
                             {/* Form Action Buttons */}
-                            <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
+                            <View style={[styles.formActionButtonsRow, isNarrow && { flexDirection: 'column', width: '100%', gap: 10 }]}>
                                 {isEditing && (
                                     <TouchableOpacity 
-                                        style={styles.btnCancelEdit} 
+                                        style={[styles.btnCancelEdit, isNarrow && { width: '100%', minHeight: 46, alignItems: 'center', justifyContent: 'center' }]} 
                                         onPress={() => { setIsEditing(false); setEditId(null); setNewMedicine(initialFormState); }}
                                     >
                                         <Text style={styles.btnCancelEditText}>Cancel Edit</Text>
                                     </TouchableOpacity>
                                 )}
                                 <TouchableOpacity 
-                                    style={[styles.btnSavePharma, savingMedicine && { opacity: 0.7 }]} 
+                                    style={[styles.btnSavePharma, savingMedicine && { opacity: 0.7 }, isNarrow && { width: '100%', minHeight: 46, alignItems: 'center', justifyContent: 'center' }]} 
                                     onPress={handleAddMedicine} 
                                     disabled={savingMedicine}
                                 >
@@ -931,7 +972,7 @@ const PharmacyInventory = () => {
                                 </TouchableOpacity>
                                 {!isEditing && (
                                     <TouchableOpacity 
-                                        style={styles.btnClearForm} 
+                                        style={[styles.btnClearForm, isNarrow && { width: '100%', minHeight: 46, alignItems: 'center', justifyContent: 'center' }]} 
                                         onPress={() => setNewMedicine(initialFormState)}
                                     >
                                         <Text style={styles.btnClearFormText}>Clear Form</Text>
@@ -945,7 +986,7 @@ const PharmacyInventory = () => {
                         <View style={styles.searchBar}>
                             <TextInput 
                                 style={styles.searchInput}
-                                placeholder="Search medicines..."
+                                placeholder="Search medicines by name or category..."
                                 value={searchTerm}
                                 onChangeText={setSearchTerm}
                             />
@@ -957,7 +998,130 @@ const PharmacyInventory = () => {
                             <View style={styles.loaderContainer}>
                                 <ActivityIndicator size="large" color="#059669" />
                             </View>
+                        ) : isMobile ? (
+                            /* Mobile Card / List Presentation (Web 1:1 Parity, Responsive First) */
+                            <View style={styles.mobileMedList}>
+                                {filteredMedicines.length === 0 ? (
+                                    <View style={styles.emptyMedCard}>
+                                        <Text style={styles.emptyMedText}>No medicines match your search criteria.</Text>
+                                    </View>
+                                ) : (
+                                    filteredMedicines.map((med) => {
+                                        const isLow = med.stock < (med.minStockAlertLevel || 50);
+                                        const expiryStr = med.expiryDate ? new Date(med.expiryDate).toLocaleDateString() : 'N/A';
+                                        return (
+                                            <View key={med._id} style={styles.medCard}>
+                                                {/* Header: Title + Category + Status */}
+                                                <View style={styles.medCardHeader}>
+                                                    <View style={{ flex: 1, marginRight: 8 }}>
+                                                        <Text style={styles.medCardName}>{med.name}</Text>
+                                                        {med.salt ? <Text style={styles.medCardSalt}>{med.salt}</Text> : null}
+                                                    </View>
+                                                    <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                                                        <View style={styles.categoryTag}>
+                                                            <Text style={styles.categoryTagText}>{med.category || 'General'}</Text>
+                                                        </View>
+                                                        <View style={[
+                                                            styles.statusBadgeSmall,
+                                                            med.stock <= 0 ? styles.badgeOutOfStock : (isLow ? styles.badgeLowStock : styles.badgeInStock)
+                                                        ]}>
+                                                            <Text style={[
+                                                                styles.statusBadgeSmallText,
+                                                                med.stock <= 0 ? styles.textOutOfStock : (isLow ? styles.textLowStock : styles.textInStock)
+                                                            ]}>
+                                                                {med.stock <= 0 ? 'Out of Stock' : (isLow ? 'Low Stock' : 'In Stock')}
+                                                            </Text>
+                                                        </View>
+                                                    </View>
+                                                </View>
+
+                                                {/* Details Grid */}
+                                                <View style={styles.medCardGrid}>
+                                                    <View style={styles.medCardGridItem}>
+                                                        <Text style={styles.medCardGridLabel}>Batch #</Text>
+                                                        <Text style={styles.medCardGridVal}>#{med.batchNumber || '—'}</Text>
+                                                    </View>
+                                                    <View style={styles.medCardGridItem}>
+                                                        <Text style={styles.medCardGridLabel}>Available Stock</Text>
+                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                                            <Text style={[styles.medCardGridVal, isLow ? styles.lowStockText : styles.goodStockText]}>
+                                                                {med.stock} {med.unit}
+                                                            </Text>
+                                                            {isLow && (
+                                                                <View style={styles.lowStockBadge}>
+                                                                    <Text style={styles.lowStockBadgeText}>Low</Text>
+                                                                </View>
+                                                            )}
+                                                        </View>
+                                                    </View>
+                                                    <View style={styles.medCardGridItem}>
+                                                        <Text style={styles.medCardGridLabel}>Min Stock Alert</Text>
+                                                        <Text style={styles.medCardGridVal}>{med.minStockAlertLevel || 50} {med.unit}</Text>
+                                                    </View>
+                                                    <View style={styles.medCardGridItem}>
+                                                        <Text style={styles.medCardGridLabel}>Expiry Date</Text>
+                                                        <Text style={styles.medCardGridVal}>{expiryStr}</Text>
+                                                    </View>
+                                                    <View style={styles.medCardGridItem}>
+                                                        <Text style={styles.medCardGridLabel}>Buying / Selling</Text>
+                                                        <Text style={styles.medCardGridVal}>₹{med.buyingPrice} / ₹{med.sellingPrice}</Text>
+                                                    </View>
+                                                    <View style={styles.medCardGridItem}>
+                                                        <Text style={styles.medCardGridLabel}>Rack Location</Text>
+                                                        <Text style={styles.medCardGridVal}>{med.rackLocation || '—'}</Text>
+                                                    </View>
+                                                    <View style={[styles.medCardGridItem, { width: '100%' }]}>
+                                                        <Text style={styles.medCardGridLabel}>Vendor</Text>
+                                                        <Text style={styles.medCardGridVal} numberOfLines={2}>{med.vendor || 'N/A'}</Text>
+                                                    </View>
+                                                </View>
+
+                                                {/* Actions Row */}
+                                                <View style={styles.medCardActionsRow}>
+                                                    <TouchableOpacity 
+                                                        style={[styles.medCardActionBtn, { backgroundColor: '#f0f9ff', borderColor: '#bae6fd' }]} 
+                                                        onPress={() => handleViewDetails(med)}
+                                                        activeOpacity={0.7}
+                                                    >
+                                                        <Text style={[styles.medCardActionText, { color: '#0369a1' }]}>👁️ Details</Text>
+                                                    </TouchableOpacity>
+                                                    <TouchableOpacity 
+                                                        style={[styles.medCardActionBtn, { backgroundColor: '#ecfdf5', borderColor: '#a7f3d0' }]} 
+                                                        onPress={() => handleEdit(med)}
+                                                        activeOpacity={0.7}
+                                                    >
+                                                        <Text style={[styles.medCardActionText, { color: '#059669' }]}>✏️ Edit</Text>
+                                                    </TouchableOpacity>
+                                                    <TouchableOpacity 
+                                                        style={[styles.medCardActionBtn, { backgroundColor: '#fef3c7', borderColor: '#fde68a' }]} 
+                                                        onPress={() => {
+                                                            setConsumptionForm({
+                                                                medicineId: med._id,
+                                                                quantity: '',
+                                                                reason: 'Doctor/Staff Use',
+                                                                givenTo: ''
+                                                            });
+                                                            setShowConsumptionModal(true);
+                                                        }}
+                                                        activeOpacity={0.7}
+                                                    >
+                                                        <Text style={[styles.medCardActionText, { color: '#b45309' }]}>📌 Stock Adj.</Text>
+                                                    </TouchableOpacity>
+                                                    <TouchableOpacity 
+                                                        style={[styles.medCardActionBtn, { backgroundColor: '#fef2f2', borderColor: '#fecaca' }]} 
+                                                        onPress={() => handleDelete(med._id)}
+                                                        activeOpacity={0.7}
+                                                    >
+                                                        <Text style={[styles.medCardActionText, { color: '#dc2626' }]}>🗑️ Delete</Text>
+                                                    </TouchableOpacity>
+                                                </View>
+                                            </View>
+                                        );
+                                    })
+                                )}
+                            </View>
                         ) : (
+                            /* Desktop / Tablet Horizontal Table View */
                             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                                 <View style={{ minWidth: 1040 }}>
                                     <View style={styles.tableHeadRow}>
@@ -1209,109 +1373,159 @@ const styles = StyleSheet.create({
         backgroundColor: '#f8fafc',
     },
     contentContainer: {
-        padding: 24,
+        padding: 14,
     },
     header: {
         backgroundColor: 'rgba(255, 255, 255, 0.7)',
-        padding: 24,
-        borderRadius: 24,
+        padding: 16,
+        borderRadius: 20,
         borderWidth: 1,
         borderColor: 'rgba(255, 255, 255, 0.6)',
-        flexDirection: width > 768 ? 'row' : 'column',
+        flexDirection: 'row',
+        flexWrap: 'wrap',
         justifyContent: 'space-between',
-        alignItems: width > 768 ? 'center' : 'flex-start',
-        marginBottom: 20,
+        alignItems: 'center',
+        gap: 12,
+        marginBottom: 16,
     },
     headerTitle: {
-        fontSize: 24,
-        fontWeight: 'normal',
+        fontSize: 22,
+        fontWeight: 'bold',
         color: '#064e3b',
     },
     headerSubtitle: {
         color: '#64748b',
-        fontSize: 14,
+        fontSize: 13,
         marginTop: 4,
     },
     headerButtons: {
         flexDirection: 'row',
         gap: 10,
-        marginTop: width > 768 ? 0 : 15,
+        marginTop: 8,
         flexWrap: 'wrap',
     },
     btnAction: {
         paddingVertical: 8,
-        paddingHorizontal: 20,
-        borderRadius: 6,
+        paddingHorizontal: 16,
+        borderRadius: 8,
         borderWidth: 1,
     },
     btnActionText: {
-        fontWeight: 'normal',
+        fontWeight: '600',
+        fontSize: 13,
     },
+
+    /* KPI Summary Cards */
+    pharmaKpiGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 10,
+        marginBottom: 16,
+    },
+    pharmaKpiCard: {
+        flex: 1,
+        minWidth: 140,
+        backgroundColor: '#ffffff',
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        padding: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.03,
+        shadowRadius: 4,
+        elevation: 1,
+    },
+    pharmaKpiLabel: {
+        fontSize: 11,
+        color: '#64748b',
+        fontWeight: '600',
+        textTransform: 'uppercase',
+    },
+    pharmaKpiValue: {
+        fontSize: 20,
+        fontWeight: '800',
+        color: '#0f172a',
+        marginVertical: 3,
+    },
+    pharmaKpiSub: {
+        fontSize: 11,
+        color: '#94a3b8',
+    },
+
     tabsContainer: {
         flexDirection: 'row',
         gap: 10,
         borderBottomWidth: 1,
         borderBottomColor: '#e2e8f0',
-        marginBottom: 20,
-        paddingBottom: 10,
+        marginBottom: 16,
+        paddingBottom: 8,
     },
     tabButton: {
-        paddingVertical: 10,
-        paddingHorizontal: 5,
+        paddingVertical: 8,
+        paddingHorizontal: 6,
     },
     activeTab: {
         borderBottomWidth: 2,
         borderBottomColor: '#3b82f6',
-        marginBottom: -11,
+        marginBottom: -10,
     },
     tabText: {
         color: '#64748b',
-        fontSize: 15,
+        fontSize: 14,
+        fontWeight: '500',
     },
     activeTabText: {
         color: '#3b82f6',
+        fontWeight: '700',
     },
     invoiceUploadSection: {
         backgroundColor: '#f0f9ff',
-        padding: 20,
-        borderRadius: 10,
+        padding: 16,
+        borderRadius: 12,
         borderWidth: 1,
         borderColor: '#bae6fd',
-        marginBottom: 20,
+        marginBottom: 16,
     },
     invoiceUploadHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 15,
+        flexWrap: 'wrap',
+        gap: 8,
+        marginBottom: 12,
     },
     invoiceUploadTitle: {
-        fontSize: 16,
+        fontSize: 15,
+        fontWeight: '700',
         color: '#0369a1',
     },
     invoiceUploadSubtitle: {
-        fontSize: 13,
+        fontSize: 12,
         color: '#0284c7',
-        marginTop: 4,
+        marginTop: 2,
     },
     btnUploadNew: {
         backgroundColor: '#0284c7',
-        paddingVertical: 8,
-        paddingHorizontal: 16,
+        paddingVertical: 6,
+        paddingHorizontal: 12,
         borderRadius: 6,
     },
     btnUploadNewText: {
         color: 'white',
+        fontSize: 12,
+        fontWeight: '600',
     },
     successBox: {
         backgroundColor: '#dcfce7',
         padding: 10,
         borderRadius: 6,
-        marginBottom: 15,
+        marginBottom: 12,
     },
     successText: {
         color: '#166534',
-        fontSize: 14,
+        fontSize: 13,
+        fontWeight: '600',
     },
     uploadRow: {
         flexDirection: 'row',
@@ -1320,94 +1534,223 @@ const styles = StyleSheet.create({
     uploadInputBox: {
         backgroundColor: 'white',
         padding: 10,
-        borderRadius: 6,
+        borderRadius: 8,
         borderWidth: 1,
         borderColor: '#7dd3fc',
-        width: 300,
+        width: '100%',
+        maxWidth: 340,
     },
     uploadInputText: {
         color: '#64748b',
+        fontSize: 13,
     },
     invoiceStatusBox: {
         backgroundColor: 'white',
-        padding: 15,
+        padding: 12,
         borderRadius: 8,
         borderWidth: 1,
         borderColor: '#e0f2fe',
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: 10,
     },
     invoiceStatusTitle: {
         color: '#0c4a6e',
-        fontSize: 15,
-        marginBottom: 5,
+        fontSize: 14,
+        fontWeight: '700',
+        marginBottom: 4,
     },
     invoiceStatsRow: {
         flexDirection: 'row',
-        gap: 20,
+        flexWrap: 'wrap',
+        gap: 12,
     },
     invoiceStatText: {
         color: '#0369a1',
-        fontSize: 14,
+        fontSize: 13,
+        fontWeight: '500',
     },
     invoiceActionButtons: {
         flexDirection: 'row',
-        gap: 10,
+        gap: 8,
     },
     btnCancelInvoice: {
         backgroundColor: '#fee2e2',
         borderWidth: 1,
         borderColor: '#fecaca',
-        paddingVertical: 8,
-        paddingHorizontal: 16,
+        paddingVertical: 6,
+        paddingHorizontal: 12,
         borderRadius: 6,
     },
     btnCancelInvoiceText: {
         color: '#dc2626',
+        fontSize: 12,
+        fontWeight: '600',
     },
     inventoryControls: {
-        flexDirection: width > 768 ? 'row' : 'column',
+        flexDirection: 'row',
+        flexWrap: 'wrap',
         justifyContent: 'space-between',
-        alignItems: width > 768 ? 'center' : 'stretch',
-        gap: 15,
-        marginBottom: 20,
+        alignItems: 'center',
+        gap: 12,
+        marginBottom: 16,
     },
     searchBar: {
         flex: 1,
+        minWidth: 200,
         backgroundColor: 'white',
-        borderRadius: 16,
+        borderRadius: 12,
         borderWidth: 1,
         borderColor: '#e2e8f0',
-        paddingHorizontal: 20,
-        paddingVertical: 5,
-        height: 50,
+        paddingHorizontal: 14,
+        paddingVertical: 4,
+        height: 44,
         justifyContent: 'center',
     },
     searchInput: {
-        fontSize: 16,
+        fontSize: 14,
         color: '#064e3b',
     },
     btnAdd: {
         backgroundColor: '#059669',
-        paddingVertical: 14,
-        paddingHorizontal: 28,
-        borderRadius: 16,
+        paddingVertical: 10,
+        paddingHorizontal: 20,
+        borderRadius: 10,
         alignItems: 'center',
         justifyContent: 'center',
     },
     btnAddText: {
         color: 'white',
-        fontSize: 16,
+        fontSize: 14,
+        fontWeight: '600',
     },
     tableWrapper: {
         backgroundColor: 'rgba(255, 255, 255, 0.7)',
-        borderRadius: 24,
+        borderRadius: 18,
         borderWidth: 1,
         borderColor: 'rgba(255, 255, 255, 0.6)',
-        padding: 20,
+        padding: 12,
         overflow: 'hidden',
+        width: '100%',
+        maxWidth: '100%',
     },
+
+    /* Mobile Medicine Card List Styles */
+    mobileMedList: {
+        gap: 10,
+    },
+    emptyMedCard: {
+        backgroundColor: '#ffffff',
+        borderRadius: 12,
+        padding: 24,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+    },
+    emptyMedText: {
+        color: '#64748b',
+        fontSize: 13,
+        textAlign: 'center',
+    },
+    medCard: {
+        backgroundColor: '#ffffff',
+        borderRadius: 14,
+        padding: 14,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.04,
+        shadowRadius: 4,
+        elevation: 1,
+    },
+    medCardHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        borderBottomWidth: 1,
+        borderBottomColor: '#f1f5f9',
+        paddingBottom: 8,
+        marginBottom: 10,
+    },
+    medCardName: {
+        fontSize: 15,
+        fontWeight: '700',
+        color: '#064e3b',
+    },
+    medCardSalt: {
+        fontSize: 12,
+        color: '#64748b',
+        fontStyle: 'italic',
+        marginTop: 2,
+    },
+    medCardGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 10,
+        marginBottom: 10,
+    },
+    medCardGridItem: {
+        width: '47%',
+    },
+    medCardGridLabel: {
+        fontSize: 10,
+        color: '#94a3b8',
+        textTransform: 'uppercase',
+        fontWeight: '700',
+        marginBottom: 2,
+    },
+    medCardGridVal: {
+        fontSize: 12.5,
+        color: '#1e293b',
+        fontWeight: '600',
+    },
+    lowStockText: {
+        color: '#dc2626',
+        fontWeight: '700',
+    },
+    goodStockText: {
+        color: '#059669',
+        fontWeight: '700',
+    },
+    lowStockBadge: {
+        backgroundColor: '#fee2e2',
+        borderRadius: 4,
+        paddingHorizontal: 5,
+        paddingVertical: 1,
+    },
+    lowStockBadgeText: {
+        color: '#dc2626',
+        fontSize: 9,
+        fontWeight: '800',
+    },
+    medCardActionsRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+        paddingTop: 10,
+        borderTopWidth: 1,
+        borderTopColor: '#f1f5f9',
+    },
+    medCardActionBtn: {
+        flex: 1,
+        minWidth: '47%',
+        minHeight: 38,
+        paddingVertical: 8,
+        paddingHorizontal: 6,
+        borderRadius: 8,
+        borderWidth: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    medCardActionText: {
+        fontSize: 12,
+        fontWeight: '700',
+    },
+
     tableHeadRow: {
         flexDirection: 'row',
         borderBottomWidth: 1,
@@ -1419,6 +1762,7 @@ const styles = StyleSheet.create({
         color: '#64748b',
         fontSize: 13,
         textTransform: 'uppercase',
+        fontWeight: '700',
     },
     tableRow: {
         flexDirection: 'row',
@@ -1432,26 +1776,58 @@ const styles = StyleSheet.create({
     tableCell: {
         padding: 12,
         color: '#000000',
+        fontSize: 13,
     },
     medName: {
         color: '#064e3b',
+        fontWeight: '600',
     },
     categoryTag: {
         backgroundColor: '#f0fdfa',
-        paddingVertical: 4,
-        paddingHorizontal: 12,
-        borderRadius: 12,
+        paddingVertical: 3,
+        paddingHorizontal: 8,
+        borderRadius: 8,
         alignSelf: 'flex-start',
     },
     categoryTagText: {
         color: '#0d9488',
-        fontSize: 12,
+        fontSize: 11,
+        fontWeight: '600',
+    },
+    statusBadgeSmall: {
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 4,
+    },
+    statusBadgeSmallText: {
+        fontSize: 10,
+        fontWeight: '700',
+    },
+    badgeInStock: {
+        backgroundColor: '#dcfce7',
+    },
+    textInStock: {
+        color: '#166534',
+    },
+    badgeLowStock: {
+        backgroundColor: '#fef3c7',
+    },
+    textLowStock: {
+        color: '#b45309',
+    },
+    badgeOutOfStock: {
+        backgroundColor: '#fee2e2',
+    },
+    textOutOfStock: {
+        color: '#dc2626',
     },
     lowStock: {
         color: '#ef4444',
+        fontWeight: '700',
     },
     goodStock: {
         color: '#10b981',
+        fontWeight: '700',
     },
     actionBtn: {
         padding: 6,
@@ -1482,11 +1858,11 @@ const styles = StyleSheet.create({
     },
     modalContent: {
         backgroundColor: 'white',
-        width: '95%',
-        maxWidth: 700,
-        maxHeight: '90%',
-        borderRadius: 24,
-        padding: 20,
+        width: '94%',
+        maxWidth: 600,
+        maxHeight: '88%',
+        borderRadius: 20,
+        padding: 16,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 10 },
         shadowOpacity: 0.2,
@@ -1499,76 +1875,81 @@ const styles = StyleSheet.create({
         alignItems: 'flex-start',
         borderBottomWidth: 1,
         borderBottomColor: '#f1f5f9',
-        paddingBottom: 15,
-        marginBottom: 15,
+        paddingBottom: 12,
+        marginBottom: 12,
     },
     modalTitle: {
-        fontSize: 22,
-        fontWeight: 'bold', // Exception for header title, Web used font-size: 1.8rem, weight assumed heavy
+        fontSize: 18,
+        fontWeight: 'bold',
         color: '#064e3b',
     },
     modalSubtitle: {
-        fontSize: 14,
+        fontSize: 12,
         color: '#64748b',
-        marginTop: 4,
+        marginTop: 2,
     },
     closeBtn: {
-        fontSize: 28,
+        fontSize: 24,
         color: '#64748b',
-        padding: 5,
-        marginTop: -5,
+        padding: 4,
+        marginTop: -4,
     },
     modalBody: {
         flex: 1,
     },
     formSection: {
-        marginBottom: 20,
+        marginBottom: 16,
     },
     sectionTitle: {
         color: '#0d9488',
-        fontSize: 14,
+        fontSize: 13,
         textTransform: 'uppercase',
         borderBottomWidth: 2,
         borderBottomColor: '#f0fdfa',
-        paddingBottom: 8,
-        marginBottom: 15,
-        fontWeight: 'normal',
+        paddingBottom: 6,
+        marginBottom: 12,
+        fontWeight: '700',
     },
     formRow: {
-        flexDirection: width > 768 ? 'row' : 'column',
-        gap: 15,
-        marginBottom: 15,
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 12,
+        marginBottom: 12,
     },
     formGroup: {
         flex: 1,
-        marginBottom: 10,
+        minWidth: 120,
+        marginBottom: 8,
     },
     formLabel: {
-        fontSize: 13,
-        color: '#64748b',
-        marginBottom: 8,
+        fontSize: 12,
+        color: '#475569',
+        marginBottom: 6,
+        fontWeight: '700',
+        letterSpacing: 0.2,
     },
     formInput: {
         width: '100%',
+        minHeight: 46,
         paddingVertical: 10,
-        paddingHorizontal: 15,
-        borderRadius: 12,
+        paddingHorizontal: 12,
+        borderRadius: 10,
         borderWidth: 1,
         borderColor: '#e2e8f0',
-        fontSize: 15,
+        fontSize: 14,
         color: '#000',
         backgroundColor: 'white',
     },
     pickerWrapper: {
         borderWidth: 1,
         borderColor: '#e2e8f0',
-        borderRadius: 12,
+        borderRadius: 10,
         overflow: 'hidden',
         backgroundColor: 'white',
     },
     picker: {
         width: '100%',
-        height: 50,
+        height: 44,
         color: '#000',
     },
     btnAddVendor: {
@@ -1578,40 +1959,50 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         justifyContent: 'center',
         alignItems: 'center',
-        paddingHorizontal: 15,
+        paddingHorizontal: 12,
     },
     btnAddVendorText: {
         color: '#4338ca',
-        fontSize: 18,
+        fontSize: 16,
+        fontWeight: 'bold',
+    },
+    formActionButtonsRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 10,
+        marginTop: 16,
     },
     modalActions: {
         flexDirection: 'row',
+        flexWrap: 'wrap',
         justifyContent: 'flex-end',
-        gap: 12,
-        marginTop: 20,
-        paddingTop: 15,
+        gap: 10,
+        marginTop: 16,
+        paddingTop: 12,
         borderTopWidth: 1,
         borderTopColor: '#f1f5f9',
     },
     btnCancel: {
         backgroundColor: '#f1f5f9',
-        paddingVertical: 12,
-        paddingHorizontal: 24,
-        borderRadius: 12,
+        paddingVertical: 10,
+        paddingHorizontal: 18,
+        borderRadius: 10,
     },
     btnCancelText: {
         color: '#64748b',
-        fontWeight: 'normal',
+        fontWeight: '600',
+        fontSize: 13,
     },
     btnSave: {
         backgroundColor: '#059669',
-        paddingVertical: 12,
-        paddingHorizontal: 24,
-        borderRadius: 12,
+        paddingVertical: 10,
+        paddingHorizontal: 18,
+        borderRadius: 10,
     },
     btnSaveText: {
         color: 'white',
-        fontWeight: 'normal',
+        fontWeight: '600',
+        fontSize: 13,
     },
     
     /* Details Modal Styles */

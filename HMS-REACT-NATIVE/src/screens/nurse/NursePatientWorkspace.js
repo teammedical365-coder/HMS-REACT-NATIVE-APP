@@ -152,9 +152,15 @@ const NursePatientWorkspace = () => {
     const fetchAdmission = useCallback(async () => {
         try {
             setLoading(prev => ({ ...prev, admission: true }));
-            const res = await admissionAPI.getActiveAdmissions();
-            const list = res.admissions || res.data || [];
-            const adm = list.find(a => a._id === admissionId);
+            let adm = null;
+            try {
+                const singleRes = await admissionAPI.getAdmissionById(admissionId);
+                adm = singleRes?.admission || singleRes?.data || singleRes;
+            } catch (singleErr) {
+                const res = await admissionAPI.getActiveAdmissions();
+                const list = res.admissions || res.data || [];
+                adm = list.find(a => a._id === admissionId);
+            }
             if (adm) setAdmission(adm);
         } catch (err) {
             console.error('Error fetching admission:', err);

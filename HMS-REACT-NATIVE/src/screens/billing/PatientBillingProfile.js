@@ -7,15 +7,16 @@ import {
     TouchableOpacity,
     ScrollView,
     ActivityIndicator,
-    Dimensions,
     Image,
     Modal,
     Platform,
-    Linking
+    Linking,
+    Alert,
+    useWindowDimensions
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { billingAPI, admissionAPI, patientAPI, uploadAPI, hospitalAPI } from '../../utils/api';
+import { billingAPI, admissionAPI, patientAPI, uploadAPI, hospitalAPI, accountantAPI, refundAdminAPI, refundReceptionAPI } from '../../utils/api';
 import { useAuth } from '../../store/hooks';
 import { toast, confirmToast } from '../../utils/confirmToast';
 import * as DocumentPicker from 'expo-document-picker';
@@ -26,8 +27,6 @@ import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import DatePickerInput from '../../components/common/DatePickerInput';
 import DropdownSelect from '../../components/common/DropdownSelect';
 import PaymentSection from '../../components/PaymentSection';
-
-const { width } = Dimensions.get('window');
 
 // Number format helper (Exact Web: fmt)
 const fmt = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
@@ -378,6 +377,8 @@ const getTodayDateStr = () => {
 const PatientBillingProfile = () => {
     const navigation = useNavigation();
     const route = useRoute();
+    const { width } = useWindowDimensions();
+    const isMobile = width < 800;
     const { user: currentUser } = useAuth();
     const rawRole = (currentUser?.role || '').toLowerCase().replace(/[\s_-]/g, '');
     const isHospitalAdmin = ['hospitaladmin', 'centraladmin', 'superadmin', 'admin'].includes(rawRole) || rawRole.includes('admin');
@@ -476,6 +477,14 @@ const PatientBillingProfile = () => {
     const [suggestions, setSuggestions] = useState([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [upiOptions, setUpiOptions] = useState([]);
+
+    // Refund action states & handlers for Hospital Admin, Accountant & Reception
+    const [showPatientRefundModal, setShowPatientRefundModal] = useState(false);
+    const [newRefundForm, setNewRefundForm] = useState({ refundAmount: '', refundMode: 'CASH', reason: '', originalPaymentId: '' });
+    const [submittingRefund, setSubmittingRefund] = useState(false);
+    const [refundActionLoading, setRefundActionLoading] = useState(false);
+    const [patientRefundData, setPatientRefundData] = useState(null);
+    const [loadingRefundData, setLoadingRefundData] = useState(false);
 
     const activeFilterCount = useMemo(() => {
         let count = 0;
@@ -917,6 +926,194 @@ const PatientBillingProfile = () => {
         setHistorySort('newest');
         fetchHospitalHistory();
         toast.success('Filters reset');
+    };
+
+    // ─── Refund Handlers (1:1 Web Parity) ─────────────────────────────────────────
+    const openCreateRefundModal = async () => {
+        if (!patient?._id) return toast.error('No patient selected');
+        setShowPatientRefundModal(true);
+        setLoadingRefundData(true);
+        try {
+            const res = await accountantAPI.getPatientRefundData(patient._id);
+            if (res.success) {
+                setPatientRefundData(res.data);
+                if (res.data.payments?.length > 0) {
+                    const firstPayment = res.data.payments[0];
+                    const mode = (firstPayment.paymentMode || 'Cash').toUpperCase();
+                    const targetMode = mode.includes('UPI') ? 'UPI' : (mode.includes('BANK') || mode.includes('CARD') || mode.includes('ONLINE')) ? 'BANK_TRANSFER' : 'CASH';
+                    setNewRefundForm({
+                        originalPaymentId: firstPayment._id,
+                        refundAmount: String(Math.min(firstPayment.amount, res.data.refundableAmount)),
+                        refundMode: targetMode,
+                        reason: ''
+                    });
+                } else {
+                    setNewRefundForm({
+                        originalPaymentId: '',
+                        refundAmount: res.data.refundableAmount > 0 ? String(res.data.refundableAmount) : '',
+                        refundMode: 'CASH',
+                        reason: ''
+                    });
+                }
+            }
+        } catch (e) {
+            console.error('Failed to load patient refund data:', e);
+            toast.error('Failed to calculate patient refundable balance');
+        } finally {
+            setLoadingRefundData(false);
+        }
+    };
+
+    const handleCreatePatientRefund = async () => {
+        if (!patient?._id) return toast.error('No patient selected');
+        const amt = parseFloat(newRefundForm.refundAmount);
+        if (isNaN(amt) || amt <= 0) return toast.error('Please enter a valid refund amount');
+        if (patientRefundData && amt > patientRefundData.refundableAmount) {
+            return toast.error(`Refund amount cannot exceed ₹${patientRefundData.refundableAmount}`);
+        }
+
+        try {
+            setSubmittingRefund(true);
+            const res = await accountantAPI.createRefundRequest({
+                patientId: patient._id,
+                refundAmount: amt,
+                refundMode: newRefundForm.refundMode,
+                reason: newRefundForm.reason,
+                originalPaymentId: newRefundForm.originalPaymentId || undefined
+            });
+            if (res.success) {
+                toast.success('Refund request submitted! Ready for approval.');
+                setShowPatientRefundModal(false);
+                setNewRefundForm({ refundAmount: '', refundMode: 'CASH', reason: '', originalPaymentId: '' });
+                loadPatientBilling(patient.patientId || patient.mrn || patient._id);
+            }
+        } catch (err) {
+            console.error('Create refund error:', err);
+            toast.error(err.response?.data?.message || 'Failed to create refund request');
+        } finally {
+            setSubmittingRefund(false);
+        }
+    };
+
+    const handleApproveRefund = (refundId) => {
+        Alert.alert(
+            'Approve Refund',
+            'Are you sure you want to approve this refund request?',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Approve',
+                    onPress: async () => {
+                        try {
+                            setRefundActionLoading(true);
+                            const res = await refundAdminAPI.approveRefund(refundId);
+                            if (res.success) {
+                                toast.success('Refund request approved successfully!');
+                                if (patient) {
+                                    loadPatientBilling(patient.patientId || patient.mrn || patient._id);
+                                }
+                            }
+                        } catch (err) {
+                            console.error('Approve refund error:', err);
+                            toast.error(err.response?.data?.message || 'Failed to approve refund');
+                        } finally {
+                            setRefundActionLoading(false);
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
+    const handleRejectRefund = (refundId) => {
+        Alert.alert(
+            'Reject Refund',
+            'Are you sure you want to reject this refund request?',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Reject',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            setRefundActionLoading(true);
+                            const res = await refundAdminAPI.rejectRefund(refundId, 'Rejected from Patient Billing');
+                            if (res.success) {
+                                toast.success('Refund request rejected');
+                                if (patient) {
+                                    loadPatientBilling(patient.patientId || patient.mrn || patient._id);
+                                }
+                            }
+                        } catch (err) {
+                            console.error('Reject refund error:', err);
+                            toast.error(err.response?.data?.message || 'Failed to reject refund');
+                        } finally {
+                            setRefundActionLoading(false);
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
+    const handleHandoverCashRefund = (refundId, amount) => {
+        Alert.alert(
+            'Handover Cash',
+            `Confirm cash handover of ${fmt(amount)} to patient?`,
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Confirm Handover',
+                    onPress: async () => {
+                        try {
+                            setRefundActionLoading(true);
+                            const res = await refundReceptionAPI.handOverCash(refundId);
+                            if (res.success) {
+                                toast.success(`Cash refund of ${fmt(amount)} marked as handed over!`);
+                                if (patient) {
+                                    loadPatientBilling(patient.patientId || patient.mrn || patient._id);
+                                }
+                            }
+                        } catch (err) {
+                            console.error('Handover cash error:', err);
+                            toast.error(err.response?.data?.message || 'Failed to complete cash handover');
+                        } finally {
+                            setRefundActionLoading(false);
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
+    const handleProcessOnlineRefund = (refundId, amount) => {
+        Alert.alert(
+            'Process Online Refund',
+            `Mark online refund of ${fmt(amount)} as processed?`,
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Confirm Processed',
+                    onPress: async () => {
+                        try {
+                            setRefundActionLoading(true);
+                            const res = await accountantAPI.processRefund(refundId, { refundTransactionId: 'ONLINE-' + Date.now() });
+                            if (res.success) {
+                                toast.success('Refund marked as completed!');
+                                if (patient) {
+                                    loadPatientBilling(patient.patientId || patient.mrn || patient._id);
+                                }
+                            }
+                        } catch (err) {
+                            console.error('Process online refund error:', err);
+                            toast.error(err.response?.data?.message || 'Failed to process refund');
+                        } finally {
+                            setRefundActionLoading(false);
+                        }
+                    }
+                }
+            ]
+        );
     };
 
     // Dedicated Native Print Handler (Opens Android native print spooler / Web print)
@@ -2878,6 +3075,129 @@ const PatientBillingProfile = () => {
                                     </ScrollView>
                                 )}
                             </View>
+
+                            {/* Refund Requests Section (1:1 Web line 2800) */}
+                            <View style={[styles.billingSection, { marginTop: 20 }]}>
+                                <View style={[styles.sectionHeader, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                        <Text style={styles.sectionHeaderTitle}>Refund Requests</Text>
+                                        {billing?.refundRequests?.some(r => (r.status || '').toUpperCase().includes('PENDING')) && (
+                                            <View style={{ backgroundColor: '#fef3c7', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 1, borderColor: '#fde68a' }}>
+                                                <Text style={{ fontSize: 11, color: '#b45309', fontWeight: '800' }}>⚠️ Pending Approval</Text>
+                                            </View>
+                                        )}
+                                    </View>
+                                    <TouchableOpacity
+                                        style={{ backgroundColor: '#dc2626', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                                        onPress={openCreateRefundModal}
+                                    >
+                                        <Feather name="plus" size={14} color="#fff" />
+                                        <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>+ Request Refund</Text>
+                                    </TouchableOpacity>
+                                </View>
+
+                                {(!billing?.refundRequests || billing.refundRequests.length === 0) ? (
+                                    <View style={styles.noBillsPrompt}>
+                                        <Text style={{ color: '#64748b', fontSize: 13, textAlign: 'center', marginBottom: 8 }}>
+                                            No refund records found for this patient.
+                                        </Text>
+                                        <TouchableOpacity
+                                            style={{ backgroundColor: '#059669', paddingHorizontal: 14, paddingVertical: 6, borderRadius: 6, alignSelf: 'center' }}
+                                            onPress={openCreateRefundModal}
+                                        >
+                                            <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600' }}>Initiate Refund For This Patient</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                ) : (
+                                    <ScrollView horizontal showsHorizontalScrollIndicator={true}>
+                                        <View style={{ minWidth: 700 }}>
+                                            <View style={styles.billingTableHeader}>
+                                                <Text style={[styles.bth, { width: 120 }]}>Refund ID</Text>
+                                                <Text style={[styles.bth, { width: 100 }]}>Date</Text>
+                                                <Text style={[styles.bth, { width: 90, textAlign: 'right' }]}>Amount</Text>
+                                                <Text style={[styles.bth, { width: 80 }]}>Mode</Text>
+                                                <Text style={[styles.bth, { width: 110, textAlign: 'center' }]}>Status</Text>
+                                                <Text style={[styles.bth, { width: 200 }]}>Actions</Text>
+                                            </View>
+                                            {billing.refundRequests.map(ref => {
+                                                const st = (ref.status || 'PENDING_APPROVAL').toUpperCase();
+                                                const isPending = st === 'PENDING_APPROVAL' || st === 'REQUESTED';
+                                                const isApproved = st === 'APPROVED';
+                                                const isRefunded = st === 'REFUNDED' || st === 'COMPLETED';
+                                                const isRejected = st === 'REJECTED';
+                                                const stColor = isRefunded ? '#16a34a' : isApproved ? '#0284c7' : isPending ? '#d97706' : '#dc2626';
+                                                const stBg = isRefunded ? '#dcfce7' : isApproved ? '#e0f2fe' : isPending ? '#fef3c7' : '#fee2e2';
+
+                                                return (
+                                                    <View key={ref._id} style={styles.billingTableRow}>
+                                                        <Text style={{ width: 120, fontSize: 11, fontFamily: 'monospace', color: '#0f172a' }}>
+                                                            {ref.refundNumber || ref._id?.slice(-8) || '—'}
+                                                        </Text>
+                                                        <Text style={{ width: 100, fontSize: 12, color: '#334155' }}>
+                                                            {new Date(ref.createdAt || Date.now()).toLocaleDateString('en-IN')}
+                                                        </Text>
+                                                        <Text style={{ width: 90, fontSize: 12.5, fontWeight: '700', color: '#dc2626', textAlign: 'right' }}>
+                                                            {fmt(ref.refundAmount)}
+                                                        </Text>
+                                                        <Text style={{ width: 80, fontSize: 11, color: '#475569', textTransform: 'uppercase' }}>
+                                                            {ref.refundMode || 'CASH'}
+                                                        </Text>
+                                                        <View style={{ width: 110, alignItems: 'center' }}>
+                                                            <View style={{ backgroundColor: stBg, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                                                                <Text style={{ color: stColor, fontSize: 10, fontWeight: '700' }}>{st}</Text>
+                                                            </View>
+                                                        </View>
+                                                        <View style={{ width: 200, flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                                                            {isPending && isHospitalAdmin && (
+                                                                <>
+                                                                    <TouchableOpacity
+                                                                        style={{ backgroundColor: '#dcfce7', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}
+                                                                        onPress={() => handleApproveRefund(ref._id)}
+                                                                        disabled={refundActionLoading}
+                                                                    >
+                                                                        <Text style={{ color: '#16a34a', fontSize: 11, fontWeight: '700' }}>✓ Approve</Text>
+                                                                    </TouchableOpacity>
+                                                                    <TouchableOpacity
+                                                                        style={{ backgroundColor: '#fee2e2', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}
+                                                                        onPress={() => handleRejectRefund(ref._id)}
+                                                                        disabled={refundActionLoading}
+                                                                    >
+                                                                        <Text style={{ color: '#dc2626', fontSize: 11, fontWeight: '700' }}>✕ Reject</Text>
+                                                                    </TouchableOpacity>
+                                                                </>
+                                                            )}
+                                                            {isApproved && (ref.refundMode || '').toUpperCase() === 'CASH' && (
+                                                                <TouchableOpacity
+                                                                    style={{ backgroundColor: '#ecfdf5', borderWidth: 1, borderColor: '#10b981', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}
+                                                                    onPress={() => handleHandoverCashRefund(ref._id, ref.refundAmount)}
+                                                                    disabled={refundActionLoading}
+                                                                >
+                                                                    <Text style={{ color: '#059669', fontSize: 11, fontWeight: '700' }}>Handover Cash</Text>
+                                                                </TouchableOpacity>
+                                                            )}
+                                                            {isApproved && (ref.refundMode || '').toUpperCase() !== 'CASH' && (
+                                                                <TouchableOpacity
+                                                                    style={{ backgroundColor: '#eff6ff', borderWidth: 1, borderColor: '#3b82f6', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}
+                                                                    onPress={() => handleProcessOnlineRefund(ref._id, ref.refundAmount)}
+                                                                    disabled={refundActionLoading}
+                                                                >
+                                                                    <Text style={{ color: '#2563eb', fontSize: 11, fontWeight: '700' }}>Process UTR</Text>
+                                                                </TouchableOpacity>
+                                                            )}
+                                                            {isRefunded && (
+                                                                <Text style={{ fontSize: 11, color: '#16a34a', fontWeight: '600' }}>✓ Completed</Text>
+                                                            )}
+                                                            {isRejected && (
+                                                                <Text style={{ fontSize: 11, color: '#dc2626', fontWeight: '600' }}>Rejected</Text>
+                                                            )}
+                                                        </View>
+                                                    </View>
+                                                );
+                                            })}
+                                        </View>
+                                    </ScrollView>
+                                )}
+                            </View>
                         </View>
                     ) : !loading ? (
                         <View style={styles.billingEmptyPrompt}>
@@ -3627,6 +3947,204 @@ const PatientBillingProfile = () => {
                     </View>
                 </View>
             </Modal>
+
+            {/* Create Patient Refund Modal (1:1 Web line 3996) */}
+            <Modal
+                visible={showPatientRefundModal}
+                transparent={true}
+                animationType="fade"
+                onRequestClose={() => setShowPatientRefundModal(false)}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={[styles.modalContent, { maxWidth: 520, width: '92%', maxHeight: '90%' }]}>
+                        <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottomWidth: 1, borderColor: '#f1f5f9', paddingBottom: 12 }}>
+                                <Text style={{ fontSize: 17, fontWeight: '700', color: '#0f172a' }}>
+                                    💸 Create Refund Request
+                                </Text>
+                                <TouchableOpacity onPress={() => setShowPatientRefundModal(false)}>
+                                    <Feather name="x" size={20} color="#94a3b8" />
+                                </TouchableOpacity>
+                            </View>
+
+                            <View style={{ marginBottom: 14, backgroundColor: '#f8fafc', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0' }}>
+                                <Text style={{ fontWeight: '700', fontSize: 14, color: '#0f172a' }}>{patient?.name || 'Walk-in Patient'}</Text>
+                                <Text style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                                    MRN: {patient?.mrn || patient?.patientId || '—'} | Phone: {patient?.phone || '—'}
+                                </Text>
+                            </View>
+
+                            {loadingRefundData ? (
+                                <View style={{ padding: 30, alignItems: 'center' }}>
+                                    <ActivityIndicator size="small" color="#0f766e" />
+                                    <Text style={{ marginTop: 8, color: '#64748b', fontSize: 13 }}>Calculating refundable balance...</Text>
+                                </View>
+                            ) : (
+                                <>
+                                    {patientRefundData && (
+                                        <View style={{ backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#bbf7d0', borderRadius: 10, padding: 12, marginBottom: 16 }}>
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                                                <Text style={{ fontSize: 12, color: '#166534' }}>Total Collected From Patient:</Text>
+                                                <Text style={{ fontSize: 12, fontWeight: '700', color: '#166534' }}>{fmt(patientRefundData.totalPaid)}</Text>
+                                            </View>
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                                                <Text style={{ fontSize: 12, color: '#166534' }}>Already Refunded:</Text>
+                                                <Text style={{ fontSize: 12, color: '#166534' }}>{fmt(patientRefundData.alreadyRefunded)}</Text>
+                                            </View>
+                                            {patientRefundData.pendingRefundAmount > 0 && (
+                                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                                                    <Text style={{ fontSize: 12, color: '#d97706' }}>Pending Approval:</Text>
+                                                    <Text style={{ fontSize: 12, color: '#d97706' }}>{fmt(patientRefundData.pendingRefundAmount)}</Text>
+                                                </View>
+                                            )}
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderColor: '#86efac', paddingTop: 6, marginTop: 4 }}>
+                                                <Text style={{ fontSize: 13, fontWeight: '800', color: '#15803d' }}>Max Available Refundable:</Text>
+                                                <Text style={{ fontSize: 13, fontWeight: '800', color: '#15803d' }}>{fmt(patientRefundData.refundableAmount)}</Text>
+                                            </View>
+                                        </View>
+                                    )}
+
+                                    {patientRefundData?.refundableAmount <= 0 ? (
+                                        <View style={{ backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fecaca', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+                                            <Text style={{ color: '#991b1b', fontSize: 12.5 }}>
+                                                No refundable balance available for this patient. All payments have either been refunded or are currently pending approval.
+                                            </Text>
+                                        </View>
+                                    ) : (
+                                        <>
+                                            {/* Quick Payment Selector */}
+                                            {patientRefundData?.payments?.length > 0 && (
+                                                <View style={{ marginBottom: 14 }}>
+                                                    <Text style={{ fontSize: 12, fontWeight: '600', color: '#475569', marginBottom: 6 }}>
+                                                        Select Payment to Refund (Optional):
+                                                    </Text>
+                                                    <View style={{ gap: 6 }}>
+                                                        {patientRefundData.payments.slice(0, 4).map(p => {
+                                                            const isSel = newRefundForm.originalPaymentId === p._id;
+                                                            const mode = (p.paymentMode || 'Cash').toUpperCase();
+                                                            const targetMode = mode.includes('UPI') ? 'UPI' : (mode.includes('BANK') || mode.includes('CARD') || mode.includes('ONLINE')) ? 'BANK_TRANSFER' : 'CASH';
+                                                            return (
+                                                                <TouchableOpacity
+                                                                    key={p._id}
+                                                                    onPress={() => {
+                                                                        setNewRefundForm(f => ({
+                                                                            ...f,
+                                                                            originalPaymentId: isSel ? '' : p._id,
+                                                                            refundAmount: isSel ? '' : String(Math.min(p.amount, patientRefundData.refundableAmount)),
+                                                                            refundMode: isSel ? f.refundMode : targetMode
+                                                                        }));
+                                                                    }}
+                                                                    style={{
+                                                                        flexDirection: 'row',
+                                                                        justifyContent: 'space-between',
+                                                                        alignItems: 'center',
+                                                                        padding: 8,
+                                                                        borderRadius: 6,
+                                                                        borderWidth: isSel ? 2 : 1,
+                                                                        borderColor: isSel ? '#059669' : '#e2e8f0',
+                                                                        backgroundColor: isSel ? '#ecfdf5' : '#f8fafc'
+                                                                    }}
+                                                                >
+                                                                    <View>
+                                                                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#0f172a' }}>{fmt(p.amount)}</Text>
+                                                                        <Text style={{ fontSize: 10, color: '#64748b' }}>{p.paymentMode || 'Cash'} {p.transactionId ? `• #${p.transactionId}` : ''}</Text>
+                                                                    </View>
+                                                                    <Text style={{ fontSize: 11, fontWeight: isSel ? '700' : '500', color: isSel ? '#059669' : '#64748b' }}>
+                                                                        {isSel ? '✓ Selected' : 'Use'}
+                                                                    </Text>
+                                                                </TouchableOpacity>
+                                                            );
+                                                        })}
+                                                    </View>
+                                                </View>
+                                            )}
+
+                                            {/* Refund Amount Input */}
+                                            <View style={{ marginBottom: 12 }}>
+                                                <Text style={{ fontSize: 12, fontWeight: '600', color: '#334155', marginBottom: 4 }}>
+                                                    Refund Amount (₹) *
+                                                </Text>
+                                                <TextInput
+                                                    keyboardType="numeric"
+                                                    value={newRefundForm.refundAmount}
+                                                    onChangeText={val => setNewRefundForm(f => ({ ...f, refundAmount: val }))}
+                                                    placeholder={`Max ${fmt(patientRefundData?.refundableAmount || 0)}`}
+                                                    style={{ borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, padding: 8, fontSize: 13, color: '#0f172a', backgroundColor: '#fff' }}
+                                                />
+                                            </View>
+
+                                            {/* Refund Mode Selector */}
+                                            <View style={{ marginBottom: 12 }}>
+                                                <Text style={{ fontSize: 12, fontWeight: '600', color: '#334155', marginBottom: 6 }}>
+                                                    Refund Mode *
+                                                </Text>
+                                                <View style={{ flexDirection: 'row', gap: 8 }}>
+                                                    {[
+                                                        { id: 'CASH', label: '💵 Cash' },
+                                                        { id: 'UPI', label: '📱 UPI' },
+                                                        { id: 'BANK_TRANSFER', label: '🏦 Bank' }
+                                                    ].map(m => (
+                                                        <TouchableOpacity
+                                                            key={m.id}
+                                                            onPress={() => setNewRefundForm(f => ({ ...f, refundMode: m.id }))}
+                                                            style={{
+                                                                flex: 1,
+                                                                paddingVertical: 8,
+                                                                alignItems: 'center',
+                                                                borderRadius: 8,
+                                                                borderWidth: 1,
+                                                                borderColor: newRefundForm.refundMode === m.id ? '#dc2626' : '#cbd5e1',
+                                                                backgroundColor: newRefundForm.refundMode === m.id ? '#fee2e2' : '#fff'
+                                                            }}
+                                                        >
+                                                            <Text style={{ fontSize: 12, fontWeight: '700', color: newRefundForm.refundMode === m.id ? '#dc2626' : '#475569' }}>
+                                                                {m.label}
+                                                            </Text>
+                                                        </TouchableOpacity>
+                                                    ))}
+                                                </View>
+                                            </View>
+
+                                            {/* Reason Input */}
+                                            <View style={{ marginBottom: 16 }}>
+                                                <Text style={{ fontSize: 12, fontWeight: '600', color: '#334155', marginBottom: 4 }}>
+                                                    Reason for Refund
+                                                </Text>
+                                                <TextInput
+                                                    multiline
+                                                    numberOfLines={2}
+                                                    value={newRefundForm.reason}
+                                                    onChangeText={val => setNewRefundForm(f => ({ ...f, reason: val }))}
+                                                    placeholder="Reason for refund (e.g. consultation cancelled, billing adjustment)..."
+                                                    style={{ borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, padding: 8, fontSize: 12.5, color: '#0f172a', backgroundColor: '#fff', minHeight: 60, textAlignVertical: 'top' }}
+                                                />
+                                            </View>
+
+                                            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
+                                                <TouchableOpacity
+                                                    onPress={() => setShowPatientRefundModal(false)}
+                                                    style={{ paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: '#cbd5e1', backgroundColor: '#fff' }}
+                                                >
+                                                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#475569' }}>Cancel</Text>
+                                                </TouchableOpacity>
+                                                <TouchableOpacity
+                                                    onPress={handleCreatePatientRefund}
+                                                    disabled={submittingRefund}
+                                                    style={{ paddingVertical: 8, paddingHorizontal: 18, borderRadius: 8, backgroundColor: '#dc2626' }}
+                                                >
+                                                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#fff' }}>
+                                                        {submittingRefund ? 'Submitting...' : 'Submit Refund Request'}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            </View>
+                                        </>
+                                    )}
+                                </>
+                            )}
+                        </ScrollView>
+                    </View>
+                </View>
+            </Modal>
         </ScrollView>
     );
 };
@@ -3638,7 +4156,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#f8fafc',
     },
     scrollContent: {
-        padding: 20,
+        padding: 14,
         maxWidth: 1440,
         alignSelf: 'center',
         width: '100%',
@@ -3655,12 +4173,14 @@ const styles = StyleSheet.create({
     billingHeader: {
         backgroundColor: '#0f766e',
         paddingVertical: 12,
-        paddingHorizontal: 18,
+        paddingHorizontal: 16,
         borderRadius: 12,
         flexDirection: 'row',
+        flexWrap: 'wrap',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 20,
+        gap: 10,
+        marginBottom: 16,
         shadowColor: '#14b8a6',
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.25,
@@ -3838,7 +4358,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         gap: 16,
         flex: 1,
-        minWidth: 280,
+        minWidth: 160,
     },
     haPatBannerAvatar: {
         width: 52,
@@ -3933,12 +4453,13 @@ const styles = StyleSheet.create({
     },
     haPatMetricPill: {
         paddingVertical: 8,
-        paddingHorizontal: 18,
+        paddingHorizontal: 14,
         borderRadius: 12,
         backgroundColor: '#ffffff',
         borderWidth: 1.5,
         borderColor: '#e2e8f0',
-        minWidth: 135,
+        minWidth: 110,
+        flex: 1,
     },
     haPatMetricPillTotal: {
         borderColor: '#bae6fd',

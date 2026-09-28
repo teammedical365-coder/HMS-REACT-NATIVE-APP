@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
     View, Text, TextInput, TouchableOpacity, ScrollView,
-    StyleSheet, ActivityIndicator, Alert, Modal, Dimensions, Platform
+    StyleSheet, ActivityIndicator, Alert, Modal, Dimensions, Platform, useWindowDimensions
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Feather, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
@@ -157,6 +157,9 @@ const QUESTION_TYPES = [
 ];
 
 const HospitalAdminQuestionLibrary = () => {
+    const { width: windowWidth } = useWindowDimensions();
+    const isMobile = windowWidth < 768;
+    const isSmallMobile = windowWidth <= 430;
     // ─── State ────────────────────────────────────────────────────────────────
     const [libraryData, setLibraryData] = useState(defaultQuestionLibraryData);
     const [currentLang, setCurrentLang] = useState('en');
@@ -841,77 +844,165 @@ const HospitalAdminQuestionLibrary = () => {
 
             {/* ─── 1. HEADER SECTION ──────────────────────────────────────────── */}
             <View style={styles.headerSection}>
-                <View style={styles.headerTitleColumn}>
+                <View style={[styles.headerTitleColumn, isMobile && { minWidth: '100%', marginBottom: 4 }]}>
                     <Text style={styles.headerTitle}>{getUIText('pageTitle', currentLang)}</Text>
                     <Text style={styles.headerSubtitle}>{getUIText('pageSubtitle', currentLang)}</Text>
                 </View>
 
-                <View style={styles.headerRightColumn}>
+                <View style={[styles.headerRightColumn, isMobile && { width: '100%', alignItems: 'stretch', gap: 10 }]}>
                     {/* Top Row: Language Selector */}
-                    <TouchableOpacity
-                        style={styles.langSelectorBtn}
-                        onPress={() => setShowLangModal(true)}
-                        activeOpacity={0.8}
-                    >
-                        <Feather name="globe" size={14} color="#0d9488" />
-                        <Text style={styles.langSelectorFlag}>{activeLanguage.flag}</Text>
-                        <Text style={styles.langSelectorText}>{activeLanguage.code.toUpperCase()}</Text>
-                        <Feather name="chevron-down" size={12} color="#64748b" />
-                    </TouchableOpacity>
-
-                    {/* Bottom Row: Actions */}
-                    <View style={styles.headerActionsRow}>
-                        {/* Refresh */}
+                    <View style={{ flexDirection: 'row', justifyContent: 'flex-end', width: '100%' }}>
                         <TouchableOpacity
-                            style={styles.btnActionRefresh}
-                            onPress={handleRefresh}
-                            disabled={refreshing}
+                            style={styles.langSelectorBtn}
+                            onPress={() => setShowLangModal(true)}
+                            activeOpacity={0.8}
                         >
-                            {refreshing ? (
-                                <ActivityIndicator size="small" color="#2563eb" />
-                            ) : (
-                                <Feather name="rotate-cw" size={14} color="#2563eb" />
-                            )}
-                            <Text style={styles.btnActionRefreshText}>
-                                {refreshing ? getUIText('refreshing', currentLang) : getUIText('refresh', currentLang)}
-                            </Text>
-                        </TouchableOpacity>
-
-                        {/* Reset / Standard 12 Departments */}
-                        <TouchableOpacity
-                            style={styles.btnActionReset}
-                            onPress={handleResetToStandard}
-                            disabled={saving}
-                        >
-                            <Feather name="layers" size={14} color="#0d9488" />
-                            <Text style={styles.btnActionResetText}>{getUIText('resetDepts', currentLang)}</Text>
-                        </TouchableOpacity>
-
-                        {/* Preview */}
-                        <TouchableOpacity
-                            style={styles.btnActionPreview}
-                            onPress={() => setShowPreview(true)}
-                        >
-                            <Feather name="eye" size={14} color="#334155" />
-                            <Text style={styles.btnActionPreviewText}>{getUIText('preview', currentLang)}</Text>
-                        </TouchableOpacity>
-
-                        {/* Save & Deploy */}
-                        <TouchableOpacity
-                            style={[styles.btnActionSave, saving && { opacity: 0.6 }]}
-                            onPress={handleSave}
-                            disabled={saving}
-                        >
-                            {saving ? (
-                                <ActivityIndicator size="small" color="#ffffff" />
-                            ) : (
-                                <Feather name="cloud" size={14} color="#ffffff" />
-                            )}
-                            <Text style={styles.btnActionSaveText}>
-                                {saving ? getUIText('syncing', currentLang) : getUIText('saveDeploy', currentLang)}
-                            </Text>
+                            <Feather name="globe" size={14} color="#0d9488" />
+                            <Text style={styles.langSelectorFlag}>{activeLanguage.flag}</Text>
+                            <Text style={styles.langSelectorText}>{activeLanguage.code.toUpperCase()}</Text>
+                            <Feather name="chevron-down" size={12} color="#64748b" />
                         </TouchableOpacity>
                     </View>
+
+                    {/* Bottom Row: Actions */}
+                    {isSmallMobile ? (
+                        <View style={{ width: '100%', gap: 8 }}>
+                            {windowWidth < 360 ? (
+                                <View style={{ width: '100%', gap: 8 }}>
+                                    <TouchableOpacity
+                                        style={[styles.btnActionRefresh, { width: '100%', justifyContent: 'center' }]}
+                                        onPress={handleRefresh}
+                                        disabled={refreshing}
+                                    >
+                                        {refreshing ? <ActivityIndicator size="small" color="#2563eb" /> : <Feather name="rotate-cw" size={14} color="#2563eb" />}
+                                        <Text style={styles.btnActionRefreshText}>{refreshing ? getUIText('refreshing', currentLang) : getUIText('refresh', currentLang)}</Text>
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                        style={[styles.btnActionReset, { width: '100%', justifyContent: 'center' }]}
+                                        onPress={handleResetToStandard}
+                                        disabled={saving}
+                                    >
+                                        <Feather name="layers" size={14} color="#0d9488" />
+                                        <Text style={styles.btnActionResetText}>{getUIText('resetDepts', currentLang)}</Text>
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                        style={[styles.btnActionPreview, { width: '100%', justifyContent: 'center' }]}
+                                        onPress={() => setShowPreview(true)}
+                                    >
+                                        <Feather name="eye" size={14} color="#334155" />
+                                        <Text style={styles.btnActionPreviewText}>{getUIText('preview', currentLang)}</Text>
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                        style={[styles.btnActionSave, { width: '100%', justifyContent: 'center' }, saving && { opacity: 0.6 }]}
+                                        onPress={handleSave}
+                                        disabled={saving}
+                                    >
+                                        {saving ? <ActivityIndicator size="small" color="#ffffff" /> : <Feather name="cloud" size={14} color="#ffffff" />}
+                                        <Text style={styles.btnActionSaveText}>{saving ? getUIText('syncing', currentLang) : getUIText('saveDeploy', currentLang)}</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            ) : (
+                                <View style={{ width: '100%', gap: 8 }}>
+                                    {/* Row 1: Refresh + Reset 12 Depts */}
+                                    <View style={{ flexDirection: 'row', gap: 8, width: '100%' }}>
+                                        <TouchableOpacity
+                                            style={[styles.btnActionRefresh, { flex: 1, justifyContent: 'center' }]}
+                                            onPress={handleRefresh}
+                                            disabled={refreshing}
+                                        >
+                                            {refreshing ? <ActivityIndicator size="small" color="#2563eb" /> : <Feather name="rotate-cw" size={14} color="#2563eb" />}
+                                            <Text style={styles.btnActionRefreshText}>{refreshing ? getUIText('refreshing', currentLang) : getUIText('refresh', currentLang)}</Text>
+                                        </TouchableOpacity>
+
+                                        <TouchableOpacity
+                                            style={[styles.btnActionReset, { flex: 1.25, justifyContent: 'center' }]}
+                                            onPress={handleResetToStandard}
+                                            disabled={saving}
+                                        >
+                                            <Feather name="layers" size={14} color="#0d9488" />
+                                            <Text style={styles.btnActionResetText} numberOfLines={1}>{getUIText('resetDepts', currentLang)}</Text>
+                                        </TouchableOpacity>
+                                    </View>
+
+                                    {/* Row 2: Preview + Save & Deploy */}
+                                    <View style={{ flexDirection: 'row', gap: 8, width: '100%' }}>
+                                        <TouchableOpacity
+                                            style={[styles.btnActionPreview, { flex: 1, justifyContent: 'center' }]}
+                                            onPress={() => setShowPreview(true)}
+                                        >
+                                            <Feather name="eye" size={14} color="#334155" />
+                                            <Text style={styles.btnActionPreviewText}>{getUIText('preview', currentLang)}</Text>
+                                        </TouchableOpacity>
+
+                                        <TouchableOpacity
+                                            style={[styles.btnActionSave, { flex: 1.35, justifyContent: 'center' }, saving && { opacity: 0.6 }]}
+                                            onPress={handleSave}
+                                            disabled={saving}
+                                        >
+                                            {saving ? <ActivityIndicator size="small" color="#ffffff" /> : <Feather name="cloud" size={14} color="#ffffff" />}
+                                            <Text style={styles.btnActionSaveText} numberOfLines={1}>{saving ? getUIText('syncing', currentLang) : getUIText('saveDeploy', currentLang)}</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                            )}
+                        </View>
+                    ) : (
+                        <View style={[styles.headerActionsRow, isMobile && { width: '100%', flexWrap: 'wrap' }]}>
+                            {/* Refresh */}
+                            <TouchableOpacity
+                                style={styles.btnActionRefresh}
+                                onPress={handleRefresh}
+                                disabled={refreshing}
+                            >
+                                {refreshing ? (
+                                    <ActivityIndicator size="small" color="#2563eb" />
+                                ) : (
+                                    <Feather name="rotate-cw" size={14} color="#2563eb" />
+                                )}
+                                <Text style={styles.btnActionRefreshText}>
+                                    {refreshing ? getUIText('refreshing', currentLang) : getUIText('refresh', currentLang)}
+                                </Text>
+                            </TouchableOpacity>
+
+                            {/* Reset / Standard 12 Departments */}
+                            <TouchableOpacity
+                                style={styles.btnActionReset}
+                                onPress={handleResetToStandard}
+                                disabled={saving}
+                            >
+                                <Feather name="layers" size={14} color="#0d9488" />
+                                <Text style={styles.btnActionResetText}>{getUIText('resetDepts', currentLang)}</Text>
+                            </TouchableOpacity>
+
+                            {/* Preview */}
+                            <TouchableOpacity
+                                style={styles.btnActionPreview}
+                                onPress={() => setShowPreview(true)}
+                            >
+                                <Feather name="eye" size={14} color="#334155" />
+                                <Text style={styles.btnActionPreviewText}>{getUIText('preview', currentLang)}</Text>
+                            </TouchableOpacity>
+
+                            {/* Save & Deploy */}
+                            <TouchableOpacity
+                                style={[styles.btnActionSave, saving && { opacity: 0.6 }]}
+                                onPress={handleSave}
+                                disabled={saving}
+                            >
+                                {saving ? (
+                                    <ActivityIndicator size="small" color="#ffffff" />
+                                ) : (
+                                    <Feather name="cloud" size={14} color="#ffffff" />
+                                )}
+                                <Text style={styles.btnActionSaveText}>
+                                    {saving ? getUIText('syncing', currentLang) : getUIText('saveDeploy', currentLang)}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    )}
                 </View>
             </View>
 
@@ -985,7 +1076,7 @@ const HospitalAdminQuestionLibrary = () => {
             {/* ─── 3. WORKSPACE (Category Sidebar + Question Stream) ─────────── */}
             <View style={styles.workspaceWrapper}>
                 {/* Left Category Column */}
-                <View style={styles.categoryPanel}>
+                <View style={[styles.categoryPanel, isMobile && { width: '100%', minWidth: '100%' }]}>
                     {/* Add Category Box */}
                     <View style={styles.addCategoryBox}>
                         <TextInput
@@ -1058,7 +1149,7 @@ const HospitalAdminQuestionLibrary = () => {
                 </View>
 
                 {/* Right Canvas Column (Questions) */}
-                <View style={styles.questionsCanvas}>
+                <View style={[styles.questionsCanvas, isMobile && { width: '100%', minWidth: '100%' }]}>
                     {!activeCategory ? (
                         <View style={styles.canvasEmptyState}>
                             <MaterialCommunityIcons name="cube-outline" size={48} color="#cbd5e1" />
@@ -1788,8 +1879,8 @@ const styles = StyleSheet.create({
     // Left Category Panel
     categoryPanel: {
         flex: 1,
-        minWidth: 280,
-        maxWidth: Platform.OS === 'web' && Dimensions.get('window').width > 900 ? 340 : '100%',
+        minWidth: 260,
+        maxWidth: '100%',
         backgroundColor: '#ffffff',
         borderRadius: 14,
         padding: 14,
@@ -1890,7 +1981,7 @@ const styles = StyleSheet.create({
     // Right Canvas (Questions)
     questionsCanvas: {
         flex: 2,
-        minWidth: 320,
+        minWidth: 260,
         backgroundColor: '#ffffff',
         borderRadius: 14,
         padding: 16,
@@ -1983,7 +2074,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         gap: 8,
         flex: 1,
-        minWidth: 200
+        minWidth: 140
     },
     qIconCircle: {
         width: 24,
@@ -2015,6 +2106,7 @@ const styles = StyleSheet.create({
     },
     qActionButtons: {
         flexDirection: 'row',
+        flexWrap: 'wrap',
         alignItems: 'center',
         gap: 6
     },
@@ -2230,6 +2322,7 @@ const styles = StyleSheet.create({
     modalCard: {
         width: '100%',
         maxWidth: 540,
+        maxHeight: '88%',
         backgroundColor: '#ffffff',
         borderRadius: 16,
         padding: 20,

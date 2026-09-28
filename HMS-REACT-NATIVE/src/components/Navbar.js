@@ -6,7 +6,8 @@ import { logout } from '../store/slices/authSlice';
 import { fetchNotifications, markAsRead } from '../store/slices/notificationSlice';
 import { Ionicons } from '@expo/vector-icons';
 import { useBranding } from '../context/BrandingContext';
-import { isSafeImageUrl } from '../utils/resourceSecurity';
+
+const isSafeLogo = (u) => Boolean(u && typeof u === 'string' && u.trim() && !u.includes('gemini.google.com'));
 
 /* ---- Brand Logo ---- */
 const BrandLogo = () => (
@@ -52,7 +53,7 @@ const Navbar = () => {
             style={styles.navbarBrand} 
             onPress={() => navigation.navigate(isAuthenticated ? 'DashboardLayout' : 'Home')}
           >
-            {isSafeImageUrl(branding?.logoUrl) ? (
+            {isSafeLogo(branding?.logoUrl) ? (
               <Image source={{ uri: branding.logoUrl }} style={{ height: 36, width: 100, resizeMode: 'contain' }} />
             ) : (
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>

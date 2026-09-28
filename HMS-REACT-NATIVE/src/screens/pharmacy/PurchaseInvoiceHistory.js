@@ -1,16 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { 
     View, Text, TextInput, TouchableOpacity, ScrollView, 
-    StyleSheet, ActivityIndicator, Alert, Dimensions, Modal, Linking 
+    StyleSheet, ActivityIndicator, Alert, Dimensions, Modal, Linking, useWindowDimensions 
 } from 'react-native';
 import DropdownSelect from '../../components/common/DropdownSelect';
 import { pharmacyAPI, baseURL } from '../../utils/api';
 import { useAuth } from '../../store/hooks'; 
 import { useNavigation } from '@react-navigation/native';
 
-const { width } = Dimensions.get('window');
-
 const PurchaseInvoiceHistory = () => {
+    const { width } = useWindowDimensions();
+    const isDesktop = width > 768;
+    const isMobile = width < 600;
     const [invoices, setInvoices] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
@@ -115,13 +116,13 @@ const PurchaseInvoiceHistory = () => {
 
     return (
         <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
-            <View style={styles.header}>
+            <View style={[styles.header, { flexDirection: isDesktop ? 'row' : 'column', alignItems: isDesktop ? 'center' : 'stretch' }]}>
                 <View>
                     <Text style={styles.headerTitle}>Purchase Invoice History</Text>
                     <Text style={styles.headerSubtitle}>Track, manage, and review all your pharmacy incoming purchase invoices.</Text>
                 </View>
-                <View style={styles.headerActions}>
-                    <View style={styles.searchBox}>
+                <View style={[styles.headerActions, isMobile && { flexDirection: 'column', width: '100%' }]}>
+                    <View style={[styles.searchBox, isMobile && { width: '100%' }]}>
                         <Text style={styles.searchIcon}>🔍</Text>
                         <TextInput 
                             style={styles.searchInput}
@@ -130,7 +131,7 @@ const PurchaseInvoiceHistory = () => {
                             onChangeText={setSearchTerm}
                         />
                     </View>
-                    <View style={{ width: 150 }}>
+                    <View style={[{ width: 150 }, isMobile && { width: '100%' }]}>
                         <DropdownSelect 
                             options={[
                                 { label: 'Latest First', value: 'newest' },
@@ -361,9 +362,7 @@ const styles = StyleSheet.create({
         padding: 24,
     },
     header: {
-        flexDirection: width > 768 ? 'row' : 'column',
         justifyContent: 'space-between',
-        alignItems: width > 768 ? 'center' : 'stretch',
         marginBottom: 30,
         gap: 15,
     },

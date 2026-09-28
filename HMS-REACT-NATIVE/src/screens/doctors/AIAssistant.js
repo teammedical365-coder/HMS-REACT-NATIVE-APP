@@ -2,16 +2,13 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
     View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, 
     ActivityIndicator, Alert, Modal, KeyboardAvoidingView, Platform, 
-    Dimensions, Keyboard, Linking, Image 
+    useWindowDimensions, Keyboard, Linking, Image 
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { reportAPI, patientAPI, doctorAPI, aiWalletAPI } from '../../utils/api';
 import VoiceScribe from '../../components/voicescribe/VoiceScribe';
-
-const { width } = Dimensions.get('window');
-const isTablet = width >= 768;
 
 // ── AI Credits & Status Helpers matching Web ──
 const formatCredits = (amount) => {
@@ -60,6 +57,10 @@ const HighlightKeyword = ({ text, keyword }) => {
 const AIAssistant = () => {
     const route = useRoute();
     const navigation = useNavigation();
+    const { width: windowWidth } = useWindowDimensions();
+    const isTablet = windowWidth >= 768;
+    const isMobile = windowWidth < 600;
+    const isSmallMobile = windowWidth <= 430;
     
     // Extract route parameters matching Web location.state
     const { 
@@ -1019,7 +1020,7 @@ const AIAssistant = () => {
                         </View>
 
                         {/* ════════ RIGHT COLUMN: AI ASSISTANT CHAT PANEL matching Web 1:1 ════════ */}
-                        <View style={[styles.rightCol, isTablet && { flex: 1 }]}>
+                        <View style={[styles.rightCol, isTablet && { flex: 1, marginTop: 0 }]}>
                             <View style={styles.chatCard}>
                                 
                                 {/* Chat Header */}
@@ -1446,7 +1447,7 @@ const styles = StyleSheet.create({
         gap: 16,
     },
     rightCol: {
-        marginTop: isTablet ? 0 : 16,
+        marginTop: 16,
     },
 
     // ── Cards ──
@@ -2096,14 +2097,16 @@ const styles = StyleSheet.create({
     chatInputBox: {
         borderTopWidth: 1,
         borderTopColor: '#f1f5f9',
-        padding: 12,
+        padding: 10,
         backgroundColor: '#ffffff',
         gap: 6,
+        width: '100%',
     },
     chatInputRow: {
         flexDirection: 'row',
         alignItems: 'flex-end',
         gap: 8,
+        width: '100%',
     },
     chatInput: {
         flex: 1,
@@ -2124,6 +2127,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#2563eb',
         alignItems: 'center',
         justifyContent: 'center',
+        flexShrink: 0,
     },
     disclaimerText: {
         fontSize: 10,
@@ -2141,14 +2145,14 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(0,0,0,0.6)',
         justifyContent: 'center',
         alignItems: 'center',
-        padding: 20,
+        padding: 12,
     },
     previewModal: {
         backgroundColor: '#ffffff',
         borderRadius: 16,
-        width: '100%',
+        width: '94%',
         maxWidth: 600,
-        maxHeight: '80%',
+        maxHeight: '85%',
         overflow: 'hidden',
     },
     previewHeader: {
@@ -2196,16 +2200,19 @@ const styles = StyleSheet.create({
     walletModal: {
         backgroundColor: '#ffffff',
         borderRadius: 16,
-        width: '100%',
+        width: '94%',
         maxWidth: 500,
+        maxHeight: '85%',
         overflow: 'hidden',
     },
     walletKpiRow: {
         flexDirection: 'row',
+        flexWrap: 'wrap',
         gap: 10,
     },
     walletKpiCard: {
         flex: 1,
+        minWidth: 130,
         backgroundColor: '#f8fafc',
         borderRadius: 10,
         borderWidth: 1,

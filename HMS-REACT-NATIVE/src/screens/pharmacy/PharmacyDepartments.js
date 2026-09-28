@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Modal, Dimensions, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Modal, Dimensions, Alert, useWindowDimensions } from 'react-native';
 import { pharmacyAPI, billingAPI } from '../../utils/api';
 import { Picker } from '@react-native-picker/picker'; // Using Picker for dropdowns
 
-const { width } = Dimensions.get('window');
-
 const PharmacyDepartments = () => {
+    const { width } = useWindowDimensions();
+    const isLargeScreen = width > 768;
     const [departments, setDepartments] = useState([]);
     const [stocks, setStocks] = useState([]);
     const [inventory, setInventory] = useState([]);
@@ -138,7 +138,7 @@ const PharmacyDepartments = () => {
 
     return (
         <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
-            <View style={styles.headerActions}>
+            <View style={[styles.headerActions, { flexDirection: isLargeScreen ? 'row' : 'column', alignItems: isLargeScreen ? 'center' : 'flex-start' }]}>
                 <Text style={styles.headerTitle}>Departments & Stock Transfers</Text>
                 <View style={styles.actionButtons}>
                     <TouchableOpacity style={styles.btnPrimary} onPress={() => setShowDeptModal(true)}>
@@ -398,9 +398,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#f8f9fa',
     },
     headerActions: {
-        flexDirection: width > 768 ? 'row' : 'column',
         justifyContent: 'space-between',
-        alignItems: width > 768 ? 'center' : 'flex-start',
         marginBottom: 24,
         gap: 15,
     },
