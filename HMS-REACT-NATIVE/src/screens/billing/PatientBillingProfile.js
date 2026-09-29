@@ -417,6 +417,11 @@ const PatientBillingProfile = () => {
     const [inspectPatientModal, setInspectPatientModal] = useState({ open: false, loading: false, patient: null, billing: null });
     // View Proof Modal
     const [viewProofModal, setViewProofModal] = useState({ open: false, url: '', meta: null });
+
+    // Refund rejection reason modal (GAP 25 fix — matches Web: user enters reason)
+    const [refundRejectModal, setRefundRejectModal] = useState({ visible: false, refundId: null, reason: '' });
+    // Online refund UTR modal (GAP 26 fix — matches Web: accountant enters real UTR)
+    const [utrModal, setUtrModal] = useState({ visible: false, refundId: null, amount: 0, utr: '' });
     const setViewProofUrl = (url, meta = null) => {
         if (!url) {
             setViewProofModal({ open: false, url: '', meta: null });
@@ -1026,34 +1031,33 @@ const PatientBillingProfile = () => {
     };
 
     const handleRejectRefund = (refundId) => {
-        Alert.alert(
-            'Reject Refund',
-            'Are you sure you want to reject this refund request?',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Reject',
-                    style: 'destructive',
-                    onPress: async () => {
-                        try {
-                            setRefundActionLoading(true);
-                            const res = await refundAdminAPI.rejectRefund(refundId, 'Rejected from Patient Billing');
-                            if (res.success) {
-                                toast.success('Refund request rejected');
-                                if (patient) {
-                                    loadPatientBilling(patient.patientId || patient.mrn || patient._id);
-                                }
-                            }
-                        } catch (err) {
-                            console.error('Reject refund error:', err);
-                            toast.error(err.response?.data?.message || 'Failed to reject refund');
-                        } finally {
-                            setRefundActionLoading(false);
-                        }
-                    }
+        // Show modal to collect rejection reason — matches Web behavior (GAP 25)
+        setRefundRejectModal({ visible: true, refundId, reason: '' });
+    };
+
+    const submitRejectRefund = async () => {
+        const { refundId, reason } = refundRejectModal;
+        const trimmedReason = (reason || '').trim();
+        if (!trimmedReason) {
+            toast.error('Please enter a rejection reason.');
+            return;
+        }
+        try {
+            setRefundActionLoading(true);
+            setRefundRejectModal({ visible: false, refundId: null, reason: '' });
+            const res = await refundAdminAPI.rejectRefund(refundId, trimmedReason);
+            if (res.success) {
+                toast.success('Refund request rejected');
+                if (patient) {
+                    loadPatientBilling(patient.patientId || patient.mrn || patient._id);
                 }
-            ]
-        );
+            }
+        } catch (err) {
+            console.error('Reject refund error:', err);
+            toast.error(err.response?.data?.message || 'Failed to reject refund');
+        } finally {
+            setRefundActionLoading(false);
+        }
     };
 
     const handleHandoverCashRefund = (refundId, amount) => {
@@ -1087,33 +1091,33 @@ const PatientBillingProfile = () => {
     };
 
     const handleProcessOnlineRefund = (refundId, amount) => {
-        Alert.alert(
-            'Process Online Refund',
-            `Mark online refund of ${fmt(amount)} as processed?`,
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Confirm Processed',
-                    onPress: async () => {
-                        try {
-                            setRefundActionLoading(true);
-                            const res = await accountantAPI.processRefund(refundId, { refundTransactionId: 'ONLINE-' + Date.now() });
-                            if (res.success) {
-                                toast.success('Refund marked as completed!');
-                                if (patient) {
-                                    loadPatientBilling(patient.patientId || patient.mrn || patient._id);
-                                }
-                            }
-                        } catch (err) {
-                            console.error('Process online refund error:', err);
-                            toast.error(err.response?.data?.message || 'Failed to process refund');
-                        } finally {
-                            setRefundActionLoading(false);
-                        }
-                    }
+        // Show modal to collect real UTR — matches Web window.prompt behavior (GAP 26)
+        setUtrModal({ visible: true, refundId, amount, utr: '' });
+    };
+
+    const submitProcessOnlineRefund = async () => {
+        const { refundId, utr } = utrModal;
+        const trimmedUtr = (utr || '').trim();
+        if (!trimmedUtr) {
+            toast.error('Please enter the UTR / Transaction ID.');
+            return;
+        }
+        try {
+            setRefundActionLoading(true);
+            setUtrModal({ visible: false, refundId: null, amount: 0, utr: '' });
+            const res = await accountantAPI.processRefund(refundId, { refundTransactionId: trimmedUtr });
+            if (res.success) {
+                toast.success('Refund marked as completed!');
+                if (patient) {
+                    loadPatientBilling(patient.patientId || patient.mrn || patient._id);
                 }
-            ]
-        );
+            }
+        } catch (err) {
+            console.error('Process online refund error:', err);
+            toast.error(err.response?.data?.message || 'Failed to process refund');
+        } finally {
+            setRefundActionLoading(false);
+        }
     };
 
     // Dedicated Native Print Handler (Opens Android native print spooler / Web print)
@@ -4145,6 +4149,93 @@ const PatientBillingProfile = () => {
                     </View>
                 </View>
             </Modal>
+
+            {/* Refund Rejection Reason Modal (GAP 25 fix — matches Web user-input reason) */}
+            <Modal
+                transparent
+                visible={refundRejectModal.visible}
+                animationType="fade"
+                onRequestClose={() => setRefundRejectModal({ visible: false, refundId: null, reason: '' })}
+            >
+                <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+                    <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 24, width: '100%', maxWidth: 400 }}>
+                        <Text style={{ fontSize: 17, fontWeight: '700', color: '#0f172a', marginBottom: 6 }}>Reject Refund Request</Text>
+                        <Text style={{ fontSize: 13, color: '#64748b', marginBottom: 16 }}>Please provide a reason for rejection. This will be recorded and communicated to the patient.</Text>
+                        <Text style={{ fontSize: 13, fontWeight: '600', color: '#334155', marginBottom: 6 }}>Rejection Reason *</Text>
+                        <TextInput
+                            style={{
+                                borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8,
+                                padding: 10, fontSize: 14, color: '#0f172a',
+                                minHeight: 80, textAlignVertical: 'top', marginBottom: 16
+                            }}
+                            placeholder="e.g. Patient ineligible for refund, original payment not found..."
+                            value={refundRejectModal.reason}
+                            onChangeText={t => setRefundRejectModal(prev => ({ ...prev, reason: t }))}
+                            multiline
+                            numberOfLines={3}
+                        />
+                        <View style={{ flexDirection: 'row', gap: 12 }}>
+                            <TouchableOpacity
+                                style={{ flex: 1, paddingVertical: 11, borderRadius: 8, backgroundColor: '#f1f5f9', alignItems: 'center' }}
+                                onPress={() => setRefundRejectModal({ visible: false, refundId: null, reason: '' })}
+                            >
+                                <Text style={{ color: '#475569', fontWeight: '700' }}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={{ flex: 1, paddingVertical: 11, borderRadius: 8, backgroundColor: '#dc2626', alignItems: 'center', opacity: refundActionLoading ? 0.6 : 1 }}
+                                disabled={refundActionLoading}
+                                onPress={submitRejectRefund}
+                            >
+                                <Text style={{ color: '#fff', fontWeight: '700' }}>{refundActionLoading ? 'Rejecting…' : 'Reject Refund'}</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* UTR / Transaction ID Input Modal (GAP 26 fix — matches Web window.prompt for UTR) */}
+            <Modal
+                transparent
+                visible={utrModal.visible}
+                animationType="fade"
+                onRequestClose={() => setUtrModal({ visible: false, refundId: null, amount: 0, utr: '' })}
+            >
+                <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+                    <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 24, width: '100%', maxWidth: 400 }}>
+                        <Text style={{ fontSize: 17, fontWeight: '700', color: '#0f172a', marginBottom: 6 }}>Process Online Refund</Text>
+                        <Text style={{ fontSize: 13, color: '#64748b', marginBottom: 16 }}>
+                            Enter the UTR / Transaction ID for the {utrModal.amount ? fmt(utrModal.amount) : ''} refund. This will be stored permanently in the audit trail.
+                        </Text>
+                        <Text style={{ fontSize: 13, fontWeight: '600', color: '#334155', marginBottom: 6 }}>UTR / Transaction ID *</Text>
+                        <TextInput
+                            style={{
+                                borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8,
+                                padding: 10, fontSize: 14, color: '#0f172a', marginBottom: 16
+                            }}
+                            placeholder="Enter bank UTR or UPI reference number"
+                            value={utrModal.utr}
+                            onChangeText={t => setUtrModal(prev => ({ ...prev, utr: t }))}
+                            autoCapitalize="characters"
+                        />
+                        <View style={{ flexDirection: 'row', gap: 12 }}>
+                            <TouchableOpacity
+                                style={{ flex: 1, paddingVertical: 11, borderRadius: 8, backgroundColor: '#f1f5f9', alignItems: 'center' }}
+                                onPress={() => setUtrModal({ visible: false, refundId: null, amount: 0, utr: '' })}
+                            >
+                                <Text style={{ color: '#475569', fontWeight: '700' }}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={{ flex: 1, paddingVertical: 11, borderRadius: 8, backgroundColor: '#0f766e', alignItems: 'center', opacity: refundActionLoading ? 0.6 : 1 }}
+                                disabled={refundActionLoading}
+                                onPress={submitProcessOnlineRefund}
+                            >
+                                <Text style={{ color: '#fff', fontWeight: '700' }}>{refundActionLoading ? 'Processing…' : 'Mark Processed'}</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
         </ScrollView>
     );
 };
