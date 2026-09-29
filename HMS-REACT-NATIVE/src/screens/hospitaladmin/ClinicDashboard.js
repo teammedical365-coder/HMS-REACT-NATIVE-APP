@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, Modal, Dimensions, Alert, Image, ActivityIndicator, Platform, Linking } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, Modal, Dimensions, Alert, Image, ActivityIndicator, Platform, Linking, FlatList } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { Ionicons } from '@expo/vector-icons';
 import { clinicAPI, uploadAPI, medicineAPI, baseURL } from '../../utils/api';
@@ -2440,7 +2440,7 @@ const DoctorMode = ({ setPendingDownload }) => {
 
             if (r.success) {
                 flash('success', isEditing ? 'Consultation updated successfully.' : 'Consultation saved. Prescription generated.');
-                printPrescriptionSlip(consulting, rx, vitalsData);
+                printPrescriptionSlip(consulting, rx, vitals);
                 setConsulting(null);
                 loadToday();
             } else flash('error', r.message);
@@ -3296,7 +3296,12 @@ const TreatmentPlanMode = () => {
                     <View style={{ flexDirection: 'row', gap: 12 }}>
                         <View style={{ flex: 1 }}>
                             <Text style={styles.label}>Start Date *</Text>
-                            <MobileDatePicker style={styles.input} value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} />
+                            <DatePickerInput
+                                value={form.startDate}
+                                onChange={d => setForm(f => ({ ...f, startDate: d }))}
+                                placeholder="YYYY-MM-DD"
+                                title="Start Date"
+                            />
                         </View>
                         <View style={{ flex: 1 }}>
                             <Text style={styles.label}>Total Duration (days)</Text>
