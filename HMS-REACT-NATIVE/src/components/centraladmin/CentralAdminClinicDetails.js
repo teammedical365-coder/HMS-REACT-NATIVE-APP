@@ -17,7 +17,188 @@ import {
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path, Defs, LinearGradient as SvgLinearGradient, Stop, Circle, Rect, G } from 'react-native-svg';
-import { simpleClinicAPI } from '../../utils/api';
+import { simpleClinicAPI, rnBuildAPI } from '../../utils/api';
+
+function WhiteLabelBuilder({ hospital }) {
+    const hospitalId = hospital?._id || hospital?.id;
+    const initialStatus = hospital?.appConfig?.rnBuildStatus || 'NOT_BUILT';
+    const [status, setStatus] = useState(initialStatus);
+    const [apkUrl, setApkUrl] = useState(initialStatus === 'COMPLETED' ? (hospital?.appConfig?.rnApkUrl || '') : '');
+    const [aabUrl, setAabUrl] = useState(initialStatus === 'COMPLETED' ? (hospital?.appConfig?.rnAabUrl || '') : '');
+    const [buildError, setBuildError] = useState(hospital?.appConfig?.rnBuildError || '');
+    const [isTriggering, setIsTriggering] = useState(false);
+
+    useEffect(() => {
+        if (hospital?.appConfig) {
+            const currentStatus = hospital.appConfig.rnBuildStatus || 'NOT_BUILT';
+            setStatus(currentStatus);
+            setApkUrl(currentStatus === 'COMPLETED' ? (hospital.appConfig.rnApkUrl || '') : '');
+            setAabUrl(currentStatus === 'COMPLETED' ? (hospital.appConfig.rnAabUrl || '') : '');
+            setBuildError(hospital.appConfig.rnBuildError || '');
+        }
+    }, [hospital?._id, hospital?.appConfig?.rnBuildStatus, hospital?.appConfig?.rnBuildError]);
+
+    useEffect(() => {
+        let interval;
+        if ((status === 'BUILDING' || status === 'PROCESSING') && hospitalId) {
+            interval = setInterval(async () => {
+                try {
+                    const res = await rnBuildAPI.getBuildStatus(hospitalId);
+                    if (res?.success) {
+                        setStatus(res.buildStatus);
+                        if (res.buildStatus === 'COMPLETED') {
+                            setApkUrl(res.apkUrl || '');
+                            setAabUrl(res.aabUrl || '');
+                            setBuildError('');
+                        } else {
+                            setApkUrl('');
+                            setAabUrl('');
+                            if (res.buildStatus === 'FAILED') {
+                                setBuildError(res.buildError || 'Build failed');
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error('Polling RN build status failed:', err);
+                }
+            }, 10000);
+        }
+        return () => {
+            if (interval) clearInterval(interval);
+        };
+    }, [status, hospitalId]);
+
+    const handleBuild = async () => {
+        if (!hospitalId || isTriggering || status === 'BUILDING' || status === 'PROCESSING') return;
+        setIsTriggering(true);
+        setStatus('BUILDING');
+        setBuildError('');
+        try {
+            const res = await rnBuildAPI.buildApp(hospitalId);
+            if (res?.success) {
+                setStatus('BUILDING');
+                setBuildError('');
+            } else {
+                setStatus('FAILED');
+                setBuildError(res?.message || 'Failed to trigger build');
+            }
+        } catch (err) {
+            setStatus('FAILED');
+            setBuildError(err?.response?.data?.message || err?.message || 'Network error');
+        } finally {
+            setIsTriggering(false);
+        }
+    };
+
+    const handleReset = async () => {
+        if (!hospitalId) return;
+        try {
+            await rnBuildAPI.resetBuild(hospitalId);
+            setStatus('NOT_BUILT');
+            setApkUrl('');
+            setAabUrl('');
+            setBuildError('');
+        } catch (err) {
+            console.error('Reset RN build error:', err);
+        }
+    };
+
+    const handleDownload = (type) => {
+        const url = type === 'apk' ? rnBuildAPI.getApkDownloadUrl(hospitalId) : rnBuildAPI.getAabDownloadUrl(hospitalId);
+        Linking.openURL(url).catch(err => console.error("Couldn't open download URL", err));
+    };
+
+    return (
+        <View style={styles.adminCard}>
+            <View style={[styles.cardHeaderFlex, { marginBottom: 4 }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Feather name="smartphone" size={18} color="#6366f1" />
+                    <Text style={styles.cardTitle}>White-Label Mobile App</Text>
+                </View>
+                <View style={[styles.modeCurrentPill, { backgroundColor: '#ede9fe', borderColor: '#ddd6fe' }]}>
+                    <Text style={[styles.modeCurrentPillText, { color: '#6366f1' }]}>Starter Plan APK</Text>
+                </View>
+            </View>
+            <Text style={[styles.cardSub, { marginBottom: 14 }]}>
+                Generate and download custom branded Android APK for this clinic.
+            </Text>
+
+            <View style={styles.wlContainer}>
+                <View style={styles.wlStatusRow}>
+                    {status === 'NOT_BUILT' && (
+                        <View style={styles.wlStatusBadge}>
+                            <View style={[styles.statusDot, { backgroundColor: '#64748b' }]} />
+                            <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '600' }}>Not Built</Text>
+                        </View>
+                    )}
+                    {(status === 'BUILDING' || status === 'PROCESSING') && (
+                        <View style={[styles.wlStatusBadge, { backgroundColor: '#fef3c7', borderColor: '#fde68a' }]}>
+                            <ActivityIndicator size="small" color="#d97706" style={{ marginRight: 6 }} />
+                            <Text style={{ fontSize: 13, color: '#d97706', fontWeight: '600' }}>
+                                {status === 'PROCESSING' ? 'Processing Artifacts...' : 'Building Android Package...'}
+                            </Text>
+                        </View>
+                    )}
+                    {status === 'COMPLETED' && (
+                        <View style={[styles.wlStatusBadge, { backgroundColor: '#dcfce7', borderColor: '#bbf7d0' }]}>
+                            <View style={[styles.statusDot, { backgroundColor: '#16a34a' }]} />
+                            <Text style={{ fontSize: 13, color: '#16a34a', fontWeight: '600' }}>Build Ready</Text>
+                        </View>
+                    )}
+                    {status === 'FAILED' && (
+                        <View style={[styles.wlStatusBadge, { backgroundColor: '#fee2e2', borderColor: '#fecaca' }]}>
+                            <View style={[styles.statusDot, { backgroundColor: '#dc2626' }]} />
+                            <Text style={{ fontSize: 13, color: '#dc2626', fontWeight: '600' }}>Build Failed</Text>
+                        </View>
+                    )}
+                </View>
+
+                {buildError ? (
+                    <Text style={styles.wlErrorText}>Error: {buildError}</Text>
+                ) : null}
+
+                <View style={styles.wlActionsRow}>
+                    {status !== 'BUILDING' && status !== 'PROCESSING' && (
+                        <TouchableOpacity
+                            style={[styles.wlBtn, styles.wlBuildBtn, isTriggering && { opacity: 0.7 }]}
+                            onPress={handleBuild}
+                            disabled={isTriggering}
+                        >
+                            {isTriggering ? (
+                                <ActivityIndicator size="small" color="#ffffff" />
+                            ) : (
+                                <Text style={styles.wlBuildBtnText}>
+                                    {status === 'COMPLETED' ? '🔄 Rebuild App' : '⚡ Start Cloud Build'}
+                                </Text>
+                            )}
+                        </TouchableOpacity>
+                    )}
+                    {status === 'FAILED' && (
+                        <TouchableOpacity style={[styles.wlBtn, styles.wlResetBtn]} onPress={handleReset}>
+                            <Text style={styles.wlResetBtnText}>Reset Build</Text>
+                        </TouchableOpacity>
+                    )}
+                    {status === 'COMPLETED' && Boolean(apkUrl) && (
+                        <TouchableOpacity
+                            style={[styles.wlBtn, styles.wlDownloadBtn]}
+                            onPress={() => handleDownload('apk')}
+                        >
+                            <Text style={styles.wlBuildBtnText}>📥 Download APK</Text>
+                        </TouchableOpacity>
+                    )}
+                    {status === 'COMPLETED' && Boolean(aabUrl) && (
+                        <TouchableOpacity
+                            style={[styles.wlBtn, styles.wlDownloadBtn, { backgroundColor: '#8b5cf6' }]}
+                            onPress={() => handleDownload('aab')}
+                        >
+                            <Text style={styles.wlBuildBtnText}>🚀 Download AAB</Text>
+                        </TouchableOpacity>
+                    )}
+                </View>
+            </View>
+        </View>
+    );
+}
 
 const CentralAdminClinicDetails = ({ clinic, onBack, onDeleteSuccess }) => {
     const clinicId = clinic?._id || clinic?.id;
@@ -1242,6 +1423,9 @@ const CentralAdminClinicDetails = ({ clinic, onBack, onDeleteSuccess }) => {
                         </View>
                     </View>
 
+                    {/* ====== WHITE-LABEL MOBILE APP (STARTER CLINIC BUILD) ====== */}
+                    <WhiteLabelBuilder hospital={clinicObj} />
+
                     {/* ====== 8. CLINIC FEATURES (EXACT WEB PARITY - 6 FEATURE CARDS) ====== */}
                     <View style={styles.adminCard}>
                         <Text style={styles.cardTitle}>🚀 Clinic Features</Text>
@@ -2439,7 +2623,69 @@ const styles = StyleSheet.create({
         color: '#475569',
         fontSize: 13,
         fontWeight: '700'
-    }
+    },
+
+    // White Label Mobile App
+    wlContainer: {
+        paddingTop: 4,
+    },
+    wlStatusRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 12,
+    },
+    wlStatusBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 5,
+        paddingHorizontal: 12,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        backgroundColor: '#f8fafc',
+    },
+    statusDot: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        marginRight: 6,
+    },
+    wlErrorText: {
+        color: '#dc2626',
+        fontSize: 12,
+        marginBottom: 12,
+    },
+    wlActionsRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 10,
+    },
+    wlBtn: {
+        paddingVertical: 9,
+        paddingHorizontal: 16,
+        borderRadius: 10,
+    },
+    wlBuildBtn: {
+        backgroundColor: '#2563eb',
+    },
+    wlBuildBtnText: {
+        color: '#ffffff',
+        fontSize: 13,
+        fontWeight: '700',
+    },
+    wlResetBtn: {
+        backgroundColor: '#fee2e2',
+        borderWidth: 1,
+        borderColor: '#fecaca',
+    },
+    wlResetBtnText: {
+        color: '#dc2626',
+        fontSize: 13,
+        fontWeight: '700',
+    },
+    wlDownloadBtn: {
+        backgroundColor: '#10b981',
+    },
 });
 
 export default CentralAdminClinicDetails;

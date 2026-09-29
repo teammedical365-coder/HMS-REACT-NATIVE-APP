@@ -19,7 +19,7 @@ const CentralAdminLogin = () => {
                     setSessionBanner(msg);
                     await AsyncStorage.removeItem('sessionExpiredMessage');
                 }
-            } catch (e) {}
+            } catch (e) { }
         };
         checkSessionBanner();
     }, []);
