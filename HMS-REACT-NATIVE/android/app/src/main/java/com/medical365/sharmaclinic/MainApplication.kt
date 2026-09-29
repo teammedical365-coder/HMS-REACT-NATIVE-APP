@@ -1,4 +1,4 @@
-package com.anonymous.hms
+package com.medical365.sharmaclinic
 
 import android.app.Application
 import android.content.res.Configuration

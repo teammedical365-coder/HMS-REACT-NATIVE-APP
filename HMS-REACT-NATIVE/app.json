@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "HMS",
-    "slug": "hms",
+    "name": "Sharma Clinic",
+    "slug": "sharma-clinic",
     "version": "1.0.0",
     "icon": "./assets/icon.png",
     "plugins": [
@@ -16,7 +16,7 @@
       "expo-font"
     ],
     "android": {
-      "package": "com.anonymous.hms",
+      "package": "com.medical365.sharmaclinic",
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
