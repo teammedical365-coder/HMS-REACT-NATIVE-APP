@@ -16,41 +16,113 @@ const apiClient = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+const isValidToken = (t) => t && typeof t === 'string' && t.trim() !== '' && t !== 'null' && t !== 'undefined' && t !== '""';
+
 export const setAuthHeader = (token) => {
-  if (token) {
+  if (isValidToken(token)) {
     const cleanToken = String(token).replace(/^"(.*)"$/, '$1').trim();
-    apiClient.defaults.headers.common['Authorization'] = `Bearer ${cleanToken}`;
+    if (apiClient.defaults.headers.common) {
+      apiClient.defaults.headers.common['Authorization'] = `Bearer ${cleanToken}`;
+    }
+    delete apiClient.defaults.headers['Authorization'];
+    delete apiClient.defaults.headers['authorization'];
+    apiClient.defaults.headers['Authorization'] = `Bearer ${cleanToken}`;
   } else {
-    delete apiClient.defaults.headers.common['Authorization'];
+    if (apiClient.defaults.headers.common) {
+      delete apiClient.defaults.headers.common['Authorization'];
+      delete apiClient.defaults.headers.common['authorization'];
+    }
+    delete apiClient.defaults.headers['Authorization'];
+    delete apiClient.defaults.headers['authorization'];
   }
 };
 
 apiClient.interceptors.request.use(async (config) => {
   let token = null;
 
-  // 1. Check existing common header
-  const existingAuth = apiClient.defaults.headers.common['Authorization'] || config.headers?.Authorization || config.headers?.authorization;
-  if (existingAuth && typeof existingAuth === 'string' && existingAuth.startsWith('Bearer ')) {
-    token = existingAuth.slice(7).trim();
+  // 1. Check existing header on request (case-insensitive AxiosHeaders safe check)
+  const existingHeader = (typeof config.headers?.get === 'function' ? config.headers.get('Authorization') : null) || config.headers?.Authorization || config.headers?.authorization;
+  if (existingHeader && typeof existingHeader === 'string' && existingHeader.startsWith('Bearer ')) {
+    const candidate = existingHeader.slice(7).trim();
+    if (isValidToken(candidate)) token = candidate;
   }
 
-  // 2. Check web localStorage
-  if (!token && Platform.OS === 'web' && typeof window !== 'undefined') {
-    token = localStorage.getItem('token') || localStorage.getItem('superadmin_token') || localStorage.getItem('patientToken') || localStorage.getItem(STORAGE_KEYS.TOKEN);
-  }
-
-  // 3. Check AsyncStorage
+  // 2. Check defaults header
   if (!token) {
-    token = await AsyncStorage.getItem(STORAGE_KEYS.TOKEN) || await AsyncStorage.getItem('token') || await AsyncStorage.getItem('patientToken');
+    const defaultAuth = apiClient.defaults.headers.common['Authorization'];
+    if (defaultAuth && typeof defaultAuth === 'string' && defaultAuth.startsWith('Bearer ')) {
+      const candidate = defaultAuth.slice(7).trim();
+      if (isValidToken(candidate)) token = candidate;
+    }
   }
 
-  // 4. Check Redux Store (in-memory)
+  // 3. Check web localStorage (if running in web mode)
+  if (!token && Platform.OS === 'web' && typeof window !== 'undefined') {
+    const lsToken = (
+      localStorage.getItem('token') ||
+      localStorage.getItem('authToken') ||
+      localStorage.getItem('superadmin_token') ||
+      localStorage.getItem('patientToken') ||
+      localStorage.getItem(STORAGE_KEYS.TOKEN)
+    );
+    if (isValidToken(lsToken)) token = lsToken;
+  }
+
+  // 4. Check Redux Store (in-memory, immediate synchronous access)
   if (!token) {
     const store = getStoreRef();
-    token = store?.getState()?.auth?.token;
+    const state = store?.getState();
+    const rToken = state?.auth?.token || state?.auth?.userToken;
+    if (isValidToken(rToken)) token = rToken;
   }
-  
-  if (token) {
+
+  // 5. Check AsyncStorage (all known direct token keys)
+  if (!token) {
+    try {
+      const asToken = (
+        await AsyncStorage.getItem(STORAGE_KEYS.TOKEN) ||
+        await AsyncStorage.getItem('token') ||
+        await AsyncStorage.getItem('authToken') ||
+        await AsyncStorage.getItem('superadmin_token') ||
+        await AsyncStorage.getItem('patientToken')
+      );
+      if (isValidToken(asToken)) token = asToken;
+    } catch {
+      // AsyncStorage read error
+    }
+  }
+
+  // 6. Check Redux Persist storage in AsyncStorage ('persist:auth')
+  if (!token) {
+    try {
+      const persistAuth = await AsyncStorage.getItem('persist:auth');
+      if (persistAuth) {
+        const parsed = JSON.parse(persistAuth);
+        let pToken = parsed.token;
+        if (typeof pToken === 'string' && pToken.startsWith('"') && pToken.endsWith('"')) {
+          try { pToken = JSON.parse(pToken); } catch {}
+        }
+        if (isValidToken(pToken)) token = pToken;
+      }
+    } catch {
+      // AsyncStorage read error
+    }
+  }
+
+  // 7. Check user object in AsyncStorage
+  if (!token) {
+    try {
+      const userStr = (await AsyncStorage.getItem('user')) || (await AsyncStorage.getItem(STORAGE_KEYS.USER));
+      if (userStr) {
+        const parsedUser = JSON.parse(userStr);
+        if (isValidToken(parsedUser?.token)) token = parsedUser.token;
+      }
+    } catch {
+      // AsyncStorage read error
+    }
+  }
+
+  if (isValidToken(token)) {
     const cleanToken = String(token).replace(/^"(.*)"$/, '$1').trim();
     if (config.headers?.set) {
       config.headers.set('Authorization', `Bearer ${cleanToken}`);
@@ -59,17 +131,20 @@ apiClient.interceptors.request.use(async (config) => {
       config.headers['Authorization'] = `Bearer ${cleanToken}`;
     }
     // Synchronize default header for future requests
-    apiClient.defaults.headers.common['Authorization'] = `Bearer ${cleanToken}`;
+    if (apiClient.defaults.headers.common) {
+      apiClient.defaults.headers.common['Authorization'] = `Bearer ${cleanToken}`;
+    }
+    delete apiClient.defaults.headers['Authorization'];
+    delete apiClient.defaults.headers['authorization'];
+    apiClient.defaults.headers['Authorization'] = `Bearer ${cleanToken}`;
   }
 
-  // Automatic multipart boundary for FormData on Web
+  // Automatic multipart boundary for FormData
   if (config.data && typeof FormData !== 'undefined' && config.data instanceof FormData) {
-    if (Platform.OS === 'web') {
-      if (config.headers) {
-        delete config.headers['Content-Type'];
-        delete config.headers['content-type'];
-        if (typeof config.headers.delete === 'function') config.headers.delete('Content-Type');
-      }
+    if (config.headers) {
+      delete config.headers['Content-Type'];
+      delete config.headers['content-type'];
+      if (typeof config.headers.delete === 'function') config.headers.delete('Content-Type');
     }
   }
 
@@ -85,39 +160,56 @@ apiClient.interceptors.response.use(
     const isLoginRoute = url.includes('/login');
 
     if (error.response?.status === 401 && !isOtpVerifyRoute && !isOtpSendRoute && !isLoginRoute) {
-      if (Platform.OS === 'web' && typeof window !== 'undefined' && (window.location.hash.includes('hospitaladmin') || window.location.search.includes('hospitaladmin'))) {
-        return Promise.reject(error);
-      }
       const isSessionExpired = error.response?.data?.sessionExpired;
-      
-      // Clean up storage tokens
-      await AsyncStorage.removeItem(STORAGE_KEYS.TOKEN);
-      await AsyncStorage.removeItem(STORAGE_KEYS.USER);
-      if (Platform.OS === 'web' && typeof window !== 'undefined') {
-        localStorage.removeItem(STORAGE_KEYS.TOKEN);
-        localStorage.removeItem('token');
-        localStorage.removeItem('superadmin_token');
-        localStorage.removeItem(STORAGE_KEYS.USER);
-        localStorage.removeItem('user');
-      }
+      const errMsg = (error.response?.data?.message || '').toLowerCase();
 
-      delete apiClient.defaults.headers.common['Authorization'];
-      
-      if (isSessionExpired) {
-        await AsyncStorage.setItem(
-          STORAGE_KEYS.SESSION_EXPIRED_MESSAGE,
-          error.response?.data?.message ||
-            'Your account has been logged in from another device. Please login again.'
-        );
-      }
+      // Exact Web Parity: ONLY force logout on genuine session expiration or explicitly revoked/invalidated token
+      // NEVER logout on transient 'No token provided' or sub-resource auth errors!
+      const shouldLogout = isSessionExpired ||
+        errMsg.includes('token has been invalidated') ||
+        errMsg.includes('session revoked') ||
+        errMsg.includes('invalid token') ||
+        errMsg.includes('jwt expired');
 
-      // Synchronize Redux auth state so navigator transitions cleanly to AuthStack
-      const store = getStoreRef();
-      if (store) {
-        store.dispatch({ type: 'auth/logout' });
+      if (shouldLogout) {
+        // Clean up storage tokens
+        await AsyncStorage.removeItem(STORAGE_KEYS.TOKEN);
+        await AsyncStorage.removeItem('token');
+        await AsyncStorage.removeItem('authToken');
+        await AsyncStorage.removeItem(STORAGE_KEYS.USER);
+        await AsyncStorage.removeItem('user');
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+          localStorage.removeItem(STORAGE_KEYS.TOKEN);
+          localStorage.removeItem('token');
+          localStorage.removeItem('authToken');
+          localStorage.removeItem('superadmin_token');
+          localStorage.removeItem(STORAGE_KEYS.USER);
+          localStorage.removeItem('user');
+        }
+
+        if (apiClient.defaults.headers.common) {
+          delete apiClient.defaults.headers.common['Authorization'];
+          delete apiClient.defaults.headers.common['authorization'];
+        }
+        delete apiClient.defaults.headers['Authorization'];
+        delete apiClient.defaults.headers['authorization'];
+
+        if (isSessionExpired) {
+          await AsyncStorage.setItem(
+            STORAGE_KEYS.SESSION_EXPIRED_MESSAGE,
+            error.response?.data?.message ||
+              'Your account has been logged in from another device. Please login again.'
+          );
+        }
+
+        // Synchronize Redux auth state so navigator transitions cleanly to AuthStack
+        const store = getStoreRef();
+        if (store) {
+          store.dispatch({ type: 'auth/logout' });
+        }
       }
     }
-    
+
     return Promise.reject(error);
   }
 );
@@ -780,18 +872,24 @@ export const clinicAPI = {
     (await apiClient.get(
       `/api/clinic/patients/${patientId}/check-fee-waiver${date ? `?date=${date}` : ''}`
     )).data,
-  uploadPatientReport: async (patientId, formData) =>
-    (await apiClient.post(`/api/clinic/patients/${patientId}/reports`, formData, {
+  uploadPatientReport: async (patientId, fileOrFormData, name) => {
+    let fd = fileOrFormData;
+    if (typeof FormData !== 'undefined' && !(fileOrFormData instanceof FormData)) {
+      fd = new FormData();
+      fd.append('report', fileOrFormData);
+      if (name) fd.append('name', name);
+    }
+    return (await apiClient.post(`/api/clinic/patients/${patientId}/reports`, fd, {
       headers: { 'Content-Type': 'multipart/form-data' },
-    })).data,
+    })).data;
+  },
   deletePatientReport: async (patientId, reportId) =>
     (await apiClient.delete(`/api/clinic/patients/${patientId}/reports/${reportId}`)).data,
   getAppointments: async (date = '', status = '') => {
-    const params = new URLSearchParams();
-    if (date) params.append('date', date);
-    if (status) params.append('status', status);
-    const qs = params.toString();
-    return (await apiClient.get(`/api/clinic/appointments${qs ? '?' + qs : ''}`)).data;
+    const params = {};
+    if (date) params.date = date;
+    if (status) params.status = status;
+    return (await apiClient.get('/api/clinic/appointments', { params })).data;
   },
   getConfig: async () => (await apiClient.get('/api/clinic/config')).data,
   updateConfig: async (data) => (await apiClient.put('/api/clinic/config', data)).data,

@@ -3,10 +3,60 @@ import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native
 import { subscribeNetworkStatus, pingServer } from '../utils/networkStatus';
 
 export default function OfflineBanner() {
-  const [online, setOnline] = useState(true);
+  const [online, setOnline] = useState(() => {
+    if (typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean') {
+      return navigator.onLine;
+    }
+    return true;
+  });
   const [showReconnected, setShowReconnected] = useState(false);
 
   useEffect(() => {
+    // If running in web browser, directly synchronize with browser online/offline events
+    if (typeof window !== 'undefined') {
+      const handleOnline = () => {
+        setOnline(true);
+        setShowReconnected(true);
+        const t = setTimeout(() => setShowReconnected(false), 4000);
+        return () => clearTimeout(t);
+      };
+
+      const handleOffline = () => {
+        setOnline(false);
+        setShowReconnected(false);
+      };
+
+      window.addEventListener('online', handleOnline);
+      window.addEventListener('offline', handleOffline);
+
+      // Initial check against navigator.onLine (only mark offline if explicitly false)
+      if (typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean' && navigator.onLine === false) {
+        setOnline(false);
+      } else {
+        setOnline(true);
+      }
+
+      const unsubscribe = subscribeNetworkStatus((isOnline, { wasOffline }) => {
+        // If the browser has internet, never lock into a false offline state
+        if (typeof navigator === 'undefined' || typeof navigator.onLine !== 'boolean' || navigator.onLine === true) {
+          setOnline(true);
+          return;
+        }
+        setOnline(isOnline);
+        if (isOnline && wasOffline) {
+          setShowReconnected(true);
+          const t = setTimeout(() => setShowReconnected(false), 4000);
+          return () => clearTimeout(t);
+        }
+      });
+
+      return () => {
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('offline', handleOffline);
+        unsubscribe();
+      };
+    }
+
     const unsubscribe = subscribeNetworkStatus((isOnline, { wasOffline }) => {
       setOnline(isOnline);
       if (isOnline && wasOffline) {
@@ -18,6 +68,13 @@ export default function OfflineBanner() {
     return unsubscribe;
   }, []);
 
+  const handleRetry = async () => {
+    if (typeof navigator === 'undefined' || typeof navigator.onLine !== 'boolean' || navigator.onLine === true) {
+      setOnline(true);
+    }
+    await pingServer();
+  };
+
   if (online && !showReconnected) return null;
 
   return (
@@ -28,7 +85,7 @@ export default function OfflineBanner() {
           : '⚠️ You are currently offline. Retrying...'}
       </Text>
       {!online && (
-        <TouchableOpacity style={styles.retryBtn} onPress={() => pingServer()}>
+        <TouchableOpacity style={styles.retryBtn} onPress={handleRetry}>
           <Text style={styles.retryText}>Retry</Text>
         </TouchableOpacity>
       )}

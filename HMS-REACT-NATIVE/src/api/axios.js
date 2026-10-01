@@ -1,9 +1,10 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_BASE_URL } from '../utils/Constants';
 // import { navigate } from './navigationRef'; // Import your global navigation reference
 
 const apiClient = axios.create({
-    baseURL: process.env.EXPO_PUBLIC_API_URL || 'https://hms-n6nk.onrender.com',
+    baseURL: API_BASE_URL,
     timeout: 10000,
 });
 

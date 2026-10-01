@@ -6,13 +6,14 @@ import { Platform } from 'react-native';
 const LIVE_API_URL = 'https://hms-n6nk.onrender.com';
 
 const getBaseUrl = () => {
-    if (process.env.EXPO_PUBLIC_API_URL) {
-        return process.env.EXPO_PUBLIC_API_URL;
-    }
-    return LIVE_API_URL;
+    const url = process.env.EXPO_PUBLIC_API_URL || LIVE_API_URL;
+    return url.replace(/\/+$/, ''); // trim trailing slash
 };
 
 export const API_BASE_URL = getBaseUrl();
+
+// Socket URL — uses dedicated env var if set, otherwise falls back to API URL
+export const SOCKET_URL = (process.env.EXPO_PUBLIC_SOCKET_URL || API_BASE_URL).replace(/\/+$/, '');
 
 export const APP_NAME = 'Medical 365';
 

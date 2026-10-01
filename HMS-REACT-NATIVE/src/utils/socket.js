@@ -1,9 +1,9 @@
 import { io } from 'socket.io-client';
-import { API_BASE_URL } from './Constants';
+import { SOCKET_URL } from './Constants';
 
-const socket = io(API_BASE_URL, {
+const socket = io(SOCKET_URL, {
   autoConnect: false,
-  transports: ['websocket'],
+  transports: ['websocket', 'polling'],
   reconnection: true,
   reconnectionAttempts: 5,
   reconnectionDelay: 2000,

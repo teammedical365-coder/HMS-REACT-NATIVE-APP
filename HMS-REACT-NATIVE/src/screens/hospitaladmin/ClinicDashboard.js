@@ -4,11 +4,169 @@ import { Picker } from '@react-native-picker/picker';
 import { Ionicons } from '@expo/vector-icons';
 import { clinicAPI, uploadAPI, medicineAPI, baseURL } from '../../utils/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSelector } from 'react-redux';
+import { STORAGE_KEYS } from '../../utils/Constants';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
 import DatePickerInput from '../../components/common/DatePickerInput';
+
+const CustomSelectDropdown = ({ value, placeholder = 'Select...', options = [], onSelect, style }) => {
+    const [open, setOpen] = useState(false);
+    return (
+        <View style={[{ position: 'relative', zIndex: open ? 9999 : 1 }, style]}>
+            <TouchableOpacity
+                onPress={() => setOpen(!open)}
+                style={{
+                    backgroundColor: '#fff',
+                    borderWidth: 1,
+                    borderColor: '#cbd5e1',
+                    borderRadius: 8,
+                    paddingHorizontal: 12,
+                    paddingVertical: 10,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    minHeight: 44,
+                }}
+            >
+                <Text style={{ fontSize: 14, color: value ? '#1e293b' : '#94a3b8' }}>
+                    {value || placeholder}
+                </Text>
+                <Text style={{ fontSize: 11, color: '#64748b' }}>▼</Text>
+            </TouchableOpacity>
+            {open && (
+                <View
+                    style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        right: 0,
+                        backgroundColor: '#fff',
+                        borderWidth: 1,
+                        borderColor: '#cbd5e1',
+                        borderRadius: 8,
+                        marginTop: 4,
+                        maxHeight: 220,
+                        zIndex: 10000,
+                        elevation: 10,
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: 4 },
+                        shadowOpacity: 0.15,
+                        shadowRadius: 8,
+                        overflow: 'hidden',
+                    }}
+                >
+                    <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" style={{ maxHeight: 200 }}>
+                        {options.map((opt, i) => {
+                            const optLabel = typeof opt === 'object' ? opt.label : opt;
+                            const optVal = typeof opt === 'object' ? opt.value : opt;
+                            const isSelected = value === optVal;
+                            return (
+                                <TouchableOpacity
+                                    key={i}
+                                    onPress={() => {
+                                        onSelect(optVal);
+                                        setOpen(false);
+                                    }}
+                                    style={{
+                                        paddingHorizontal: 14,
+                                        paddingVertical: 10,
+                                        borderBottomWidth: i < options.length - 1 ? 1 : 0,
+                                        borderBottomColor: '#f1f5f9',
+                                        backgroundColor: isSelected ? '#eff6ff' : '#fff',
+                                    }}
+                                >
+                                    <Text style={{ fontSize: 13, color: isSelected ? '#2563eb' : '#334155', fontWeight: isSelected ? '700' : '400' }}>
+                                        {optLabel}
+                                    </Text>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </ScrollView>
+                </View>
+            )}
+        </View>
+    );
+};
+
+const TableDropdown = ({ value, placeholder = 'Select...', options = [], onSelect }) => {
+    const [open, setOpen] = useState(false);
+    return (
+        <View style={{ position: 'relative', zIndex: open ? 9999 : 1, width: '100%' }}>
+            <TouchableOpacity
+                onPress={() => setOpen(!open)}
+                style={{
+                    backgroundColor: '#fff',
+                    borderWidth: 1,
+                    borderColor: '#e2e8f0',
+                    borderRadius: 5,
+                    paddingHorizontal: 7,
+                    paddingVertical: 6,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    minHeight: 32,
+                }}
+            >
+                <Text style={{ fontSize: 12, color: value ? '#1e293b' : '#94a3b8' }} numberOfLines={1}>
+                    {value || placeholder}
+                </Text>
+                <Text style={{ fontSize: 9, color: '#64748b', marginLeft: 4 }}>▼</Text>
+            </TouchableOpacity>
+            {open && (
+                <View
+                    style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        minWidth: 140,
+                        backgroundColor: '#fff',
+                        borderWidth: 1,
+                        borderColor: '#cbd5e1',
+                        borderRadius: 6,
+                        marginTop: 2,
+                        maxHeight: 180,
+                        zIndex: 10000,
+                        elevation: 10,
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: 4 },
+                        shadowOpacity: 0.15,
+                        shadowRadius: 6,
+                    }}
+                >
+                    <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" style={{ maxHeight: 180 }}>
+                        {options.map((opt, i) => {
+                            const isSelected = value === opt;
+                            return (
+                                <TouchableOpacity
+                                    key={i}
+                                    onPress={() => {
+                                        onSelect(opt);
+                                        setOpen(false);
+                                    }}
+                                    style={{
+                                        paddingHorizontal: 10,
+                                        paddingVertical: 7,
+                                        borderBottomWidth: i < options.length - 1 ? 1 : 0,
+                                        borderBottomColor: '#f1f5f9',
+                                        backgroundColor: isSelected ? '#eff6ff' : '#fff',
+                                    }}
+                                >
+                                    <Text style={{ fontSize: 12, color: isSelected ? '#2563eb' : '#334155', fontWeight: isSelected ? '700' : '400' }}>
+                                        {opt}
+                                    </Text>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </ScrollView>
+                </View>
+            )}
+        </View>
+    );
+};
+
 
 const useResponsive = () => {
     const { width, height } = useWindowDimensions();
@@ -539,47 +697,69 @@ export const generatePatientProfilePDF = async (patient, historyAppointments = [
 // Role Modes
 // ─────────────────────────────────────────────
 const MODES = [
-    { id: 'overview', icon: 'bar-chart', label: 'Overview', color: '#6366f1', bg: '#eef2ff' },
-    { id: 'patients', icon: 'people', label: 'Patients', color: '#0ea5e9', bg: '#f0f9ff' },
-    { id: 'doctor', icon: 'medkit', label: 'Doctor', color: '#8b5cf6', bg: '#f5f3ff' },
-    { id: 'reception', icon: 'clipboard', label: 'Reception', color: '#10b981', bg: '#f0fdf4' },
-    { id: 'pharmacy', icon: 'flask', label: 'Pharmacy', color: '#f97316', bg: '#fff7ed' },
-    { id: 'billing', icon: 'cash', label: 'Billing', color: '#f59e0b', bg: '#fffbeb' },
-    { id: 'plans', icon: 'calendar', label: 'Treatment Plans', color: '#0891b2', bg: '#ecfeff' },
+    { id: 'overview', icon: '📊', label: 'Overview', color: '#6366f1', bg: '#eef2ff' },
+    { id: 'patients', icon: '👤', label: 'Patients', color: '#0ea5e9', bg: '#f0f9ff' },
+    { id: 'doctor', icon: '🩺', label: 'Doctor', color: '#8b5cf6', bg: '#f5f3ff' },
+    { id: 'reception', icon: '📋', label: 'Reception', color: '#10b981', bg: '#f0fdf4' },
+    { id: 'pharmacy', icon: '💊', label: 'Pharmacy', color: '#f97316', bg: '#fff7ed' },
+    { id: 'billing', icon: '💰', label: 'Billing', color: '#f59e0b', bg: '#fffbeb' },
+    { id: 'plans', icon: '📅', label: 'Treatment Plans', color: '#0891b2', bg: '#ecfeff' },
 ];
+
+// Helper: Safely extract string role from user (supports string role, populated Role object, roleName)
+const getRoleStr = (u) => {
+    if (!u) return '';
+    if (typeof u === 'string') return u;
+    if (typeof u.role === 'string') return u.role;
+    if (u.role && typeof u.role === 'object' && u.role.name) return u.role.name;
+    if (typeof u.roleName === 'string') return u.roleName;
+    return '';
+};
 
 // ─────────────────────────────────────────────
 // Root Component
 // ─────────────────────────────────────────────
 const ClinicDashboard = ({ navigation }) => {
     const { width: screenWidth, isNarrow, isMobile, isTablet, isDesktop } = useResponsive();
-    const [currentUser, setCurrentUser] = useState({});
-    const [mode, setMode] = useState('overview');
+    const reduxUser = useSelector(state => state.auth?.user);
+    const [currentUser, setCurrentUser] = useState(reduxUser || {});
+
+    // Exact Web Match (L523-530): synchronous initial mode resolution
+    const getInitialMode = () => {
+        const u = reduxUser || currentUser;
+        const role = getRoleStr(u).toLowerCase().replace(/[\s_-]+/g, '');
+        if (role === 'doctor' || role === 'clinicdoctor') return 'doctor';
+        if (role === 'reception' || role === 'receptionist') return 'reception';
+        return 'overview';
+    };
+    const [mode, setMode] = useState(getInitialMode());
     const [preselectedPatient, setPreselectedPatient] = useState(null);
     const [pendingDownload, setPendingDownload] = useState(null);
-    const [loadingUser, setLoadingUser] = useState(true);
+    const [loadingUser, setLoadingUser] = useState(!getRoleStr(reduxUser));
 
     useEffect(() => {
         const loadUser = async () => {
-            const userStr = await AsyncStorage.getItem('user');
-            if (userStr) {
-                const user = JSON.parse(userStr);
-                setCurrentUser(user);
-                const role = (user.role || '').toLowerCase();
-                if (role === 'doctor' || role === 'clinic doctor') setMode('doctor');
-                else if (role === 'reception' || role === 'receptionist') setMode('reception');
-                else setMode('overview');
-
-                const allowed = ['hospitaladmin', 'doctor', 'clinic doctor', 'reception', 'receptionist'];
-                if (!allowed.includes(role)) {
-                    navigation.navigate('Login');
-                    return;
+            try {
+                const userStr = await AsyncStorage.getItem('user') || await AsyncStorage.getItem(STORAGE_KEYS.USER);
+                if (userStr) {
+                    const parsed = JSON.parse(userStr);
+                    setCurrentUser(prev => ({ ...parsed, ...prev }));
+                    const role = getRoleStr(parsed).toLowerCase().replace(/[\s_-]+/g, '');
+                    if (role === 'doctor' || role === 'clinicdoctor') setMode('doctor');
+                    else if (role === 'reception' || role === 'receptionist') setMode('reception');
                 }
+            } catch (e) {
+                console.log('[ClinicDashboard] loadUser error:', e?.message);
+            } finally {
+                setLoadingUser(false);
             }
-            setLoadingUser(false);
         };
-        loadUser();
-    }, []);
+        if (!getRoleStr(reduxUser)) {
+            loadUser();
+        } else {
+            setLoadingUser(false);
+        }
+    }, [reduxUser]);
 
     useEffect(() => {
         if (pendingDownload) {
@@ -603,29 +783,29 @@ const ClinicDashboard = ({ navigation }) => {
         );
     }
 
-    const isClinicDoctorUser = (currentUser?.role || '').toLowerCase().includes('doctor');
+    const isClinicDoctorUser = getRoleStr(currentUser || reduxUser).toLowerCase().includes('doctor');
 
     return (
         <View style={styles.container}>
             {/* Role Switcher */}
             {!isClinicDoctorUser && (
-                <View style={[styles.roleSwitcher, isMobile && { paddingHorizontal: 10, paddingVertical: 8 }]}>
-                    <Text style={[styles.switcherLabel, isNarrow && { fontSize: 12, marginRight: 6 }]}>Mode:</Text>
+                <View style={[styles.roleSwitcher, isMobile && { paddingHorizontal: 12, paddingVertical: 10, gap: 6, marginHorizontal: 8, marginTop: 8, marginBottom: 12 }]}>
+                    <Text style={[styles.switcherLabel, isMobile && { fontSize: 11, marginRight: 2 }]}>Mode:</Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.switcherScroll}>
                         <View style={styles.switcherButtons}>
                             {MODES.filter(m => {
-                                const role = (currentUser?.role || '').toLowerCase();
+                                const role = getRoleStr(currentUser || reduxUser).toLowerCase();
                                 if (role === 'doctor' || role === 'clinic doctor') return ['doctor', 'patients', 'overview'].includes(m.id);
                                 if (role === 'reception' || role === 'receptionist') return ['reception', 'patients', 'overview', 'billing', 'plans'].includes(m.id);
                                 return true;
                             }).map(m => (
                                 <TouchableOpacity
                                     key={m.id}
-                                    style={[styles.switcherBtn, mode === m.id && { backgroundColor: m.color, borderColor: m.color }]}
+                                    style={[styles.switcherBtn, isMobile && { paddingHorizontal: 12, paddingVertical: 7 }, mode === m.id && { backgroundColor: m.color, borderColor: m.color }]}
                                     onPress={() => setMode(m.id)}
                                 >
-                                    <Ionicons name={m.icon} size={16} color={mode === m.id ? '#fff' : '#475569'} />
-                                    <Text style={[styles.switcherBtnText, mode === m.id && { color: '#fff' }]}>{m.label}</Text>
+                                    <Text style={{ fontSize: isMobile ? 12 : 14 }}>{m.icon}</Text>
+                                    <Text style={[styles.switcherBtnText, isMobile && { fontSize: 12 }, mode === m.id && { color: '#fff' }]}>{m.label}</Text>
                                 </TouchableOpacity>
                             ))}
                         </View>
@@ -686,18 +866,83 @@ const OverviewMode = () => {
     const [showMonthDropdown, setShowMonthDropdown] = useState(false);
     const [showApptModeDropdown, setShowApptModeDropdown] = useState(false);
 
+    const [fetchError, setFetchError] = useState(null);
+
     useEffect(() => {
-        Promise.all([
+        console.log('[ClinicDashboard][stats] START');
+        console.log('[ClinicDashboard][appointments] START');
+        console.log('[ClinicDashboard][treatmentPlans] START');
+        console.log('[ClinicDashboard][config] START');
+        Promise.allSettled([
             clinicAPI.getStats(),
             clinicAPI.getAppointments(),
             clinicAPI.getTreatmentPlans(),
             clinicAPI.getConfig()
-        ]).then(([statsR, apptR, plansR, cfgR]) => {
-            if (statsR.success) setStats(statsR.stats);
-            if (apptR.success) setAppointments(apptR.appointments || []);
-            if (plansR.success) setTreatmentPlans(plansR.plans || []);
-            if (cfgR.success) setConfig({ defaultFee: String(cfgR.defaultFee ?? 0), followUpDays: String(cfgR.followUpDays ?? 0), defaultServiceName: cfgR.defaultServiceName || 'General Consultation', appointmentMode: cfgR.appointmentMode || 'token' });
-        }).catch(console.error).finally(() => setLoading(false));
+        ]).then(([statsRes, apptRes, plansRes, cfgRes]) => {
+            if (statsRes.status === 'fulfilled' && statsRes.value?.success) {
+                const sData = statsRes.value.stats || statsRes.value.data || statsRes.value;
+                console.log('[ClinicDashboard][stats] STATUS', 200);
+                console.log('[ClinicDashboard][stats] DATA_KEYS', Object.keys(sData || {}));
+                setStats(sData);
+                console.log('[ClinicDashboard][stats] SET_STATE');
+            } else {
+                const err = statsRes.reason || statsRes.value;
+                const status = err?.response?.status || err?.status || 'FAIL';
+                const message = err?.response?.data?.message || err?.message || 'Failed to load stats';
+                console.log('[ClinicDashboard][stats] ERROR', { status, message });
+                setFetchError(message);
+            }
+
+            if (apptRes.status === 'fulfilled' && apptRes.value?.success) {
+                const appts = apptRes.value.appointments || apptRes.value.data || [];
+                console.log('[ClinicDashboard][appointments] STATUS', 200);
+                console.log('[ClinicDashboard][appointments] DATA_KEYS', Object.keys(appts[0] || {}));
+                setAppointments(appts);
+                console.log('[ClinicDashboard][appointments] SET_STATE');
+            } else {
+                const err = apptRes.reason || apptRes.value;
+                const status = err?.response?.status || err?.status || 'FAIL';
+                const message = err?.response?.data?.message || err?.message || 'Failed to load appointments';
+                console.log('[ClinicDashboard][appointments] ERROR', { status, message });
+            }
+
+            if (plansRes.status === 'fulfilled' && plansRes.value?.success) {
+                const plans = plansRes.value.plans || plansRes.value.data || [];
+                console.log('[ClinicDashboard][treatmentPlans] STATUS', 200);
+                console.log('[ClinicDashboard][treatmentPlans] DATA_KEYS', Object.keys(plans[0] || {}));
+                setTreatmentPlans(plans);
+                console.log('[ClinicDashboard][treatmentPlans] SET_STATE');
+            } else {
+                const err = plansRes.reason || plansRes.value;
+                const status = err?.response?.status || err?.status || 'FAIL';
+                const message = err?.response?.data?.message || err?.message || 'Failed to load treatment plans';
+                console.log('[ClinicDashboard][treatmentPlans] ERROR', { status, message });
+            }
+
+            if (cfgRes.status === 'fulfilled' && cfgRes.value?.success) {
+                const cfgR = cfgRes.value;
+                console.log('[ClinicDashboard][config] STATUS', 200);
+                console.log('[ClinicDashboard][config] DATA_KEYS', Object.keys(cfgR || {}));
+                setConfig({
+                    defaultFee: String(cfgR.defaultFee ?? 0),
+                    followUpDays: String(cfgR.followUpDays ?? 0),
+                    defaultServiceName: cfgR.defaultServiceName || 'General Consultation',
+                    appointmentMode: cfgR.appointmentMode || 'token'
+                });
+                console.log('[ClinicDashboard][config] SET_STATE');
+            } else {
+                const err = cfgRes.reason || cfgRes.value;
+                const status = err?.response?.status || err?.status || 'FAIL';
+                const message = err?.response?.data?.message || err?.message || 'Failed to load config';
+                console.log('[ClinicDashboard][config] ERROR', { status, message });
+            }
+        }).catch(err => {
+            console.log('[ClinicDashboard][overview] ERROR', {
+                status: err?.response?.status,
+                message: err?.response?.data?.message || err?.message
+            });
+            setFetchError(err?.message);
+        }).finally(() => setLoading(false));
     }, []);
 
     const saveConfig = async () => {
@@ -814,15 +1059,26 @@ const OverviewMode = () => {
     chartData.push({ month: m, year: y, appt: mAppt, treat: mTreat, total: mAppt + mTreat });
 
     const kpis = [
-        { label: "Today's Patients", value: stats?.todayPatients ?? 0, sub: 'Total visited today', icon: 'people', color: '#0ea5e9' },
-        { label: "Today's Visits", value: todayCompletedVisits, sub: 'Total completed today', icon: 'ticket', color: '#8b5cf6' },
-        { label: "Today's Appointment Collection", value: fmt(todayApptRev), sub: 'Appointments only', icon: 'medkit', color: '#10b981' },
-        { label: "Today's Treatment Collection", value: fmt(todayTreatRev), sub: 'Treatment plans only', icon: 'clipboard', color: '#14b8a6' },
-        { label: "Selected Month Appointment Collection", value: fmt(monthApptRev), sub: `${MONTHS[currentMonth]} ${currentYear}`, icon: 'medkit', color: '#3b82f6' },
-        { label: "Selected Month Treatment Collection", value: fmt(monthTreatRev), sub: `${MONTHS[currentMonth]} ${currentYear}`, icon: 'clipboard', color: '#0ea5e9' },
-        { label: "Selected Month Total Collection", value: fmt(monthTotalRev), sub: `${MONTHS[currentMonth]} ${currentYear}`, icon: 'calendar', color: '#6366f1' },
-        { label: "Overall Collection", value: fmt(overallTotalRev), sub: 'Lifetime total revenue', icon: 'cash', color: '#f59e0b' },
+        { label: "Today's Patients", value: stats?.todayPatients ?? 0, sub: 'Total visited today', icon: '👤', color: '#0ea5e9' },
+        { label: "Today's Visits", value: todayCompletedVisits, sub: 'Total completed today', icon: '🎟️', color: '#8b5cf6' },
+        { label: "Today's Appointment Collection", value: fmt(todayApptRev), sub: 'Appointments only', icon: '🩺', color: '#10b981' },
+        { label: "Today's Treatment Collection", value: fmt(todayTreatRev), sub: 'Treatment plans only', icon: '📋', color: '#14b8a6' },
+        { label: "Selected Month Appointment Collection", value: fmt(monthApptRev), sub: `${MONTHS[currentMonth]} ${currentYear}`, icon: '🩺', color: '#3b82f6' },
+        { label: "Selected Month Treatment Collection", value: fmt(monthTreatRev), sub: `${MONTHS[currentMonth]} ${currentYear}`, icon: '📋', color: '#0ea5e9' },
+        { label: "Selected Month Total Collection", value: fmt(monthTotalRev), sub: `${MONTHS[currentMonth]} ${currentYear}`, icon: '📅', color: '#6366f1' },
+        { label: "Overall Collection", value: fmt(overallTotalRev), sub: 'Lifetime total revenue', icon: '💰', color: '#f59e0b' },
     ];
+
+    // FIX A — OVERVIEW KPI: Web responsive layout parity
+    // <= 480px: exactly 3 columns, gap 8 (governed by Web CSS @media (max-width: 480px) repeat(3, 1fr) !important)
+    // > 480px: exactly 4 columns, gap 14 (governed by Web JSX inline style repeat(4, 1fr))
+    const isMobileOverview = screenWidth <= 480;
+    const ovGap = isMobileOverview ? 8 : 14;
+    const ovCols = isMobileOverview ? 3 : 4;
+    // Real container available width inside screen modeContent padding
+    const ovContainerPadH = screenWidth < 375 ? 16 : (screenWidth < 600 ? 24 : 32);
+    const ovAvailWidth = screenWidth - ovContainerPadH;
+    const ovCardWidth = Math.floor((ovAvailWidth - (ovCols - 1) * ovGap) / ovCols);
 
     return (
         <ScrollView style={{ flex: 1 }}>
@@ -830,30 +1086,52 @@ const OverviewMode = () => {
                 <Text style={{ fontSize: isNarrow ? 20 : 24, fontWeight: 'bold', color: '#0f172a' }}>Dashboard Overview</Text>
             </View>
 
-            <View style={styles.kpiGrid}>
-                {kpis.slice(0, showAllKpis ? 8 : 4).map((k, i) => (
-                    <View key={i} style={[styles.kpiCard, { borderTopColor: k.color, minWidth: isMobile ? (isNarrow ? '100%' : '46%') : '22%', padding: isNarrow ? 10 : 14 }]}>
-                        <Ionicons name={k.icon} size={isNarrow ? 22 : 28} color={k.color} />
-                        <View style={{ marginTop: 8 }}>
-                            <Text style={{ fontSize: isNarrow ? 18 : 20, fontWeight: '800', color: k.color }} numberOfLines={1}>{k.value}</Text>
-                            <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '600', marginTop: 4 }} numberOfLines={2}>{k.label}</Text>
-                            {k.sub && <Text style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }} numberOfLines={1}>{k.sub}</Text>}
+            <View style={[styles.kpiGrid, { gap: ovGap, marginBottom: isMobileOverview ? 10 : 20 }]}>
+                {(isMobileOverview ? (showAllKpis ? kpis : kpis.slice(0, 3)) : kpis).map((k, i) => {
+                    return (
+                        <View
+                            key={i}
+                            style={[
+                                styles.kpiCard,
+                                {
+                                    borderTopColor: k.color,
+                                    borderTopWidth: 4,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flex: 0,
+                                    width: ovCardWidth,
+                                    minWidth: ovCardWidth,
+                                    maxWidth: ovCardWidth,
+                                    paddingVertical: isMobileOverview ? 10 : 18,
+                                    paddingHorizontal: isMobileOverview ? 6 : 16,
+                                }
+                            ]}
+                        >
+                            <Text style={{ fontSize: isMobileOverview ? 20 : 28, textAlign: 'center' }}>{k.icon}</Text>
+                            <View style={{ marginTop: isMobileOverview ? 4 : 8, alignItems: 'center', width: '100%' }}>
+                                <Text style={{ fontSize: isMobileOverview ? 15 : 20, fontWeight: '800', color: k.color, textAlign: 'center' }} numberOfLines={1}>{k.value}</Text>
+                                <Text style={{ fontSize: isMobileOverview ? 10 : 12, color: '#64748b', fontWeight: '600', marginTop: 2, textAlign: 'center' }} numberOfLines={2}>{k.label}</Text>
+                                {k.sub && <Text style={{ fontSize: isMobileOverview ? 9 : 11, color: '#94a3b8', marginTop: 2, textAlign: 'center' }} numberOfLines={1}>{k.sub}</Text>}
+                            </View>
                         </View>
-                    </View>
-                ))}
+                    );
+                })}
             </View>
-            <TouchableOpacity style={styles.kpiToggleBtn} onPress={() => setShowAllKpis(!showAllKpis)}>
-                <Text style={styles.kpiToggleText}>{showAllKpis ? '▲ Show Less' : '▼ View All Overview'}</Text>
-            </TouchableOpacity>
+            {isMobileOverview && (
+                <TouchableOpacity style={styles.kpiToggleBtn} onPress={() => setShowAllKpis(!showAllKpis)}>
+                    <Text style={styles.kpiToggleText}>{showAllKpis ? '▲ Show Less' : '▼ View All Overview'}</Text>
+                </TouchableOpacity>
+            )}
 
             {/* Monthly Revenue Chart */}
-            <View style={styles.clinicCard}>
+            <View style={[styles.clinicCard, isMobile && styles.cardMobile]}>
                 <View style={{ flexDirection: isNarrow ? 'column' : 'row', justifyContent: 'space-between', alignItems: isNarrow ? 'flex-start' : 'center', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
                     <Text style={{ fontSize: isNarrow ? 16 : 18, fontWeight: 'bold' }}>📈 Monthly Revenue</Text>
                     <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-                        <View style={{ flexDirection: 'row', gap: 8 }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}><View style={{ width: 10, height: 10, backgroundColor: '#3b82f6', borderRadius: 2 }} /><Text style={{ fontSize: 10, color: '#64748b' }}>Appt</Text></View>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}><View style={{ width: 10, height: 10, backgroundColor: '#10b981', borderRadius: 2 }} /><Text style={{ fontSize: 10, color: '#64748b' }}>Treat</Text></View>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}><View style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: '#3b82f6' }} /><Text style={{ fontSize: 11, color: '#64748b', fontWeight: '600' }}>Appointment Revenue</Text></View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}><View style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: '#10b981' }} /><Text style={{ fontSize: 11, color: '#64748b', fontWeight: '600' }}>Treatment Revenue</Text></View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}><View style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: '#6366f1' }} /><Text style={{ fontSize: 11, color: '#64748b', fontWeight: '600' }}>Total Revenue</Text></View>
                         </View>
                         <TouchableOpacity style={styles.dropdownBtn} onPress={() => setShowMonthDropdown(!showMonthDropdown)}>
                             <Text style={{ fontSize: 12 }}>{MONTHS[parseInt(overviewMonthStr.split('-')[1]) - 1]} {overviewMonthStr.split('-')[0]} ▼</Text>
@@ -878,13 +1156,15 @@ const OverviewMode = () => {
                         const maxTotal = Math.max(...chartData.map(x => x.total));
                         const apptPct = maxTotal > 0 ? (m.appt / maxTotal) * 100 : 0;
                         const treatPct = maxTotal > 0 ? (m.treat / maxTotal) * 100 : 0;
+                        const totalPct = maxTotal > 0 ? (m.total / maxTotal) * 100 : 0;
                         return (
                             <View key={i} style={{ alignItems: 'center', flex: 1 }}>
-                                <View style={{ width: 30, height: '100%', justifyContent: 'flex-end' }}>
-                                    <View style={{ height: `${apptPct}%`, backgroundColor: '#3b82f6', borderTopLeftRadius: 4, borderTopRightRadius: 4, minHeight: 4 }} />
-                                    <View style={{ height: `${treatPct}%`, backgroundColor: '#10b981', borderTopLeftRadius: 4, borderTopRightRadius: 4, minHeight: 4 }} />
+                                <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'center', gap: 4, width: '100%', height: 130 }}>
+                                    <View style={{ width: 14, height: `${apptPct}%`, minHeight: 4, backgroundColor: '#3b82f6', borderTopLeftRadius: 4, borderTopRightRadius: 4 }} />
+                                    <View style={{ width: 14, height: `${treatPct}%`, minHeight: 4, backgroundColor: '#10b981', borderTopLeftRadius: 4, borderTopRightRadius: 4 }} />
+                                    <View style={{ width: 14, height: `${totalPct}%`, minHeight: 4, backgroundColor: '#6366f1', borderTopLeftRadius: 4, borderTopRightRadius: 4 }} />
                                 </View>
-                                <Text style={{ fontSize: 11, color: '#64748b', fontWeight: 'bold', marginTop: 4 }}>{MONTHS[m.month]}</Text>
+                                <Text style={{ fontSize: 11, color: '#64748b', fontWeight: 'bold', marginTop: 6 }}>{MONTHS[m.month]}</Text>
                             </View>
                         );
                     })}
@@ -893,7 +1173,7 @@ const OverviewMode = () => {
 
             {/* Recent Appointments */}
             {stats?.recentAppointments?.length > 0 && (
-                <View style={styles.clinicCard}>
+                <View style={[styles.clinicCard, isMobile && styles.cardMobile]}>
                     <Text style={{ fontSize: 16, fontWeight: 'bold', marginBottom: 12 }}>📋 Recent Appointments</Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={true}>
                         <View style={{ minWidth: Math.max(520, screenWidth - (isNarrow ? 36 : 64)) }}>
@@ -903,19 +1183,19 @@ const OverviewMode = () => {
                                 <Text style={[styles.th, { flex: 1.5 }]}>Date</Text>
                                 <Text style={[styles.th, { flex: 1.5 }]}>Status</Text>
                                 <Text style={[styles.th, { flex: 1 }]}>Fee</Text>
+                                <Text style={[styles.th, { flex: 1.2 }]}>Method</Text>
                             </View>
                             {stats.recentAppointments.map(a => (
                                 <View key={a._id} style={styles.tableRow}>
                                     <Text style={[styles.td, { flex: 1, color: '#6366f1', fontWeight: 'bold' }]}>#{a.tokenNumber || '—'}</Text>
                                     <View style={{ flex: 2 }}>
-                                        <Text style={[styles.td, { fontWeight: 'bold' }]}>{a.clinicPatientId?.name || '—'}</Text>
+                                        <Text style={[styles.td, { fontWeight: 'bold' }]}>{a.clinicPatientId?.name || a.patientId?.name || 'Walk-in'}</Text>
                                         <Text style={{ fontSize: 11, color: '#94a3b8' }}>{a.clinicPatientId?.patientUid || a.patientId}</Text>
                                     </View>
                                     <Text style={[styles.td, { flex: 1.5, fontSize: 12 }]}>{fmtDate(a.appointmentDate)}</Text>
-                                    <View style={{ flex: 1.5 }}>
-                                        <Text style={{ fontSize: 12 }}>{a.status}</Text>
-                                    </View>
-                                    <Text style={[styles.td, { flex: 1, color: '#16a34a', fontWeight: 'bold' }]}>{fmt(a.amount)}</Text>
+                                    <View style={{ flex: 1.5, alignItems: 'flex-start' }}><StatusBadge status={a.status} /></View>
+                                    <Text style={[styles.td, { flex: 1, color: '#16a34a', fontWeight: 'bold' }]}>{fmt(a.amount || 0)}</Text>
+                                    <Text style={[styles.td, { flex: 1.2, color: '#64748b', textTransform: 'capitalize', fontSize: 12 }]}>{a.paymentMethod || 'Cash'}</Text>
                                 </View>
                             ))}
                         </View>
@@ -925,7 +1205,7 @@ const OverviewMode = () => {
 
             {/* Low Stock Alert */}
             {stats?.lowStockItems?.length > 0 && (
-                <View style={[styles.clinicCard, { borderColor: '#fecaca', borderWidth: 1 }]}>
+                <View style={[styles.clinicCard, { borderColor: '#fecaca', borderWidth: 1 }, isMobile && styles.cardMobile]}>
                     <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#dc2626', marginBottom: 12 }}>⚠️ Low Stock Alert</Text>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                         {stats.lowStockItems.map(item => (
@@ -938,24 +1218,22 @@ const OverviewMode = () => {
             )}
 
             {/* Clinic Settings */}
-            <View style={styles.clinicCard}>
+            <View style={[styles.clinicCard, isMobile && styles.cardMobile]}>
                 <Text style={{ fontSize: 16, fontWeight: 'bold', marginBottom: 14 }}>⚙️ Clinic Settings</Text>
-                <View style={{ gap: 12 }}>
-                    <View>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14, alignItems: isMobile ? 'stretch' : 'flex-end' }}>
+                    <View style={{ flex: isMobile ? undefined : 2, width: isMobile ? '100%' : undefined, minWidth: isMobile ? '100%' : 200 }}>
                         <Text style={styles.label}>Default Service Name</Text>
                         <TextInput style={styles.input} value={config.defaultServiceName} onChangeText={t => setConfig({ ...config, defaultServiceName: t })} placeholder="General Consultation" maxLength={50} />
                     </View>
-                    <View style={{ flexDirection: isNarrow ? 'column' : 'row', gap: 12 }}>
-                        <View style={{ flex: 1 }}>
-                            <Text style={styles.label}>Default Fee (₹)</Text>
-                            <TextInput style={styles.input} keyboardType="numeric" value={config.defaultFee} onChangeText={t => setConfig({ ...config, defaultFee: t })} />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                            <Text style={styles.label}>Follow-up Validity (Days)</Text>
-                            <TextInput style={styles.input} keyboardType="numeric" value={config.followUpDays} onChangeText={t => setConfig({ ...config, followUpDays: t })} />
-                        </View>
+                    <View style={{ flex: isMobile ? undefined : 1, width: isMobile ? '47%' : undefined, minWidth: isMobile ? '47%' : 120 }}>
+                        <Text style={styles.label}>Default Fee (₹)</Text>
+                        <TextInput style={styles.input} keyboardType="numeric" value={config.defaultFee} onChangeText={t => setConfig({ ...config, defaultFee: t })} />
                     </View>
-                    <View>
+                    <View style={{ flex: isMobile ? undefined : 1, width: isMobile ? '47%' : undefined, minWidth: isMobile ? '47%' : 140 }}>
+                        <Text style={styles.label}>Follow-up Validity (Days)</Text>
+                        <TextInput style={styles.input} keyboardType="numeric" value={config.followUpDays} onChangeText={t => setConfig({ ...config, followUpDays: t })} />
+                    </View>
+                    <View style={{ flex: isMobile ? undefined : 1.5, width: isMobile ? '100%' : undefined, minWidth: isMobile ? '100%' : 180 }}>
                         <Text style={styles.label}>Appointment Mode</Text>
                         <View style={styles.pickerWrapper}>
                             <Picker selectedValue={config.appointmentMode} onValueChange={t => setConfig({ ...config, appointmentMode: t })}>
@@ -989,15 +1267,20 @@ const ReportViewerModal = ({ report, onClose }) => {
 
     return (
         <Modal visible={true} transparent animationType="fade" onRequestClose={onClose}>
-            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', padding: isNarrow ? 10 : 16 }}>
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: isNarrow ? 10 : 16 }}>
                 <View style={{ width: '100%', maxWidth: 500, backgroundColor: '#1e293b', borderRadius: 12, overflow: 'hidden' }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderColor: '#334155' }}>
-                        <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14, flex: 1 }} numberOfLines={1}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 10, borderBottomWidth: 1, borderColor: '#334155' }}>
+                        <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14, flex: 1 }} numberOfLines={1}>
                             📄 {report.name || 'Report'}
                         </Text>
-                        <TouchableOpacity onPress={onClose} style={{ padding: 4 }}>
-                            <Ionicons name="close" size={20} color="#94a3b8" />
-                        </TouchableOpacity>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                            <TouchableOpacity onPress={() => Linking.openURL(url)}>
+                                <Text style={{ fontSize: 12, color: '#7dd3fc' }}>Open ↗</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={onClose} style={{ backgroundColor: '#ef4444', borderRadius: 6, paddingHorizontal: 12, paddingVertical: 4 }}>
+                                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>✕ Close</Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
 
                     <View style={{ height: Math.min(350, Math.max(200, screenHeight * 0.45)), backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center', padding: 10 }}>
@@ -1061,6 +1344,61 @@ const PatientsMode = ({ onBookToken, setPendingDownload }) => {
     const [justRegistered, setJustRegistered] = useState(null);
     const [saving, setSaving] = useState(false);
     const [msg, setMsg] = useState({ type: '', text: '' });
+    const [showEditModal, setShowEditModal] = useState(false);
+    const [savingEdit, setSavingEdit] = useState(false);
+    const [editForm, setEditForm] = useState({
+        name: '', phone: '', email: '', dob: '', gender: 'Male',
+        address: '', bloodGroup: '', allergies: '', chronicConditions: '',
+        medicalNotes: '', relatives: [], age: '', aadhaarNumber: ''
+    });
+    const [viewVisitModal, setViewVisitModal] = useState(null);
+
+    const openEditModal = (p) => {
+        setEditForm({
+            name: p?.name || '',
+            phone: p?.phone || '',
+            email: p?.email || '',
+            dob: p?.dob || '',
+            gender: p?.gender || 'Male',
+            address: p?.address || '',
+            bloodGroup: p?.bloodGroup || '',
+            allergies: p?.allergies || '',
+            chronicConditions: p?.chronicConditions || '',
+            medicalNotes: p?.medicalNotes || '',
+            relatives: Array.isArray(p?.relatives) ? JSON.parse(JSON.stringify(p.relatives)) : [],
+            age: p?.age !== undefined && p?.age !== null ? String(p.age) : '',
+            aadhaarNumber: p?.aadhaarNumber || ''
+        });
+        setShowEditModal(true);
+    };
+
+    const handleSaveEdit = async () => {
+        if (!editForm.name.trim()) {
+            Alert.alert('Validation Error', 'Patient name is required.');
+            return;
+        }
+        setSavingEdit(true);
+        try {
+            const payload = {
+                ...editForm,
+                age: editForm.age ? Number(editForm.age) : undefined
+            };
+            const r = await clinicAPI.updatePatient(selectedPatient._id, payload);
+            if (r.success) {
+                const updated = r.patient || { ...selectedPatient, ...payload };
+                setSelectedPatient(updated);
+                setPatients(prev => prev.map(pt => pt._id === updated._id ? { ...pt, ...updated } : pt));
+                setShowEditModal(false);
+                flash('success', 'Patient details updated successfully.');
+            } else {
+                Alert.alert('Error', r.message || 'Failed to update patient');
+            }
+        } catch (err) {
+            Alert.alert('Error', err.response?.data?.message || err.message);
+        } finally {
+            setSavingEdit(false);
+        }
+    };
     const [form, setForm] = useState({
         name: '', phone: '', email: '', dob: '', gender: 'Male',
         address: '', city: '', state: '', pincode: '',
@@ -1075,12 +1413,26 @@ const PatientsMode = ({ onBookToken, setPendingDownload }) => {
 
     const loadPatients = () => {
         setLoading(true);
+        console.log('[ClinicDashboard][patients] START');
         clinicAPI.getPatients()
             .then(r => {
-                if (r.success) setPatients(r.patients || []);
-                else flash('error', r.message || 'Failed to load patients');
+                if (r.success) {
+                    const patientList = r.patients || r.data || [];
+                    console.log('[ClinicDashboard][patients] STATUS', 200);
+                    console.log('[ClinicDashboard][patients] DATA_KEYS', Object.keys(patientList[0] || {}));
+                    setPatients(patientList);
+                    console.log('[ClinicDashboard][patients] SET_STATE');
+                } else {
+                    console.log('[ClinicDashboard][patients] ERROR', { status: 400, message: r.message });
+                    flash('error', r.message || 'Failed to load patients');
+                }
             })
-            .catch(e => flash('error', e.response?.data?.message || e.message))
+            .catch(e => {
+                const status = e?.response?.status || 'FAIL';
+                const message = e?.response?.data?.message || e?.message;
+                console.log('[ClinicDashboard][patients] ERROR', { status, message });
+                flash('error', message);
+            })
             .finally(() => setLoading(false));
     };
 
@@ -1253,87 +1605,105 @@ const PatientsMode = ({ onBookToken, setPendingDownload }) => {
         }
     };
 
-    // ── Patient Detail View ──
+        // ── Patient Detail View (1:1 Web Parity) ──
     if (selectedPatient) {
         return (
             <ScrollView style={{ flex: 1 }}>
                 {viewReport && <ReportViewerModal report={viewReport} onClose={() => setViewReport(null)} />}
-                
+
+                {/* Back to Patients Button */}
                 <TouchableOpacity
-                    style={[styles.btnSecondary, { alignSelf: 'flex-start', marginBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 6 }]}
+                    style={[styles.backBtn, { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }]}
                     onPress={() => { setSelectedPatient(null); setPatientHistory(null); }}
                 >
-                    <Ionicons name="arrow-back" size={16} color="#334155" />
-                    <Text style={styles.btnSecondaryText}>Back to Patients</Text>
+                    <Ionicons name="arrow-back" size={16} color="#475569" />
+                    <Text style={styles.backBtnText}>Back to Patients</Text>
                 </TouchableOpacity>
 
-                {/* Patient Header Card */}
-                <View style={[styles.clinicCard, { marginBottom: 16 }]}>
-                    <View style={{ flexDirection: isNarrow ? 'column' : 'row', alignItems: isNarrow ? 'flex-start' : 'center', gap: 14, flexWrap: 'wrap' }}>
-                        <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: '#e0e7ff', justifyContent: 'center', alignItems: 'center' }}>
-                            <Text style={{ color: '#6366f1', fontSize: 22, fontWeight: 'bold' }}>
+                {/* Patient Header Card (1:1 Web Desktop & Mobile Parity) */}
+                <View style={[styles.clinicCard, isMobile && styles.cardMobile]}>
+                    <View style={{ flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: 16 }}>
+                        <View style={styles.clinicAvatarLg}>
+                            <Text style={{ color: '#3b82f6', fontSize: 18, fontWeight: '800' }}>
                                 {selectedPatient.name?.charAt(0)?.toUpperCase()}
                             </Text>
                         </View>
-                        <View style={{ flex: 1, minWidth: isNarrow ? '100%' : 200 }}>
+                        <View style={{ flex: 1, minWidth: isMobile ? '100%' : 220 }}>
                             <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#1e293b' }}>{selectedPatient.name}</Text>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
-                                <View style={{ backgroundColor: '#eef2ff', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
-                                    <Text style={{ color: '#6366f1', fontWeight: 'bold', fontSize: 11 }}>{selectedPatient.patientUid}</Text>
+                                <View style={{ backgroundColor: '#eef2ff', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
+                                    <Text style={{ color: '#6366f1', fontWeight: 'bold', fontSize: 12 }}>{selectedPatient.patientUid}</Text>
                                 </View>
-                                {selectedPatient.phone && <Text style={{ color: '#64748b', fontSize: 13 }}>📞 {selectedPatient.phone}</Text>}
-                                {selectedPatient.gender && <Text style={{ color: '#64748b', fontSize: 13 }}>· {selectedPatient.gender}</Text>}
-                                {selectedPatient.dob && <Text style={{ color: '#64748b', fontSize: 13 }}>· DOB: {fmtDate(selectedPatient.dob)}</Text>}
+                                {selectedPatient.phone ? <Text style={{ color: '#64748b', fontSize: 13 }}>📞 {selectedPatient.phone}</Text> : null}
+                                {selectedPatient.gender ? <Text style={{ color: '#64748b', fontSize: 13 }}>· {selectedPatient.gender}</Text> : null}
+                                {selectedPatient.dob ? <Text style={{ color: '#64748b', fontSize: 13 }}>· DOB: {fmtDate(selectedPatient.dob)}</Text> : null}
                             </View>
-                            {selectedPatient.address && <Text style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>📍 {selectedPatient.address}</Text>}
-                            <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-                                {selectedPatient.bloodGroup && (
-                                    <View style={{ backgroundColor: '#fee2e2', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
-                                        <Text style={{ color: '#dc2626', fontSize: 11, fontWeight: 'bold' }}>🩸 {selectedPatient.bloodGroup}</Text>
+                            {selectedPatient.address ? <Text style={{ color: '#94a3b8', fontSize: 13, marginTop: 4 }}>📍 {selectedPatient.address}</Text> : null}
+                            <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                                {selectedPatient.bloodGroup ? (
+                                    <View style={{ backgroundColor: '#fee2e2', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
+                                        <Text style={{ color: '#dc2626', fontSize: 11, fontWeight: '700' }}>🩸 {selectedPatient.bloodGroup}</Text>
                                     </View>
-                                )}
-                                {selectedPatient.allergies && (
-                                    <View style={{ backgroundColor: '#fef3c7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
-                                        <Text style={{ color: '#92400e', fontSize: 11 }}>⚠️ {selectedPatient.allergies}</Text>
+                                ) : null}
+                                {selectedPatient.allergies ? (
+                                    <View style={{ backgroundColor: '#fef3c7', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
+                                        <Text style={{ color: '#92400e', fontSize: 11, fontWeight: '600' }}>⚠️ Allergies: {selectedPatient.allergies}</Text>
                                     </View>
-                                )}
-                                {selectedPatient.chronicConditions && (
-                                    <View style={{ backgroundColor: '#f0f9ff', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
-                                        <Text style={{ color: '#0369a1', fontSize: 11 }}>🏥 {selectedPatient.chronicConditions}</Text>
+                                ) : null}
+                                {selectedPatient.chronicConditions ? (
+                                    <View style={{ backgroundColor: '#f0f9ff', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
+                                        <Text style={{ color: '#0369a1', fontSize: 11, fontWeight: '600' }}>🏥 {selectedPatient.chronicConditions}</Text>
                                     </View>
-                                )}
+                                ) : null}
+                            </View>
+                        </View>
+
+                        {/* Right-Side Action Area (Web Desktop Layout: Top-Right on Desktop, Below on Mobile) */}
+                        <View style={{
+                            marginLeft: isMobile ? 0 : 'auto',
+                            alignItems: isMobile ? 'flex-start' : 'flex-end',
+                            gap: 8,
+                            marginTop: isMobile ? 12 : 0,
+                            paddingTop: isMobile ? 12 : 0,
+                            borderTopWidth: isMobile ? 1 : 0,
+                            borderColor: '#f1f5f9',
+                            width: isMobile ? '100%' : undefined
+                        }}>
+                            {selectedPatient.createdAt ? (
+                                <Text style={{ fontSize: 12, color: '#94a3b8' }}>
+                                    Registered: {fmtDate(selectedPatient.createdAt)}
+                                </Text>
+                            ) : null}
+                            <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+                                <TouchableOpacity
+                                    style={[styles.btnSecondary, { borderColor: '#bae6fd', backgroundColor: '#e0f2fe', flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8 }]}
+                                    onPress={() => printRegistrationSlip(selectedPatient)}
+                                >
+                                    <Ionicons name="document-text-outline" size={14} color="#0369a1" />
+                                    <Text style={{ color: '#0369a1', fontWeight: '700', fontSize: 12 }}>📄 Registration Slip</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[styles.btnSecondary, { borderColor: '#a7f3d0', backgroundColor: '#ecfdf5', flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8 }]}
+                                    onPress={() => generatePatientProfilePDF(selectedPatient, patientHistory?.appointments || [])}
+                                >
+                                    <Ionicons name="download-outline" size={14} color="#059669" />
+                                    <Text style={{ color: '#059669', fontWeight: '700', fontSize: 12 }}>📥 Download Profile PDF</Text>
+                                </TouchableOpacity>
+                                
                             </View>
                         </View>
                     </View>
 
-                    {/* Action Buttons */}
-                    <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap', marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderColor: '#f1f5f9' }}>
-                        <TouchableOpacity
-                            style={[styles.btnSecondary, { borderColor: '#bae6fd', backgroundColor: '#e0f2fe', flexDirection: 'row', alignItems: 'center', gap: 6 }]}
-                            onPress={() => printRegistrationSlip(selectedPatient)}
-                        >
-                            <Ionicons name="document-text-outline" size={16} color="#0369a1" />
-                            <Text style={{ color: '#0369a1', fontWeight: 'bold', fontSize: 12 }}>📄 Registration Slip</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.btnSecondary, { borderColor: '#a7f3d0', backgroundColor: '#ecfdf5', flexDirection: 'row', alignItems: 'center', gap: 6 }]}
-                            onPress={() => generatePatientProfilePDF(selectedPatient, patientHistory?.appointments || [])}
-                        >
-                            <Ionicons name="download-outline" size={16} color="#059669" />
-                            <Text style={{ color: '#059669', fontWeight: 'bold', fontSize: 12 }}>📥 Download Profile PDF</Text>
-                        </TouchableOpacity>
-                    </View>
-
-                    {/* Relatives / Emergency Contacts */}
+{/* Relatives / Emergency Contacts */}
                     {selectedPatient.relatives?.length > 0 && (
-                        <View style={{ marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderColor: '#f1f5f9' }}>
-                            <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#64748b', marginBottom: 8 }}>👨‍👩‍👧 Emergency Contacts</Text>
+                        <View style={{ marginTop: 16, paddingTop: 14, borderTopWidth: 1, borderColor: '#f1f5f9' }}>
+                            <Text style={{ fontSize: 12, fontWeight: '700', color: '#64748b', marginBottom: 8 }}>👨‍👩‍👧 Emergency Contacts</Text>
                             <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
                                 {selectedPatient.relatives.map((rel, i) => (
-                                    <View key={i} style={{ backgroundColor: '#f0f9ff', borderWidth: 1, borderColor: '#bae6fd', borderRadius: 8, padding: 8, minWidth: isNarrow ? '100%' : 120 }}>
-                                        <Text style={{ fontWeight: 'bold', color: '#0f172a', fontSize: 12 }}>{rel.name}</Text>
-                                        {rel.relation && <Text style={{ color: '#0369a1', fontSize: 11 }}>{rel.relation}</Text>}
-                                        {rel.phone && <Text style={{ color: '#475569', fontSize: 11, marginTop: 2 }}>📞 {rel.phone}</Text>}
+                                    <View key={i} style={{ backgroundColor: '#f0f9ff', borderWidth: 1, borderColor: '#bae6fd', borderRadius: 8, padding: 8, minWidth: isNarrow ? '100%' : 140 }}>
+                                        <Text style={{ fontWeight: '700', color: '#0f172a', fontSize: 12 }}>{rel.name}</Text>
+                                        {rel.relation ? <Text style={{ color: '#0369a1', fontSize: 11 }}>{rel.relation}</Text> : null}
+                                        {rel.phone ? <Text style={{ color: '#475569', fontSize: 11, marginTop: 2 }}>📞 {rel.phone}</Text> : null}
                                     </View>
                                 ))}
                             </View>
@@ -1342,7 +1712,7 @@ const PatientsMode = ({ onBookToken, setPendingDownload }) => {
                 </View>
 
                 {/* Medical Reports Card */}
-                <View style={[styles.clinicCard, { marginBottom: 16 }]}>
+                <View style={[styles.clinicCard, isMobile && styles.cardMobile]}>
                     <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#1e293b', marginBottom: 12 }}>
                         📄 Medical Reports ({patientReports.length})
                     </Text>
@@ -1429,7 +1799,7 @@ const PatientsMode = ({ onBookToken, setPendingDownload }) => {
                 </View>
 
                 {/* Visit History Card */}
-                <View style={[styles.clinicCard, { marginBottom: 30 }]}>
+                <View style={[styles.clinicCard, { marginBottom: isMobile ? 12 : 30 }, isMobile && styles.cardMobile]}>
                     <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#1e293b', marginBottom: 12 }}>
                         📋 Visit History ({patientHistory?.appointments?.length || 0} visits)
                     </Text>
@@ -1437,17 +1807,18 @@ const PatientsMode = ({ onBookToken, setPendingDownload }) => {
                     {loadingHistory ? (
                         <Spinner text="Loading history..." />
                     ) : patientHistory?.appointments?.length === 0 ? (
-                        <Text style={{ color: '#94a3b8', textAlign: 'center', paddingVertical: 16 }}>No visits recorded yet.</Text>
+                        <Text style={{ color: '#94a3b8', textAlign: 'center', paddingVertical: 16 }}>No visits yet.</Text>
                     ) : (
                         <ScrollView horizontal showsHorizontalScrollIndicator={true}>
-                            <View style={{ minWidth: 600 }}>
+                            <View style={{ minWidth: 700 }}>
                                 <View style={styles.tableHeader}>
                                     <Text style={[styles.th, { width: 120 }]}>Date & Time</Text>
-                                    <Text style={[styles.th, { width: 80 }]}>Token</Text>
+                                    <Text style={[styles.th, { width: 75 }]}>Token</Text>
                                     <Text style={[styles.th, { width: 150 }]}>Diagnosis</Text>
-                                    <Text style={[styles.th, { width: 150 }]}>Medicines</Text>
-                                    <Text style={[styles.th, { width: 90 }]}>Status</Text>
-                                    <Text style={[styles.th, { width: 80, textAlign: 'right' }]}>Fee</Text>
+                                    <Text style={[styles.th, { width: 140 }]}>Medicines</Text>
+                                    <Text style={[styles.th, { width: 85 }]}>Status</Text>
+                                    <Text style={[styles.th, { width: 75, textAlign: 'right' }]}>Fee</Text>
+                                    <Text style={[styles.th, { width: 75, textAlign: 'center' }]}>Action</Text>
                                 </View>
                                 {patientHistory?.appointments?.map(a => (
                                     <View key={a._id} style={styles.tableRow}>
@@ -1455,9 +1826,12 @@ const PatientsMode = ({ onBookToken, setPendingDownload }) => {
                                             <Text style={{ fontSize: 12, fontWeight: '600', color: '#1e293b' }}>{fmtDate(a.appointmentDate)}</Text>
                                             <Text style={{ fontSize: 11, color: '#94a3b8' }}>{fmtTime(a.appointmentDate)}</Text>
                                         </View>
-                                        <Text style={{ width: 80, fontWeight: 'bold', color: '#6366f1' }}>#{a.tokenNumber || '—'}</Text>
-                                        <Text style={{ width: 150, fontSize: 12, color: '#334155' }} numberOfLines={2}>{a.diagnosis || '—'}</Text>
+                                        <Text style={{ width: 75, fontWeight: 'bold', color: '#6366f1' }}>#{a.tokenNumber || '—'}</Text>
                                         <View style={{ width: 150 }}>
+                                            <Text style={{ fontSize: 12, color: '#334155' }} numberOfLines={2}>{a.diagnosis || '—'}</Text>
+                                            {a.vitals?.bp ? <Text style={{ fontSize: 10, color: '#6366f1', marginTop: 2 }}>BP: {a.vitals.bp}</Text> : null}
+                                        </View>
+                                        <View style={{ width: 140 }}>
                                             {(a.pharmacy || a.medicines || []).slice(0, 2).map((m, i) => (
                                                 <Text key={i} style={{ fontSize: 11, color: '#64748b' }} numberOfLines={1}>• {m.medicineName || m.name}</Text>
                                             ))}
@@ -1465,18 +1839,312 @@ const PatientsMode = ({ onBookToken, setPendingDownload }) => {
                                                 <Text style={{ fontSize: 10, color: '#94a3b8' }}>+{(a.pharmacy || a.medicines || []).length - 2} more</Text>
                                             )}
                                         </View>
-                                        <View style={{ width: 90 }}>
+                                        <View style={{ width: 85 }}>
                                             <StatusBadge status={a.status} />
                                         </View>
-                                        <Text style={{ width: 80, textAlign: 'right', fontWeight: 'bold', color: '#16a34a' }}>
+                                        <Text style={{ width: 75, textAlign: 'right', fontWeight: 'bold', color: '#16a34a' }}>
                                             {fmt(a.amount)}
                                         </Text>
+                                        <View style={{ width: 75, alignItems: 'center' }}>
+                                            <TouchableOpacity
+                                                style={[styles.btnSecondary, { paddingHorizontal: 8, paddingVertical: 4 }]}
+                                                onPress={() => setViewVisitModal(a)}
+                                            >
+                                                <Text style={{ fontSize: 11, fontWeight: '700', color: '#6366f1' }}>👁️ Details</Text>
+                                            </TouchableOpacity>
+                                        </View>
                                     </View>
                                 ))}
                             </View>
                         </ScrollView>
                     )}
                 </View>
+
+                {/* Visit Details Modal */}
+                {viewVisitModal && (
+                    <Modal transparent visible animationType="fade" onRequestClose={() => setViewVisitModal(null)}>
+                        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: isNarrow ? 10 : 16 }}>
+                            <View style={{ width: '100%', maxWidth: 580, maxHeight: '90%', backgroundColor: '#fff', borderRadius: 14, padding: isNarrow ? 16 : 22, overflow: 'hidden' }}>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderColor: '#e2e8f0', paddingBottom: 12, marginBottom: 14 }}>
+                                    <View>
+                                        <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#0f172a' }}>
+                                            Consultation Details
+                                        </Text>
+                                        <Text style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                                            Token #{viewVisitModal.tokenNumber || '—'} · {fmtDate(viewVisitModal.appointmentDate)} {fmtTime(viewVisitModal.appointmentDate)}
+                                        </Text>
+                                    </View>
+                                    <TouchableOpacity onPress={() => setViewVisitModal(null)} style={{ padding: 4 }}>
+                                        <Text style={{ fontSize: 18, color: '#64748b', fontWeight: 'bold' }}>✕</Text>
+                                    </TouchableOpacity>
+                                </View>
+
+                                <ScrollView style={{ maxHeight: 420 }}>
+                                    {/* Service & Fee row */}
+                                    <View style={{ backgroundColor: '#f8fafc', padding: 12, borderRadius: 8, marginBottom: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                                        <View>
+                                            <Text style={{ fontSize: 11, color: '#64748b', fontWeight: '700', textTransform: 'uppercase' }}>Service</Text>
+                                            <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#1e293b' }}>{viewVisitModal.serviceName || 'General Consultation'}</Text>
+                                        </View>
+                                        <View style={{ alignItems: 'flex-end' }}>
+                                            <Text style={{ fontSize: 11, color: '#64748b', fontWeight: '700', textTransform: 'uppercase' }}>Fee Paid</Text>
+                                            <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#16a34a' }}>{fmt(viewVisitModal.amount)} ({viewVisitModal.paymentMethod || 'Cash'})</Text>
+                                        </View>
+                                    </View>
+
+                                    {/* Vitals Summary */}
+                                    {viewVisitModal.vitals && Object.values(viewVisitModal.vitals).some(Boolean) && (
+                                        <View style={{ marginBottom: 14 }}>
+                                            <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#0369a1', marginBottom: 8 }}>🩺 Recorded Vitals</Text>
+                                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                                                {viewVisitModal.vitals.bp ? (
+                                                    <View style={{ backgroundColor: '#f0f9ff', borderWidth: 1, borderColor: '#bae6fd', borderRadius: 6, paddingVertical: 4, paddingHorizontal: 8 }}>
+                                                        <Text style={{ fontSize: 10, color: '#64748b' }}>BP</Text>
+                                                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#0f172a' }}>{viewVisitModal.vitals.bp}</Text>
+                                                    </View>
+                                                ) : null}
+                                                {viewVisitModal.vitals.pulse ? (
+                                                    <View style={{ backgroundColor: '#f0f9ff', borderWidth: 1, borderColor: '#bae6fd', borderRadius: 6, paddingVertical: 4, paddingHorizontal: 8 }}>
+                                                        <Text style={{ fontSize: 10, color: '#64748b' }}>Pulse</Text>
+                                                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#0f172a' }}>{viewVisitModal.vitals.pulse} bpm</Text>
+                                                    </View>
+                                                ) : null}
+                                                {viewVisitModal.vitals.temperature ? (
+                                                    <View style={{ backgroundColor: '#f0f9ff', borderWidth: 1, borderColor: '#bae6fd', borderRadius: 6, paddingVertical: 4, paddingHorizontal: 8 }}>
+                                                        <Text style={{ fontSize: 10, color: '#64748b' }}>Temp</Text>
+                                                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#0f172a' }}>{viewVisitModal.vitals.temperature} °F</Text>
+                                                    </View>
+                                                ) : null}
+                                                {viewVisitModal.vitals.weight ? (
+                                                    <View style={{ backgroundColor: '#f0f9ff', borderWidth: 1, borderColor: '#bae6fd', borderRadius: 6, paddingVertical: 4, paddingHorizontal: 8 }}>
+                                                        <Text style={{ fontSize: 10, color: '#64748b' }}>Weight</Text>
+                                                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#0f172a' }}>{viewVisitModal.vitals.weight} kg</Text>
+                                                    </View>
+                                                ) : null}
+                                                {viewVisitModal.vitals.height ? (
+                                                    <View style={{ backgroundColor: '#f0f9ff', borderWidth: 1, borderColor: '#bae6fd', borderRadius: 6, paddingVertical: 4, paddingHorizontal: 8 }}>
+                                                        <Text style={{ fontSize: 10, color: '#64748b' }}>Height</Text>
+                                                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#0f172a' }}>{viewVisitModal.vitals.height} cm</Text>
+                                                    </View>
+                                                ) : null}
+                                                {viewVisitModal.vitals.bmi ? (
+                                                    <View style={{ backgroundColor: '#f0f9ff', borderWidth: 1, borderColor: '#bae6fd', borderRadius: 6, paddingVertical: 4, paddingHorizontal: 8 }}>
+                                                        <Text style={{ fontSize: 10, color: '#64748b' }}>BMI</Text>
+                                                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#0f172a' }}>{viewVisitModal.vitals.bmi}</Text>
+                                                    </View>
+                                                ) : null}
+                                                {viewVisitModal.vitals.spo2 ? (
+                                                    <View style={{ backgroundColor: '#f0f9ff', borderWidth: 1, borderColor: '#bae6fd', borderRadius: 6, paddingVertical: 4, paddingHorizontal: 8 }}>
+                                                        <Text style={{ fontSize: 10, color: '#64748b' }}>SpO2</Text>
+                                                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#0f172a' }}>{viewVisitModal.vitals.spo2}%</Text>
+                                                    </View>
+                                                ) : null}
+                                            </View>
+                                        </View>
+                                    )}
+
+                                    {/* Diagnosis & Notes */}
+                                    <View style={{ marginBottom: 14 }}>
+                                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#475569', textTransform: 'uppercase', marginBottom: 4 }}>Diagnosis</Text>
+                                        <Text style={{ fontSize: 14, color: '#1e293b', fontWeight: '600', backgroundColor: '#f8fafc', padding: 10, borderRadius: 6, borderWidth: 1, borderColor: '#e2e8f0' }}>
+                                            {viewVisitModal.diagnosis || 'No diagnosis recorded.'}
+                                        </Text>
+                                        {(viewVisitModal.doctorNotes || viewVisitModal.notes) ? (
+                                            <View style={{ marginTop: 8 }}>
+                                                <Text style={{ fontSize: 12, fontWeight: '700', color: '#475569', textTransform: 'uppercase', marginBottom: 4 }}>Clinical Notes</Text>
+                                                <Text style={{ fontSize: 13, color: '#334155', backgroundColor: '#f8fafc', padding: 10, borderRadius: 6, borderWidth: 1, borderColor: '#e2e8f0' }}>
+                                                    {viewVisitModal.doctorNotes || viewVisitModal.notes}
+                                                </Text>
+                                            </View>
+                                        ) : null}
+                                    </View>
+
+                                    {/* Prescriptions */}
+                                    {(viewVisitModal.pharmacy || viewVisitModal.medicines)?.length > 0 && (
+                                        <View style={{ marginBottom: 14 }}>
+                                            <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#1e293b', marginBottom: 6 }}>💊 Prescribed Medicines</Text>
+                                            <View style={{ borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
+                                                <View style={{ flexDirection: 'row', backgroundColor: '#f1f5f9', paddingVertical: 6, paddingHorizontal: 10 }}>
+                                                    <Text style={{ flex: 2, fontSize: 11, fontWeight: '700', color: '#475569' }}>Medicine</Text>
+                                                    <Text style={{ flex: 1.5, fontSize: 11, fontWeight: '700', color: '#475569' }}>Dose / Freq</Text>
+                                                    <Text style={{ flex: 1, fontSize: 11, fontWeight: '700', color: '#475569' }}>Days</Text>
+                                                </View>
+                                                {(viewVisitModal.pharmacy || viewVisitModal.medicines).map((m, idx) => (
+                                                    <View key={idx} style={{ flexDirection: 'row', paddingVertical: 8, paddingHorizontal: 10, borderTopWidth: 1, borderColor: '#f1f5f9' }}>
+                                                        <View style={{ flex: 2 }}>
+                                                            <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#1e293b' }}>{m.medicineName || m.name}</Text>
+                                                            {m.saltName ? <Text style={{ fontSize: 10, color: '#94a3b8' }}>{m.saltName}</Text> : null}
+                                                        </View>
+                                                        <Text style={{ flex: 1.5, fontSize: 12, color: '#334155' }}>{m.frequency || m.dose || '—'}</Text>
+                                                        <Text style={{ flex: 1, fontSize: 12, color: '#334155' }}>{m.duration || m.days || '—'}</Text>
+                                                    </View>
+                                                ))}
+                                            </View>
+                                        </View>
+                                    )}
+
+                                    {/* Lab Tests */}
+                                    {viewVisitModal.labTests?.length > 0 && (
+                                        <View style={{ marginBottom: 14 }}>
+                                            <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#1e293b', marginBottom: 6 }}>🧪 Recommended Lab Tests</Text>
+                                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                                                {viewVisitModal.labTests.map((t, i) => (
+                                                    <View key={i} style={{ backgroundColor: '#f5f3ff', borderWidth: 1, borderColor: '#ddd6fe', borderRadius: 4, paddingVertical: 3, paddingHorizontal: 8 }}>
+                                                        <Text style={{ fontSize: 11, color: '#7c3aed', fontWeight: '600' }}>{t}</Text>
+                                                    </View>
+                                                ))}
+                                            </View>
+                                        </View>
+                                    )}
+                                </ScrollView>
+
+                                <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10, borderTopWidth: 1, borderColor: '#e2e8f0', paddingTop: 12, marginTop: 10 }}>
+                                    <TouchableOpacity
+                                        style={[styles.btnSecondary, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}
+                                        onPress={() => printPrescriptionSlip(
+                                            viewVisitModal,
+                                            {
+                                                medicines: viewVisitModal.pharmacy || viewVisitModal.medicines || [],
+                                                diagnosis: viewVisitModal.diagnosis,
+                                                notes: viewVisitModal.doctorNotes || viewVisitModal.notes,
+                                                labTests: (viewVisitModal.labTests || []).join(', ')
+                                            },
+                                            viewVisitModal.vitals || {}
+                                        )}
+                                    >
+                                        <Ionicons name="print-outline" size={16} color="#475569" />
+                                        <Text style={styles.btnSecondaryText}>Print Slip</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={styles.btnPrimary}
+                                        onPress={() => setViewVisitModal(null)}
+                                    >
+                                        <Text style={styles.btnPrimaryText}>Close</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        </View>
+                    </Modal>
+                )}
+
+                {/* Edit Patient Modal */}
+                {showEditModal && (
+                    <Modal transparent visible animationType="fade" onRequestClose={() => setShowEditModal(false)}>
+                        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: isNarrow ? 10 : 16 }}>
+                            <View style={{ width: '100%', maxWidth: 540, maxHeight: '92%', backgroundColor: '#fff', borderRadius: 14, padding: isNarrow ? 16 : 22, overflow: 'hidden' }}>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderColor: '#e2e8f0', paddingBottom: 12, marginBottom: 14 }}>
+                                    <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#0f172a' }}>
+                                        ✏️ Edit Patient Profile
+                                    </Text>
+                                    <TouchableOpacity onPress={() => setShowEditModal(false)} style={{ padding: 4 }}>
+                                        <Text style={{ fontSize: 18, color: '#64748b', fontWeight: 'bold' }}>✕</Text>
+                                    </TouchableOpacity>
+                                </View>
+
+                                <ScrollView style={{ maxHeight: 440 }}>
+                                    <View style={{ gap: 10 }}>
+                                        <View>
+                                            <Text style={styles.label}>Full Name *</Text>
+                                            <TextInput style={styles.input} value={editForm.name} onChangeText={t => setEditForm({ ...editForm, name: t })} placeholder="Full Name" />
+                                        </View>
+                                        <View style={{ flexDirection: isNarrow ? 'column' : 'row', gap: 10 }}>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={styles.label}>Phone *</Text>
+                                                <TextInput style={styles.input} keyboardType="phone-pad" value={editForm.phone} maxLength={10} onChangeText={t => setEditForm({ ...editForm, phone: t.replace(/\D/g, '').slice(0, 10) })} placeholder="10-digit phone" />
+                                            </View>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={styles.label}>Age</Text>
+                                                <TextInput style={styles.input} keyboardType="numeric" value={editForm.age} maxLength={3} onChangeText={t => setEditForm({ ...editForm, age: t.replace(/\D/g, '').slice(0, 3) })} placeholder="Age" />
+                                            </View>
+                                        </View>
+                                        <View>
+                                            <Text style={styles.label}>Email</Text>
+                                            <TextInput style={styles.input} keyboardType="email-address" value={editForm.email} onChangeText={t => setEditForm({ ...editForm, email: t })} placeholder="Email address" />
+                                        </View>
+                                        <View style={{ flexDirection: isNarrow ? 'column' : 'row', gap: 10 }}>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={styles.label}>Gender</Text>
+                                                <View style={styles.pickerWrapper}>
+                                                    <Picker selectedValue={editForm.gender} onValueChange={v => setEditForm({ ...editForm, gender: v })}>
+                                                        <Picker.Item label="Male" value="Male" />
+                                                        <Picker.Item label="Female" value="Female" />
+                                                        <Picker.Item label="Other" value="Other" />
+                                                    </Picker>
+                                                </View>
+                                            </View>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={styles.label}>Blood Group</Text>
+                                                <View style={styles.pickerWrapper}>
+                                                    <Picker selectedValue={editForm.bloodGroup} onValueChange={v => setEditForm({ ...editForm, bloodGroup: v })}>
+                                                        <Picker.Item label="Unknown" value="" />
+                                                        {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map(b => <Picker.Item key={b} label={b} value={b} />)}
+                                                    </Picker>
+                                                </View>
+                                            </View>
+                                        </View>
+                                        <View>
+                                            <Text style={styles.label}>Date of Birth</Text>
+                                            <DatePickerInput
+                                                value={editForm.dob}
+                                                onChange={t => setEditForm({ ...editForm, dob: t })}
+                                                placeholder="YYYY-MM-DD"
+                                                title="Date of Birth"
+                                            />
+                                        </View>
+                                        <View>
+                                            <Text style={styles.label}>Address</Text>
+                                            <TextInput style={styles.input} value={editForm.address} onChangeText={t => setEditForm({ ...editForm, address: t })} placeholder="Address" />
+                                        </View>
+                                        <View>
+                                            <Text style={styles.label}>Known Allergies</Text>
+                                            <TextInput style={styles.input} value={editForm.allergies} onChangeText={t => setEditForm({ ...editForm, allergies: t })} placeholder="e.g. Penicillin, Peanuts" />
+                                        </View>
+                                        <View>
+                                            <Text style={styles.label}>Chronic Conditions / History</Text>
+                                            <TextInput style={styles.input} value={editForm.chronicConditions} onChangeText={t => setEditForm({ ...editForm, chronicConditions: t })} placeholder="e.g. Diabetes, Hypertension" />
+                                        </View>
+                                        <View>
+                                            <Text style={styles.label}>Medical Notes</Text>
+                                            <TextInput style={styles.input} value={editForm.medicalNotes} onChangeText={t => setEditForm({ ...editForm, medicalNotes: t })} placeholder="Internal medical notes" />
+                                        </View>
+
+                                        {/* Emergency Contacts */}
+                                        <View style={{ marginTop: 8 }}>
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                                                <Text style={{ fontWeight: '700', fontSize: 12, color: '#374151' }}>👨‍👩‍👧 Emergency Contacts</Text>
+                                                <TouchableOpacity
+                                                    style={[styles.btnSecondary, { paddingVertical: 3, paddingHorizontal: 10, backgroundColor: '#f0fdf4', borderColor: '#86efac' }]}
+                                                    onPress={() => setEditForm({ ...editForm, relatives: [...editForm.relatives, { name: '', relation: '', phone: '' }] })}
+                                                >
+                                                    <Text style={{ fontSize: 11, color: '#16a34a', fontWeight: 'bold' }}>+ Add</Text>
+                                                </TouchableOpacity>
+                                            </View>
+                                            {editForm.relatives.map((rel, idx) => (
+                                                <View key={idx} style={{ padding: 8, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 6, marginBottom: 6 }}>
+                                                    <TextInput style={[styles.input, { marginBottom: 4 }]} placeholder="Contact Name" value={rel.name} onChangeText={t => { const r = [...editForm.relatives]; r[idx].name = t; setEditForm({ ...editForm, relatives: r }); }} />
+                                                    <TextInput style={[styles.input, { marginBottom: 4 }]} placeholder="Relation e.g. Spouse / Brother" value={rel.relation} onChangeText={t => { const r = [...editForm.relatives]; r[idx].relation = t; setEditForm({ ...editForm, relatives: r }); }} />
+                                                    <TextInput style={[styles.input, { marginBottom: 4 }]} keyboardType="phone-pad" placeholder="Phone" maxLength={10} value={rel.phone} onChangeText={t => { const r = [...editForm.relatives]; r[idx].phone = t.replace(/\D/g, '').slice(0, 10); setEditForm({ ...editForm, relatives: r }); }} />
+                                                    <TouchableOpacity style={{ alignSelf: 'flex-end', padding: 4 }} onPress={() => setEditForm({ ...editForm, relatives: editForm.relatives.filter((_, i) => i !== idx) })}>
+                                                        <Text style={{ color: '#dc2626', fontSize: 11, fontWeight: 'bold' }}>Remove</Text>
+                                                    </TouchableOpacity>
+                                                </View>
+                                            ))}
+                                        </View>
+                                    </View>
+                                </ScrollView>
+
+                                <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10, borderTopWidth: 1, borderColor: '#e2e8f0', paddingTop: 12, marginTop: 10 }}>
+                                    <TouchableOpacity style={styles.btnSecondary} onPress={() => setShowEditModal(false)}>
+                                        <Text style={styles.btnSecondaryText}>Cancel</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity style={styles.btnPrimary} onPress={handleSaveEdit} disabled={savingEdit}>
+                                        <Text style={styles.btnPrimaryText}>{savingEdit ? 'Saving…' : 'Save Changes'}</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        </View>
+                    </Modal>
+                )}
             </ScrollView>
         );
     }
@@ -1485,20 +2153,20 @@ const PatientsMode = ({ onBookToken, setPendingDownload }) => {
     return (
         <ScrollView style={{ flex: 1 }}>
             {/* Sub-Tabs Bar */}
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+            <View style={styles.subTabs}>
                 <TouchableOpacity
-                    style={[styles.btnSecondary, { paddingVertical: 8, paddingHorizontal: 14, backgroundColor: tab === 'list' ? '#6366f1' : '#f1f5f9', borderColor: tab === 'list' ? '#6366f1' : '#e2e8f0' }]}
+                    style={[styles.subTab, tab === 'list' && styles.subTabActive]}
                     onPress={() => setTab('list')}
                 >
-                    <Text style={{ color: tab === 'list' ? '#fff' : '#475569', fontWeight: 'bold', fontSize: 13 }}>
+                    <Text style={[styles.subTabText, tab === 'list' && styles.subTabTextActive]}>
                         👥 All Patients ({patients.length})
                     </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                    style={[styles.btnSecondary, { paddingVertical: 8, paddingHorizontal: 14, backgroundColor: tab === 'register' ? '#6366f1' : '#f1f5f9', borderColor: tab === 'register' ? '#6366f1' : '#e2e8f0' }]}
+                    style={[styles.subTab, tab === 'register' && styles.subTabActive]}
                     onPress={() => setTab('register')}
                 >
-                    <Text style={{ color: tab === 'register' ? '#fff' : '#475569', fontWeight: 'bold', fontSize: 13 }}>
+                    <Text style={[styles.subTabText, tab === 'register' && styles.subTabTextActive]}>
                         + Register New
                     </Text>
                 </TouchableOpacity>
@@ -1512,7 +2180,7 @@ const PatientsMode = ({ onBookToken, setPendingDownload }) => {
 
             {/* TAB: LIST */}
             {tab === 'list' && (
-                <View style={styles.clinicCard}>
+                <View style={[styles.clinicCard, isMobile && styles.cardMobile]}>
                     <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
                         <TextInput
                             style={[styles.input, { flex: 1 }]}
@@ -1580,7 +2248,7 @@ const PatientsMode = ({ onBookToken, setPendingDownload }) => {
 
             {/* TAB: REGISTER */}
             {tab === 'register' && (
-                <View style={styles.clinicCard}>
+                <View style={[styles.clinicCard, isMobile && styles.cardMobile]}>
                     {justRegistered ? (
                         <View style={{ alignItems: 'center', paddingVertical: 24 }}>
                             <Text style={{ fontSize: 48, marginBottom: 8 }}>✅</Text>
@@ -1606,28 +2274,28 @@ const PatientsMode = ({ onBookToken, setPendingDownload }) => {
                     ) : (
                         <View style={{ paddingBottom: 120 }}>
                             <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 16 }}>👤 Register New Patient</Text>
-                            <View style={{ gap: 12 }}>
-                                <View>
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 14 }}>
+                                <View style={{ width: isMobile ? "100%" : "48.5%" }}>
                                     <Text style={styles.label}>Full Name *</Text>
                                     <TextInput style={styles.input} placeholder="Patient's full name" value={form.name} onChangeText={t => setForm({ ...form, name: t })} maxLength={50} />
                                 </View>
-                                <View>
+                                <View style={{ width: isMobile ? "100%" : "48.5%" }}>
                                     <Text style={styles.label}>Phone *</Text>
                                     <TextInput style={styles.input} keyboardType="phone-pad" placeholder="10-digit mobile number" maxLength={10} value={form.phone} onChangeText={t => setForm({ ...form, phone: t.replace(/\D/g, '').slice(0, 10) })} />
                                 </View>
-                                <View>
+                                <View style={{ width: isMobile ? "100%" : "48.5%" }}>
                                     <Text style={styles.label}>Age *</Text>
                                     <TextInput style={styles.input} keyboardType="numeric" placeholder="Age" maxLength={3} value={form.age} onChangeText={t => setForm({ ...form, age: t.replace(/\D/g, '').slice(0, 3) })} />
                                 </View>
-                                <View>
+                                <View style={{ width: isMobile ? "100%" : "48.5%" }}>
                                     <Text style={styles.label}>Aadhaar Number *</Text>
                                     <TextInput style={styles.input} keyboardType="numeric" placeholder="12-digit Aadhaar" maxLength={12} value={form.aadhaarNumber} onChangeText={t => setForm({ ...form, aadhaarNumber: t.replace(/\D/g, '').slice(0, 12) })} />
                                 </View>
-                                <View>
+                                <View style={{ width: isMobile ? "100%" : "48.5%" }}>
                                     <Text style={styles.label}>Email *</Text>
                                     <TextInput style={styles.input} keyboardType="email-address" placeholder="Enter Email" value={form.email} onChangeText={t => setForm({ ...form, email: t })} />
                                 </View>
-                                <View>
+                                <View style={{ width: isMobile ? "100%" : "48.5%" }}>
                                     <Text style={styles.label}>Date of Birth *</Text>
                                     <DatePickerInput
                                         value={form.dob}
@@ -1636,59 +2304,57 @@ const PatientsMode = ({ onBookToken, setPendingDownload }) => {
                                         title="Date of Birth"
                                     />
                                 </View>
-                                <View>
+                                <View style={{ width: isMobile ? "100%" : "48.5%", zIndex: 100 }}>
                                     <Text style={styles.label}>Gender *</Text>
-                                    <View style={styles.pickerWrapper}>
-                                        <Picker selectedValue={form.gender} onValueChange={v => setForm({ ...form, gender: v })}>
-                                            <Picker.Item label="Select Gender" value="" />
-                                            <Picker.Item label="Male" value="Male" />
-                                            <Picker.Item label="Female" value="Female" />
-                                            <Picker.Item label="Other" value="Other" />
-                                        </Picker>
-                                    </View>
+                                    <CustomSelectDropdown
+                                        value={form.gender}
+                                        placeholder="Select Gender"
+                                        options={['Male', 'Female', 'Other']}
+                                        onSelect={v => setForm({ ...form, gender: v })}
+                                    />
                                 </View>
-                                <View>
+                                <View style={{ width: isMobile ? "100%" : "48.5%", zIndex: 99 }}>
                                     <Text style={styles.label}>Blood Group</Text>
-                                    <View style={styles.pickerWrapper}>
-                                        <Picker selectedValue={form.bloodGroup} onValueChange={v => setForm({ ...form, bloodGroup: v })}>
-                                            <Picker.Item label="Unknown" value="" />
-                                            <Picker.Item label="A+" value="A+" />
-                                            <Picker.Item label="A-" value="A-" />
-                                            <Picker.Item label="B+" value="B+" />
-                                            <Picker.Item label="B-" value="B-" />
-                                            <Picker.Item label="AB+" value="AB+" />
-                                            <Picker.Item label="AB-" value="AB-" />
-                                            <Picker.Item label="O+" value="O+" />
-                                            <Picker.Item label="O-" value="O-" />
-                                        </Picker>
+                                    <CustomSelectDropdown
+                                        value={form.bloodGroup}
+                                        placeholder="Select Blood Group"
+                                        options={['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']}
+                                        onSelect={v => setForm({ ...form, bloodGroup: v })}
+                                    />
+                                </View>
+                                {/* Address / City / State / Pincode Grouped Row (1:1 Web Parity) */}
+                                <View style={{ width: "100%", marginTop: 4 }}>
+                                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                                        <View style={{ flex: isMobile ? undefined : 2, width: isMobile ? "100%" : undefined, minWidth: isMobile ? "100%" : 180 }}>
+                                            <Text style={styles.label}>Address *</Text>
+                                            <TextInput style={styles.input} placeholder="Enter Address" value={form.address} onChangeText={t => setForm({ ...form, address: t })} maxLength={50} />
+                                        </View>
+                                        <View style={{ flex: isMobile ? undefined : 1, width: isMobile ? "47%" : undefined, minWidth: isMobile ? "47%" : 120 }}>
+                                            <Text style={styles.label}>City *</Text>
+                                            <TextInput style={styles.input} placeholder="Enter City" value={form.city} onChangeText={t => setForm({ ...form, city: t.replace(/[0-9]/g, '') })} maxLength={20} />
+                                        </View>
+                                        <View style={{ flex: isMobile ? undefined : 1, width: isMobile ? "47%" : undefined, minWidth: isMobile ? "47%" : 120 }}>
+                                            <Text style={styles.label}>State *</Text>
+                                            <TextInput style={styles.input} placeholder="Enter State" value={form.state} onChangeText={t => setForm({ ...form, state: t.replace(/[0-9]/g, '') })} maxLength={15} />
+                                        </View>
+                                        <View style={{ flex: isMobile ? undefined : 1, width: isMobile ? "100%" : undefined, minWidth: isMobile ? "100%" : 100 }}>
+                                            <Text style={styles.label}>Pincode</Text>
+                                            <TextInput style={styles.input} keyboardType="numeric" placeholder="Enter Pincode" value={form.pincode} onChangeText={t => setForm({ ...form, pincode: t.replace(/\D/g, '') })} maxLength={6} />
+                                        </View>
                                     </View>
                                 </View>
-                                <View>
-                                    <Text style={styles.label}>Address *</Text>
-                                    <TextInput style={styles.input} placeholder="Enter Address" value={form.address} onChangeText={t => setForm({ ...form, address: t })} maxLength={50} />
-                                </View>
-                                <View>
-                                    <Text style={styles.label}>City *</Text>
-                                    <TextInput style={styles.input} placeholder="Enter City" value={form.city} onChangeText={t => setForm({ ...form, city: t.replace(/[0-9]/g, '') })} maxLength={20} />
-                                </View>
-                                <View>
-                                    <Text style={styles.label}>State *</Text>
-                                    <TextInput style={styles.input} placeholder="Enter State" value={form.state} onChangeText={t => setForm({ ...form, state: t.replace(/[0-9]/g, '') })} maxLength={15} />
-                                </View>
-                                <View>
-                                    <Text style={styles.label}>Pincode</Text>
-                                    <TextInput style={styles.input} keyboardType="numeric" placeholder="Enter Pincode" value={form.pincode} onChangeText={t => setForm({ ...form, pincode: t.replace(/\D/g, '') })} maxLength={6} />
-                                </View>
-                                <View>
+                                {/* Known Allergies (Full Width 1:1 Web Parity) */}
+                                <View style={{ width: "100%" }}>
                                     <Text style={styles.label}>Known Allergies</Text>
                                     <TextInput style={styles.input} placeholder="e.g. Penicillin, Dust (optional)" value={form.allergies} onChangeText={t => setForm({ ...form, allergies: t })} maxLength={100} />
                                 </View>
-                                <View>
+                                {/* Chronic Conditions (Full Width 1:1 Web Parity) */}
+                                <View style={{ width: "100%" }}>
                                     <Text style={styles.label}>Chronic Conditions</Text>
                                     <TextInput style={styles.input} placeholder="e.g. Diabetes, Hypertension (optional)" value={form.chronicConditions} onChangeText={t => setForm({ ...form, chronicConditions: t })} maxLength={100} />
                                 </View>
 
-                                <View style={{ marginTop: 8 }}>
+                                <View style={{ width: "100%", marginTop: 8 }}>
                                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
                                         <Text style={{ fontWeight: 'bold', fontSize: 13, color: '#374151' }}>👨‍👩‍👧 Relatives / Emergency Contacts</Text>
                                         <TouchableOpacity style={[styles.btnSecondary, { paddingVertical: 4, paddingHorizontal: 12, backgroundColor: '#f0fdf4', borderColor: '#86efac' }]} onPress={() => setForm(f => ({ ...f, relatives: [...f.relatives, { name: '', relation: '', phone: '' }] }))}>
@@ -1700,25 +2366,62 @@ const PatientsMode = ({ onBookToken, setPendingDownload }) => {
                                             <Text style={{ fontSize: 12, color: '#94a3b8' }}>No contacts added. Click "+ Add Contact" to add a relative or emergency contact.</Text>
                                         </View>
                                     ) : (
-                                        form.relatives.map((rel, idx) => (
-                                            <View key={idx} style={{ padding: 10, backgroundColor: idx % 2 === 0 ? '#fff' : '#f8fafc', borderWidth: 1, borderColor: '#f1f5f9', borderRadius: 8, marginBottom: 8 }}>
-                                                <TextInput style={[styles.input, { marginBottom: 4 }]} placeholder="Name e.g. Ramesh Kumar" value={rel.name} onChangeText={t => { const r = [...form.relatives]; r[idx].name = t; setForm({ ...form, relatives: r }); }} />
-                                                <View style={[styles.pickerWrapper, { marginBottom: 4 }]}>
-                                                    <Picker selectedValue={rel.relation} onValueChange={v => { const r = [...form.relatives]; r[idx].relation = v; setForm({ ...form, relatives: r }); }}>
-                                                        <Picker.Item label="Select Relation" value="" />
-                                                        {['Father', 'Mother', 'Spouse', 'Son', 'Daughter', 'Brother', 'Sister', 'Guardian', 'Friend', 'Other'].map(r => <Picker.Item key={r} label={r} value={r} />)}
-                                                    </Picker>
+                                        <ScrollView horizontal showsHorizontalScrollIndicator={true}>
+                                            <View style={{ width: '100%', minWidth: isNarrow ? 480 : '100%', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'visible' }}>
+                                                {/* Relatives Table Header */}
+                                                <View style={{ flexDirection: 'row', backgroundColor: '#f1f5f9', borderBottomWidth: 1, borderColor: '#e2e8f0', paddingVertical: 8, paddingHorizontal: 10 }}>
+                                                    <Text style={{ flex: 1.2, fontWeight: '700', fontSize: 13, color: '#374151' }}>Name</Text>
+                                                    <Text style={{ flex: 1, fontWeight: '700', fontSize: 13, color: '#374151' }}>Relation</Text>
+                                                    <Text style={{ flex: 1, fontWeight: '700', fontSize: 13, color: '#374151' }}>Phone</Text>
+                                                    <View style={{ width: 40, alignItems: 'center' }} />
                                                 </View>
-                                                <TextInput style={[styles.input, { marginBottom: 4 }]} keyboardType="phone-pad" placeholder="10-digit number" value={rel.phone} maxLength={10} onChangeText={t => { const r = [...form.relatives]; r[idx].phone = t.replace(/\D/g, '').slice(0, 10); setForm({ ...form, relatives: r }); }} />
-                                                <TouchableOpacity style={{ backgroundColor: '#fee2e2', alignSelf: 'flex-end', padding: 6, borderRadius: 4 }} onPress={() => setForm(f => ({ ...f, relatives: f.relatives.filter((_, i) => i !== idx) }))}>
-                                                    <Text style={{ color: '#dc2626', fontSize: 12, fontWeight: 'bold' }}>Remove</Text>
-                                                </TouchableOpacity>
+                                                {/* Relatives Table Rows */}
+                                                {form.relatives.map((rel, idx) => (
+                                                    <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 8, borderBottomWidth: 1, borderColor: '#f1f5f9', backgroundColor: idx % 2 === 0 ? '#fff' : '#f8fafc', gap: 8, zIndex: 100 - idx }}>
+                                                        <View style={{ flex: 1.2 }}>
+                                                            <TextInput
+                                                                value={rel.name}
+                                                                onChangeText={t => { const r = [...form.relatives]; r[idx] = { ...r[idx], name: t }; setForm({ ...form, relatives: r }); }}
+                                                                placeholder="e.g. Ramesh Kumar"
+                                                                placeholderTextColor="#94a3b8"
+                                                                style={{ width: '100%', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 5, paddingVertical: 5, paddingHorizontal: 7, fontSize: 12, backgroundColor: '#fff', color: '#1e293b' }}
+                                                            />
+                                                        </View>
+                                                        <View style={{ flex: 1 }}>
+                                                            <TableDropdown
+                                                                value={rel.relation}
+                                                                placeholder="Select..."
+                                                                options={['Father', 'Mother', 'Spouse', 'Son', 'Daughter', 'Brother', 'Sister', 'Guardian', 'Friend', 'Other']}
+                                                                onSelect={rVal => { const r = [...form.relatives]; r[idx] = { ...r[idx], relation: rVal }; setForm({ ...form, relatives: r }); }}
+                                                            />
+                                                        </View>
+                                                        <View style={{ flex: 1 }}>
+                                                            <TextInput
+                                                                value={rel.phone}
+                                                                keyboardType="phone-pad"
+                                                                placeholder="10-digit number"
+                                                                placeholderTextColor="#94a3b8"
+                                                                maxLength={10}
+                                                                onChangeText={t => { const r = [...form.relatives]; r[idx] = { ...r[idx], phone: t.replace(/\D/g, '').slice(0, 10) }; setForm({ ...form, relatives: r }); }}
+                                                                style={{ width: '100%', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 5, paddingVertical: 5, paddingHorizontal: 7, fontSize: 12, backgroundColor: '#fff', color: '#1e293b' }}
+                                                            />
+                                                        </View>
+                                                        <View style={{ width: 40, alignItems: 'center' }}>
+                                                            <TouchableOpacity
+                                                                onPress={() => setForm(f => ({ ...f, relatives: f.relatives.filter((_, i) => i !== idx) }))}
+                                                                style={{ backgroundColor: '#fee2e2', borderRadius: 4, width: 24, height: 24, alignItems: 'center', justifyContent: 'center' }}
+                                                            >
+                                                                <Text style={{ color: '#dc2626', fontSize: 14, fontWeight: 'bold' }}>×</Text>
+                                                            </TouchableOpacity>
+                                                        </View>
+                                                    </View>
+                                                ))}
                                             </View>
-                                        ))
+                                        </ScrollView>
                                     )}
                                 </View>
 
-                                <TouchableOpacity style={[styles.btnPrimary, { marginTop: 16 }]} onPress={handleRegister} disabled={saving}>
+                                <TouchableOpacity style={[styles.btnPrimary, { width: "100%", marginTop: 16 }]} onPress={handleRegister} disabled={saving}>
                                     <Text style={styles.btnPrimaryText}>{saving ? 'Registering...' : '✅ Register Patient'}</Text>
                                 </TouchableOpacity>
                             </View>
@@ -1868,11 +2571,11 @@ const BookTokenForm = ({ patient, onBook, onCancel, flash, mode = 'token', defau
     const bgColor = isSlotMode ? '#eff6ff' : '#f0fdf4';
 
     return (
-        <View style={{ backgroundColor: bgColor, borderWidth: 1, borderColor: borderColor, borderRadius: 10, padding: 14, marginTop: 8 }}>
-            <View style={{ backgroundColor: '#e0f2fe', borderColor: '#bae6fd', borderWidth: 1, borderRadius: 6, padding: 8, marginBottom: 10, flexDirection: 'row', alignItems: 'center' }}>
+        <View style={{ backgroundColor: bgColor, borderWidth: 1, borderColor: borderColor, borderRadius: 10, paddingVertical: 14, paddingHorizontal: 16, marginTop: 8 }}>
+            <View style={{ backgroundColor: '#e0f2fe', borderColor: '#bae6fd', borderWidth: 1, borderRadius: 6, paddingVertical: 6, paddingHorizontal: 10, marginBottom: 10, flexDirection: 'row', alignItems: 'center' }}>
                 <Text>💰 </Text>
                 <Text style={{ fontSize: 12, color: '#0369a1', flexShrink: 1 }}>
-                    <Text style={{ fontWeight: 'bold' }}>Payment is collected upfront.</Text> Token / appointment confirmed after fee is paid.
+                    <Text style={{ fontWeight: 'bold' }}>Payment is collected upfront.</Text> Token / appointment is confirmed only after fee is paid.
                 </Text>
             </View>
 
@@ -2015,14 +2718,43 @@ const ReceptionMode = ({ preselectedPatient, clearPreselected, setPendingDownloa
     // search changes are handled by a separate 200ms debounced useEffect (patients-only).
     const loadAll = useCallback(() => {
         setLoading(true);
-        Promise.all([
+        console.log('[ClinicDashboard][reception] START');
+        Promise.allSettled([
             clinicAPI.getPatients(search),
             clinicAPI.getAppointments(today),
         ]).then(([pr, ar]) => {
-            if (pr.success) setPatients(pr.patients);
-            if (ar.success) setAppointments(ar.appointments);
-        }).catch(console.error).finally(() => setLoading(false));
-    }, [today]); // eslint-disable-line react-hooks/exhaustive-deps
+            if (pr.status === 'fulfilled' && pr.value?.success) {
+                const pList = pr.value.patients || [];
+                console.log('[ClinicDashboard][receptionPatients] STATUS', 200);
+                console.log('[ClinicDashboard][receptionPatients] DATA_KEYS', Object.keys(pList[0] || {}));
+                setPatients(pList);
+                console.log('[ClinicDashboard][receptionPatients] SET_STATE');
+            } else if (pr.status === 'rejected') {
+                const err = pr.reason;
+                const status = err?.response?.status || 'FAIL';
+                const message = err?.response?.data?.message || err?.message;
+                console.log('[ClinicDashboard][receptionPatients] ERROR', { status, message });
+            }
+
+            if (ar.status === 'fulfilled' && ar.value?.success) {
+                const aList = ar.value.appointments || [];
+                console.log('[ClinicDashboard][receptionAppointments] STATUS', 200);
+                console.log('[ClinicDashboard][receptionAppointments] DATA_KEYS', Object.keys(aList[0] || {}));
+                setAppointments(aList);
+                console.log('[ClinicDashboard][receptionAppointments] SET_STATE');
+            } else if (ar.status === 'rejected') {
+                const err = ar.reason;
+                const status = err?.response?.status || 'FAIL';
+                const message = err?.response?.data?.message || err?.message;
+                console.log('[ClinicDashboard][receptionAppointments] ERROR', { status, message });
+            }
+        }).catch(err => {
+            console.log('[ClinicDashboard][reception] ERROR', {
+                status: err?.response?.status,
+                message: err?.response?.data?.message || err?.message
+            });
+        }).finally(() => setLoading(false));
+    }, [today, search]);
 
     useEffect(() => {
         clinicAPI.getConfig().then(r => {
@@ -2114,13 +2846,22 @@ const ReceptionMode = ({ preselectedPatient, clearPreselected, setPendingDownloa
         <ScrollView style={{ flex: 1 }}>
             {msg.text ? <View style={{ padding: 10, backgroundColor: msg.type === 'error' ? '#fee2e2' : '#dcfce7', marginBottom: 10, borderRadius: 6 }}><Text style={{ color: msg.type === 'error' ? '#dc2626' : '#16a34a' }}>{msg.text}</Text></View> : null}
 
-            <View style={[styles.clinicCard, { marginBottom: 14 }]}>
+            <View style={[styles.clinicCard, { marginBottom: isMobile ? 12 : 14 }, isMobile && styles.cardMobile]}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                     <View>
-                        <Text style={{ fontSize: 16, fontWeight: 'bold' }}>📋 Reception</Text>
-                        <Text style={{ color: '#64748b', fontSize: 12, marginTop: 3 }}>
-                            {activeTokens.length} {isSlotMode ? 'scheduled' : 'in queue'} · {doneToday.length} done · {patients.length} total
+                        <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#0f172a' }}>
+                            📋 Reception — {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })}
                         </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 3 }}>
+                            <Text style={{ color: '#64748b', fontSize: 12 }}>
+                                {activeTokens.length} {isSlotMode ? 'scheduled' : 'in queue'} · {doneToday.length} done today · {patients.length} total patients
+                            </Text>
+                            <View style={{ backgroundColor: isSlotMode ? '#dbeafe' : '#fef3c7', paddingHorizontal: 8, paddingVertical: 1, borderRadius: 10 }}>
+                                <Text style={{ color: isSlotMode ? '#1d4ed8' : '#92400e', fontSize: 11, fontWeight: '700' }}>
+                                    {isSlotMode ? '🕐 Time Slots' : '🎟️ Tokens'}
+                                </Text>
+                            </View>
+                        </View>
                     </View>
                     <TouchableOpacity style={styles.btnSecondary} onPress={loadAll}>
                         <Text style={styles.btnSecondaryText}>↻ Refresh</Text>
@@ -2128,33 +2869,48 @@ const ReceptionMode = ({ preselectedPatient, clearPreselected, setPendingDownloa
                 </View>
 
                 <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-                    <TextInput style={[styles.input, { flex: 1 }]} placeholder="Search patient..." value={search} onChangeText={setSearch} onSubmitEditing={handleSearch} />
+                    <TextInput style={[styles.input, { flex: 1 }]} placeholder="Search patient by name, phone, patient ID or Aadhaar..." value={search} onChangeText={setSearch} onSubmitEditing={handleSearch} />
                     <TouchableOpacity style={styles.btnSecondary} onPress={handleSearch} disabled={searching}>
                         <Text>{searching ? '...' : '🔍'}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.btnPrimary} onPress={() => setShowQuickReg(!showQuickReg)}>
-                        <Text style={styles.btnPrimaryText}>+ New</Text>
+                        <Text style={styles.btnPrimaryText}>+ New Patient</Text>
                     </TouchableOpacity>
                 </View>
 
                 {showQuickReg && (
-                    <View style={{ marginTop: 12, borderWidth: 1, borderColor: '#c7d2fe', borderRadius: 10, padding: 14, backgroundColor: '#fafbff' }}>
+                    <View style={{ marginTop: 12, borderWidth: 1, borderColor: '#c7d2fe', borderRadius: 10, paddingVertical: 14, paddingHorizontal: 16, backgroundColor: '#fafbff' }}>
                         <Text style={{ fontWeight: 'bold', fontSize: 13, marginBottom: 10, color: '#6366f1' }}>Quick Register New Patient</Text>
-                        <View style={{ gap: 8 }}>
-                            <TextInput style={styles.input} placeholder="Full Name" value={qrForm.name} onChangeText={t => setQrForm({ ...qrForm, name: t })} />
-                            <TextInput style={styles.input} keyboardType="phone-pad" placeholder="10-digit Phone" value={qrForm.phone} maxLength={10} onChangeText={t => setQrForm({ ...qrForm, phone: t.replace(/\D/g, '').slice(0, 10) })} />
-                            <TextInput style={styles.input} keyboardType="numeric" placeholder="Age" value={qrForm.age} maxLength={3} onChangeText={t => setQrForm({ ...qrForm, age: t.replace(/\D/g, '').slice(0, 3) })} />
-                            <TextInput style={styles.input} keyboardType="email-address" placeholder="Email" value={qrForm.email} onChangeText={t => setQrForm({ ...qrForm, email: t })} />
-                            <View style={styles.pickerWrapper}>
-                                <Picker selectedValue={qrForm.gender} onValueChange={v => setQrForm({ ...qrForm, gender: v })}>
-                                    <Picker.Item label="Male" value="Male" />
-                                    <Picker.Item label="Female" value="Female" />
-                                    <Picker.Item label="Other" value="Other" />
-                                </Picker>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, alignItems: isMobile ? 'stretch' : 'flex-end' }}>
+                                <View style={{ flex: isMobile ? undefined : 2, width: isMobile ? "100%" : undefined, minWidth: isMobile ? "100%" : 150 }}>
+                                <Text style={{ fontSize: 11, color: "#64748b", marginBottom: 3 }}>Full Name *</Text>
+                                <TextInput style={styles.input} placeholder="Patient name" value={qrForm.name} onChangeText={t => setQrForm({ ...qrForm, name: t })} />
                             </View>
-                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                            <View style={{ flex: isMobile ? undefined : 1, width: isMobile ? "47%" : undefined, minWidth: isMobile ? "47%" : 130 }}>
+                                <Text style={{ fontSize: 11, color: "#64748b", marginBottom: 3 }}>Phone *</Text>
+                                <TextInput style={styles.input} keyboardType="phone-pad" placeholder="10-digit number" value={qrForm.phone} maxLength={10} onChangeText={t => setQrForm({ ...qrForm, phone: t.replace(/\D/g, '').slice(0, 10) })} />
+                            </View>
+                            <View style={{ flex: isMobile ? undefined : 1, width: isMobile ? "47%" : undefined, minWidth: isMobile ? "47%" : 70 }}>
+                                <Text style={{ fontSize: 11, color: "#64748b", marginBottom: 3 }}>Age *</Text>
+                                <TextInput style={styles.input} keyboardType="numeric" placeholder="Age" value={qrForm.age} maxLength={3} onChangeText={t => setQrForm({ ...qrForm, age: t.replace(/\D/g, '').slice(0, 3) })} />
+                            </View>
+                            <View style={{ flex: isMobile ? undefined : 1, width: isMobile ? "100%" : undefined, minWidth: isMobile ? "100%" : 130 }}>
+                                <Text style={{ fontSize: 11, color: "#64748b", marginBottom: 3 }}>Email *</Text>
+                                <TextInput style={styles.input} keyboardType="email-address" placeholder="Email" value={qrForm.email} onChangeText={t => setQrForm({ ...qrForm, email: t })} />
+                            </View>
+                            <View style={{ flex: isMobile ? undefined : 1, width: isMobile ? "100%" : undefined, minWidth: isMobile ? "100%" : 110 }}>
+                                <Text style={{ fontSize: 11, color: "#64748b", marginBottom: 3 }}>Gender</Text>
+                                <View style={styles.pickerWrapper}>
+                                    <Picker selectedValue={qrForm.gender} onValueChange={v => setQrForm({ ...qrForm, gender: v })}>
+                                        <Picker.Item label="Male" value="Male" />
+                                        <Picker.Item label="Female" value="Female" />
+                                        <Picker.Item label="Other" value="Other" />
+                                    </Picker>
+                                </View>
+                            </View>
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
                                 <TouchableOpacity style={styles.btnPrimary} onPress={handleQuickRegister} disabled={qrSaving}>
-                                    <Text style={styles.btnPrimaryText}>{qrSaving ? '...' : '✅ Register & Book'}</Text>
+                                    <Text style={styles.btnPrimaryText}>{qrSaving ? '...' : (isSlotMode ? '✅ Register & Book' : '✅ Register & Assign Token')}</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity style={styles.btnSecondary} onPress={() => setShowQuickReg(false)}>
                                     <Text style={styles.btnSecondaryText}>Cancel</Text>
@@ -2182,13 +2938,26 @@ const ReceptionMode = ({ preselectedPatient, clearPreselected, setPendingDownloa
                         const isExpanding = assigningFor === p._id;
 
                         return (
-                            <View style={{ borderWidth: 1, borderColor: hasToken ? '#bbf7d0' : '#e2e8f0', borderRadius: 10, padding: 12, backgroundColor: hasToken ? '#f0fdf4' : isDone ? '#f8fafc' : '#fff' }}>
-                                <View style={{ flexDirection: isNarrow ? 'column' : 'row', alignItems: isNarrow ? 'flex-start' : 'center', justifyContent: 'space-between', gap: isNarrow ? 8 : 10 }}>
-                                    <View style={{ flex: 1, minWidth: 0 }}>
-                                        <Text style={{ fontWeight: 'bold', fontSize: 14 }}>{p.name}</Text>
-                                        <Text style={{ fontSize: 12, color: '#64748b' }}>
-                                            {p.patientUid} · {p.phone} {p.gender ? `· ${p.gender}` : ''}
-                                        </Text>
+                            <View style={{ borderWidth: 1, borderColor: hasToken ? '#bbf7d0' : '#e2e8f0', borderRadius: 10, paddingVertical: 12, paddingHorizontal: 16, backgroundColor: hasToken ? '#f0fdf4' : isDone ? '#f8fafc' : '#fff' }}>
+                                <View style={{ flexDirection: isNarrow ? 'column' : 'row', alignItems: isNarrow ? 'flex-start' : 'center', justifyContent: 'space-between', gap: isNarrow ? 8 : 12 }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+                                        <View style={styles.clinicAvatarSm}>
+                                            <Text style={{ color: '#6366f1', fontWeight: '700', fontSize: 14 }}>{p.name?.charAt(0)?.toUpperCase()}</Text>
+                                        </View>
+                                        <View style={{ flex: 1, minWidth: 0 }}>
+                                            <Text style={{ fontWeight: '700', fontSize: 14, color: '#0f172a' }}>{p.name}</Text>
+                                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                                                <View style={{ backgroundColor: '#eef2ff', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4 }}>
+                                                    <Text style={{ color: '#6366f1', fontWeight: '700', fontSize: 11 }}>{p.patientUid}</Text>
+                                                </View>
+                                                <Text style={{ fontSize: 12, color: '#64748b' }}>{p.phone}{p.gender ? ` · ${p.gender}` : ''}</Text>
+                                                {p.bloodGroup ? (
+                                                    <View style={{ backgroundColor: '#fee2e2', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 3 }}>
+                                                        <Text style={{ color: '#dc2626', fontSize: 11, fontWeight: '600' }}>🩸 {p.bloodGroup}</Text>
+                                                    </View>
+                                                ) : null}
+                                            </View>
+                                        </View>
                                     </View>
                                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center', alignSelf: isNarrow ? 'flex-start' : 'center' }}>
                                         {hasToken && (
@@ -2196,8 +2965,9 @@ const ReceptionMode = ({ preselectedPatient, clearPreselected, setPendingDownloa
                                                 <Text style={{ backgroundColor: isSlotMode ? '#3b82f6' : '#6366f1', color: '#fff', fontWeight: 'bold', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 6, fontSize: 13 }}>
                                                     {isSlotMode ? `🕐 ${appt.appointmentTime}` : `#${appt.tokenNumber}`}
                                                 </Text>
-                                                <TouchableOpacity onPress={() => cancelAppt(appt._id)} style={{ backgroundColor: '#fee2e2', padding: 4, borderRadius: 4 }}>
-                                                    <Text style={{ color: '#dc2626', fontSize: 12, fontWeight: 'bold' }}>✕</Text>
+                                                <StatusBadge status={appt.status} />
+                                                <TouchableOpacity onPress={() => cancelAppt(appt._id)} style={styles.btnRemove}>
+                                                    <Text style={styles.btnRemoveText}>✕</Text>
                                                 </TouchableOpacity>
                                             </>
                                         )}
@@ -2211,7 +2981,7 @@ const ReceptionMode = ({ preselectedPatient, clearPreselected, setPendingDownloa
                                         </TouchableOpacity>
                                         {!hasToken && (
                                             <TouchableOpacity style={styles.btnPrimary} onPress={() => setAssigningFor(isExpanding ? null : p._id)}>
-                                                <Text style={styles.btnPrimaryText}>{isExpanding ? '✕ Cancel' : isDone ? '🎟️ Rebook' : isSlotMode ? '🕐 Book Slot' : '🎟️ Assign Token'}</Text>
+                                                <Text style={styles.btnPrimaryText}>{isExpanding ? '✕ Cancel' : isDone ? '🎟️ Rebook / Assign Token' : isSlotMode ? '🕐 Book Slot' : '🎟️ Assign Token'}</Text>
                                             </TouchableOpacity>
                                         )}
                                     </View>
@@ -2277,8 +3047,8 @@ const MedicineTable = ({ rx, setRx, inventory }) => {
             {!isMobile && (
                 <View style={{ flexDirection: 'row', backgroundColor: '#f1f5f9', paddingVertical: 8, borderBottomWidth: 1, borderColor: '#e2e8f0' }}>
                     <Text style={{ flex: 3, paddingHorizontal: 8, fontWeight: '700', color: '#374151', fontSize: 12 }}>Medicine Name</Text>
-                    <Text style={{ flex: 2, paddingHorizontal: 8, fontWeight: '700', color: '#374151', fontSize: 12 }}>Salt/Generic</Text>
-                    <Text style={{ flex: 2, paddingHorizontal: 8, fontWeight: '700', color: '#374151', fontSize: 12 }}>Dose</Text>
+                    <Text style={{ flex: 2, paddingHorizontal: 8, fontWeight: '700', color: '#374151', fontSize: 12 }}>Salt / Generic</Text>
+                    <Text style={{ flex: 2, paddingHorizontal: 8, fontWeight: '700', color: '#374151', fontSize: 12 }}>Dose / Frequency</Text>
                     <Text style={{ flex: 1, paddingHorizontal: 8, fontWeight: '700', color: '#374151', fontSize: 12 }}>Days</Text>
                     <Text style={{ width: 40, paddingHorizontal: 8, fontWeight: '700', color: '#374151', fontSize: 12, textAlign: 'center' }}>X</Text>
                 </View>
@@ -2303,7 +3073,7 @@ const MedicineTable = ({ rx, setRx, inventory }) => {
                                         onFocus={() => setActiveRow(idx)}
                                         onBlur={handleNameBlur}
                                         placeholder="Search medicine..."
-                                        style={[styles.input, { paddingVertical: 6, paddingHorizontal: 8, fontSize: 13, borderColor: showDropdown ? '#6366f1' : '#e2e8f0' }]}
+                                        style={[styles.rxInput, showDropdown && { borderColor: '#6366f1' }]}
                                     />
                                     {showDropdown && (
                                         <View style={{ position: 'absolute', top: '100%', left: 0, right: 0, backgroundColor: '#fff', borderWidth: 1, borderColor: '#6366f1', borderRadius: 6, zIndex: 999, elevation: 6, maxHeight: 160 }}>
@@ -2343,16 +3113,16 @@ const MedicineTable = ({ rx, setRx, inventory }) => {
                                         value={m.saltName || ''}
                                         onChangeText={val => setRx(r => { const ms = [...r.medicines]; ms[idx] = { ...ms[idx], saltName: val }; return { ...r, medicines: ms }; })}
                                         placeholder="Paracetamol"
-                                        style={[styles.input, { paddingVertical: 4, paddingHorizontal: 6, fontSize: 12 }]}
+                                        style={styles.rxInput}
                                     />
                                 </View>
                                 <View style={{ flex: 2 }}>
-                                    <Text style={{ fontSize: 10, color: '#64748b', fontWeight: '600', marginBottom: 2 }}>Dose</Text>
+                                    <Text style={{ fontSize: 10, color: '#64748b', fontWeight: '600', marginBottom: 2 }}>Dose / Frequency</Text>
                                     <TextInput
                                         value={m.dose || m.dosage || ''}
                                         onChangeText={val => setRx(r => { const ms = [...r.medicines]; ms[idx] = { ...ms[idx], dose: val }; return { ...r, medicines: ms }; })}
                                         placeholder="1 OD"
-                                        style={[styles.input, { paddingVertical: 4, paddingHorizontal: 6, fontSize: 12 }]}
+                                        style={styles.rxInput}
                                     />
                                 </View>
                                 <View style={{ width: 60 }}>
@@ -2362,7 +3132,7 @@ const MedicineTable = ({ rx, setRx, inventory }) => {
                                         onChangeText={val => setRx(r => { const ms = [...r.medicines]; ms[idx] = { ...ms[idx], days: val }; return { ...r, medicines: ms }; })}
                                         placeholder="5"
                                         keyboardType="numeric"
-                                        style={[styles.input, { paddingVertical: 4, paddingHorizontal: 6, fontSize: 12, textAlign: 'center' }]}
+                                        style={[styles.rxInput, { textAlign: 'center' }]}
                                     />
                                 </View>
                             </View>
@@ -2381,7 +3151,7 @@ const MedicineTable = ({ rx, setRx, inventory }) => {
                                     onFocus={() => setActiveRow(idx)}
                                     onBlur={handleNameBlur}
                                     placeholder="Search medicine..."
-                                    style={[styles.input, { paddingVertical: 4, paddingHorizontal: 6, fontSize: 12, borderColor: showDropdown ? '#6366f1' : '#e2e8f0' }]}
+                                    style={[styles.rxInput, showDropdown && { borderColor: '#6366f1' }]}
                                 />
                                 {showDropdown && (
                                     <View style={{ position: 'absolute', top: '100%', left: 4, right: 4, backgroundColor: '#fff', borderWidth: 1, borderColor: '#6366f1', borderRadius: 6, zIndex: 999, elevation: 5, maxHeight: 150 }}>
@@ -2410,7 +3180,7 @@ const MedicineTable = ({ rx, setRx, inventory }) => {
                                     value={m.saltName || ''}
                                     onChangeText={val => setRx(r => { const ms = [...r.medicines]; ms[idx] = { ...ms[idx], saltName: val }; return { ...r, medicines: ms }; })}
                                     placeholder="e.g. Paracetamol"
-                                    style={[styles.input, { paddingVertical: 4, paddingHorizontal: 6, fontSize: 12 }]}
+                                    style={styles.rxInput}
                                 />
                             </View>
 
@@ -2420,7 +3190,7 @@ const MedicineTable = ({ rx, setRx, inventory }) => {
                                     value={m.dose || m.dosage || ''}
                                     onChangeText={val => setRx(r => { const ms = [...r.medicines]; ms[idx] = { ...ms[idx], dose: val }; return { ...r, medicines: ms }; })}
                                     placeholder="e.g. 1 OD"
-                                    style={[styles.input, { paddingVertical: 4, paddingHorizontal: 6, fontSize: 12 }]}
+                                    style={styles.rxInput}
                                 />
                             </View>
 
@@ -2431,7 +3201,7 @@ const MedicineTable = ({ rx, setRx, inventory }) => {
                                     onChangeText={val => setRx(r => { const ms = [...r.medicines]; ms[idx] = { ...ms[idx], days: val }; return { ...r, medicines: ms }; })}
                                     placeholder="e.g. 5"
                                     keyboardType="numeric"
-                                    style={[styles.input, { paddingVertical: 4, paddingHorizontal: 6, fontSize: 12 }]}
+                                    style={styles.rxInput}
                                 />
                             </View>
 
@@ -2484,19 +3254,27 @@ const DoctorMode = ({ setPendingDownload }) => {
 
     const flash = (type, text) => { setMsg({ type, text }); setTimeout(() => setMsg({ type: '', text: '' }), 4000); };
 
-    const todayStr = () => {
-        const d = new Date();
-        const yyyy = d.getFullYear();
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
-        const dd = String(d.getDate()).padStart(2, '0');
-        return `${yyyy}-${mm}-${dd}`;
-    };
-
     const loadToday = () => {
         setLoading(true);
-        clinicAPI.getAppointments(todayStr())
-            .then(r => { if (r.success) setAppointments(r.appointments); })
-            .catch(console.error)
+        const dateParam = todayStr();
+        console.log('[ClinicDashboard][doctorAppointments] START');
+        clinicAPI.getAppointments(dateParam)
+            .then(r => {
+                if (r.success) {
+                    const list = r.appointments || r.data || [];
+                    console.log('[ClinicDashboard][doctorAppointments] STATUS', 200);
+                    console.log('[ClinicDashboard][doctorAppointments] DATA_KEYS', Object.keys(list[0] || {}));
+                    setAppointments(list);
+                    console.log('[ClinicDashboard][doctorAppointments] SET_STATE');
+                } else {
+                    console.log('[ClinicDashboard][doctorAppointments] ERROR', { status: 400, message: r.message });
+                }
+            })
+            .catch(err => {
+                const status = err?.response?.status || 'FAIL';
+                const message = err?.response?.data?.message || err?.message;
+                console.log('[ClinicDashboard][doctorAppointments] ERROR', { status, message });
+            })
             .finally(() => setLoading(false));
     };
 
@@ -2595,19 +3373,31 @@ const DoctorMode = ({ setPendingDownload }) => {
     const done = appointments.filter(a => a.status === 'completed');
     const pastVisits = patientHistory.filter(h => h._id !== consulting?._id && h.status === 'completed');
 
+    // FIX B — DOCTOR VITALS: Dynamic repeat(auto-fill, minmax(150px, 1fr)) with gap: 14px
+    // Available width inside vitals content area (modeContent padding + vitals content padding)
+    const vitalsModePadH = screenWidth < 375 ? 16 : (screenWidth < 600 ? 24 : 32);
+    const vitalsContentPadH = 36; // 18px horizontal padding on each side of .clinic-vitals-content
+    const vitalsAvailWidth = screenWidth - vitalsModePadH - vitalsContentPadH;
+    const vitalsGap = 14;
+    const vitalsMinCol = 150;
+    // columnCount = largest N where N * 150 + (N - 1) * 14 <= availableWidth
+    const vitalsCols = Math.max(1, Math.floor((vitalsAvailWidth + vitalsGap) / (vitalsMinCol + vitalsGap)));
+    // cardWidth = (availableWidth - (columnCount - 1) * 14) / columnCount
+    const vitalsCardWidth = Math.floor((vitalsAvailWidth - (vitalsCols - 1) * vitalsGap) / vitalsCols);
+
     if (consulting) return (
         <ScrollView style={styles.container}>
-            <TouchableOpacity onPress={() => setConsulting(null)} style={{ marginBottom: 12 }}>
-                <Text style={{ color: '#6366f1', fontWeight: 'bold' }}>← Back to Queue</Text>
+            <TouchableOpacity onPress={() => setConsulting(null)} style={styles.backBtn}>
+                <Text style={styles.backBtnText}>← Back to Queue</Text>
             </TouchableOpacity>
 
             {msg.text ? <View style={[styles.downloadAlert, { borderColor: msg.type === 'error' ? '#fecaca' : '#a7f3d0', backgroundColor: msg.type === 'error' ? '#fef2f2' : '#ecfdf5' }]}><Text style={{ color: msg.type === 'error' ? '#dc2626' : '#059669', fontWeight: 'bold' }}>{msg.text}</Text></View> : null}
 
-            <View style={styles.clinicCard}>
+            <View style={[styles.clinicCard, isMobile && styles.cardMobile]}>
                 {/* Patient header */}
                 <View style={{ flexDirection: isNarrow ? 'column' : 'row', gap: 12, marginBottom: 16 }}>
-                    <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: '#6366f1', justifyContent: 'center', alignItems: 'center' }}>
-                        <Text style={{ color: '#fff', fontSize: 24, fontWeight: 'bold' }}>{(consulting.clinicPatientId?.name || '?').charAt(0)}</Text>
+                    <View style={styles.clinicAvatarLg}>
+                        <Text style={{ color: '#3b82f6', fontSize: 18, fontWeight: '800' }}>{(consulting.clinicPatientId?.name || '?').charAt(0)?.toUpperCase()}</Text>
                     </View>
                     <View style={{ flex: 1 }}>
                         <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1e293b' }}>{consulting.clinicPatientId?.name || 'Patient'}</Text>
@@ -2661,6 +3451,8 @@ const DoctorMode = ({ setPendingDownload }) => {
                                                 {v.vitals.bp ? <Text style={{ fontSize: 11, color: '#0369a1' }}>BP: <Text style={{ fontWeight: 'bold' }}>{v.vitals.bp}</Text></Text> : null}
                                                 {v.vitals.temperature ? <Text style={{ fontSize: 11, color: '#0369a1' }}>Temp: <Text style={{ fontWeight: 'bold' }}>{v.vitals.temperature}°F</Text></Text> : null}
                                                 {v.vitals.pulse ? <Text style={{ fontSize: 11, color: '#0369a1' }}>Pulse: <Text style={{ fontWeight: 'bold' }}>{v.vitals.pulse}bpm</Text></Text> : null}
+                                                {v.vitals.spo2 ? <Text style={{ fontSize: 11, color: '#0369a1' }}>SpO₂: <Text style={{ fontWeight: 'bold' }}>{v.vitals.spo2}%</Text></Text> : null}
+                                                {v.vitals.rr ? <Text style={{ fontSize: 11, color: '#0369a1' }}>RR: <Text style={{ fontWeight: 'bold' }}>{v.vitals.rr}/min</Text></Text> : null}
                                             </View>
                                         )}
                                         {v.diagnosis ? <Text style={{ fontSize: 13, color: '#1e293b', marginTop: 4 }}><Text style={{ fontWeight: 'bold' }}>Dx:</Text> {v.diagnosis}</Text> : null}
@@ -2686,17 +3478,17 @@ const DoctorMode = ({ setPendingDownload }) => {
                     <PatientReportPanel patientId={consulting.clinicPatientId?._id} patientName={consulting.clinicPatientId?.name} />
                 </View>
 
-                {/* Vitals Panel */}
-                <View style={{ borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, marginBottom: 20, overflow: 'hidden' }}>
+                {/* Vitals Panel (Exact Web .clinic-vitals-container CSS Parity) */}
+                <View style={{ borderWidth: 1, borderColor: '#e0f2fe', borderRadius: 12, marginBottom: 24, overflow: 'hidden', backgroundColor: '#fff', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 3, elevation: 1 }}>
                     <TouchableOpacity
                         onPress={() => setShowVitals(v => !v)}
-                        style={{ backgroundColor: '#f8fafc', padding: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: showVitals ? 1 : 0, borderColor: '#e2e8f0' }}>
-                        <Text style={{ fontWeight: 'bold', color: '#1e293b' }}>🩺 Patient Vitals {Object.values(vitals).some(v => v) ? '✓' : ''}</Text>
-                        <Text style={{ color: '#1e293b' }}>{showVitals ? '▲' : '▼'}</Text>
+                        style={{ backgroundColor: '#f0f9ff', paddingVertical: 12, paddingHorizontal: 18, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: showVitals ? 1 : 0, borderColor: '#e0f2fe' }}>
+                        <Text style={{ fontSize: 14, fontWeight: '700', color: '#0369a1' }}>🩺 Patient Vitals {Object.values(vitals).some(v => v) ? '✓' : ''}</Text>
+                        <Text style={{ fontSize: 14, fontWeight: '700', color: '#0369a1' }}>{showVitals ? '▲' : '▼'}</Text>
                     </TouchableOpacity>
                     {showVitals && (
-                        <View style={{ padding: 12 }}>
-                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                        <View style={{ padding: 18, backgroundColor: '#fff' }}>
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14 }}>
                                 {[
                                     { label: '⚖️ Weight (kg)', field: 'weight', type: 'numeric', ph: 'e.g. 65' },
                                     { label: '📏 Height (cm)', field: 'height', type: 'numeric', ph: 'e.g. 170' },
@@ -2705,21 +3497,33 @@ const DoctorMode = ({ setPendingDownload }) => {
                                     { label: '🌡️ Temp (°F)', field: 'temperature', type: 'numeric', ph: 'e.g. 98.6' },
                                     { label: '🫀 Pulse (bpm)', field: 'pulse', type: 'numeric', ph: 'e.g. 72' },
                                     { label: '🫁 SpO₂ (%)', field: 'spo2', type: 'numeric', ph: 'e.g. 98' },
-                                    { label: '🌬️ Resp. (/min)', field: 'rr', type: 'numeric', ph: 'e.g. 16' }
+                                    { label: '🌬️ Resp. Rate (/min)', field: 'rr', type: 'numeric', ph: 'e.g. 16' }
                                 ].map((vItem, i) => (
-                                    <View key={i} style={{ width: isNarrow ? '100%' : (isMobile ? '47%' : '23%') }}>
-                                        <Text style={styles.label}>{vItem.label}</Text>
+                                    <View key={i} style={{ width: vitalsCardWidth, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10 }}>
+                                        <Text style={{ fontSize: 11, fontWeight: '700', color: '#64748b', marginBottom: 5 }}>{vItem.label}</Text>
                                         <TextInput
-                                            style={[styles.input, vItem.readOnly && { backgroundColor: 'transparent', fontWeight: 'bold' }]}
+                                            style={{ width: '100%', borderWidth: 0, backgroundColor: 'transparent', paddingVertical: 4, fontSize: 14, fontWeight: vItem.readOnly && vitals.bmi ? '700' : '600', color: '#0f172a' }}
                                             keyboardType={vItem.type}
                                             placeholder={vItem.ph}
+                                            placeholderTextColor="#94a3b8"
                                             value={String(vitals[vItem.field] || '')}
                                             editable={!vItem.readOnly}
                                             onChangeText={text => handleVitalChange(vItem.field, text)}
                                         />
                                         {vItem.field === 'bmi' && vitals.bmi ? (
-                                            <View style={{ marginTop: 4, backgroundColor: parseFloat(vitals.bmi) < 18.5 ? '#fef08a' : parseFloat(vitals.bmi) < 25 ? '#bbf7d0' : '#fecaca', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, alignSelf: 'flex-start' }}>
-                                                <Text style={{ fontSize: 10, color: '#1e293b', fontWeight: 'bold' }}>
+                                            <View style={{
+                                                marginTop: 4,
+                                                backgroundColor: parseFloat(vitals.bmi) < 18.5 ? '#fef9c3' : parseFloat(vitals.bmi) < 25 ? '#dcfce7' : parseFloat(vitals.bmi) < 30 ? '#ffedd5' : '#fee2e2',
+                                                paddingHorizontal: 6,
+                                                paddingVertical: 2,
+                                                borderRadius: 4,
+                                                alignSelf: 'flex-start'
+                                            }}>
+                                                <Text style={{
+                                                    fontSize: 10,
+                                                    color: parseFloat(vitals.bmi) < 18.5 ? '#a16207' : parseFloat(vitals.bmi) < 25 ? '#15803d' : parseFloat(vitals.bmi) < 30 ? '#c2410c' : '#b91c1c',
+                                                    fontWeight: '700'
+                                                }}>
                                                     {parseFloat(vitals.bmi) < 18.5 ? 'Underweight' : parseFloat(vitals.bmi) < 25 ? 'Normal' : parseFloat(vitals.bmi) < 30 ? 'Overweight' : 'Obese'}
                                                 </Text>
                                             </View>
@@ -2780,30 +3584,35 @@ const DoctorMode = ({ setPendingDownload }) => {
                     ))}
             </View>
 
-            {/* Staff List */}
+            {/* Staff List (1:1 Web Parity) */}
             {tab === 'staff' && (
-                <View style={styles.clinicCard}>
+                <View style={[styles.clinicCard, isMobile && styles.cardMobile]}>
                     <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 14, color: '#1e293b' }}>👥 Clinic Staff</Text>
                     {staffLoading ? <Spinner /> : staff.length === 0 ? <Empty text="No staff members found for this clinic." /> : (
-                        <FlatList
-                            data={staff}
-                            keyExtractor={s => s._id}
-                            renderItem={({ item: s }) => (
-                                <View style={styles.tableRow}>
-                                    <View style={{ flex: 2 }}>
-                                        <Text style={{ fontWeight: 'bold', color: '#1e293b' }}>{s.name}</Text>
-                                        <Text style={{ fontSize: 12, color: '#64748b' }}>{s.email || '—'}</Text>
-                                    </View>
-                                    <View style={{ flex: 1, alignItems: 'flex-end' }}>
-                                        <View style={{ backgroundColor: '#f0fdf4', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: '#bbf7d0' }}>
-                                            <Text style={{ color: '#16a34a', fontSize: 12, textTransform: 'capitalize' }}>{s.roleName}</Text>
-                                        </View>
-                                        <Text style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>{s.phone || '—'}</Text>
-                                    </View>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={true}>
+                            <View style={{ minWidth: 620 }}>
+                                <View style={styles.tableHeader}>
+                                    <Text style={[styles.th, { width: 160 }]}>Name</Text>
+                                    <Text style={[styles.th, { width: 110 }]}>Role</Text>
+                                    <Text style={[styles.th, { width: 160 }]}>Email</Text>
+                                    <Text style={[styles.th, { width: 110 }]}>Phone</Text>
+                                    <Text style={[styles.th, { width: 80 }]}>Joined</Text>
                                 </View>
-                            )}
-                            scrollEnabled={false}
-                        />
+                                {staff.map(s => (
+                                    <View key={s._id} style={styles.tableRow}>
+                                        <Text style={[styles.td, { width: 160, fontWeight: 'bold' }]}>{s.name}</Text>
+                                        <View style={{ width: 110 }}>
+                                            <View style={{ backgroundColor: '#f0fdf4', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: '#bbf7d0', alignSelf: 'flex-start' }}>
+                                                <Text style={{ color: '#16a34a', fontSize: 11, fontWeight: '700', textTransform: 'capitalize' }}>{s.roleName}</Text>
+                                            </View>
+                                        </View>
+                                        <Text style={[styles.td, { width: 160, fontSize: 12, color: '#64748b' }]} numberOfLines={1}>{s.email || '—'}</Text>
+                                        <Text style={[styles.td, { width: 110, fontSize: 12, color: '#64748b' }]}>{s.phone || '—'}</Text>
+                                        <Text style={[styles.td, { width: 80, fontSize: 11, color: '#94a3b8' }]}>{s.createdAt ? fmtDate(s.createdAt) : '—'}</Text>
+                                    </View>
+                                ))}
+                            </View>
+                        </ScrollView>
                     )}
                 </View>
             )}
@@ -2812,16 +3621,16 @@ const DoctorMode = ({ setPendingDownload }) => {
             {tab === 'queue' && (
                 <View>
                     {analytics && (
-                        <View style={styles.clinicCard}>
-                            <Text style={{ fontSize: 16, fontWeight: 'bold', marginBottom: 14, color: '#1e293b' }}>📊 Clinic Performance</Text>
+                        <View style={[styles.clinicCard, isMobile && styles.cardMobile]}>
+                            <Text style={{ fontSize: 16, fontWeight: 'bold', marginBottom: 14, color: '#1e293b' }}>📊 Clinic Performance — {new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' })}</Text>
                             <View style={styles.kpiGrid}>
                                 {[
                                     { label: 'Seen Today', value: analytics.todayAppointments ?? '—', color: '#6366f1' },
-                                    { label: 'Month Revenue', value: `₹${(analytics.monthRevenue || 0).toLocaleString('en-IN')}`, color: '#16a34a' },
+                                    { label: 'This Month Revenue', value: `₹${(analytics.monthRevenue || 0).toLocaleString('en-IN')}`, color: '#16a34a' },
                                     { label: 'Total Patients', value: analytics.totalPatients ?? '—', color: '#0891b2' },
                                     { label: 'Completed All Time', value: analytics.completedAppointments ?? '—', color: '#7c3aed' },
                                 ].map((s, i) => (
-                                    <View key={i} style={[styles.kpiCard, { flex: 1, minWidth: isNarrow ? '100%' : (isMobile ? '46%' : '22%'), alignItems: 'center', padding: isNarrow ? 10 : 14 }]}>
+                                    <View key={i} style={{ flex: 1, minWidth: isNarrow ? '100%' : (isMobile ? '46%' : '22%'), alignItems: 'center', backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, padding: isNarrow ? 10 : 14 }}>
                                         <Text style={{ fontSize: isNarrow ? 18 : 22, fontWeight: '900', color: s.color }} numberOfLines={1}>{s.value}</Text>
                                         <Text style={{ fontSize: 12, color: '#64748b', marginTop: 4 }} numberOfLines={1}>{s.label}</Text>
                                     </View>
@@ -2830,14 +3639,14 @@ const DoctorMode = ({ setPendingDownload }) => {
                         </View>
                     )}
 
-                    <View style={styles.clinicCard}>
+                    <View style={[styles.clinicCard, isMobile && styles.cardMobile]}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                             <View>
-                                <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1e293b' }}>🩺 Today's Patients</Text>
+                                <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1e293b' }}>🩺 Today's Patients — {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}</Text>
                                 <Text style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>{pending.length} waiting · {done.length} seen today</Text>
                             </View>
-                            <TouchableOpacity style={[styles.btnPrimary, { backgroundColor: '#f1f5f9', paddingHorizontal: 12, paddingVertical: 6 }]} onPress={loadToday}>
-                                <Text style={{ color: '#475569', fontSize: 12, fontWeight: 'bold' }}>↻ Refresh</Text>
+                            <TouchableOpacity style={styles.btnSecondary} onPress={loadToday}>
+                                <Text style={styles.btnSecondaryText}>↻ Refresh</Text>
                             </TouchableOpacity>
                         </View>
 
@@ -2848,18 +3657,16 @@ const DoctorMode = ({ setPendingDownload }) => {
                                 data={pending}
                                 keyExtractor={a => a._id}
                                 renderItem={({ item: a }) => (
-                                    <View style={{ flexDirection: 'row', backgroundColor: '#f8fafc', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 12, alignItems: 'center' }}>
-                                        <View style={{ backgroundColor: '#fff', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#6366f1', marginRight: 10 }}>
-                                            <Text style={{ color: '#6366f1', fontWeight: '900', fontSize: 15 }}>#{a.tokenNumber}</Text>
-                                        </View>
-                                        <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
-                                            <Text style={{ fontWeight: 'bold', fontSize: 14, color: '#1e293b' }} numberOfLines={1}>{a.clinicPatientId?.name || '—'}</Text>
-                                            <Text style={{ fontSize: 11, color: '#64748b' }} numberOfLines={1}>
+                                    <View style={{ flexDirection: 'row', backgroundColor: '#fff', paddingHorizontal: 18, paddingVertical: 14, borderRadius: 10, borderWidth: 2, borderColor: '#cbd5e1', marginBottom: 12, alignItems: 'center', gap: 16 }}>
+                                        <Text style={{ fontSize: 28, fontWeight: '900', color: '#6366f1', minWidth: 52, textAlign: 'center' }}>#{a.tokenNumber}</Text>
+                                        <View style={{ flex: 1, minWidth: 0 }}>
+                                            <Text style={{ fontWeight: '700', fontSize: 15, color: '#0f172a' }} numberOfLines={1}>{a.clinicPatientId?.name || '—'}</Text>
+                                            <Text style={{ fontSize: 12, color: '#64748b', marginTop: 2 }} numberOfLines={1}>
                                                 {a.clinicPatientId?.patientUid || a.patientId} · {a.serviceName || 'General'}
                                                 {a.notes ? ` · "${a.notes}"` : ''}
                                             </Text>
                                         </View>
-                                        <TouchableOpacity style={[styles.btnPrimary, { paddingHorizontal: 12, paddingVertical: 8 }]} onPress={() => openConsult(a)}>
+                                        <TouchableOpacity style={[styles.btnPrimary, { marginLeft: 'auto', paddingHorizontal: 18, paddingVertical: 8 }]} onPress={() => openConsult(a)}>
                                             <Text style={styles.btnPrimaryText}>Start →</Text>
                                         </TouchableOpacity>
                                     </View>
@@ -2870,26 +3677,40 @@ const DoctorMode = ({ setPendingDownload }) => {
                     </View>
 
                     {done.length > 0 && (
-                        <View style={styles.clinicCard}>
+                        <View style={[styles.clinicCard, isMobile && styles.cardMobile]}>
                             <Text style={{ fontSize: 16, fontWeight: 'bold', marginBottom: 12, color: '#1e293b' }}>✅ Seen Today ({done.length})</Text>
-                            <FlatList
-                                data={done}
-                                keyExtractor={a => a._id}
-                                renderItem={({ item: a }) => (
-                                    <View style={styles.tableRow}>
-                                        <Text style={{ fontWeight: 'bold', color: '#6366f1', width: 40 }}>#{a.tokenNumber}</Text>
-                                        <View style={{ flex: 1 }}>
-                                            <Text style={{ fontWeight: 'bold', color: '#1e293b' }}>{a.clinicPatientId?.name || '—'}</Text>
-                                            <Text style={{ fontSize: 11, color: '#94a3b8' }}>{a.clinicPatientId?.patientUid || a.patientId}</Text>
-                                            {a.diagnosis ? <Text style={{ fontSize: 12, color: '#475569', marginTop: 2 }}>Dx: {a.diagnosis}</Text> : null}
-                                        </View>
-                                        <TouchableOpacity style={[styles.btnPrimary, { backgroundColor: '#f1f5f9', paddingHorizontal: 12, paddingVertical: 6 }]} onPress={() => openConsult(a)}>
-                                            <Text style={{ color: '#475569', fontSize: 12, fontWeight: 'bold' }}>✏️ Edit</Text>
-                                        </TouchableOpacity>
+                            <ScrollView horizontal showsHorizontalScrollIndicator={true}>
+                                <View style={{ minWidth: 620 }}>
+                                    <View style={styles.tableHeader}>
+                                        <Text style={[styles.th, { width: 75 }]}>Token</Text>
+                                        <Text style={[styles.th, { width: 160 }]}>Patient</Text>
+                                        <Text style={[styles.th, { width: 160 }]}>Diagnosis</Text>
+                                        <Text style={[styles.th, { width: 140 }]}>Medicines</Text>
+                                        <Text style={[styles.th, { width: 85, textAlign: 'center' }]}>Action</Text>
                                     </View>
-                                )}
-                                scrollEnabled={false}
-                            />
+                                    {done.map(a => (
+                                        <View key={a._id} style={styles.tableRow}>
+                                            <Text style={[styles.td, { width: 75, fontWeight: 'bold', color: '#6366f1' }]}>#{a.tokenNumber}</Text>
+                                            <View style={{ width: 160 }}>
+                                                <Text style={[styles.td, { fontWeight: '600' }]} numberOfLines={1}>{a.clinicPatientId?.name || '—'}</Text>
+                                                <Text style={{ fontSize: 11, color: '#94a3b8' }}>{a.clinicPatientId?.patientUid || a.patientId}</Text>
+                                            </View>
+                                            <Text style={[styles.td, { width: 160, fontSize: 12 }]} numberOfLines={2}>{a.diagnosis || '—'}</Text>
+                                            <View style={{ width: 140 }}>
+                                                {(a.pharmacy || []).slice(0, 2).map((m, i) => (
+                                                    <Text key={i} style={{ fontSize: 11, color: '#64748b' }} numberOfLines={1}>• {m.medicineName || m.name}</Text>
+                                                ))}
+                                                {(a.pharmacy || []).length > 2 && <Text style={{ fontSize: 10, color: '#94a3b8' }}>+{(a.pharmacy || []).length - 2} more</Text>}
+                                            </View>
+                                            <View style={{ width: 85, alignItems: 'center' }}>
+                                                <TouchableOpacity style={[styles.btnSecondary, { paddingHorizontal: 10, paddingVertical: 5 }]} onPress={() => openConsult(a)}>
+                                                    <Text style={{ color: '#334155', fontSize: 11, fontWeight: '600' }}>✏️ Edit</Text>
+                                                </TouchableOpacity>
+                                            </View>
+                                        </View>
+                                    ))}
+                                </View>
+                            </ScrollView>
                         </View>
                     )}
                 </View>
@@ -2915,9 +3736,22 @@ const PharmacyMode = () => {
 
     const loadInventory = () => {
         setLoading(true);
+        console.log('[ClinicDashboard] GET /api/clinic/inventory START');
         clinicAPI.getInventory()
-            .then(r => { if (r.success) setInventory(r.inventory || []); })
-            .catch(console.error)
+            .then(r => {
+                if (r.success) {
+                    console.log('[ClinicDashboard] GET /api/clinic/inventory STATUS 200');
+                    console.log('[ClinicDashboard] inventory items count:', (r.inventory || []).length);
+                    setInventory(r.inventory || []);
+                    console.log('[ClinicDashboard] setInventory called: true');
+                } else {
+                    console.log('[ClinicDashboard] GET /api/clinic/inventory STATUS ERROR', r.message);
+                }
+            })
+            .catch(err => {
+                const status = err?.response?.status || 'FAIL';
+                console.log('[ClinicDashboard] GET /api/clinic/inventory STATUS', status, err?.response?.data || err?.message);
+            })
             .finally(() => setLoading(false));
     };
 
@@ -2948,20 +3782,24 @@ const PharmacyMode = () => {
     return (
         <ScrollView style={styles.container}>
             {/* Info Banner */}
-            <View style={{ backgroundColor: '#f0f9ff', borderWidth: 1, borderColor: '#bae6fd', borderRadius: 10, padding: 12, marginBottom: 16, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <View style={{ backgroundColor: '#f0f9ff', borderWidth: 1, borderColor: '#bae6fd', borderRadius: 10, paddingVertical: 12, paddingHorizontal: 16, marginBottom: 16, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                 <Text style={{ fontSize: 24 }}>💡</Text>
                 <Text style={{ flex: 1, fontSize: 13, color: '#0369a1' }}>
                     This is your <Text style={{ fontWeight: 'bold' }}>medicine list</Text> — add commonly used medicines here so doctors can quickly select them while prescribing. No stock tracking or billing.
                 </Text>
             </View>
 
-            <View style={{ flexDirection: 'row', marginBottom: 16, backgroundColor: '#f1f5f9', borderRadius: 8, padding: 4 }}>
+            <View style={styles.subTabs}>
                 {[
                     { id: 'list', label: `💊 Medicine List (${inventory.length})` },
                     { id: 'add', label: '+ Add Medicine' },
                 ].map(t => (
-                    <TouchableOpacity key={t.id} style={{ flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 6, backgroundColor: tab === t.id ? '#fff' : 'transparent', shadowColor: tab === t.id ? '#000' : 'transparent', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: tab === t.id ? 2 : 0 }} onPress={() => setTab(t.id)}>
-                        <Text style={{ fontWeight: tab === t.id ? 'bold' : '600', color: tab === t.id ? '#1e293b' : '#64748b' }}>{t.label}</Text>
+                    <TouchableOpacity
+                        key={t.id}
+                        style={[styles.subTab, tab === t.id && styles.subTabActive]}
+                        onPress={() => setTab(t.id)}
+                    >
+                        <Text style={[styles.subTabText, tab === t.id && styles.subTabTextActive]}>{t.label}</Text>
                     </TouchableOpacity>
                 ))}
             </View>
@@ -2971,7 +3809,7 @@ const PharmacyMode = () => {
             {loading ? <Spinner /> : (
                 <View>
                     {tab === 'list' && (
-                        <View style={styles.clinicCard}>
+                        <View style={[styles.clinicCard, isMobile && styles.cardMobile]}>
                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                                 <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1e293b' }}>💊 Medicine List</Text>
                                 <TouchableOpacity style={[styles.btnPrimary, { paddingHorizontal: 12, paddingVertical: 6 }]} onPress={() => setTab('add')}>
@@ -2989,35 +3827,42 @@ const PharmacyMode = () => {
                             {filtered.length === 0 ? (
                                 <Empty text={inventory.length === 0 ? 'No medicines added yet. Click "+ Add Medicine" to get started.' : 'No matches found.'} />
                             ) : (
-                                <FlatList
-                                    data={filtered}
-                                    keyExtractor={m => m._id}
-                                    renderItem={({ item: m, index: i }) => (
-                                        <View style={styles.tableRow}>
-                                            <Text style={{ color: '#94a3b8', fontSize: 12, width: 30 }}>{i + 1}</Text>
-                                            <View style={{ flex: 1 }}>
-                                                <Text style={{ fontWeight: 'bold', color: '#1e293b' }}>{m.name}</Text>
-                                                <Text style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{m.unit || '—'}</Text>
-                                            </View>
-                                            <View style={{ backgroundColor: '#f1f5f9', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10 }}>
-                                                <Text style={{ color: '#475569', fontSize: 11, fontWeight: 'bold' }}>{m.category || 'General'}</Text>
-                                            </View>
+                                <ScrollView horizontal showsHorizontalScrollIndicator={true}>
+                                    <View style={{ minWidth: isNarrow ? 480 : '100%', width: '100%' }}>
+                                        <View style={[styles.tableHeader, { paddingVertical: 8, paddingHorizontal: 12 }]}>
+                                            <Text style={[styles.th, { width: 40, color: '#64748b' }]}>#</Text>
+                                            <Text style={[styles.th, { flex: 2, minWidth: 160, color: '#374151' }]}>Medicine Name</Text>
+                                            <Text style={[styles.th, { flex: 1.2, minWidth: 110, color: '#374151' }]}>Category</Text>
+                                            <Text style={[styles.th, { flex: 1, minWidth: 90, color: '#374151' }]}>Unit / Form</Text>
                                         </View>
-                                    )}
-                                    scrollEnabled={false}
-                                />
+                                        {filtered.map((m, i) => (
+                                            <View key={m._id || i} style={[styles.tableRow, { paddingVertical: 10, paddingHorizontal: 12, backgroundColor: i % 2 === 0 ? '#fff' : '#f8fafc' }]}>
+                                                <Text style={{ color: '#94a3b8', fontSize: 12, width: 40 }}>{i + 1}</Text>
+                                                <View style={{ flex: 2, minWidth: 160 }}>
+                                                    <Text style={{ fontWeight: 'bold', color: '#1e293b', fontSize: 13 }}>{m.name}</Text>
+                                                </View>
+                                                <View style={{ flex: 1.2, minWidth: 110, alignItems: 'flex-start' }}>
+                                                    <View style={{ backgroundColor: '#f1f5f9', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
+                                                        <Text style={{ color: '#475569', fontSize: 11, fontWeight: '600' }}>{m.category || 'General'}</Text>
+                                                    </View>
+                                                </View>
+                                                <Text style={{ flex: 1, minWidth: 90, fontSize: 12, color: '#64748b' }}>{m.unit || '—'}</Text>
+                                            </View>
+                                        ))}
+                                    </View>
+                                </ScrollView>
                             )}
                         </View>
                     )}
 
                     {tab === 'add' && (
-                        <View style={styles.clinicCard}>
+                        <View style={[styles.clinicCard, isMobile && styles.cardMobile, { maxWidth: 640 }]}>
                             <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 6, color: '#1e293b' }}>+ Add Medicine to List</Text>
-                            <Text style={{ color: '#64748b', fontSize: 13, marginBottom: 20 }}>
+                            <Text style={{ color: '#64748b', fontSize: 13, marginBottom: 18 }}>
                                 Add medicines your clinic commonly prescribes. Once added, doctors can search and select them instantly while writing prescriptions.
                             </Text>
 
-                            <View style={{ gap: 16 }}>
+                            <View style={{ gap: 14 }}>
                                 <View>
                                     <Text style={styles.label}>Medicine Name *</Text>
                                     <TextInput
@@ -3030,29 +3875,32 @@ const PharmacyMode = () => {
                                 </View>
 
                                 {/* We use basic Picker or simulated dropdowns. Let's use simple Pickers if available, or just map buttons. To save space, simulated simple Picker: */}
-                                <View>
-                                    <Text style={styles.label}>Category</Text>
-                                    <View style={styles.pickerWrapper}>
-                                        <Picker selectedValue={addForm.category} onValueChange={val => setAddForm(f => ({ ...f, category: val }))} style={{ height: 50, width: '100%' }}>
-                                            {CATEGORIES.map(c => <Picker.Item key={c} label={c} value={c} />)}
-                                        </Picker>
+                                <View style={{ flexDirection: isNarrow ? 'column' : 'row', gap: 14 }}>
+                                    <View style={{ flex: 1, zIndex: 100 }}>
+                                        <Text style={styles.label}>Category</Text>
+                                        <CustomSelectDropdown
+                                            value={addForm.category}
+                                            placeholder="Select Category"
+                                            options={CATEGORIES}
+                                            onSelect={val => setAddForm(f => ({ ...f, category: val }))}
+                                        />
+                                    </View>
+                                    <View style={{ flex: 1, zIndex: 99 }}>
+                                        <Text style={styles.label}>Unit / Form</Text>
+                                        <CustomSelectDropdown
+                                            value={addForm.unit}
+                                            placeholder="Select Type"
+                                            options={UNITS}
+                                            onSelect={val => setAddForm(f => ({ ...f, unit: val }))}
+                                        />
                                     </View>
                                 </View>
 
-                                <View>
-                                    <Text style={styles.label}>Unit / Form</Text>
-                                    <View style={styles.pickerWrapper}>
-                                        <Picker selectedValue={addForm.unit} onValueChange={val => setAddForm(f => ({ ...f, unit: val }))} style={{ height: 50, width: '100%' }}>
-                                            {UNITS.map(u => <Picker.Item key={u} label={u} value={u} />)}
-                                        </Picker>
-                                    </View>
-                                </View>
-
-                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 10 }}>
-                                    <TouchableOpacity style={[styles.btnPrimary, { flex: 1, minWidth: 120, alignItems: 'center' }]} disabled={adding} onPress={handleAdd}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 14 }}>
+                                    <TouchableOpacity style={[styles.btnPrimary, { paddingHorizontal: 18, paddingVertical: 10 }]} disabled={adding} onPress={handleAdd}>
                                         <Text style={styles.btnPrimaryText}>{adding ? 'Adding…' : '+ Add to List'}</Text>
                                     </TouchableOpacity>
-                                    <TouchableOpacity style={[styles.btnPrimary, { flex: 1, alignItems: 'center', backgroundColor: '#f1f5f9' }]} onPress={() => { setTab('list'); setAddForm({ name: '', category: 'General', unit: 'Tablets' }); }}>
+                                    <TouchableOpacity style={[styles.btnSecondary, { paddingHorizontal: 18, paddingVertical: 10 }]} onPress={() => { setTab('list'); setAddForm({ name: '', category: 'General', unit: 'Tablets' }); }}>
                                         <Text style={{ color: '#475569', fontWeight: 'bold' }}>Cancel</Text>
                                     </TouchableOpacity>
                                 </View>
@@ -3107,12 +3955,41 @@ const TreatmentPlanMode = () => {
 
     const loadAll = () => {
         setLoading(true);
-        Promise.all([clinicAPI.getTreatmentPlans(), clinicAPI.getTodayDuePlans()])
-            .then(([plansR, dueR]) => {
-                if (plansR.success) setPlans(plansR.plans);
-                if (dueR.success) setTodayDue(dueR.plans);
+        console.log('[ClinicDashboard][treatmentPlans] START');
+        Promise.allSettled([clinicAPI.getTreatmentPlans(), clinicAPI.getTodayDuePlans()])
+            .then(([plansRes, dueRes]) => {
+                if (plansRes.status === 'fulfilled' && plansRes.value?.success) {
+                    const planList = plansRes.value.plans || plansRes.value.data || [];
+                    console.log('[ClinicDashboard][treatmentPlans] STATUS', 200);
+                    console.log('[ClinicDashboard][treatmentPlans] DATA_KEYS', Object.keys(planList[0] || {}));
+                    setPlans(planList);
+                    console.log('[ClinicDashboard][treatmentPlans] SET_STATE');
+                } else if (plansRes.status === 'rejected') {
+                    const err = plansRes.reason;
+                    const status = err?.response?.status || 'FAIL';
+                    const message = err?.response?.data?.message || err?.message;
+                    console.log('[ClinicDashboard][treatmentPlans] ERROR', { status, message });
+                }
+
+                if (dueRes.status === 'fulfilled' && dueRes.value?.success) {
+                    const dueList = dueRes.value.plans || dueRes.value.data || [];
+                    console.log('[ClinicDashboard][todayDuePlans] STATUS', 200);
+                    console.log('[ClinicDashboard][todayDuePlans] DATA_KEYS', Object.keys(dueList[0] || {}));
+                    setTodayDue(dueList);
+                    console.log('[ClinicDashboard][todayDuePlans] SET_STATE');
+                } else if (dueRes.status === 'rejected') {
+                    const err = dueRes.reason;
+                    const status = err?.response?.status || 'FAIL';
+                    const message = err?.response?.data?.message || err?.message;
+                    console.log('[ClinicDashboard][todayDuePlans] ERROR', { status, message });
+                }
             })
-            .catch(console.error)
+            .catch(err => {
+                console.log('[ClinicDashboard][treatmentPlans] ERROR', {
+                    status: err?.response?.status,
+                    message: err?.response?.data?.message || err?.message
+                });
+            })
             .finally(() => setLoading(false));
     };
 
@@ -3200,11 +4077,11 @@ const TreatmentPlanMode = () => {
 
         setSaving(true);
         try {
-            const todayStr = new Date().toISOString().split('T')[0];
+            const todayIso = new Date().toISOString().split('T')[0];
             // R3: Build payload matching Web exactly (L3343-3353)
             const payload = {
                 amountPaid: paid,
-                paymentDate: todayStr,
+                paymentDate: todayIso,
                 paymentMethod: payInput.paymentMethod,
                 notes: payInput.notes,
             };
@@ -3353,7 +4230,11 @@ const TreatmentPlanMode = () => {
                     <Text style={{ fontWeight: '800', color: '#92400e', fontSize: 14, marginBottom: 8 }}>🔔 Today's Visits Due</Text>
                     {todayDue.map(plan => plan.visits.filter(v => new Date(v.scheduledDate).toDateString() === new Date().toDateString() && ['scheduled', 'rescheduled'].includes(v.status)).map(v => (
                         <View key={v._id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-                            <Text style={{ fontWeight: '700', color: '#78350f', flex: 1 }}>📋 {plan.clinicPatientId?.name} — Visit {v.visitNumber}</Text>
+                            <Text style={{ fontWeight: '700', color: '#78350f', flex: 1 }}>
+                                📋 {plan.clinicPatientId?.name} — Visit {v.visitNumber} · "{plan.title}"
+                                {v.scheduledTime ? ` · 🕐 ${v.scheduledTime}` : ''}
+                                {plan.pendingBalance > 0 ? ` · ₹${Number(plan.pendingBalance).toLocaleString('en-IN')} pending` : ''}
+                            </Text>
                             <TouchableOpacity onPress={() => openDetail(plan)} style={{ backgroundColor: '#f59e0b', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 5 }}>
                                 <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>View Plan</Text>
                             </TouchableOpacity>
@@ -3374,30 +4255,41 @@ const TreatmentPlanMode = () => {
             {loading ? <Spinner /> : plans.length === 0 ? <Empty text="No treatment plans yet." /> : (
                 <View style={{ gap: 12 }}>
                     {plans.map(plan => {
-                        const pct = plan.totalAmount > 0 ? Math.min(100, Math.round((plan.totalPaid / plan.totalAmount) * 100)) : 0;
+                        const nextVisit = (plan.visits || []).find(v => ['scheduled', 'rescheduled', 'due'].includes(v.status));
+                        const pct = plan.totalAmount > 0 ? Math.min(100, Math.round(((plan.totalPaid || 0) / plan.totalAmount) * 100)) : 0;
                         return (
-                            <TouchableOpacity key={plan._id} style={[styles.clinicCard, { borderLeftWidth: 4, borderLeftColor: planStatusColor[plan.status] || '#94a3b8' }]} onPress={() => openDetail(plan)}>
-                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                    <View>
+                            <TouchableOpacity key={plan._id} style={[styles.clinicCard, { borderLeftWidth: 4, borderLeftColor: planStatusColor[plan.status] || '#94a3b8' }, isMobile && styles.cardMobile]} onPress={() => openDetail(plan)}>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+                                    <View style={{ flex: 1, minWidth: 200 }}>
                                         <Text style={{ fontWeight: '800', fontSize: 15, color: '#0f172a' }}>{plan.title}</Text>
-                                        <Text style={{ fontSize: 13, color: '#475569', marginTop: 2 }}>👤 {plan.clinicPatientId?.name || '—'}</Text>
+                                        <Text style={{ fontSize: 13, color: '#475569', marginTop: 2 }}>👤 {plan.clinicPatientId?.name || '—'} · {plan.clinicPatientId?.patientUid || ''}</Text>
+                                        {plan.description ? <Text style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>{plan.description}</Text> : null}
                                     </View>
-                                    <View style={{ backgroundColor: planStatusColor[plan.status] + '20', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 }}>
-                                        <Text style={{ fontSize: 11, fontWeight: '700', color: planStatusColor[plan.status], textTransform: 'uppercase' }}>{plan.status}</Text>
+                                    <View style={{ backgroundColor: (planStatusColor[plan.status] || '#94a3b8') + '20', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 }}>
+                                        <Text style={{ fontSize: 11, fontWeight: '700', color: planStatusColor[plan.status] || '#94a3b8', textTransform: 'uppercase' }}>{plan.status}</Text>
                                     </View>
                                 </View>
                                 <View style={{ marginTop: 10 }}>
                                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                                        <Text style={{ fontSize: 11, color: '#64748b' }}>Paid: <Text style={{ color: '#16a34a', fontWeight: 'bold' }}>₹{plan.totalPaid}</Text> of <Text style={{ fontWeight: 'bold' }}>₹{plan.totalAmount}</Text></Text>
+                                        <Text style={{ fontSize: 11, color: '#64748b' }}>Paid: <Text style={{ color: '#16a34a', fontWeight: 'bold' }}>₹{(plan.totalPaid || 0).toLocaleString('en-IN')}</Text> of <Text style={{ fontWeight: 'bold' }}>₹{(plan.totalAmount || 0).toLocaleString('en-IN')}</Text></Text>
                                         <Text style={{ color: plan.pendingBalance > 0 ? '#dc2626' : '#16a34a', fontWeight: '700', fontSize: 11 }}>
-                                            {plan.pendingBalance > 0 ? `₹${plan.pendingBalance} due` : '✓ Fully Paid'}
+                                            {plan.pendingBalance > 0 ? `₹${(plan.pendingBalance || 0).toLocaleString('en-IN')} due` : '✓ Fully Paid'}
                                         </Text>
                                     </View>
                                     <View style={{ backgroundColor: '#e2e8f0', borderRadius: 4, height: 6, overflow: 'hidden' }}>
                                         <View style={{ height: '100%', width: `${pct}%`, backgroundColor: pct === 100 ? '#16a34a' : '#0891b2' }} />
                                     </View>
                                 </View>
-                                <Text style={{ fontSize: 12, color: '#475569', marginTop: 8 }}>📋 <Text style={{ fontWeight: 'bold' }}>{plan.visits.filter(v => v.status === 'completed').length}</Text>/{plan.visits.length} visits done</Text>
+                                <View style={{ flexDirection: 'row', gap: 16, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                                    <Text style={{ fontSize: 12, color: '#475569' }}>
+                                        📋 <Text style={{ fontWeight: 'bold' }}>{(plan.visits || []).filter(v => v.status === 'completed').length}</Text>/{(plan.visits || []).length} visits done
+                                    </Text>
+                                    {nextVisit ? (
+                                        <Text style={{ fontSize: 12, color: '#0891b2' }}>
+                                            📅 Next: <Text style={{ fontWeight: 'bold' }}>{new Date(nextVisit.scheduledDate).toLocaleDateString('en-IN')}</Text>{nextVisit.scheduledTime ? ` · ${nextVisit.scheduledTime}` : ''}
+                                        </Text>
+                                    ) : null}
+                                </View>
                             </TouchableOpacity>
                         );
                     })}
@@ -3415,16 +4307,16 @@ const TreatmentPlanMode = () => {
 
             {msg.text ? <View style={[styles.downloadAlert, { borderColor: msg.type === 'error' ? '#fecaca' : '#a7f3d0', backgroundColor: msg.type === 'error' ? '#fef2f2' : '#ecfdf5' }]}><Text style={{ color: msg.type === 'error' ? '#dc2626' : '#059669', fontWeight: 'bold' }}>{msg.text}</Text></View> : null}
 
-            <View style={styles.clinicCard}>
+            <View style={[styles.clinicCard, isMobile && styles.cardMobile]}>
                 <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#0f172a', marginBottom: 20 }}>📅 New Treatment Plan</Text>
 
-                <View style={{ gap: 16 }}>
-                    <View style={{ zIndex: 50 }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 16 }}>
+                    <View style={{ width: '100%', zIndex: 50 }}>
                         <Text style={styles.label}>Patient *</Text>
                         {!form.clinicPatientId ? (
                             <TextInput style={styles.input} placeholder="Search patient..." value={patSearch} onChangeText={setPatSearch} />
                         ) : (
-                            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, padding: 10 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 9 }}>
                                 <Text style={{ marginRight: 8 }}>👤</Text>
                                 <Text style={{ flex: 1, fontWeight: '600', color: '#1e293b' }}>{patSearch}</Text>
                                 <TouchableOpacity onPress={() => { setForm(f => ({ ...f, clinicPatientId: '' })); setPatSearch(''); }}>
@@ -3445,34 +4337,65 @@ const TreatmentPlanMode = () => {
                         )}
                     </View>
 
-                    <View>
+                    <View style={{ width: isMobile ? "100%" : "48.5%" }}>
                         <Text style={styles.label}>Plan Title *</Text>
-                        <TextInput style={styles.input} placeholder="e.g. Root Canal" value={form.title} onChangeText={t => setForm(f => ({ ...f, title: t }))} />
+                        <TextInput style={styles.input} placeholder="e.g. Root Canal, Orthodontic Course..." value={form.title} onChangeText={t => setForm(f => ({ ...f, title: t }))} />
                     </View>
 
-                    <View>
-                        <Text style={styles.label}>Description / Notes</Text>
-                        <TextInput style={[styles.input, { height: 60, textAlignVertical: 'top' }]} multiline maxLength={500} placeholder="Brief description..." value={form.description} onChangeText={t => setForm(f => ({ ...f, description: t }))} />
+                    <View style={{ width: isMobile ? "100%" : "48.5%" }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 4 }}>
+                            <Text style={styles.label}>Description / Notes</Text>
+                            <Text style={{ fontSize: 13, color: (form.description || '').length >= 500 ? '#ef4444' : '#64748b', fontWeight: '600' }}>
+                                {(form.description || '').length} / 500
+                            </Text>
+                        </View>
+                        <TextInput style={[styles.input, { height: 60, textAlignVertical: 'top' }]} multiline maxLength={500} placeholder="Brief description (max 500 chars)..." value={form.description} onChangeText={t => setForm(f => ({ ...f, description: t }))} />
                     </View>
 
-                    <View>
+                    <View style={{ width: isMobile ? "100%" : "48.5%" }}>
                         <Text style={styles.label}>💰 Total Treatment Amount (₹) *</Text>
                         <TextInput style={styles.input} keyboardType="numeric" placeholder="e.g. 5000" value={form.totalAmount} onChangeText={t => setForm(f => ({ ...f, totalAmount: t }))} />
+                        <Text style={{ fontSize: 13, color: '#64748b', marginTop: 3, fontWeight: '500' }}>Patient can pay any amount at any visit.</Text>
                     </View>
 
-                    <View style={{ flexDirection: isNarrow ? 'column' : 'row', gap: 12 }}>
-                        <View style={{ flex: 1 }}>
+                    <View style={{ width: isMobile ? "100%" : "48.5%" }}>
                             <Text style={styles.label}>Number of Visits *</Text>
-                            <TextInput style={styles.input} keyboardType="numeric" placeholder="e.g. 5" value={form.numberOfVisits} onChangeText={val => setForm(f => { const n = parseInt(val) || 0; const i = parseInt(f.intervalDays) || 0; return { ...f, numberOfVisits: val, totalDurationDays: String(n > 1 ? (n - 1) * i : 0) }; })} />
+                            <TextInput
+                                style={styles.input}
+                                keyboardType="numeric"
+                                placeholder="e.g. 5"
+                                maxLength={3}
+                                value={form.numberOfVisits}
+                                onChangeText={val => {
+                                    const v = val.length > 3 ? val.slice(0, 3) : val;
+                                    setForm(f => {
+                                        const n = parseInt(v) || 0;
+                                        const i = parseInt(f.intervalDays) || 0;
+                                        return { ...f, numberOfVisits: v, totalDurationDays: String(n > 1 ? (n - 1) * i : 0) };
+                                    });
+                                }}
+                            />
                         </View>
-                        <View style={{ flex: 1 }}>
-                            <Text style={styles.label}>Interval (days) *</Text>
-                            <TextInput style={styles.input} keyboardType="numeric" placeholder="e.g. 3" value={form.intervalDays} onChangeText={val => setForm(f => { const i = parseInt(val) || 0; const n = parseInt(f.numberOfVisits) || 0; return { ...f, intervalDays: val, totalDurationDays: String(n > 1 ? (n - 1) * i : 0) }; })} />
+                    <View style={{ width: isMobile ? "100%" : "48.5%" }}>
+                            <Text style={styles.label}>Interval Between Visits (days) *</Text>
+                            <TextInput
+                                style={styles.input}
+                                keyboardType="numeric"
+                                placeholder="e.g. 3"
+                                maxLength={3}
+                                value={form.intervalDays}
+                                onChangeText={val => {
+                                    const v = val.length > 3 ? val.slice(0, 3) : val;
+                                    setForm(f => {
+                                        const i = parseInt(v) || 0;
+                                        const n = parseInt(f.numberOfVisits) || 0;
+                                        return { ...f, intervalDays: v, totalDurationDays: String(n > 1 ? (n - 1) * i : 0) };
+                                    });
+                                }}
+                            />
                         </View>
-                    </View>
 
-                    <View style={{ flexDirection: isNarrow ? 'column' : 'row', gap: 12 }}>
-                        <View style={{ flex: 1 }}>
+                    <View style={{ width: isMobile ? "100%" : "48.5%" }}>
                             <Text style={styles.label}>Start Date *</Text>
                             <DatePickerInput
                                 value={form.startDate}
@@ -3481,10 +4404,9 @@ const TreatmentPlanMode = () => {
                                 title="Start Date"
                             />
                         </View>
-                        <View style={{ flex: 1 }}>
-                            <Text style={styles.label}>Total Duration (days)</Text>
-                            <TextInput style={[styles.input, { backgroundColor: '#e2e8f0', color: '#64748b' }]} editable={false} value={form.totalDurationDays} />
-                        </View>
+                    <View style={{ width: isMobile ? "100%" : "48.5%" }}>
+                            <Text style={styles.label}>Total Duration (days) *</Text>
+                            <TextInput style={[styles.input, { backgroundColor: '#e2e8f0', color: '#64748b' }]} editable={false} placeholder="Auto calculated..." value={form.totalDurationDays} />
                     </View>
                 </View>
 
@@ -3504,13 +4426,13 @@ const TreatmentPlanMode = () => {
     if (view === 'detail' && selectedPlan) {
         return (
             <ScrollView style={styles.container}>
-                <TouchableOpacity onPress={() => setView('list')} style={{ marginBottom: 12 }}>
-                    <Text style={{ color: '#6366f1', fontWeight: 'bold' }}>← Back to Plans</Text>
+                <TouchableOpacity onPress={() => setView('list')} style={styles.backBtn}>
+                    <Text style={styles.backBtnText}>← Back to Plans</Text>
                 </TouchableOpacity>
 
                 {msg.text ? <View style={[styles.downloadAlert, { borderColor: msg.type === 'error' ? '#fecaca' : '#a7f3d0', backgroundColor: msg.type === 'error' ? '#fef2f2' : '#ecfdf5' }]}><Text style={{ color: msg.type === 'error' ? '#dc2626' : '#059669', fontWeight: 'bold' }}>{msg.text}</Text></View> : null}
 
-                <View style={styles.clinicCard}>
+                <View style={[styles.clinicCard, isMobile && styles.cardMobile]}>
                     <View style={{ flexDirection: isNarrow ? 'column' : 'row', justifyContent: 'space-between', alignItems: isNarrow ? 'flex-start' : 'center', flexWrap: 'wrap', gap: 10, marginBottom: 16, borderBottomWidth: 1, borderColor: '#f1f5f9', paddingBottom: 16 }}>
                         <View style={{ flex: 1, minWidth: 0 }}>
                             <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#0f172a' }}>{selectedPlan.title}</Text>
@@ -3537,16 +4459,30 @@ const TreatmentPlanMode = () => {
 
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
                         {[
-                            { label: 'Total Amount', value: '₹' + selectedPlan.totalAmount, color: '#6366f1' },
-                            { label: 'Total Paid', value: '₹' + selectedPlan.totalPaid, color: '#16a34a' },
-                            { label: 'Balance Due', value: selectedPlan.pendingBalance > 0 ? '₹' + selectedPlan.pendingBalance : '✓ Cleared', color: selectedPlan.pendingBalance > 0 ? '#dc2626' : '#16a34a' },
+                            { label: 'Total Amount', value: '₹' + Number(selectedPlan.totalAmount || 0).toLocaleString('en-IN'), color: '#6366f1' },
+                            { label: 'Total Paid', value: '₹' + Number(selectedPlan.totalPaid || 0).toLocaleString('en-IN'), color: '#16a34a' },
+                            { label: 'Balance Due', value: selectedPlan.pendingBalance > 0 ? '₹' + Number(selectedPlan.pendingBalance).toLocaleString('en-IN') : '✓ Cleared', color: selectedPlan.pendingBalance > 0 ? '#dc2626' : '#16a34a' },
+                            { label: 'Visits Done', value: `${(selectedPlan.visits || []).filter(v => v.status === 'completed').length} / ${(selectedPlan.visits || []).length}`, color: '#0891b2' },
                         ].map((s, i) => (
-                            <View key={i} style={{ backgroundColor: '#f8fafc', borderRadius: 8, padding: 12, borderTopWidth: 3, borderTopColor: s.color, minWidth: isNarrow ? '100%' : (isMobile ? '46%' : '30%'), flex: 1 }}>
+                            <View key={i} style={{ backgroundColor: '#f8fafc', borderRadius: 8, padding: 12, borderTopWidth: 3, borderTopColor: s.color, minWidth: isNarrow ? '100%' : (isMobile ? '46%' : '22%'), flex: 1 }}>
                                 <Text style={{ fontSize: 18, fontWeight: '800', color: s.color }}>{s.value}</Text>
                                 <Text style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{s.label}</Text>
                             </View>
                         ))}
                     </View>
+
+                    {/* Progress bar */}
+                    {selectedPlan.totalAmount > 0 && (
+                        <View style={{ marginBottom: 20 }}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                                <Text style={{ fontSize: 11, color: '#64748b' }}>Payment Progress</Text>
+                                <Text style={{ fontSize: 11, color: '#64748b' }}>{Math.min(100, Math.round(((selectedPlan.totalPaid || 0) / selectedPlan.totalAmount) * 100))}%</Text>
+                            </View>
+                            <View style={{ backgroundColor: '#e2e8f0', borderRadius: 6, height: 8, overflow: 'hidden' }}>
+                                <View style={{ height: '100%', width: `${Math.min(100, Math.round(((selectedPlan.totalPaid || 0) / selectedPlan.totalAmount) * 100))}%`, backgroundColor: selectedPlan.pendingBalance === 0 ? '#16a34a' : '#0891b2', borderRadius: 6 }} />
+                            </View>
+                        </View>
+                    )}
 
                     {/* Warning if last visit and balance pending */}
                     {selectedPlan.status === 'active' && selectedPlan.pendingBalance > 0 && selectedPlan.visits.filter(v => ['scheduled', 'rescheduled'].includes(v.status)).length === 1 && (
@@ -3561,15 +4497,44 @@ const TreatmentPlanMode = () => {
                     <View style={{ borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
                         {selectedPlan.visits.map((v, idx) => {
                             const effStatus = getEffectiveStatus(v);
+                            const vDateStr = v.scheduledDate ? new Date(v.scheduledDate).toISOString().split('T')[0] : '';
+                            const isFutureVisit = vDateStr > todayStr();
+                            const hasPriorPayment = (selectedPlan.visits || []).some(prior => prior.visitNumber === v.visitNumber && prior._id !== v._id && prior.amountPaid > 0);
                             return (
                                 <View key={v._id} style={{ padding: 12, borderBottomWidth: idx < selectedPlan.visits.length - 1 ? 1 : 0, borderColor: '#f1f5f9', backgroundColor: idx % 2 === 0 ? '#fff' : '#f8fafc' }}>
                                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
-                                        <Text style={{ fontWeight: 'bold', color: '#6366f1' }}>Visit {v.visitNumber} <Text style={{ color: '#1e293b' }}>· {new Date(v.scheduledDate).toLocaleDateString('en-IN')}</Text></Text>
-                                        <View style={{ backgroundColor: effStatus === 'completed' ? '#dcfce7' : effStatus === 'missed' ? '#fee2e2' : '#e2e8f0', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
-                                            <Text style={{ fontSize: 10, fontWeight: 'bold', textTransform: 'uppercase', color: effStatus === 'completed' ? '#166534' : effStatus === 'missed' ? '#dc2626' : '#475569' }}>{effStatus}</Text>
+                                        <View>
+                                            <Text style={{ fontWeight: 'bold', color: '#6366f1' }}>Visit {v.visitNumber} <Text style={{ color: '#1e293b' }}>· {new Date(v.scheduledDate).toLocaleDateString('en-IN')}</Text></Text>
+                                            {v.scheduledTime ? <Text style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>🕐 {v.scheduledTime}</Text> : null}
+                                            {v.originalScheduledDate ? (
+                                                <Text style={{ color: '#a855f7', fontSize: 10, fontWeight: 'bold', marginTop: 2 }}>
+                                                    Original: {new Date(v.originalScheduledDate).toLocaleDateString('en-IN')}
+                                                </Text>
+                                            ) : null}
+                                        </View>
+                                        <View style={{ alignItems: 'flex-end' }}>
+                                            <View style={{ backgroundColor: effStatus === 'completed' ? '#dcfce7' : effStatus === 'missed' ? '#fee2e2' : effStatus === 'due' ? '#fef3c7' : effStatus === 'rescheduled' ? '#f3e8ff' : '#e2e8f0', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                                                <Text style={{ fontSize: 10, fontWeight: 'bold', textTransform: 'uppercase', color: effStatus === 'completed' ? '#166534' : effStatus === 'missed' ? '#dc2626' : '#475569' }}>{effStatus}</Text>
+                                            </View>
+                                            {v.rescheduledToDate ? (
+                                                <Text style={{ fontSize: 10, color: '#a855f7', marginTop: 4, fontWeight: '600' }}>
+                                                    Rescheduled To: {new Date(v.rescheduledToDate).toLocaleDateString('en-IN')}
+                                                </Text>
+                                            ) : null}
+                                            {v.status === 'completed' && v.completedAt ? (
+                                                <Text style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>
+                                                    Completed: {new Date(v.completedAt).toLocaleDateString('en-IN')}
+                                                </Text>
+                                            ) : null}
                                         </View>
                                     </View>
-                                    {v.procedure ? <Text style={{ fontSize: 12, color: '#475569', marginBottom: 6 }}>{v.procedure}</Text> : null}
+                                    {v.procedure ? <Text style={{ fontSize: 12, color: '#1e293b', fontWeight: '500', marginBottom: 2 }}>{v.procedure}</Text> : null}
+                                    {v.notes ? <Text style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>{v.notes}</Text> : null}
+                                    {v.amountPaid > 0 ? (
+                                        <Text style={{ color: '#16a34a', fontWeight: '600', fontSize: 11, marginBottom: 4 }}>
+                                            Paid: ₹{v.amountPaid.toLocaleString('en-IN')}{v.paymentMethod ? ` · ${v.paymentMethod}` : ''}
+                                        </Text>
+                                    ) : null}
 
                                     <View style={{ flexDirection: 'row', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                                         {selectedPlan.status === 'active' && !['completed', 'missed'].includes(v.status) && (() => {
@@ -3577,14 +4542,46 @@ const TreatmentPlanMode = () => {
                                             const isBlocked = isLast && (selectedPlan.pendingBalance || 0) > 0;
                                             return (
                                                 <>
-                                                    {selectedPlan.pendingBalance > 0 && v.amountPaid === 0 && (
-                                                        <TouchableOpacity style={{ backgroundColor: '#dcfce7', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }} onPress={() => { setPayModal({ visit: v, planId: selectedPlan._id }); }}>
-                                                            <Text style={{ color: '#16a34a', fontSize: 12, fontWeight: 'bold' }}>💵 Pay</Text>
+                                                    {selectedPlan.pendingBalance > 0 && !hasPriorPayment && (
+                                                        <TouchableOpacity
+                                                            disabled={isFutureVisit}
+                                                            style={{
+                                                                backgroundColor: isFutureVisit ? '#f1f5f9' : '#dcfce7',
+                                                                paddingHorizontal: 12,
+                                                                paddingVertical: 6,
+                                                                borderRadius: 6,
+                                                                opacity: isFutureVisit ? 0.6 : 1
+                                                            }}
+                                                            onPress={() => {
+                                                                const remainingScheduled = (selectedPlan.visits || []).filter(vis => vis._id !== v._id && ['scheduled', 'rescheduled', 'due'].includes(vis.status));
+                                                                const isFinalVisit = remainingScheduled.length === 0;
+                                                                const autoAmount = (isFinalVisit && selectedPlan.pendingBalance > 0) ? String(selectedPlan.pendingBalance) : '';
+                                                                setPayModal({ visit: v, planId: selectedPlan._id, isFinalVisit });
+                                                                setPayInput(p => ({
+                                                                    ...p,
+                                                                    amountPaid: autoAmount,
+                                                                    paymentDate: todayStr(),
+                                                                    paymentMethod: 'Cash',
+                                                                    upiId: '',
+                                                                    upiRef: '',
+                                                                    confirmedReceipt: false,
+                                                                    notes: ''
+                                                                }));
+                                                            }}
+                                                        >
+                                                            <Text style={{ color: isFutureVisit ? '#94a3b8' : '#16a34a', fontSize: 12, fontWeight: 'bold' }}>💵 Pay</Text>
                                                         </TouchableOpacity>
                                                     )}
                                                     <TouchableOpacity
+                                                        disabled={isFutureVisit || isBlocked}
                                                         style={[
-                                                            { backgroundColor: isBlocked ? '#f1f5f9' : '#dbeafe', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 },
+                                                            {
+                                                                backgroundColor: (isFutureVisit || isBlocked) ? '#f1f5f9' : '#dbeafe',
+                                                                paddingHorizontal: 12,
+                                                                paddingVertical: 6,
+                                                                borderRadius: 6,
+                                                                opacity: (isFutureVisit || isBlocked) ? 0.6 : 1
+                                                            },
                                                             isBlocked && { borderWidth: 1, borderColor: '#cbd5e1' }
                                                         ]}
                                                         onPress={() => {
@@ -3598,11 +4595,23 @@ const TreatmentPlanMode = () => {
                                                             }
                                                         }}
                                                     >
-                                                        <Text style={{ color: isBlocked ? '#94a3b8' : '#1d4ed8', fontSize: 12, fontWeight: 'bold' }}>✓ Done</Text>
+                                                        <Text style={{ color: (isFutureVisit || isBlocked) ? '#94a3b8' : '#1d4ed8', fontSize: 12, fontWeight: 'bold' }}>✓ Done</Text>
                                                     </TouchableOpacity>
-                                                    <TouchableOpacity style={{ backgroundColor: '#fee2e2', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }} onPress={() => handleMiss(selectedPlan._id, v._id)}>
-                                                        <Text style={{ color: '#dc2626', fontSize: 12, fontWeight: 'bold' }}>✗ Missed</Text>
-                                                    </TouchableOpacity>
+                                                    {!hasPriorPayment && (
+                                                        <TouchableOpacity
+                                                            disabled={isFutureVisit}
+                                                            style={{
+                                                                backgroundColor: isFutureVisit ? '#f1f5f9' : '#fee2e2',
+                                                                paddingHorizontal: 12,
+                                                                paddingVertical: 6,
+                                                                borderRadius: 6,
+                                                                opacity: isFutureVisit ? 0.6 : 1
+                                                            }}
+                                                            onPress={() => handleMiss(selectedPlan._id, v._id)}
+                                                        >
+                                                            <Text style={{ color: isFutureVisit ? '#94a3b8' : '#dc2626', fontSize: 12, fontWeight: 'bold' }}>✗ Missed</Text>
+                                                        </TouchableOpacity>
+                                                    )}
                                                 </>
                                             );
                                         })()}
@@ -3617,7 +4626,7 @@ const TreatmentPlanMode = () => {
                                                 <Text style={{ color: '#9333ea', fontSize: 12, fontWeight: 'bold' }}>🔄 Reschedule</Text>
                                             </TouchableOpacity>
                                         )}
-                                        {v.amountPaid > 0 && <Text style={{ color: '#16a34a', fontWeight: 'bold', fontSize: 12, alignSelf: 'center' }}>Paid ₹{v.amountPaid}</Text>}
+                                        {v.amountPaid > 0 && <Text style={{ color: '#16a34a', fontWeight: 'bold', fontSize: 12, alignSelf: 'center' }}>Paid ₹{v.amountPaid.toLocaleString('en-IN')}</Text>}
                                     </View>
                                 </View>
                             );
@@ -3625,138 +4634,217 @@ const TreatmentPlanMode = () => {
                     </View>
                 </View>
 
-                {/* Payment Modal – full UPI flow matching Web (GAP 18) */}
-                {payModal && (
-                    <Modal transparent visible animationType="fade">
-                        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-                            <ScrollView style={{ width: '100%' }} contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center' }} keyboardShouldPersistTaps="handled">
-                                <View style={{ backgroundColor: '#fff', padding: 24, borderRadius: 12, width: '100%', maxWidth: 420 }}>
-                                    <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 4 }}>Record Payment</Text>
-                                    {payModal.visit && (
-                                        <Text style={{ fontSize: 12, color: '#64748b', marginBottom: 16 }}>
-                                            Visit #{payModal.visit.visitNumber} · Outstanding: ₹{Number(selectedPlan?.pendingBalance || 0).toLocaleString('en-IN')}
-                                        </Text>
-                                    )}
+                {/* Payment Modal – full UPI flow matching Web */}
+                {payModal && (() => {
+                    const amt = Number(payInput.amountPaid) || 0;
+                    const amtExceedsBalance = amt > (selectedPlan?.pendingBalance || 0);
+                    const amtValid = amt > 0 && !amtExceedsBalance;
+                    const upiRefClean = (payInput.upiRef || '').replace(/\D/g, '');
+                    const upiRefValid = upiRefClean.length === 12;
+                    const upiIdTrimmed = (payInput.upiId || '').trim();
+                    const upiIdValid = upiIdTrimmed.length > 0 && upiIdTrimmed.length <= 25;
+                    const isUPI = payInput.paymentMethod === 'UPI';
+                    const allValid = amtValid && (!isUPI || (upiIdValid && upiRefValid && payInput.confirmedReceipt));
 
-                                    <Text style={styles.label}>Amount Paying Now (₹) *</Text>
-                                    <TextInput
-                                        style={[styles.input, { marginBottom: 12 }]}
-                                        keyboardType="numeric"
-                                        value={payInput.amountPaid}
-                                        onChangeText={t => setPayInput(p => ({ ...p, amountPaid: t }))}
-                                        placeholder={`Max ₹${Number(selectedPlan?.pendingBalance || 0).toLocaleString('en-IN')}`}
-                                    />
-
-                                    <Text style={styles.label}>Payment Method</Text>
-                                    <View style={[styles.pickerWrapper, { marginBottom: 12 }]}>
-                                        <Picker
-                                            selectedValue={payInput.paymentMethod}
-                                            onValueChange={val => setPayInput(p => ({ ...p, paymentMethod: val, upiRef: '', confirmedReceipt: false }))}
-                                        >
-                                            <Picker.Item label="Cash" value="Cash" />
-                                            <Picker.Item label="UPI" value="UPI" />
-                                        </Picker>
-                                    </View>
-
-                                    {/* UPI-specific fields – matches Web Pay Visit modal */}
-                                    {payInput.paymentMethod === 'UPI' && (
-                                        <View style={{ backgroundColor: '#f0fdf4', borderColor: '#86efac', borderWidth: 1, borderRadius: 8, padding: 12, marginBottom: 12, gap: 10 }}>
-                                            <Text style={{ fontSize: 13, fontWeight: '700', color: '#15803d' }}>💳 UPI Payment Details</Text>
-
-                                            <View>
-                                                <Text style={styles.label}>UPI ID (your clinic's UPI) *</Text>
-                                                <TextInput
-                                                    style={styles.input}
-                                                    placeholder="e.g. clinic@ybl"
-                                                    value={payInput.upiId}
-                                                    onChangeText={t => {
-                                                        let val = t;
-                                                        // Auto-append @ybl if user types only the handle
-                                                        if (t.length > 0 && !t.includes('@')) val = t;
-                                                        setPayInput(p => ({ ...p, upiId: val.slice(0, 25) }));
-                                                    }}
-                                                    autoCapitalize="none"
-                                                    maxLength={25}
-                                                />
+                    return (
+                        <Modal transparent visible animationType="fade">
+                            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+                                <ScrollView style={{ width: '100%' }} contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center' }} keyboardShouldPersistTaps="handled">
+                                    <View style={{ backgroundColor: '#fff', padding: isNarrow ? 16 : 32, borderRadius: 14, width: '100%', maxWidth: 520 }}>
+                                        <Text style={{ fontSize: 17, fontWeight: '700', marginBottom: 20, color: '#0f172a' }}>💵 Record Payment — Visit {payModal.visit.visitNumber}</Text>
+                                        <View style={{ backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 20 }}>
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                                                <Text style={{ fontSize: 13, color: '#475569' }}>Total Treatment</Text>
+                                                <Text style={{ fontSize: 13, fontWeight: '700', color: '#0f172a' }}>₹{Number(selectedPlan?.totalAmount || 0).toLocaleString('en-IN')}</Text>
                                             </View>
-
-                                            <View>
-                                                <Text style={styles.label}>UPI Reference / UTR (12 digits) *</Text>
-                                                <TextInput
-                                                    style={[styles.input, {
-                                                        borderColor: payInput.upiRef.length > 0 && !/^\d{12}$/.test(payInput.upiRef) ? '#dc2626' : '#e2e8f0'
-                                                    }]}
-                                                    placeholder="12-digit UTR from payment app"
-                                                    value={payInput.upiRef}
-                                                    onChangeText={t => setPayInput(p => ({ ...p, upiRef: t.replace(/\D/g, '').slice(0, 12) }))}
-                                                    keyboardType="number-pad"
-                                                    maxLength={12}
-                                                />
-                                                {payInput.upiRef.length > 0 && !/^\d{12}$/.test(payInput.upiRef) && (
-                                                    <Text style={{ color: '#dc2626', fontSize: 11, marginTop: 2 }}>UTR must be exactly 12 digits</Text>
-                                                )}
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                                                <Text style={{ fontSize: 13, color: '#475569' }}>Paid so far</Text>
+                                                <Text style={{ fontSize: 13, fontWeight: '700', color: '#16a34a' }}>₹{Number(selectedPlan?.totalPaid || 0).toLocaleString('en-IN')}</Text>
                                             </View>
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderColor: '#e2e8f0', paddingTop: 6 }}>
+                                                <Text style={{ fontSize: 14, fontWeight: '700', color: '#dc2626' }}>Outstanding Balance</Text>
+                                                <Text style={{ fontSize: 14, fontWeight: '700', color: '#dc2626' }}>₹{Number(selectedPlan?.pendingBalance || 0).toLocaleString('en-IN')}</Text>
+                                            </View>
+                                        </View>
 
-                                            {/* QR code display (matches Web) */}
-                                            {payInput.upiId && payInput.amountPaid && Number(payInput.amountPaid) > 0 && (
-                                                <View style={{ alignItems: 'center', marginVertical: 8 }}>
-                                                    <Text style={{ fontSize: 12, color: '#15803d', marginBottom: 6, fontWeight: '600' }}>Scan to Pay</Text>
-                                                    <Image
-                                                        source={{ uri: `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=upi://pay?pa=${encodeURIComponent(payInput.upiId)}&am=${encodeURIComponent(payInput.amountPaid)}&cu=INR` }}
-                                                        style={{ width: Math.min(140, screenWidth - 100), height: Math.min(140, screenWidth - 100), borderRadius: 8 }}
-                                                        resizeMode="contain"
-                                                    />
-                                                </View>
-                                            )}
+                                        <Text style={styles.label}>Amount Paying Now (₹) *</Text>
+                                        <TextInput
+                                            style={[
+                                                styles.input,
+                                                { marginBottom: 4 },
+                                                (payModal.isFinalVisit && (selectedPlan?.pendingBalance || 0) > 0) && { backgroundColor: '#e2e8f0', color: '#64748b' }
+                                            ]}
+                                            keyboardType="numeric"
+                                            editable={!(payModal.isFinalVisit && (selectedPlan?.pendingBalance || 0) > 0)}
+                                            value={payInput.amountPaid}
+                                            onChangeText={t => setPayInput(p => ({ ...p, amountPaid: t }))}
+                                            placeholder={`Up to ₹${Number(selectedPlan?.pendingBalance || 0).toLocaleString('en-IN')}`}
+                                        />
+                                        {payModal.isFinalVisit && (selectedPlan?.pendingBalance || 0) > 0 && (
+                                            <Text style={{ fontSize: 11, marginTop: 4, color: '#0891b2', fontWeight: '600' }}>
+                                                🔒 Final visit — full remaining balance must be paid.
+                                            </Text>
+                                        )}
+                                        {amtExceedsBalance && (
+                                            <Text style={{ fontSize: 12, marginTop: 4, color: '#dc2626', fontWeight: '600' }}>
+                                                ⚠️ Payment amount cannot exceed outstanding balance.
+                                            </Text>
+                                        )}
+                                        {amtValid && !amtExceedsBalance && (
+                                            <Text style={{ fontSize: 12, marginTop: 4, color: amt >= (selectedPlan?.pendingBalance || 0) ? '#16a34a' : '#f97316', fontWeight: '600' }}>
+                                                {amt >= (selectedPlan?.pendingBalance || 0)
+                                                    ? '✓ This will clear the full outstanding balance.'
+                                                    : `After payment: ₹${Math.max(0, (selectedPlan?.pendingBalance || 0) - amt).toLocaleString('en-IN')} still pending.`}
+                                            </Text>
+                                        )}
 
-                                            {/* Receipt confirmation checkbox (matches Web confirmedReceipt) */}
-                                            <TouchableOpacity
-                                                style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}
-                                                onPress={() => setPayInput(p => ({ ...p, confirmedReceipt: !p.confirmedReceipt }))}
+                                        <Text style={[styles.label, { marginTop: 14 }]}>Payment Date *</Text>
+                                        <TextInput
+                                            style={[styles.input, { backgroundColor: '#f8fafc', color: '#64748b', marginBottom: 12 }]}
+                                            editable={false}
+                                            value={todayStr()}
+                                        />
+
+                                        <Text style={styles.label}>Payment Method *</Text>
+                                        <View style={[styles.pickerWrapper, { marginBottom: 12 }]}>
+                                            <Picker
+                                                selectedValue={payInput.paymentMethod}
+                                                onValueChange={val => setPayInput(p => ({ ...p, paymentMethod: val, upiId: '', upiRef: '', confirmedReceipt: false }))}
                                             >
-                                                <View style={{
-                                                    width: 20, height: 20, borderRadius: 4,
-                                                    borderWidth: 2, borderColor: payInput.confirmedReceipt ? '#16a34a' : '#94a3b8',
-                                                    backgroundColor: payInput.confirmedReceipt ? '#16a34a' : '#fff',
-                                                    justifyContent: 'center', alignItems: 'center'
-                                                }}>
-                                                    {payInput.confirmedReceipt && <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>✓</Text>}
+                                                <Picker.Item label="Cash" value="Cash" />
+                                                <Picker.Item label="UPI" value="UPI" />
+                                            </Picker>
+                                        </View>
+
+                                        {/* UPI Section */}
+                                        {isUPI && (
+                                            <View style={{ backgroundColor: '#f0fdf4', borderColor: '#86efac', borderWidth: 1, borderRadius: 8, padding: 12, marginBottom: 12, gap: 10 }}>
+                                                <Text style={{ fontSize: 13, fontWeight: '700', color: '#15803d' }}>💳 UPI Payment Details</Text>
+
+                                                <View>
+                                                    <Text style={styles.label}>UPI ID *</Text>
+                                                    <TextInput
+                                                        style={styles.input}
+                                                        placeholder="e.g. 9948977432 or payments@upi"
+                                                        value={payInput.upiId}
+                                                        onChangeText={t => {
+                                                            let val = t;
+                                                            setPayInput(p => ({ ...p, upiId: val.slice(0, 25) }));
+                                                        }}
+                                                        onBlur={() => {
+                                                            const val = (payInput.upiId || '').trim();
+                                                            if (/^\d{10}$/.test(val)) {
+                                                                setPayInput(p => ({ ...p, upiId: val + '@ybl' }));
+                                                            }
+                                                        }}
+                                                        autoCapitalize="none"
+                                                        maxLength={25}
+                                                    />
+                                                    <Text style={{ fontSize: 10, color: '#6b7280', marginTop: 3 }}>
+                                                        10-digit mobile will auto-append @ybl · Max 25 characters
+                                                    </Text>
                                                 </View>
-                                                <Text style={{ fontSize: 13, color: '#374151', flex: 1 }}>I confirm UPI payment receipt is verified</Text>
+
+                                                {payInput.upiId && payInput.amountPaid && Number(payInput.amountPaid) > 0 && (
+                                                    <View style={{ alignItems: 'center', marginVertical: 8 }}>
+                                                        <Text style={{ fontSize: 12, color: '#15803d', marginBottom: 6, fontWeight: '600' }}>Scan QR to Pay ₹{payInput.amountPaid}</Text>
+                                                        <Image
+                                                            source={{ uri: `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=upi://pay?pa=${encodeURIComponent(upiIdTrimmed)}&pn=${encodeURIComponent(selectedPlan?.title || 'Clinic')}&am=${encodeURIComponent(payInput.amountPaid)}&cu=INR` }}
+                                                            style={{ width: Math.min(140, screenWidth - 100), height: Math.min(140, screenWidth - 100), borderRadius: 8 }}
+                                                            resizeMode="contain"
+                                                        />
+                                                    </View>
+                                                )}
+
+                                                <View>
+                                                    <Text style={styles.label}>Transaction Reference Number (Ref #) *</Text>
+                                                    <TextInput
+                                                        style={[styles.input, {
+                                                            borderColor: upiRefClean.length > 0 && !upiRefValid ? '#dc2626' : (upiRefValid ? '#16a34a' : '#e2e8f0')
+                                                        }]}
+                                                        placeholder="Enter 12-digit UPI reference ID"
+                                                        value={payInput.upiRef}
+                                                        onChangeText={t => {
+                                                            const val = t.replace(/\D/g, '').slice(0, 12);
+                                                            setPayInput(p => ({ ...p, upiRef: val }));
+                                                        }}
+                                                        keyboardType="number-pad"
+                                                        maxLength={12}
+                                                    />
+                                                    {upiRefClean.length > 0 && !upiRefValid && (
+                                                        <Text style={{ color: '#dc2626', fontSize: 11, marginTop: 3, fontWeight: '600' }}>
+                                                            Enter a valid 12-character transaction reference. ({upiRefClean.length}/12)
+                                                        </Text>
+                                                    )}
+                                                    {upiRefValid && (
+                                                        <Text style={{ color: '#16a34a', fontSize: 11, marginTop: 3, fontWeight: '600' }}>
+                                                            ✓ Valid reference ({upiRefClean.length}/12)
+                                                        </Text>
+                                                    )}
+                                                </View>
+
+                                                <TouchableOpacity
+                                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}
+                                                    onPress={() => setPayInput(p => ({ ...p, confirmedReceipt: !p.confirmedReceipt }))}
+                                                >
+                                                    <View style={{
+                                                        width: 20, height: 20, borderRadius: 4,
+                                                        borderWidth: 2, borderColor: payInput.confirmedReceipt ? '#16a34a' : '#94a3b8',
+                                                        backgroundColor: payInput.confirmedReceipt ? '#16a34a' : '#fff',
+                                                        justifyContent: 'center', alignItems: 'center'
+                                                    }}>
+                                                        {payInput.confirmedReceipt && <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>✓</Text>}
+                                                    </View>
+                                                    <Text style={{ fontSize: 13, color: '#374151', flex: 1 }}>I have confirmed the payment receipt on the device</Text>
+                                                </TouchableOpacity>
+                                            </View>
+                                        )}
+
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, marginBottom: 4 }}>
+                                            <Text style={styles.label}>Notes (optional)</Text>
+                                            <Text style={{ fontSize: 11, color: (payInput.notes || '').length >= 300 ? '#ef4444' : '#64748b', fontWeight: '600' }}>
+                                                {(payInput.notes || '').length} / 300
+                                            </Text>
+                                        </View>
+                                        <TextInput
+                                            style={[styles.input, { marginBottom: 16 }]}
+                                            placeholder="e.g. Partial payment, cash given"
+                                            maxLength={300}
+                                            value={payInput.notes}
+                                            onChangeText={t => setPayInput(p => ({ ...p, notes: t }))}
+                                        />
+
+                                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 }}>
+                                            <TouchableOpacity style={[styles.btnPrimary, { flex: 1, minWidth: 100, backgroundColor: '#f1f5f9', alignItems: 'center' }]} onPress={() => setPayModal(null)}>
+                                                <Text style={{ color: '#475569', fontWeight: 'bold' }}>Cancel</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity
+                                                style={[styles.btnPrimary, { flex: 1, minWidth: 140, alignItems: 'center' }, (!allValid || saving) && { opacity: 0.6 }]}
+                                                disabled={saving || !allValid}
+                                                onPress={handlePay}
+                                            >
+                                                <Text style={styles.btnPrimaryText}>{saving ? 'Saving…' : '✅ Confirm Payment'}</Text>
                                             </TouchableOpacity>
                                         </View>
-                                    )}
-
-                                    <Text style={[styles.label, { marginTop: 4 }]}>Notes (optional)</Text>
-                                    <TextInput
-                                        style={[styles.input, { marginBottom: 16 }]}
-                                        placeholder="e.g. Partial payment, cash given"
-                                        value={payInput.notes}
-                                        onChangeText={t => setPayInput(p => ({ ...p, notes: t }))}
-                                    />
-
-                                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 }}>
-                                        <TouchableOpacity style={[styles.btnPrimary, { flex: 1, minWidth: 100, backgroundColor: '#f1f5f9', alignItems: 'center' }]} onPress={() => setPayModal(null)}>
-                                            <Text style={{ color: '#475569', fontWeight: 'bold' }}>Cancel</Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity style={[styles.btnPrimary, { flex: 1, minWidth: 140, alignItems: 'center' }]} disabled={saving} onPress={handlePay}>
-                                            <Text style={styles.btnPrimaryText}>{saving ? 'Saving…' : 'Confirm Payment'}</Text>
-                                        </TouchableOpacity>
                                     </View>
-                                </View>
-                            </ScrollView>
-                        </View>
-                    </Modal>
-                )}
+                                </ScrollView>
+                            </View>
+                        </Modal>
+                    );
+                })()}
 
-                {/* 1:1 Reschedule Modal (GAP 11) */}
+                {/* Reschedule Modal */}
                 {rescheduleModal && (
                     <Modal transparent visible animationType="fade">
                         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: isNarrow ? 10 : 20 }}>
-                            <View style={{ backgroundColor: '#fff', padding: isNarrow ? 16 : 24, borderRadius: 12, width: '100%', maxWidth: 400 }}>
-                                <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 16 }}>🔄 Reschedule Visit #{rescheduleModal.visit?.visitNumber}</Text>
+                            <View style={{ backgroundColor: '#fff', padding: isNarrow ? 16 : 28, borderRadius: 14, width: '100%', maxWidth: 400 }}>
+                                <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 16, color: '#0f172a' }}>🔄 Reschedule Visit {rescheduleModal.visit?.visitNumber}</Text>
+                                <View style={{ backgroundColor: '#f5f3ff', borderWidth: 1, borderColor: '#ddd6fe', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+                                    <Text style={{ fontSize: 12, color: '#6d28d9', fontWeight: 'bold', marginBottom: 2 }}>ℹ️ Automatic Date Shifter Enabled</Text>
+                                    <Text style={{ fontSize: 11, color: '#6d28d9' }}>All subsequent scheduled visits will automatically move forward to maintain their relative spacing.</Text>
+                                </View>
 
-                                <Text style={styles.label}>New Scheduled Date *</Text>
+                                <Text style={styles.label}>New Visit Date *</Text>
                                 <DatePickerInput
                                     value={rescheduleInput.newDate}
                                     onChange={d => setRescheduleInput(p => ({ ...p, newDate: d }))}
@@ -3764,7 +4852,7 @@ const TreatmentPlanMode = () => {
                                     title="Select Date"
                                 />
 
-                                <Text style={[styles.label, { marginTop: 12 }]}>New Scheduled Time</Text>
+                                <Text style={[styles.label, { marginTop: 12 }]}>New Visit Time (optional)</Text>
                                 <TextInput
                                     style={[styles.input, { marginBottom: 12 }]}
                                     placeholder="e.g. 10:30 AM"
@@ -3772,7 +4860,7 @@ const TreatmentPlanMode = () => {
                                     onChangeText={t => setRescheduleInput(p => ({ ...p, newTime: t }))}
                                 />
 
-                                <Text style={styles.label}>Remarks / Reason</Text>
+                                <Text style={styles.label}>Reason / Remarks (optional)</Text>
                                 <TextInput
                                     style={[styles.input, { marginBottom: 16 }]}
                                     placeholder="e.g. Patient requested new slot"
@@ -3784,8 +4872,8 @@ const TreatmentPlanMode = () => {
                                     <TouchableOpacity style={[styles.btnPrimary, { flex: 1, minWidth: 100, backgroundColor: '#f1f5f9', alignItems: 'center' }]} onPress={() => setRescheduleModal(null)}>
                                         <Text style={{ color: '#475569', fontWeight: 'bold' }}>Cancel</Text>
                                     </TouchableOpacity>
-                                    <TouchableOpacity style={[styles.btnPrimary, { flex: 1, minWidth: 120, alignItems: 'center', backgroundColor: '#9333ea' }]} disabled={saving} onPress={handleRescheduleSubmit}>
-                                        <Text style={styles.btnPrimaryText}>{saving ? 'Saving...' : 'Reschedule'}</Text>
+                                    <TouchableOpacity style={[styles.btnPrimary, { flex: 1, minWidth: 140, alignItems: 'center', backgroundColor: '#9333ea' }]} disabled={saving} onPress={handleRescheduleSubmit}>
+                                        <Text style={styles.btnPrimaryText}>{saving ? 'Saving...' : 'Reschedule Visit'}</Text>
                                     </TouchableOpacity>
                                 </View>
                             </View>
@@ -3810,9 +4898,53 @@ const BillingMode = () => {
     const [patSearch, setPatSearch] = useState('');
     const [detailsModal, setDetailsModal] = useState(null);
 
+    // FIX C — BILLING KPI: Web auto-fit minmax(160px, 1fr) with max 5 cards
+    // <= 480px: exactly 3 columns, gap 8 (@media (max-width: 480px) repeat(3, 1fr) !important)
+    // > 480px: dynamic auto-fit min 160px, gap 14, capped at 5 cards
+    const isMobileBilling = screenWidth <= 480;
+    const billGap = isMobileBilling ? 8 : 14;
+    const billContainerPadH = screenWidth < 375 ? 16 : (screenWidth < 600 ? 24 : 32);
+    const billAvailWidth = screenWidth - billContainerPadH;
+    const billCols = isMobileBilling
+        ? 3
+        : Math.min(5, Math.max(1, Math.floor((billAvailWidth + 14) / (160 + 14))));
+    const billCardWidth = Math.floor((billAvailWidth - (billCols - 1) * billGap) / billCols);
+
     useEffect(() => {
-        Promise.all([clinicAPI.getAppointments(), clinicAPI.getTreatmentPlans(), clinicAPI.getStats()])
-            .then(([apptR, plansR, statsR]) => {
+        console.log('[ClinicDashboard] GET /api/clinic/appointments & treatment-plans & stats (Billing) START');
+        Promise.allSettled([clinicAPI.getAppointments(), clinicAPI.getTreatmentPlans(), clinicAPI.getStats()])
+            .then(([apptRes, plansRes, statsRes]) => {
+                const apptR = apptRes.status === 'fulfilled' ? apptRes.value : { success: false, appointments: [] };
+                const plansR = plansRes.status === 'fulfilled' ? plansRes.value : { success: false, plans: [] };
+                const statsR = statsRes.status === 'fulfilled' ? statsRes.value : { success: false, stats: null };
+
+                if (apptRes.status === 'fulfilled' && apptRes.value?.success) {
+                    console.log('[ClinicDashboard] GET /api/clinic/appointments (Billing) STATUS 200');
+                    console.log('[ClinicDashboard] appointments count:', (apptR.appointments || []).length);
+                } else if (apptRes.status === 'rejected') {
+                    const err = apptRes.reason;
+                    const status = err?.response?.status || 'FAIL';
+                    console.log('[ClinicDashboard] GET /api/clinic/appointments (Billing) STATUS', status, err?.response?.data || err?.message);
+                }
+
+                if (plansRes.status === 'fulfilled' && plansRes.value?.success) {
+                    console.log('[ClinicDashboard] GET /api/clinic/treatment-plans (Billing) STATUS 200');
+                    console.log('[ClinicDashboard] treatment-plans count:', (plansR.plans || []).length);
+                } else if (plansRes.status === 'rejected') {
+                    const err = plansRes.reason;
+                    const status = err?.response?.status || 'FAIL';
+                    console.log('[ClinicDashboard] GET /api/clinic/treatment-plans (Billing) STATUS', status, err?.response?.data || err?.message);
+                }
+
+                if (statsRes.status === 'fulfilled' && statsRes.value?.success) {
+                    console.log('[ClinicDashboard] GET /api/clinic/stats (Billing) STATUS 200');
+                    console.log('[ClinicDashboard] setStats called: true');
+                    setStats(statsRes.value.stats);
+                } else if (statsRes.status === 'rejected') {
+                    const err = statsRes.reason;
+                    const status = err?.response?.status || 'FAIL';
+                    console.log('[ClinicDashboard] GET /api/clinic/stats (Billing) STATUS', status, err?.response?.data || err?.message);
+                }
                 let combined = [];
 
                 // 1. Consultation Bills (appointments with paid status or amount > 0)
@@ -4024,7 +5156,7 @@ const BillingMode = () => {
         <ScrollView style={styles.container}>
             {/* Collection Summary Strip */}
             {stats && (
-                <View style={[styles.kpiGrid, { marginBottom: 16 }]}>
+                <View style={[styles.kpiGrid, { gap: billGap, marginBottom: isMobileBilling ? 12 : 16 }]}>
                     {[
                         { label: 'Total Collection', value: fmt(stats.totalRevenue || allRecords.reduce((sum, r) => sum + (r.amount || 0), 0)), icon: '💰', color: '#f59e0b' },
                         { label: "Today's Collection", value: fmt(stats.todayRevenue || todayTotal), icon: '📅', color: '#10b981' },
@@ -4032,16 +5164,35 @@ const BillingMode = () => {
                         { label: 'Treatment Plan Pending', value: fmt(stats.treatmentPlanPending || 0), icon: '⏳', color: '#dc2626' },
                         { label: 'Total Paid Transactions', value: String(allRecords.filter(r => (r.amount || 0) > 0).length), icon: '✅', color: '#0ea5e9' },
                     ].map((k, i) => (
-                        <View key={i} style={[styles.kpiCard, { borderTopColor: k.color, minWidth: isNarrow ? '100%' : (isMobile ? '46%' : '30%'), padding: isNarrow ? 10 : 14 }]}>
-                            <Text style={{ fontSize: 24 }}>{k.icon}</Text>
-                            <Text style={{ fontSize: 20, fontWeight: '800', color: k.color, marginVertical: 4 }}>{k.value}</Text>
-                            <Text style={{ fontSize: 12, color: '#64748b' }}>{k.label}</Text>
+                        <View key={i} style={[styles.kpiCard, {
+                            borderTopColor: k.color,
+                            borderTopWidth: 4,
+                            borderRadius: 12,
+                            backgroundColor: '#fff',
+                            borderColor: '#e2e8f0',
+                            borderWidth: 1,
+                            flex: 0,
+                            width: billCardWidth,
+                            minWidth: billCardWidth,
+                            maxWidth: billCardWidth,
+                            paddingVertical: isMobileBilling ? 12 : 18,
+                            paddingHorizontal: isMobileBilling ? 8 : 16,
+                            alignItems: 'center',
+                            shadowColor: '#000',
+                            shadowOffset: { width: 0, height: 1 },
+                            shadowOpacity: 0.05,
+                            shadowRadius: 3,
+                            elevation: 1
+                        }]}>
+                            <Text style={{ fontSize: isMobileBilling ? 20 : 24 }}>{k.icon}</Text>
+                            <Text style={{ fontSize: isMobileBilling ? 16 : 20, fontWeight: '800', color: k.color, marginVertical: 4 }}>{k.value}</Text>
+                            <Text style={{ fontSize: isMobileBilling ? 11 : 12, color: '#64748b', textAlign: 'center' }}>{k.label}</Text>
                         </View>
                     ))}
                 </View>
             )}
 
-            <View style={styles.clinicCard}>
+            <View style={[styles.clinicCard, isMobile && styles.cardMobile]}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
                     <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1e293b' }}>🧾 Billing & Collection Records</Text>
                     <View style={{ backgroundColor: '#dcfce7', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 }}>
@@ -4082,7 +5233,7 @@ const BillingMode = () => {
                                 <Text style={[styles.th, { width: 140 }]}>Patient</Text>
                                 <Text style={[styles.th, { width: 160 }]}>Service / Procedure</Text>
                                 <Text style={[styles.th, { width: 90 }]}>Paid Fee</Text>
-                                <Text style={[styles.th, { width: 90 }]}>Pending</Text>
+                                <Text style={[styles.th, { width: 100 }]}>Pending Dues</Text>
                                 <Text style={[styles.th, { width: 110 }]}>Method</Text>
                                 <Text style={[styles.th, { width: 100 }]}>Status</Text>
                                 <Text style={[styles.th, { width: 140, textAlign: 'right' }]}>Actions</Text>
@@ -4180,9 +5331,9 @@ const BillingMode = () => {
             {detailsModal && (
                 <Modal transparent visible animationType="fade">
                     <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: isNarrow ? 10 : 16 }}>
-                        <View style={{ backgroundColor: '#fff', borderRadius: 14, padding: isNarrow ? 14 : 20, width: '100%', maxWidth: 520, maxHeight: '90%' }}>
+                        <View style={{ backgroundColor: '#fff', borderRadius: 14, padding: isNarrow ? 14 : 28, width: '100%', maxWidth: 550, maxHeight: '90%' }}>
                             <ScrollView showsVerticalScrollIndicator={false}>
-                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottomWidth: 1, borderColor: '#e2e8f0', paddingBottom: 10 }}>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, borderBottomWidth: 1, borderColor: '#e2e8f0', paddingBottom: 12 }}>
                                     <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#0f172a' }}>📑 Billing Details</Text>
                                     <TouchableOpacity onPress={() => setDetailsModal(null)}>
                                         <Ionicons name="close" size={24} color="#64748b" />
@@ -4409,10 +5560,10 @@ const PatientReportPanel = ({ patientId, patientName }) => {
                 onPress={() => setOpen(o => !o)}
                 style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: 12, borderBottomWidth: open ? 1 : 0, borderColor: '#e2e8f0' }}
             >
-                <Text style={{ fontWeight: 'bold', fontSize: 13, color: '#1e293b' }}>
-                    📄 Patient Reports ({reports.length})
+                <Text style={{ fontWeight: '700', fontSize: 13, color: '#1e293b' }}>
+                    📄 Previous Reports ({reports.length})
                 </Text>
-                <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color="#64748b" />
+                <Text style={{ color: '#64748b', fontWeight: '700' }}>{open ? '▲' : '▼'}</Text>
             </TouchableOpacity>
 
             {open && (
@@ -4420,8 +5571,8 @@ const PatientReportPanel = ({ patientId, patientName }) => {
                     {/* Upload Section */}
                     <View style={{ flexDirection: isNarrow ? 'column' : 'row', gap: 8, marginBottom: 12, alignItems: isNarrow ? 'stretch' : 'center' }}>
                         <TextInput
-                            style={{ flex: 1, height: 38, borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 6, paddingHorizontal: 10, fontSize: 13, backgroundColor: '#f8fafc' }}
-                            placeholder="Report title (optional)..."
+                            style={[styles.input, { flex: 1, backgroundColor: '#fff', fontSize: 15 }]}
+                            placeholder="Report name (optional)"
                             value={reportName}
                             onChangeText={setReportName}
                         />
@@ -4431,36 +5582,55 @@ const PatientReportPanel = ({ patientId, patientName }) => {
                             onPress={handlePickAndUpload}
                         >
                             <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 12 }}>
-                                {uploading ? 'Uploading...' : '⬆ Upload'}
+                                {uploading ? 'Uploading...' : '⬆ Upload PDF / Image'}
                             </Text>
                         </TouchableOpacity>
                     </View>
+                    <Text style={{ width: '100%', fontSize: 11, color: '#94a3b8', marginTop: 2, marginBottom: 8 }}>Supports PDF, JPG, PNG, WEBP · max 20 MB</Text>
 
                     {/* Reports List */}
                     {reports.length === 0 ? (
-                        <Text style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic', textAlign: 'center', paddingVertical: 10 }}>
-                            No reports uploaded yet.
+                        <Text style={{ fontSize: 13, color: '#94a3b8', textAlign: 'center', paddingVertical: 12 }}>
+                            No reports uploaded for {patientName || 'this patient'}.
                         </Text>
                     ) : (
                         <View style={{ gap: 8 }}>
                             {reports.map((r, i) => (
-                                <View key={r._id || i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 10, backgroundColor: '#f8fafc', borderRadius: 6, borderWidth: 1, borderColor: '#e2e8f0', gap: 8 }}>
+                                <View key={r._id || i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 10, backgroundColor: '#fff', borderRadius: 8, paddingVertical: 10, paddingHorizontal: 14, borderWidth: 1, borderColor: '#e2e8f0', gap: 8 }}>
                                     <View style={{ flex: 1, minWidth: 0 }}>
-                                        <Text style={{ fontWeight: '600', fontSize: 13, color: '#1e293b' }} numberOfLines={1}>{r.name || 'Report'}</Text>
-                                        <Text style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{r.createdAt ? new Date(r.createdAt).toLocaleDateString('en-IN') : 'Uploaded'}</Text>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                                        <Text style={{ fontSize: 20 }}>{(r.mimetype === 'application/pdf' || (r.filename || '').toLowerCase().endsWith('.pdf') || (r.name || '').toLowerCase().endsWith('.pdf')) ? '📄' : '🖼️'}</Text>
+                                        <View style={{ flex: 1, minWidth: 0 }}>
+                                            <Text style={{ fontWeight: '600', fontSize: 13, color: '#1e293b' }} numberOfLines={1}>{r.name || 'Report'}</Text>
+                                            <Text style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{(r.mimetype === 'application/pdf' || (r.filename || '').toLowerCase().endsWith('.pdf') || (r.name || '').toLowerCase().endsWith('.pdf')) ? 'PDF Document' : 'Image'} · {r.createdAt || r.uploadedAt ? new Date(r.createdAt || r.uploadedAt).toLocaleDateString('en-IN') : ''}</Text>
+                                        </View>
+                                    </View>
                                     </View>
                                     <View style={{ flexDirection: 'row', gap: 6, flexShrink: 0 }}>
                                         <TouchableOpacity
-                                            style={{ backgroundColor: '#e0f2fe', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 4 }}
+                                            style={{ backgroundColor: '#e0e7ff', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 }}
                                             onPress={() => setViewReport(r)}
                                         >
-                                            <Text style={{ color: '#0284c7', fontSize: 11, fontWeight: '700' }}>View</Text>
+                                            <Text style={{ color: '#4f46e5', fontSize: 11, fontWeight: '600' }}>View</Text>
                                         </TouchableOpacity>
                                         <TouchableOpacity
-                                            style={{ backgroundColor: '#fee2e2', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 4 }}
+                                            style={{ backgroundColor: '#dcfce7', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 }}
+                                            onPress={async () => {
+                                                try {
+                                                    const url = reportURL(r.filename);
+                                                    await Linking.openURL(url);
+                                                } catch (e) {
+                                                    Alert.alert('Error', 'Cannot open report file');
+                                                }
+                                            }}
+                                        >
+                                            <Text style={{ color: '#16a34a', fontSize: 11, fontWeight: '600' }}>Download</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={{ backgroundColor: '#fee2e2', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 }}
                                             onPress={() => handleDelete(r._id || r.id)}
                                         >
-                                            <Ionicons name="trash-outline" size={14} color="#dc2626" />
+                                            <Text style={{ color: '#dc2626', fontSize: 11, fontWeight: '600' }}>✕</Text>
                                         </TouchableOpacity>
                                     </View>
                                 </View>
@@ -4475,45 +5645,56 @@ const PatientReportPanel = ({ patientId, patientName }) => {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#f8fafc' },
-    loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    roleSwitcher: { backgroundColor: '#fff', padding: 16, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderColor: '#e2e8f0' },
-    switcherLabel: { fontWeight: 'bold', marginRight: 10, color: '#475569' },
+    loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f8fafc' },
+    roleSwitcher: { backgroundColor: '#fff', borderRadius: 14, borderWidth: 1, borderColor: '#e2e8f0', marginHorizontal: 16, marginTop: 16, marginBottom: 20, paddingHorizontal: 20, paddingVertical: 14, flexDirection: 'row', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.07, shadowRadius: 4, elevation: 1 },
+    switcherLabel: { fontWeight: '700', marginRight: 4, color: '#475569', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6 },
     switcherScroll: { flexGrow: 0 },
-    switcherButtons: { flexDirection: 'row', gap: 8 },
-    switcherBtn: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#f8fafc' },
-    switcherBtnText: { marginLeft: 4, fontWeight: '600', fontSize: 13, color: '#475569' },
+    switcherButtons: { flexDirection: 'row', gap: 6, alignItems: 'center' },
+    switcherBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 18, paddingVertical: 9, borderRadius: 8, borderWidth: 2, borderColor: '#e2e8f0', backgroundColor: '#f8fafc' },
+    switcherBtnText: { fontWeight: '600', fontSize: 14, color: '#475569' },
     switcherUser: { flexDirection: 'row', alignItems: 'center', marginLeft: 'auto', gap: 8 },
-    switcherAvatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#6366f1', justifyContent: 'center', alignItems: 'center' },
-    switcherAvatarText: { color: '#fff', fontWeight: 'bold' },
-    switcherUserName: { fontWeight: 'bold', color: '#1e293b' },
-    downloadAlert: { margin: 16, padding: 12, backgroundColor: '#ecfdf5', borderWidth: 1, borderColor: '#a7f3d0', borderRadius: 12 },
+    switcherAvatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#e0e7ff', justifyContent: 'center', alignItems: 'center' },
+    switcherAvatarText: { color: '#6366f1', fontWeight: '700', fontSize: 14 },
+    switcherUserName: { fontWeight: '600', color: '#334155', fontSize: 13 },
+    downloadAlert: { margin: 16, padding: 12, backgroundColor: '#ecfdf5', borderWidth: 1, borderColor: '#a7f3d0', borderRadius: 10 },
     downloadAlertText: { color: '#065f46', fontWeight: 'bold' },
-    modeContent: { flex: 1, padding: 16 },
+    modeContent: { flex: 1, paddingHorizontal: 16, paddingBottom: 24 },
 
-    kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 12 },
-    kpiCard: { flex: 1, minWidth: '45%', backgroundColor: '#fff', padding: 16, borderRadius: 12, borderTopWidth: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 },
-    kpiToggleBtn: { alignSelf: 'center', marginVertical: 12, padding: 8 },
-    kpiToggleText: { color: '#6366f1', fontWeight: 'bold' },
+    kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14, marginBottom: 20 },
+    kpiCard: { flex: 1, minWidth: '45%', backgroundColor: '#fff', paddingVertical: 18, paddingHorizontal: 16, borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', borderTopWidth: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.07, shadowRadius: 4, elevation: 1 },
+    kpiToggleBtn: { alignSelf: 'center', width: '100%', marginTop: 8, marginBottom: 16, padding: 10, backgroundColor: '#f1f5f9', borderWidth: 1.5, borderColor: '#e2e8f0', borderRadius: 8, alignItems: 'center' },
+    kpiToggleText: { color: '#6366f1', fontWeight: '700', fontSize: 13 },
 
-    clinicCard: { backgroundColor: '#fff', padding: 16, borderRadius: 12, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 },
-    dropdownBtn: { paddingHorizontal: 10, paddingVertical: 6, backgroundColor: '#f1f5f9', borderRadius: 6 },
-    dropdownMenu: { position: 'absolute', right: 16, top: 50, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, zIndex: 10, elevation: 5 },
-    dropdownItem: { padding: 10, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+    clinicCard: { backgroundColor: '#fff', padding: 24, borderRadius: 14, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.07, shadowRadius: 4, elevation: 1 },
+    cardMobile: { paddingVertical: 14, paddingHorizontal: 10, marginBottom: 12 },
+    dropdownBtn: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#fff', borderWidth: 1.5, borderColor: '#e2e8f0', borderRadius: 6 },
+    dropdownMenu: { position: 'absolute', right: 16, top: 50, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 6, zIndex: 50, elevation: 5, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 12 },
+    dropdownItem: { paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
 
-    tableHeader: { flexDirection: 'row', backgroundColor: '#f8fafc', paddingVertical: 10, borderBottomWidth: 1, borderColor: '#e2e8f0' },
-    tableRow: { flexDirection: 'row', paddingVertical: 12, borderBottomWidth: 1, borderColor: '#f1f5f9', alignItems: 'center' },
-    th: { fontWeight: 'bold', color: '#64748b', fontSize: 12 },
-    td: { fontSize: 13, color: '#1e293b' },
+    tableHeader: { flexDirection: 'row', backgroundColor: '#f1f5f9', paddingVertical: 10, paddingHorizontal: 12, borderBottomWidth: 2, borderColor: '#cbd5e1' },
+    tableRow: { flexDirection: 'row', paddingVertical: 10, paddingHorizontal: 12, borderBottomWidth: 1, borderColor: '#f1f5f9', alignItems: 'center' },
+    th: { fontWeight: '700', color: '#334155', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4 },
+    td: { fontSize: 13, color: '#0f172a' },
 
-    label: { fontSize: 12, color: '#64748b', marginBottom: 4, fontWeight: 'bold' },
-    input: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, padding: 10, fontSize: 14 },
-    pickerWrapper: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden' },
-    btnPrimary: { backgroundColor: '#6366f1', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
-    btnPrimaryText: { color: '#fff', fontWeight: 'bold' },
-    btnSecondary: { backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#cbd5e1', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-    btnSecondaryText: { color: '#334155', fontWeight: 'bold', fontSize: 13 },
-    clinicAvatarSm: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#e0e7ff', justifyContent: 'center', alignItems: 'center' },
-    clinicAvatarLg: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#e0e7ff', justifyContent: 'center', alignItems: 'center' },
+    label: { fontSize: 12, color: '#475569', marginBottom: 4, fontWeight: '700', letterSpacing: 0.3 },
+    input: { backgroundColor: '#f8fafc', borderWidth: 1.5, borderColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 9, fontSize: 15, color: '#1e293b' },
+    rxInput: { width: '100%', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 5, paddingVertical: 5, paddingHorizontal: 7, fontSize: 12, backgroundColor: '#fff', color: '#1e293b' },
+    pickerWrapper: { backgroundColor: '#fff', borderWidth: 1.5, borderColor: '#e2e8f0', borderRadius: 6, overflow: 'hidden' },
+    btnPrimary: { backgroundColor: '#6366f1', paddingHorizontal: 22, paddingVertical: 10, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+    btnPrimaryText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+    btnSecondary: { backgroundColor: '#f1f5f9', borderWidth: 1.5, borderColor: '#e2e8f0', paddingHorizontal: 18, paddingVertical: 9, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+    btnSecondaryText: { color: '#475569', fontWeight: '600', fontSize: 14 },
+    btnRemove: { backgroundColor: '#fee2e2', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
+    btnRemoveText: { color: '#dc2626', fontWeight: '700', fontSize: 12 },
+    backBtn: { backgroundColor: '#f1f5f9', borderWidth: 1.5, borderColor: '#e2e8f0', paddingHorizontal: 14, paddingVertical: 6, borderRadius: 6, alignSelf: 'flex-start', marginBottom: 4 },
+    backBtnText: { color: '#475569', fontWeight: '600', fontSize: 13 },
+    subTabs: { flexDirection: 'row', gap: 8, marginBottom: 16, flexWrap: 'wrap' },
+    subTab: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, borderWidth: 2, borderColor: '#e2e8f0', backgroundColor: '#f8fafc' },
+    subTabActive: { borderColor: '#6366f1', backgroundColor: '#6366f1' },
+    subTabText: { fontSize: 13, fontWeight: '600', color: '#475569' },
+    subTabTextActive: { color: '#fff' },
+    clinicAvatarSm: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#e0e7ff', justifyContent: 'center', alignItems: 'center' },
+    clinicAvatarLg: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#eff6ff', borderWidth: 2, borderColor: '#dbeafe', justifyContent: 'center', alignItems: 'center' },
 });
 
 export default ClinicDashboard;
