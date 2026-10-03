@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert, Dimensions, Platform, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert, useWindowDimensions, Platform, ActivityIndicator } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { otAPI, doctorAPI, bedAPI } from '../../utils/api';
 import socket from '../../utils/socket';
@@ -13,10 +13,9 @@ import {
     WorkflowBedModal 
 } from '../../components/ot/OTModals';
 
-const { width } = Dimensions.get('window');
-const isTablet = width > 768;
-
 const OTSchedulePage = () => {
+    const { width } = useWindowDimensions();
+    const isTablet = width > 768;
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
     const [schedule, setSchedule] = useState([]);
     const [doctorsList, setDoctorsList] = useState([]);
@@ -62,12 +61,16 @@ const OTSchedulePage = () => {
         fetchScheduleData();
 
         const handleUpdate = () => fetchScheduleData();
-        socket.on('ot_update', handleUpdate);
-        socket.on('ot_surgery_scheduled', handleUpdate);
+        if (socket) {
+            socket.on('ot_update', handleUpdate);
+            socket.on('ot_surgery_scheduled', handleUpdate);
+        }
 
         return () => {
-            socket.off('ot_update', handleUpdate);
-            socket.off('ot_surgery_scheduled', handleUpdate);
+            if (socket) {
+                socket.off('ot_update', handleUpdate);
+                socket.off('ot_surgery_scheduled', handleUpdate);
+            }
         };
     }, [fetchScheduleData]);
 
@@ -154,7 +157,7 @@ const OTSchedulePage = () => {
 
             <ScrollView contentContainerStyle={styles.scrollContent}>
                 {/* Date Navigator Bar & Filter Pills */}
-                <View style={styles.navBar}>
+                <View style={[styles.navBar, { flexDirection: isTablet ? 'row' : 'column', alignItems: isTablet ? 'center' : 'flex-start' }]}>
                     {/* Date Controls */}
                     <View style={styles.dateControls}>
                         <TouchableOpacity onPress={() => handleDateShift(-1)} style={styles.navBtn}>
@@ -424,9 +427,7 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: '#e2e8f0',
         marginBottom: 20,
-        flexDirection: isTablet ? 'row' : 'column',
         justifyContent: 'space-between',
-        alignItems: isTablet ? 'center' : 'flex-start',
         gap: 16,
     },
     dateControls: {

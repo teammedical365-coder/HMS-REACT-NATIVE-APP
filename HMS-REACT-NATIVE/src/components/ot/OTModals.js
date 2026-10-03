@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
     View, Text, TouchableOpacity, ScrollView, Modal, 
-    StyleSheet, TextInput, Alert, Dimensions 
+    StyleSheet, TextInput, Alert, useWindowDimensions, 
+    KeyboardAvoidingView, Platform 
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { otAPI, admissionAPI } from '../../utils/api'; // Assume API bindings support React Native
@@ -83,6 +84,7 @@ const CustomSelect = (props) => <DropdownSelect {...props} />;
 // ==========================================
 export const SurgeryDetailsModal = ({ open, surgery, onClose, onOpenScheduleModal }) => {
     if (!open || !surgery) return null;
+    const { height } = useWindowDimensions();
     const s = surgery;
     const statusInfo = getStatusStyle(s.status);
     const sElapsed = s.status === 'IN_OT' ? getElapsedTime(s.actualStartTime) : null;
@@ -119,7 +121,7 @@ export const SurgeryDetailsModal = ({ open, surgery, onClose, onOpenScheduleModa
                         </TouchableOpacity>
                     </View>
 
-                    <ScrollView style={{ padding: 24, maxHeight: Dimensions.get('window').height * 0.7 }}>
+                    <ScrollView style={{ padding: 24, maxHeight: height * 0.7 }}>
                         {/* Procedure Banner */}
                         <View style={styles.procedureBanner}>
                             <View>
@@ -273,6 +275,7 @@ export const ScheduleSurgeryModal = ({
     onSuccess 
 }) => {
     if (!open || !activePlan) return null;
+    const { height } = useWindowDimensions();
 
     const [selectedAssistantToAdd, setSelectedAssistantToAdd] = useState('');
     const [scheduling, setScheduling] = useState(false);
@@ -351,23 +354,32 @@ export const ScheduleSurgeryModal = ({
     return (
         <Modal visible={open} transparent={true} animationType="fade" onRequestClose={onClose}>
             <View style={styles.modalOverlay}>
-                <View style={[styles.modalContent, { maxWidth: 540 }]}>
-                    <View style={styles.modalHeader}>
-                        <View>
-                            <Text style={styles.modalTitle}>📅 Schedule OT Surgery</Text>
-                            <Text style={styles.modalSubtitle}>Plan: {activePlan.planId || activePlan._id}</Text>
-                        </View>
-                        <TouchableOpacity onPress={onClose} style={styles.btnCloseIcon}>
-                            <Feather name="x" size={16} color="#64748b" />
-                        </TouchableOpacity>
-                    </View>
-
-                    <ScrollView style={{ padding: 24, maxHeight: Dimensions.get('window').height * 0.7 }}>
-                        {scheduleError !== '' && (
-                            <View style={styles.errorBox}>
-                                <Text style={styles.errorText}>⚠️ {scheduleError}</Text>
+                <KeyboardAvoidingView 
+                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                    style={{ width: '100%', alignItems: 'center' }}
+                >
+                    <View style={[styles.modalContent, { maxWidth: 540, maxHeight: height * 0.85 }]}>
+                        <View style={styles.modalHeader}>
+                            <View>
+                                <Text style={styles.modalTitle}>📅 Schedule OT Surgery</Text>
+                                <Text style={styles.modalSubtitle}>Plan: {activePlan.planId || activePlan._id}</Text>
                             </View>
-                        )}
+                            <TouchableOpacity onPress={onClose} style={styles.btnCloseIcon}>
+                                <Feather name="x" size={16} color="#64748b" />
+                            </TouchableOpacity>
+                        </View>
+
+                        <ScrollView 
+                            style={{ padding: 24 }}
+                            contentContainerStyle={{ paddingBottom: 16 }}
+                            keyboardShouldPersistTaps="handled"
+                            showsVerticalScrollIndicator={false}
+                        >
+                            {scheduleError !== '' && (
+                                <View style={styles.errorBox}>
+                                    <Text style={styles.errorText}>⚠️ {scheduleError}</Text>
+                                </View>
+                            )}
 
                         {/* Auto-carried Summary */}
                         <View style={styles.autoSummaryBox}>
@@ -561,8 +573,9 @@ export const ScheduleSurgeryModal = ({
                                 <Text style={styles.btnPrimaryText}>{scheduling ? 'Scheduling...' : '✓ Confirm & Schedule Surgery'}</Text>
                             </TouchableOpacity>
                         </View>
-                    </ScrollView>
-                </View>
+                        </ScrollView>
+                    </View>
+                </KeyboardAvoidingView>
             </View>
         </Modal>
     );
@@ -688,8 +701,6 @@ export const WorkflowBedModal = ({ open, actionType, patientId, surgeryId, onClo
 };
 
 // --- Shared Styles ---
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-
 const styles = StyleSheet.create({
     modalOverlay: {
         flex: 1,

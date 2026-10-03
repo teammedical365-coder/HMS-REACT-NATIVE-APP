@@ -1,15 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Dimensions, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, useWindowDimensions, ActivityIndicator } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { otAPI } from '../../utils/api';
 import socket from '../../utils/socket';
 import OTHeader from './OTHeader';
 import { SurgeryDetailsModal } from '../../components/ot/OTModals';
 
-const { width } = Dimensions.get('window');
-const isTablet = width > 768;
-
 const OTRoomsPage = () => {
+    const { width } = useWindowDimensions();
+    const isTablet = width > 768;
     const [rooms, setRooms] = useState([]);
     const [summary, setSummary] = useState({ available: 0, inOt: 0, delayed: 0, scheduled: 0, total: 0 });
     const [loading, setLoading] = useState(true);
@@ -44,12 +43,16 @@ const OTRoomsPage = () => {
         fetchRoomsData();
 
         const handleUpdate = () => fetchRoomsData();
-        socket.on('ot_update', handleUpdate);
-        socket.on('ot_surgery_scheduled', handleUpdate);
+        if (socket) {
+            socket.on('ot_update', handleUpdate);
+            socket.on('ot_surgery_scheduled', handleUpdate);
+        }
 
         return () => {
-            socket.off('ot_update', handleUpdate);
-            socket.off('ot_surgery_scheduled', handleUpdate);
+            if (socket) {
+                socket.off('ot_update', handleUpdate);
+                socket.off('ot_surgery_scheduled', handleUpdate);
+            }
         };
     }, [fetchRoomsData]);
 
@@ -180,6 +183,7 @@ const OTRoomsPage = () => {
                                     key={room._id}
                                     style={[
                                         styles.roomCard,
+                                        { width: isTablet ? '48%' : '100%' },
                                         isOccupied && styles.roomCardOccupied,
                                         isAvailable && styles.roomCardAvailable,
                                         isDelayed && styles.roomCardDelayed,
@@ -394,7 +398,6 @@ const styles = StyleSheet.create({
         gap: 18,
     },
     roomCard: {
-        width: isTablet ? '48%' : '100%',
         backgroundColor: '#ffffff',
         borderRadius: 14,
         borderWidth: 1.5,

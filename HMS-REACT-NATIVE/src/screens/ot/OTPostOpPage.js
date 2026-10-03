@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Dimensions, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, useWindowDimensions, ActivityIndicator, Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { otAPI } from '../../utils/api';
+import socket from '../../utils/socket';
 import OTHeader from './OTHeader';
-
-const { width } = Dimensions.get('window');
+import { SurgeryDetailsModal, WorkflowBedModal } from '../../components/ot/OTModals';
 
 const getStatusStyle = (status) => {
     switch(status) {
@@ -24,10 +24,15 @@ const getStatusStyle = (status) => {
 
 const OTPostOpPage = () => {
     const navigation = useNavigation();
+    const { width } = useWindowDimensions();
     const [postOpSurgeries, setPostOpSurgeries] = useState([]);
     const [loading, setLoading] = useState(true);
     const [lastUpdated, setLastUpdated] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
+
+    const [selectedSurgery, setSelectedSurgery] = useState(null);
+    const [showDetailsModal, setShowDetailsModal] = useState(false);
+    const [bedModal, setBedModal] = useState({ open: false, actionType: null, patientId: null, surgeryId: null });
 
     const fetchPostOpData = useCallback(async () => {
         setLoading(true);
@@ -48,6 +53,19 @@ const OTPostOpPage = () => {
 
     useEffect(() => {
         fetchPostOpData();
+
+        const handleUpdate = () => fetchPostOpData();
+        if (socket) {
+            socket.on('ot_update', handleUpdate);
+            socket.on('ot_surgery_scheduled', handleUpdate);
+        }
+
+        return () => {
+            if (socket) {
+                socket.off('ot_update', handleUpdate);
+                socket.off('ot_surgery_scheduled', handleUpdate);
+            }
+        };
     }, [fetchPostOpData]);
 
     const handleWorkflowTransition = (surgeryId, nextStatus) => {
@@ -82,9 +100,7 @@ const OTPostOpPage = () => {
         );
     };
 
-    const handleTransferBed = () => {
-        Alert.alert("Transfer Bed", "This feature requires WorkflowBedModal. Coming soon.");
-    };
+
 
     const filteredSurgeries = postOpSurgeries.filter(s => {
         if (!searchQuery) return true;
@@ -163,7 +179,13 @@ const OTPostOpPage = () => {
                                 )}
 
                                 <View style={styles.cardActions}>
-                                    <TouchableOpacity style={styles.viewBtn}>
+                                    <TouchableOpacity 
+                                        style={styles.viewBtn}
+                                        onPress={() => {
+                                            setSelectedSurgery(s);
+                                            setShowDetailsModal(true);
+                                        }}
+                                    >
                                         <Text style={styles.viewBtnText}>View Details</Text>
                                     </TouchableOpacity>
 
@@ -173,7 +195,15 @@ const OTPostOpPage = () => {
                                         </TouchableOpacity>
                                     ) : (
                                         <View style={{ flexDirection: 'row', gap: 6 }}>
-                                            <TouchableOpacity onPress={handleTransferBed} style={styles.transferBedBtn}>
+                                            <TouchableOpacity 
+                                                onPress={() => setBedModal({
+                                                    open: true,
+                                                    actionType: 'TRANSFER',
+                                                    patientId: s.patientId?._id || s.patientId,
+                                                    surgeryId: s._id
+                                                })} 
+                                                style={styles.transferBedBtn}
+                                            >
                                                 <Text style={styles.transferBedBtnText}>Transfer Bed</Text>
                                             </TouchableOpacity>
                                             <TouchableOpacity onPress={() => handleWorkflowTransition(s._id, 'COMPLETED')} style={styles.dischargeBtn}>
@@ -187,6 +217,24 @@ const OTPostOpPage = () => {
                     })}
                 </View>
             )}
+
+            <SurgeryDetailsModal
+                open={showDetailsModal}
+                surgery={selectedSurgery}
+                onClose={() => {
+                    setShowDetailsModal(false);
+                    setSelectedSurgery(null);
+                }}
+            />
+
+            <WorkflowBedModal
+                open={bedModal.open}
+                actionType={bedModal.actionType}
+                patientId={bedModal.patientId}
+                surgeryId={bedModal.surgeryId}
+                onClose={() => setBedModal({ open: false, actionType: null, patientId: null, surgeryId: null })}
+                onSuccess={() => fetchPostOpData()}
+            />
         </ScrollView>
     );
 };

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, ActivityIndicator, Alert, Dimensions, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, ActivityIndicator, Alert, useWindowDimensions, Platform } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { otAPI, doctorAPI } from '../../utils/api';
 import socket from '../../utils/socket';
@@ -10,10 +10,9 @@ import {
     ScheduleSurgeryModal 
 } from '../../components/ot/OTModals';
 
-const { width } = Dimensions.get('window');
-const isTablet = width > 768;
-
 const OTPlannedSurgeries = () => {
+    const { width } = useWindowDimensions();
+    const isTablet = width > 768;
     const [plannedSurgeries, setPlannedSurgeries] = useState([]);
     const [doctorsList, setDoctorsList] = useState([]);
     const [otRoomsList, setOtRoomsList] = useState([]);
@@ -57,12 +56,16 @@ const OTPlannedSurgeries = () => {
         fetchPlannedData();
 
         const handleUpdate = () => fetchPlannedData();
-        socket.on('ot_update', handleUpdate);
-        socket.on('ot_surgery_scheduled', handleUpdate);
+        if (socket) {
+            socket.on('ot_update', handleUpdate);
+            socket.on('ot_surgery_scheduled', handleUpdate);
+        }
 
         return () => {
-            socket.off('ot_update', handleUpdate);
-            socket.off('ot_surgery_scheduled', handleUpdate);
+            if (socket) {
+                socket.off('ot_update', handleUpdate);
+                socket.off('ot_surgery_scheduled', handleUpdate);
+            }
         };
     }, [fetchPlannedData]);
 
@@ -171,14 +174,14 @@ const OTPlannedSurgeries = () => {
                         </Text>
                     </View>
                 ) : (
-                    <View style={styles.grid}>
+                    <View style={[styles.grid, { flexDirection: isTablet ? 'row' : 'column' }]}>
                         {filteredSurgeries.map(plan => {
                             const surgeonName = (plan.surgeonId?.name || plan.doctorId?.name || 'Doctor').replace(/^Dr\.?\s*/i, '');
                             const referringDoctor = plan.referringDoctorId?.name ? (plan.referringDoctorId?.name).replace(/^Dr\.?\s*/i, '') : null;
                             const assistants = plan.assistantSurgeonIds || [];
 
                             return (
-                                <View key={plan._id} style={styles.card}>
+                                <View key={plan._id} style={[styles.card, { width: isTablet ? '48%' : '100%' }]}>
                                     <View>
                                         {/* Top Line */}
                                         <View style={styles.cardHeaderRow}>
@@ -394,7 +397,6 @@ const styles = StyleSheet.create({
         textAlign: 'center',
     },
     grid: {
-        flexDirection: isTablet ? 'row' : 'column',
         flexWrap: 'wrap',
         gap: 16,
     },
@@ -404,7 +406,6 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: '#e2e8f0',
         padding: 20,
-        width: isTablet ? '48%' : '100%',
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.03,

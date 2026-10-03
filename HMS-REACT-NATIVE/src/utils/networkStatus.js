@@ -4,9 +4,10 @@
  * alongside periodic health ping checks against API server via native fetch and AbortController.
  */
 
+import { Platform } from 'react-native';
 import { baseURL } from './api';
 
-let currentStatus = (typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean') ? navigator.onLine : true;
+let currentStatus = (Platform.OS === 'web' && typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean') ? navigator.onLine : true;
 let lastOnlineTime = currentStatus ? Date.now() : null;
 let pingIntervalId = null;
 const listeners = new Set();
@@ -38,22 +39,27 @@ function notifyListeners(online) {
 }
 
 function attachWebListeners() {
-  if (webListenersAttached || typeof window === 'undefined') return;
+  if (Platform.OS !== 'web') return;
+  if (webListenersAttached || typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
   webListenersAttached = true;
 
-  window.addEventListener('online', () => {
-    notifyListeners(true);
-    pingServer();
-  });
+  try {
+    window.addEventListener('online', () => {
+      notifyListeners(true);
+      pingServer();
+    });
 
-  window.addEventListener('offline', () => {
-    notifyListeners(false);
-  });
+    window.addEventListener('offline', () => {
+      notifyListeners(false);
+    });
+  } catch (err) {
+    console.warn('[NetworkStatus] Failed to attach web listeners:', err);
+  }
 }
 
 export async function pingServer() {
   // If browser natively indicates offline (explicit false), trust it immediately
-  if (typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean' && navigator.onLine === false) {
+  if (Platform.OS === 'web' && typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean' && navigator.onLine === false) {
     notifyListeners(false);
     return false;
   }
@@ -76,9 +82,9 @@ export async function pingServer() {
     notifyListeners(true);
     return true;
   } catch {
-    // If the browser has active internet (navigator.onLine === true or undefined),
+    // If on web and the browser has active internet (navigator.onLine === true),
     // a ping failure is a backend downtime/CORS issue, NOT an offline state!
-    if (typeof navigator === 'undefined' || typeof navigator.onLine !== 'boolean' || navigator.onLine === true) {
+    if (Platform.OS === 'web' && (typeof navigator === 'undefined' || typeof navigator.onLine !== 'boolean' || navigator.onLine === true)) {
       notifyListeners(true);
       return true;
     }
@@ -96,17 +102,21 @@ function restartPing() {
 }
 
 export function isOnline() {
-  if (typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean') {
+  if (Platform.OS === 'web' && typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean') {
     return navigator.onLine;
   }
   return currentStatus;
 }
 
 export function subscribeNetworkStatus(callback) {
-  attachWebListeners();
+  if (Platform.OS === 'web') {
+    attachWebListeners();
+  }
   listeners.add(callback);
 
-  const initialOnline = typeof navigator !== 'undefined' ? navigator.onLine : currentStatus;
+  const initialOnline = (Platform.OS === 'web' && typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean')
+    ? navigator.onLine
+    : currentStatus;
   callback(initialOnline, { wasOffline: false, lastOnlineTime });
 
   if (!pingIntervalId) {
@@ -123,7 +133,9 @@ export function subscribeNetworkStatus(callback) {
 }
 
 // Attach web listeners immediately if running in web environment
-attachWebListeners();
+if (Platform.OS === 'web') {
+  attachWebListeners();
+}
 
 // Initial probe
 pingServer();

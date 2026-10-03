@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-    View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, Dimensions, ActivityIndicator, useWindowDimensions
+    View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, ActivityIndicator, useWindowDimensions
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';

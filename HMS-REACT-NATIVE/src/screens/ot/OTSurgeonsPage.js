@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Dimensions, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, useWindowDimensions, ActivityIndicator } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { doctorAPI, otAPI } from '../../utils/api';
+import socket from '../../utils/socket';
 import OTHeader from './OTHeader';
-
-const { width } = Dimensions.get('window');
 
 const OTSurgeonsPage = () => {
     const navigation = useNavigation();
+    const { width } = useWindowDimensions();
     const [doctors, setDoctors] = useState([]);
     const [surgeries, setSurgeries] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -33,6 +33,19 @@ const OTSurgeonsPage = () => {
 
     useEffect(() => {
         fetchSurgeonsData();
+
+        const handleUpdate = () => fetchSurgeonsData();
+        if (socket) {
+            socket.on('ot_update', handleUpdate);
+            socket.on('ot_surgery_scheduled', handleUpdate);
+        }
+
+        return () => {
+            if (socket) {
+                socket.off('ot_update', handleUpdate);
+                socket.off('ot_surgery_scheduled', handleUpdate);
+            }
+        };
     }, [fetchSurgeonsData]);
 
     const todayStr = new Date().toISOString().split('T')[0];

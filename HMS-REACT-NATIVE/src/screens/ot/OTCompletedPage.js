@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Dimensions, ActivityIndicator, TextInput, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, useWindowDimensions, ActivityIndicator, TextInput, Platform } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { otAPI } from '../../utils/api';
+import socket from '../../utils/socket';
 import OTHeader from './OTHeader';
-
-const { width } = Dimensions.get('window');
+import { SurgeryDetailsModal } from '../../components/ot/OTModals';
 
 const getStatusStyle = (status) => {
     switch(status) {
@@ -24,9 +24,13 @@ const getStatusStyle = (status) => {
 
 const OTCompletedPage = () => {
     const navigation = useNavigation();
+    const { width } = useWindowDimensions();
     const [completedSurgeries, setCompletedSurgeries] = useState([]);
     const [loading, setLoading] = useState(true);
     const [lastUpdated, setLastUpdated] = useState(null);
+
+    const [selectedSurgery, setSelectedSurgery] = useState(null);
+    const [showDetailsModal, setShowDetailsModal] = useState(false);
 
     const [searchQuery, setSearchQuery] = useState('');
     const [dateFilter, setDateFilter] = useState('ALL');
@@ -51,6 +55,19 @@ const OTCompletedPage = () => {
 
     useEffect(() => {
         fetchCompletedData();
+
+        const handleUpdate = () => fetchCompletedData();
+        if (socket) {
+            socket.on('ot_update', handleUpdate);
+            socket.on('ot_surgery_scheduled', handleUpdate);
+        }
+
+        return () => {
+            if (socket) {
+                socket.off('ot_update', handleUpdate);
+                socket.off('ot_surgery_scheduled', handleUpdate);
+            }
+        };
     }, [fetchCompletedData]);
 
     const filteredSurgeries = completedSurgeries.filter(s => {
@@ -228,7 +245,13 @@ const OTCompletedPage = () => {
                                             </View>
                                         </View>
                                         <View style={[styles.cell, { width: 100, alignItems: 'flex-end', justifyContent: 'center' }]}>
-                                            <TouchableOpacity style={styles.viewBtn}>
+                                            <TouchableOpacity 
+                                                style={styles.viewBtn}
+                                                onPress={() => {
+                                                    setSelectedSurgery(s);
+                                                    setShowDetailsModal(true);
+                                                }}
+                                            >
                                                 <Text style={styles.viewBtnText}>View</Text>
                                             </TouchableOpacity>
                                         </View>
@@ -239,6 +262,15 @@ const OTCompletedPage = () => {
                     </ScrollView>
                 </View>
             )}
+
+            <SurgeryDetailsModal
+                open={showDetailsModal}
+                surgery={selectedSurgery}
+                onClose={() => {
+                    setShowDetailsModal(false);
+                    setSelectedSurgery(null);
+                }}
+            />
         </ScrollView>
     );
 };

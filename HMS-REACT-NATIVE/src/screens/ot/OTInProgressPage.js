@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Dimensions, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, useWindowDimensions, ActivityIndicator, Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { otAPI } from '../../utils/api';
+import socket from '../../utils/socket';
 import OTHeader from './OTHeader';
-
-const { width } = Dimensions.get('window');
+import { SurgeryDetailsModal } from '../../components/ot/OTModals';
 
 const getElapsedTime = (startTime) => {
     if (!startTime) return null;
@@ -21,11 +21,15 @@ const getElapsedTime = (startTime) => {
 
 const OTInProgressPage = () => {
     const navigation = useNavigation();
+    const { width } = useWindowDimensions();
     const [inOtSurgeries, setInOtSurgeries] = useState([]);
     const [loading, setLoading] = useState(true);
     const [lastUpdated, setLastUpdated] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [now, setNow] = useState(Date.now()); // State to trigger timer rerender
+
+    const [selectedSurgery, setSelectedSurgery] = useState(null);
+    const [showDetailsModal, setShowDetailsModal] = useState(false);
 
     const fetchInOtData = useCallback(async () => {
         setLoading(true);
@@ -47,6 +51,12 @@ const OTInProgressPage = () => {
     useEffect(() => {
         fetchInOtData();
 
+        const handleUpdate = () => fetchInOtData();
+        if (socket) {
+            socket.on('ot_update', handleUpdate);
+            socket.on('ot_surgery_scheduled', handleUpdate);
+        }
+
         // 1-minute timer to keep elapsed time live
         const timer = setInterval(() => {
             setNow(Date.now());
@@ -54,6 +64,10 @@ const OTInProgressPage = () => {
 
         return () => {
             clearInterval(timer);
+            if (socket) {
+                socket.off('ot_update', handleUpdate);
+                socket.off('ot_surgery_scheduled', handleUpdate);
+            }
         };
     }, [fetchInOtData]);
 
@@ -161,7 +175,13 @@ const OTInProgressPage = () => {
                                 </View>
 
                                 <View style={styles.cardActions}>
-                                    <TouchableOpacity style={styles.viewBtn}>
+                                    <TouchableOpacity 
+                                        style={styles.viewBtn}
+                                        onPress={() => {
+                                            setSelectedSurgery(s);
+                                            setShowDetailsModal(true);
+                                        }}
+                                    >
                                         <Text style={styles.viewBtnText}>View Details</Text>
                                     </TouchableOpacity>
                                     <TouchableOpacity onPress={() => handleCompleteSurgery(s._id)} style={styles.completeBtn}>
@@ -173,6 +193,15 @@ const OTInProgressPage = () => {
                     })}
                 </View>
             )}
+
+            <SurgeryDetailsModal
+                open={showDetailsModal}
+                surgery={selectedSurgery}
+                onClose={() => {
+                    setShowDetailsModal(false);
+                    setSelectedSurgery(null);
+                }}
+            />
         </ScrollView>
     );
 };

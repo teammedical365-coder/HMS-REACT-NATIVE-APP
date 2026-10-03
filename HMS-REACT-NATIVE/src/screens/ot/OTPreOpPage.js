@@ -1,15 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Dimensions, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, useWindowDimensions, Alert, ActivityIndicator } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { otAPI } from '../../utils/api';
 import socket from '../../utils/socket';
 import OTHeader from './OTHeader';
 import { getStatusStyle, SurgeryDetailsModal } from '../../components/ot/OTModals';
 
-const { width } = Dimensions.get('window');
-const isTablet = width > 768;
-
 const OTPreOpPage = () => {
+    const { width } = useWindowDimensions();
+    const isTablet = width > 768;
     const [preOpSurgeries, setPreOpSurgeries] = useState([]);
     const [loading, setLoading] = useState(true);
     const [lastUpdated, setLastUpdated] = useState(null);
@@ -40,12 +39,16 @@ const OTPreOpPage = () => {
         fetchPreOpData();
 
         const handleUpdate = () => fetchPreOpData();
-        socket.on('ot_update', handleUpdate);
-        socket.on('ot_surgery_scheduled', handleUpdate);
+        if (socket) {
+            socket.on('ot_update', handleUpdate);
+            socket.on('ot_surgery_scheduled', handleUpdate);
+        }
 
         return () => {
-            socket.off('ot_update', handleUpdate);
-            socket.off('ot_surgery_scheduled', handleUpdate);
+            if (socket) {
+                socket.off('ot_update', handleUpdate);
+                socket.off('ot_surgery_scheduled', handleUpdate);
+            }
         };
     }, [fetchPreOpData]);
 
@@ -93,7 +96,7 @@ const OTPreOpPage = () => {
                         </Text>
                     </View>
                 ) : (
-                    <View style={styles.grid}>
+                    <View style={[styles.grid, { flexDirection: isTablet ? 'row' : 'column' }]}>
                         {filteredSurgeries.map(s => {
                             const stInfo = getStatusStyle(s.status);
                             const surgeonName = (s.surgeonId?.name || 'Surgeon').replace(/^Dr\.?\s*/i, '');
@@ -106,6 +109,7 @@ const OTPreOpPage = () => {
                                     key={s._id}
                                     style={[
                                         styles.card,
+                                        { width: isTablet ? '48%' : '100%' },
                                         isReadyForOT ? styles.cardReady : styles.cardPreOp
                                     ]}
                                 >
@@ -241,12 +245,10 @@ const styles = StyleSheet.create({
         textAlign: 'center',
     },
     grid: {
-        flexDirection: isTablet ? 'row' : 'column',
         flexWrap: 'wrap',
         gap: 16,
     },
     card: {
-        width: isTablet ? '48%' : '100%',
         backgroundColor: '#ffffff',
         borderRadius: 14,
         borderWidth: 1.5,
