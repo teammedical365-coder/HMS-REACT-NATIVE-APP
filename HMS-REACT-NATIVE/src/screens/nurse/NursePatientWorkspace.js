@@ -10,7 +10,8 @@ import {
     Platform,
     StyleSheet,
     Animated,
-    Dimensions
+    KeyboardAvoidingView,
+    useWindowDimensions
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -29,8 +30,6 @@ import {
     ipdNursingAPI,
     ipdCommandCenterAPI
 } from '../../utils/api';
-
-const { width } = Dimensions.get('window');
 
 // ── Tab definitions ──
 const TABS = [
@@ -62,6 +61,7 @@ const HANDOVER_INIT = { shift: 'Morning to Evening', summary: '', importantObser
 const NursePatientWorkspace = () => {
     const route = useRoute();
     const navigation = useNavigation();
+    const { width } = useWindowDimensions();
     const admissionId = route.params?.admissionId || route.params?.id || '';
 
     const [activeTab, setActiveTab] = useState('overview');
@@ -653,11 +653,15 @@ const NursePatientWorkspace = () => {
     const handleMARAction = async () => {
         const { record, action, reason } = marModal;
         if (!record) return;
+        if (['HELD', 'REFUSED', 'MISSED'].includes(action) && (!reason || !reason.trim())) {
+            showToast(`A reason is required when medication is marked as ${action}`, 'error');
+            return;
+        }
         try {
             setSubmitting(true);
             await ipdClinicalAPI.updateMARRecord(record._id, {
                 status: action,
-                reason: reason.trim() || undefined,
+                reason: reason.trim(),
             });
             setMarModal({ open: false, record: null, action: '', reason: '' });
             showToast(`Medication marked as ${action}`);
@@ -1569,200 +1573,218 @@ const NursePatientWorkspace = () => {
             {/* 1. Care Nurse Assignment Modal */}
             <Modal visible={assignModalOpen} transparent animationType="fade" onRequestClose={() => setAssignModalOpen(false)}>
                 <View style={styles.modalOverlay}>
-                    <View style={styles.modalCard}>
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Assign Care Nurse</Text>
-                            <TouchableOpacity onPress={() => setAssignModalOpen(false)}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardAvoidWrap}>
+                        <View style={styles.modalCard}>
+                            <View style={styles.modalHeader}>
+                                <Text style={styles.modalTitle}>Assign Care Nurse</Text>
+                                <TouchableOpacity onPress={() => setAssignModalOpen(false)}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                            </View>
+                            <ScrollView style={{ padding: 18, maxHeight: 360 }} keyboardShouldPersistTaps="handled">
+                                <Text style={styles.inputLabel}>Select Staff Nurse</Text>
+                                {hospitalNurses.map(n => (
+                                    <TouchableOpacity
+                                        key={n._id}
+                                        style={[styles.modalOption, assignForm.nurseId === n._id && styles.modalOptionActive]}
+                                        onPress={() => setAssignForm(p => ({ ...p, nurseId: n._id }))}
+                                    >
+                                        <Text style={[styles.modalOptionText, assignForm.nurseId === n._id && styles.modalOptionTextActive]}>{n.name}</Text>
+                                        {assignForm.nurseId === n._id && <Feather name="check" size={16} color="#0d9488" />}
+                                    </TouchableOpacity>
+                                ))}
+                                <Text style={[styles.inputLabel, { marginTop: 12 }]}>Shift</Text>
+                                <TextInput style={styles.input} value={assignForm.shift} onChangeText={t => setAssignForm(p => ({ ...p, shift: t }))} />
+                            </ScrollView>
+                            <View style={styles.modalFooter}>
+                                <TouchableOpacity style={styles.footerCancelBtn} onPress={() => setAssignModalOpen(false)}><Text style={styles.footerCancelBtnText}>Cancel</Text></TouchableOpacity>
+                                <TouchableOpacity style={styles.footerSubmitBtn} onPress={handleAssignNurseSubmit}><Text style={styles.footerSubmitBtnText}>Assign Nurse</Text></TouchableOpacity>
+                            </View>
                         </View>
-                        <ScrollView style={{ padding: 18, maxHeight: 360 }}>
-                            <Text style={styles.inputLabel}>Select Staff Nurse</Text>
-                            {hospitalNurses.map(n => (
-                                <TouchableOpacity
-                                    key={n._id}
-                                    style={[styles.modalOption, assignForm.nurseId === n._id && styles.modalOptionActive]}
-                                    onPress={() => setAssignForm(p => ({ ...p, nurseId: n._id }))}
-                                >
-                                    <Text style={[styles.modalOptionText, assignForm.nurseId === n._id && styles.modalOptionTextActive]}>{n.name}</Text>
-                                    {assignForm.nurseId === n._id && <Feather name="check" size={16} color="#0d9488" />}
-                                </TouchableOpacity>
-                            ))}
-                            <Text style={[styles.inputLabel, { marginTop: 12 }]}>Shift</Text>
-                            <TextInput style={styles.input} value={assignForm.shift} onChangeText={t => setAssignForm(p => ({ ...p, shift: t }))} />
-                        </ScrollView>
-                        <View style={styles.modalFooter}>
-                            <TouchableOpacity style={styles.footerCancelBtn} onPress={() => setAssignModalOpen(false)}><Text style={styles.footerCancelBtnText}>Cancel</Text></TouchableOpacity>
-                            <TouchableOpacity style={styles.footerSubmitBtn} onPress={handleAssignNurseSubmit}><Text style={styles.footerSubmitBtnText}>Assign Nurse</Text></TouchableOpacity>
-                        </View>
-                    </View>
+                    </KeyboardAvoidingView>
                 </View>
             </Modal>
 
             {/* 2. Nursing Clearance Modal */}
             <Modal visible={clearanceModalOpen} transparent animationType="fade" onRequestClose={() => setClearanceModalOpen(false)}>
                 <View style={styles.modalOverlay}>
-                    <View style={styles.modalCard}>
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Sign Off Nursing Clearance</Text>
-                            <TouchableOpacity onPress={() => setClearanceModalOpen(false)}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardAvoidWrap}>
+                        <View style={styles.modalCard}>
+                            <View style={styles.modalHeader}>
+                                <Text style={styles.modalTitle}>Sign Off Nursing Clearance</Text>
+                                <TouchableOpacity onPress={() => setClearanceModalOpen(false)}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                            </View>
+                            <View style={{ padding: 18 }}>
+                                <Text style={styles.inputLabel}>Final Nursing Clearance Notes</Text>
+                                <TextInput style={[styles.input, { height: 80 }]} multiline placeholder="Lines removed, wound dressed, discharge summary reviewed with patient..." value={clearanceNotes} onChangeText={setClearanceNotes} />
+                            </View>
+                            <View style={styles.modalFooter}>
+                                <TouchableOpacity style={styles.footerCancelBtn} onPress={() => setClearanceModalOpen(false)}><Text style={styles.footerCancelBtnText}>Cancel</Text></TouchableOpacity>
+                                <TouchableOpacity style={styles.footerSubmitBtn} onPress={handleSignOffClearance}><Text style={styles.footerSubmitBtnText}>Confirm Clearance</Text></TouchableOpacity>
+                            </View>
                         </View>
-                        <View style={{ padding: 18 }}>
-                            <Text style={styles.inputLabel}>Final Nursing Clearance Notes</Text>
-                            <TextInput style={[styles.input, { height: 80 }]} multiline placeholder="Lines removed, wound dressed, discharge summary reviewed with patient..." value={clearanceNotes} onChangeText={setClearanceNotes} />
-                        </View>
-                        <View style={styles.modalFooter}>
-                            <TouchableOpacity style={styles.footerCancelBtn} onPress={() => setClearanceModalOpen(false)}><Text style={styles.footerCancelBtnText}>Cancel</Text></TouchableOpacity>
-                            <TouchableOpacity style={styles.footerSubmitBtn} onPress={handleSignOffClearance}><Text style={styles.footerSubmitBtnText}>Confirm Clearance</Text></TouchableOpacity>
-                        </View>
-                    </View>
+                    </KeyboardAvoidingView>
                 </View>
             </Modal>
 
             {/* 3. MAR Reason Modal (Hold/Refuse) */}
             <Modal visible={marModal.open} transparent animationType="fade" onRequestClose={() => setMarModal({ open: false, record: null, action: '', reason: '' })}>
                 <View style={styles.modalOverlay}>
-                    <View style={styles.modalCard}>
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>{marModal.action === 'HELD' ? 'Hold Medication' : 'Refuse Medication'}</Text>
-                            <TouchableOpacity onPress={() => setMarModal({ open: false, record: null, action: '', reason: '' })}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardAvoidWrap}>
+                        <View style={styles.modalCard}>
+                            <View style={styles.modalHeader}>
+                                <Text style={styles.modalTitle}>{marModal.action === 'HELD' ? 'Hold Medication' : 'Refuse Medication'}</Text>
+                                <TouchableOpacity onPress={() => setMarModal({ open: false, record: null, action: '', reason: '' })}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                            </View>
+                            <View style={{ padding: 18 }}>
+                                <Text style={styles.inputLabel}>Reason Required *</Text>
+                                <TextInput style={[styles.input, { height: 70 }]} multiline placeholder={`Why is this medication being ${marModal.action === 'HELD' ? 'held' : 'refused'}?`} value={marModal.reason} onChangeText={t => setMarModal(p => ({ ...p, reason: t }))} />
+                            </View>
+                            <View style={styles.modalFooter}>
+                                <TouchableOpacity style={styles.footerCancelBtn} onPress={() => setMarModal({ open: false, record: null, action: '', reason: '' })}><Text style={styles.footerCancelBtnText}>Cancel</Text></TouchableOpacity>
+                                <TouchableOpacity style={styles.footerSubmitBtn} onPress={handleMARAction}><Text style={styles.footerSubmitBtnText}>Confirm {marModal.action}</Text></TouchableOpacity>
+                            </View>
                         </View>
-                        <View style={{ padding: 18 }}>
-                            <Text style={styles.inputLabel}>Reason Required *</Text>
-                            <TextInput style={[styles.input, { height: 70 }]} multiline placeholder={`Why is this medication being ${marModal.action === 'HELD' ? 'held' : 'refused'}?`} value={marModal.reason} onChangeText={t => setMarModal(p => ({ ...p, reason: t }))} />
-                        </View>
-                        <View style={styles.modalFooter}>
-                            <TouchableOpacity style={styles.footerCancelBtn} onPress={() => setMarModal({ open: false, record: null, action: '', reason: '' })}><Text style={styles.footerCancelBtnText}>Cancel</Text></TouchableOpacity>
-                            <TouchableOpacity style={styles.footerSubmitBtn} onPress={handleMARAction}><Text style={styles.footerSubmitBtnText}>Confirm {marModal.action}</Text></TouchableOpacity>
-                        </View>
-                    </View>
+                    </KeyboardAvoidingView>
                 </View>
             </Modal>
 
             {/* 4. Task Action Modal (Complete/Skip) */}
             <Modal visible={taskModal.open} transparent animationType="fade" onRequestClose={() => setTaskModal({ open: false, task: null, action: '', notes: '' })}>
                 <View style={styles.modalOverlay}>
-                    <View style={styles.modalCard}>
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>{taskModal.action === 'COMPLETED' ? 'Complete Task' : 'Skip Task'}</Text>
-                            <TouchableOpacity onPress={() => setTaskModal({ open: false, task: null, action: '', notes: '' })}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardAvoidWrap}>
+                        <View style={styles.modalCard}>
+                            <View style={styles.modalHeader}>
+                                <Text style={styles.modalTitle}>{taskModal.action === 'COMPLETED' ? 'Complete Task' : 'Skip Task'}</Text>
+                                <TouchableOpacity onPress={() => setTaskModal({ open: false, task: null, action: '', notes: '' })}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                            </View>
+                            <View style={{ padding: 18 }}>
+                                <Text style={styles.inputLabel}>Completion Notes</Text>
+                                <TextInput style={[styles.input, { height: 70 }]} multiline placeholder="Task observations, bedside findings..." value={taskModal.notes} onChangeText={t => setTaskModal(p => ({ ...p, notes: t }))} />
+                            </View>
+                            <View style={styles.modalFooter}>
+                                <TouchableOpacity style={styles.footerCancelBtn} onPress={() => setTaskModal({ open: false, task: null, action: '', notes: '' })}><Text style={styles.footerCancelBtnText}>Cancel</Text></TouchableOpacity>
+                                <TouchableOpacity style={styles.footerSubmitBtn} onPress={handleUpdateTaskStatus}><Text style={styles.footerSubmitBtnText}>Confirm</Text></TouchableOpacity>
+                            </View>
                         </View>
-                        <View style={{ padding: 18 }}>
-                            <Text style={styles.inputLabel}>Completion Notes</Text>
-                            <TextInput style={[styles.input, { height: 70 }]} multiline placeholder="Task observations, bedside findings..." value={taskModal.notes} onChangeText={t => setTaskModal(p => ({ ...p, notes: t }))} />
-                        </View>
-                        <View style={styles.modalFooter}>
-                            <TouchableOpacity style={styles.footerCancelBtn} onPress={() => setTaskModal({ open: false, task: null, action: '', notes: '' })}><Text style={styles.footerCancelBtnText}>Cancel</Text></TouchableOpacity>
-                            <TouchableOpacity style={styles.footerSubmitBtn} onPress={handleUpdateTaskStatus}><Text style={styles.footerSubmitBtnText}>Confirm</Text></TouchableOpacity>
-                        </View>
-                    </View>
+                    </KeyboardAvoidingView>
                 </View>
             </Modal>
 
             {/* 5. Schedule New Task Modal */}
             <Modal visible={newTaskModalOpen} transparent animationType="fade" onRequestClose={() => setNewTaskModalOpen(false)}>
                 <View style={styles.modalOverlay}>
-                    <View style={styles.modalCard}>
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Schedule Clinical Task</Text>
-                            <TouchableOpacity onPress={() => setNewTaskModalOpen(false)}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardAvoidWrap}>
+                        <View style={styles.modalCard}>
+                            <View style={styles.modalHeader}>
+                                <Text style={styles.modalTitle}>Schedule Clinical Task</Text>
+                                <TouchableOpacity onPress={() => setNewTaskModalOpen(false)}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                            </View>
+                            <View style={{ padding: 18 }}>
+                                <Text style={styles.inputLabel}>Task Title *</Text>
+                                <TextInput style={styles.input} placeholder="e.g. Draw Blood Culture, Mobilize Patient" value={taskForm.title} onChangeText={t => setTaskForm(p => ({ ...p, title: t }))} />
+                                <Text style={[styles.inputLabel, { marginTop: 10 }]}>Description</Text>
+                                <TextInput style={[styles.input, { height: 60 }]} multiline placeholder="Instructions..." value={taskForm.description} onChangeText={t => setTaskForm(p => ({ ...p, description: t }))} />
+                            </View>
+                            <View style={styles.modalFooter}>
+                                <TouchableOpacity style={styles.footerCancelBtn} onPress={() => setNewTaskModalOpen(false)}><Text style={styles.footerCancelBtnText}>Cancel</Text></TouchableOpacity>
+                                <TouchableOpacity style={styles.footerSubmitBtn} onPress={handleCreateTask}><Text style={styles.footerSubmitBtnText}>Create Task</Text></TouchableOpacity>
+                            </View>
                         </View>
-                        <View style={{ padding: 18 }}>
-                            <Text style={styles.inputLabel}>Task Title *</Text>
-                            <TextInput style={styles.input} placeholder="e.g. Draw Blood Culture, Mobilize Patient" value={taskForm.title} onChangeText={t => setTaskForm(p => ({ ...p, title: t }))} />
-                            <Text style={[styles.inputLabel, { marginTop: 10 }]}>Description</Text>
-                            <TextInput style={[styles.input, { height: 60 }]} multiline placeholder="Instructions..." value={taskForm.description} onChangeText={t => setTaskForm(p => ({ ...p, description: t }))} />
-                        </View>
-                        <View style={styles.modalFooter}>
-                            <TouchableOpacity style={styles.footerCancelBtn} onPress={() => setNewTaskModalOpen(false)}><Text style={styles.footerCancelBtnText}>Cancel</Text></TouchableOpacity>
-                            <TouchableOpacity style={styles.footerSubmitBtn} onPress={handleCreateTask}><Text style={styles.footerSubmitBtnText}>Create Task</Text></TouchableOpacity>
-                        </View>
-                    </View>
+                    </KeyboardAvoidingView>
                 </View>
             </Modal>
 
             {/* 6. Insert Line Modal */}
             <Modal visible={newLineModalOpen} transparent animationType="fade" onRequestClose={() => setNewLineModalOpen(false)}>
                 <View style={styles.modalOverlay}>
-                    <View style={styles.modalCard}>
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Insert Line / Cannula</Text>
-                            <TouchableOpacity onPress={() => setNewLineModalOpen(false)}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardAvoidWrap}>
+                        <View style={styles.modalCard}>
+                            <View style={styles.modalHeader}>
+                                <Text style={styles.modalTitle}>Insert Line / Cannula</Text>
+                                <TouchableOpacity onPress={() => setNewLineModalOpen(false)}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                            </View>
+                            <View style={{ padding: 18 }}>
+                                <Text style={styles.inputLabel}>Anatomical Site *</Text>
+                                <TextInput style={styles.input} placeholder="e.g. Right Forearm, Left Hand" value={lineForm.site} onChangeText={t => setLineForm(p => ({ ...p, site: t }))} />
+                                <Text style={[styles.inputLabel, { marginTop: 10 }]}>Gauge</Text>
+                                <TextInput style={styles.input} placeholder="20G, 18G, 22G" value={lineForm.gauge} onChangeText={t => setLineForm(p => ({ ...p, gauge: t }))} />
+                            </View>
+                            <View style={styles.modalFooter}>
+                                <TouchableOpacity style={styles.footerCancelBtn} onPress={() => setNewLineModalOpen(false)}><Text style={styles.footerCancelBtnText}>Cancel</Text></TouchableOpacity>
+                                <TouchableOpacity style={styles.footerSubmitBtn} onPress={handleInsertLine}><Text style={styles.footerSubmitBtnText}>Insert Line</Text></TouchableOpacity>
+                            </View>
                         </View>
-                        <View style={{ padding: 18 }}>
-                            <Text style={styles.inputLabel}>Anatomical Site *</Text>
-                            <TextInput style={styles.input} placeholder="e.g. Right Forearm, Left Hand" value={lineForm.site} onChangeText={t => setLineForm(p => ({ ...p, site: t }))} />
-                            <Text style={[styles.inputLabel, { marginTop: 10 }]}>Gauge</Text>
-                            <TextInput style={styles.input} placeholder="20G, 18G, 22G" value={lineForm.gauge} onChangeText={t => setLineForm(p => ({ ...p, gauge: t }))} />
-                        </View>
-                        <View style={styles.modalFooter}>
-                            <TouchableOpacity style={styles.footerCancelBtn} onPress={() => setNewLineModalOpen(false)}><Text style={styles.footerCancelBtnText}>Cancel</Text></TouchableOpacity>
-                            <TouchableOpacity style={styles.footerSubmitBtn} onPress={handleInsertLine}><Text style={styles.footerSubmitBtnText}>Insert Line</Text></TouchableOpacity>
-                        </View>
-                    </View>
+                    </KeyboardAvoidingView>
                 </View>
             </Modal>
 
             {/* 7. Insert Catheter Modal */}
             <Modal visible={newCathModalOpen} transparent animationType="fade" onRequestClose={() => setNewCathModalOpen(false)}>
                 <View style={styles.modalOverlay}>
-                    <View style={styles.modalCard}>
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Insert Catheter</Text>
-                            <TouchableOpacity onPress={() => setNewCathModalOpen(false)}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardAvoidWrap}>
+                        <View style={styles.modalCard}>
+                            <View style={styles.modalHeader}>
+                                <Text style={styles.modalTitle}>Insert Catheter</Text>
+                                <TouchableOpacity onPress={() => setNewCathModalOpen(false)}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                            </View>
+                            <View style={{ padding: 18 }}>
+                                <Text style={styles.inputLabel}>Site / Route</Text>
+                                <TextInput style={styles.input} value={catheterForm.site} onChangeText={t => setCatheterForm(p => ({ ...p, site: t }))} />
+                                <Text style={[styles.inputLabel, { marginTop: 10 }]}>Size</Text>
+                                <TextInput style={styles.input} value={catheterForm.size} onChangeText={t => setCatheterForm(p => ({ ...p, size: t }))} />
+                            </View>
+                            <View style={styles.modalFooter}>
+                                <TouchableOpacity style={styles.footerCancelBtn} onPress={() => setNewCathModalOpen(false)}><Text style={styles.footerCancelBtnText}>Cancel</Text></TouchableOpacity>
+                                <TouchableOpacity style={styles.footerSubmitBtn} onPress={handleInsertCatheter}><Text style={styles.footerSubmitBtnText}>Insert Catheter</Text></TouchableOpacity>
+                            </View>
                         </View>
-                        <View style={{ padding: 18 }}>
-                            <Text style={styles.inputLabel}>Site / Route</Text>
-                            <TextInput style={styles.input} value={catheterForm.site} onChangeText={t => setCatheterForm(p => ({ ...p, site: t }))} />
-                            <Text style={[styles.inputLabel, { marginTop: 10 }]}>Size</Text>
-                            <TextInput style={styles.input} value={catheterForm.size} onChangeText={t => setCatheterForm(p => ({ ...p, size: t }))} />
-                        </View>
-                        <View style={styles.modalFooter}>
-                            <TouchableOpacity style={styles.footerCancelBtn} onPress={() => setNewCathModalOpen(false)}><Text style={styles.footerCancelBtnText}>Cancel</Text></TouchableOpacity>
-                            <TouchableOpacity style={styles.footerSubmitBtn} onPress={handleInsertCatheter}><Text style={styles.footerSubmitBtnText}>Insert Catheter</Text></TouchableOpacity>
-                        </View>
-                    </View>
+                    </KeyboardAvoidingView>
                 </View>
             </Modal>
 
             {/* 8. Remove Device Modal */}
             <Modal visible={deviceRemoveModal.open} transparent animationType="fade" onRequestClose={() => setDeviceRemoveModal({ open: false, type: '', id: '', reason: '', notes: '' })}>
                 <View style={styles.modalOverlay}>
-                    <View style={styles.modalCard}>
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Remove {deviceRemoveModal.type === 'LINE' ? 'Line' : 'Catheter'}</Text>
-                            <TouchableOpacity onPress={() => setDeviceRemoveModal({ open: false, type: '', id: '', reason: '', notes: '' })}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardAvoidWrap}>
+                        <View style={styles.modalCard}>
+                            <View style={styles.modalHeader}>
+                                <Text style={styles.modalTitle}>Remove {deviceRemoveModal.type === 'LINE' ? 'Line' : 'Catheter'}</Text>
+                                <TouchableOpacity onPress={() => setDeviceRemoveModal({ open: false, type: '', id: '', reason: '', notes: '' })}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                            </View>
+                            <View style={{ padding: 18 }}>
+                                <Text style={styles.inputLabel}>Reason for Removal</Text>
+                                <TextInput style={styles.input} placeholder="e.g. Discharge, Infiltration, Finished Treatment" value={deviceRemoveModal.reason} onChangeText={t => setDeviceRemoveModal(p => ({ ...p, reason: t }))} />
+                                <Text style={[styles.inputLabel, { marginTop: 10 }]}>Site Assessment Notes</Text>
+                                <TextInput style={[styles.input, { height: 60 }]} multiline placeholder="Site intact, no redness, tip inspected..." value={deviceRemoveModal.notes} onChangeText={t => setDeviceRemoveModal(p => ({ ...p, notes: t }))} />
+                            </View>
+                            <View style={styles.modalFooter}>
+                                <TouchableOpacity style={styles.footerCancelBtn} onPress={() => setDeviceRemoveModal({ open: false, type: '', id: '', reason: '', notes: '' })}><Text style={styles.footerCancelBtnText}>Cancel</Text></TouchableOpacity>
+                                <TouchableOpacity style={[styles.footerSubmitBtn, { backgroundColor: '#ef4444' }]} onPress={handleRemoveDevice}><Text style={styles.footerSubmitBtnText}>Remove Device</Text></TouchableOpacity>
+                            </View>
                         </View>
-                        <View style={{ padding: 18 }}>
-                            <Text style={styles.inputLabel}>Reason for Removal</Text>
-                            <TextInput style={styles.input} placeholder="e.g. Discharge, Infiltration, Finished Treatment" value={deviceRemoveModal.reason} onChangeText={t => setDeviceRemoveModal(p => ({ ...p, reason: t }))} />
-                            <Text style={[styles.inputLabel, { marginTop: 10 }]}>Site Assessment Notes</Text>
-                            <TextInput style={[styles.input, { height: 60 }]} multiline placeholder="Site intact, no redness, tip inspected..." value={deviceRemoveModal.notes} onChangeText={t => setDeviceRemoveModal(p => ({ ...p, notes: t }))} />
-                        </View>
-                        <View style={styles.modalFooter}>
-                            <TouchableOpacity style={styles.footerCancelBtn} onPress={() => setDeviceRemoveModal({ open: false, type: '', id: '', reason: '', notes: '' })}><Text style={styles.footerCancelBtnText}>Cancel</Text></TouchableOpacity>
-                            <TouchableOpacity style={[styles.footerSubmitBtn, { backgroundColor: '#ef4444' }]} onPress={handleRemoveDevice}><Text style={styles.footerSubmitBtnText}>Remove Device</Text></TouchableOpacity>
-                        </View>
-                    </View>
+                    </KeyboardAvoidingView>
                 </View>
             </Modal>
 
             {/* 9. Order Clarification Modal */}
             <Modal visible={clarificationModal.open} transparent animationType="fade" onRequestClose={() => setClarificationModal({ open: false, order: null, issueType: 'DOSAGE_CONFIRMATION', question: '' })}>
                 <View style={styles.modalOverlay}>
-                    <View style={styles.modalCard}>
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Request Clarification</Text>
-                            <TouchableOpacity onPress={() => setClarificationModal({ open: false, order: null, issueType: 'DOSAGE_CONFIRMATION', question: '' })}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardAvoidWrap}>
+                        <View style={styles.modalCard}>
+                            <View style={styles.modalHeader}>
+                                <Text style={styles.modalTitle}>Request Clarification</Text>
+                                <TouchableOpacity onPress={() => setClarificationModal({ open: false, order: null, issueType: 'DOSAGE_CONFIRMATION', question: '' })}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                            </View>
+                            <View style={{ padding: 18 }}>
+                                <Text style={styles.itemCardTitle}>{clarificationModal.order?.medicineName || 'Clinical Order'}</Text>
+                                <Text style={[styles.inputLabel, { marginTop: 12 }]}>Clarification Question</Text>
+                                <TextInput style={[styles.input, { height: 80 }]} multiline placeholder="Describe the clinical discrepancy or dosage question..." value={clarificationModal.question} onChangeText={t => setClarificationModal(p => ({ ...p, question: t }))} />
+                            </View>
+                            <View style={styles.modalFooter}>
+                                <TouchableOpacity style={styles.footerCancelBtn} onPress={() => setClarificationModal({ open: false, order: null, issueType: 'DOSAGE_CONFIRMATION', question: '' })}><Text style={styles.footerCancelBtnText}>Cancel</Text></TouchableOpacity>
+                                <TouchableOpacity style={styles.footerSubmitBtn} onPress={handleSubmitClarification}><Text style={styles.footerSubmitBtnText}>Send to Doctor</Text></TouchableOpacity>
+                            </View>
                         </View>
-                        <View style={{ padding: 18 }}>
-                            <Text style={styles.itemCardTitle}>{clarificationModal.order?.medicineName || 'Clinical Order'}</Text>
-                            <Text style={[styles.inputLabel, { marginTop: 12 }]}>Clarification Question</Text>
-                            <TextInput style={[styles.input, { height: 80 }]} multiline placeholder="Describe the clinical discrepancy or dosage question..." value={clarificationModal.question} onChangeText={t => setClarificationModal(p => ({ ...p, question: t }))} />
-                        </View>
-                        <View style={styles.modalFooter}>
-                            <TouchableOpacity style={styles.footerCancelBtn} onPress={() => setClarificationModal({ open: false, order: null, issueType: 'DOSAGE_CONFIRMATION', question: '' })}><Text style={styles.footerCancelBtnText}>Cancel</Text></TouchableOpacity>
-                            <TouchableOpacity style={styles.footerSubmitBtn} onPress={handleSubmitClarification}><Text style={styles.footerSubmitBtnText}>Send to Doctor</Text></TouchableOpacity>
-                        </View>
-                    </View>
+                    </KeyboardAvoidingView>
                 </View>
             </Modal>
         </ScrollView>
@@ -2394,6 +2416,11 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         padding: 16,
+    },
+    keyboardAvoidWrap: {
+        width: '100%',
+        maxWidth: 520,
+        alignItems: 'center',
     },
     modalCard: {
         backgroundColor: '#ffffff',

@@ -10,7 +10,8 @@ import {
     Platform,
     StyleSheet,
     Animated,
-    Dimensions
+    KeyboardAvoidingView,
+    useWindowDimensions
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -18,10 +19,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as DocumentPicker from 'expo-document-picker';
 import { doctorAPI, reportAPI } from '../../utils/api';
 
-const { width } = Dimensions.get('window');
-
 const NurseOPDQueue = () => {
     const navigation = useNavigation();
+    const { width } = useWindowDimensions();
 
     const [appointments, setAppointments] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -475,7 +475,7 @@ const NurseOPDQueue = () => {
                         style={[styles.tabBtn, activeTab === 'today' && styles.tabBtnActive]}
                         onPress={() => setActiveTab('today')}
                     >
-                        <Text style={[styles.tabBtnText, activeTab === 'today' && styles.tabBtnTextActive]}>
+                        <Text numberOfLines={1} style={[styles.tabBtnText, activeTab === 'today' && styles.tabBtnTextActive]}>
                             Today's Queue ({stats.totalToday})
                         </Text>
                     </TouchableOpacity>
@@ -484,7 +484,7 @@ const NurseOPDQueue = () => {
                         style={[styles.tabBtn, activeTab === 'waiting' && styles.tabBtnActive]}
                         onPress={() => setActiveTab('waiting')}
                     >
-                        <Text style={[styles.tabBtnText, activeTab === 'waiting' && styles.tabBtnTextActive]}>
+                        <Text numberOfLines={1} style={[styles.tabBtnText, activeTab === 'waiting' && styles.tabBtnTextActive]}>
                             Waiting ({stats.waiting})
                         </Text>
                     </TouchableOpacity>
@@ -493,7 +493,7 @@ const NurseOPDQueue = () => {
                         style={[styles.tabBtn, activeTab === 'in_consultation' && styles.tabBtnActive]}
                         onPress={() => setActiveTab('in_consultation')}
                     >
-                        <Text style={[styles.tabBtnText, activeTab === 'in_consultation' && styles.tabBtnTextActive]}>
+                        <Text numberOfLines={1} style={[styles.tabBtnText, activeTab === 'in_consultation' && styles.tabBtnTextActive]}>
                             In Consultation ({stats.inConsultation})
                         </Text>
                     </TouchableOpacity>
@@ -502,7 +502,7 @@ const NurseOPDQueue = () => {
                         style={[styles.tabBtn, activeTab === 'completed' && styles.tabBtnActive]}
                         onPress={() => setActiveTab('completed')}
                     >
-                        <Text style={[styles.tabBtnText, activeTab === 'completed' && styles.tabBtnTextActive]}>
+                        <Text numberOfLines={1} style={[styles.tabBtnText, activeTab === 'completed' && styles.tabBtnTextActive]}>
                             Completed ({stats.completed})
                         </Text>
                     </TouchableOpacity>
@@ -511,7 +511,7 @@ const NurseOPDQueue = () => {
                         style={[styles.tabBtn, activeTab === 'all' && styles.tabBtnActive]}
                         onPress={() => setActiveTab('all')}
                     >
-                        <Text style={[styles.tabBtnText, activeTab === 'all' && styles.tabBtnTextActive]}>
+                        <Text numberOfLines={1} style={[styles.tabBtnText, activeTab === 'all' && styles.tabBtnTextActive]}>
                             All OPD History
                         </Text>
                     </TouchableOpacity>
@@ -680,7 +680,7 @@ const NurseOPDQueue = () => {
 
                                             <TouchableOpacity
                                                 style={styles.actBtnPrimary}
-                                                onPress={() => navigation.navigate('PatientProfile', { patientId: pid, department: dept })}
+                                                onPress={() => navigation.navigate('UnifiedPatientProfile', { patientId: pid, department: dept, id: pid })}
                                                 activeOpacity={0.8}
                                             >
                                                 <Text style={styles.actBtnPrimaryText}>🩺 Profile</Text>
@@ -748,7 +748,11 @@ const NurseOPDQueue = () => {
                 onRequestClose={() => setVitalsModal({ open: false, appt: null })}
             >
                 <View style={styles.modalOverlay}>
-                    <View style={styles.modalCard} onStartShouldSetResponder={() => true}>
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                        style={styles.keyboardAvoidWrap}
+                    >
+                        <View style={styles.modalCard} onStartShouldSetResponder={() => true}>
                         {/* Modal Header */}
                         <View style={styles.modalHeader}>
                             <View style={{ flex: 1 }}>
@@ -910,6 +914,7 @@ const NurseOPDQueue = () => {
                             </TouchableOpacity>
                         </View>
                     </View>
+                    </KeyboardAvoidingView>
                 </View>
             </Modal>
 
@@ -921,67 +926,72 @@ const NurseOPDQueue = () => {
                 onRequestClose={() => setUploadModal({ open: false, appt: null })}
             >
                 <View style={styles.modalOverlay}>
-                    <View style={[styles.modalCard, { maxWidth: 500 }]} onStartShouldSetResponder={() => true}>
-                        <View style={styles.modalHeader}>
-                            <View style={{ flex: 1 }}>
-                                <Text style={styles.modalTitle}>📎 Upload Diagnostic Report</Text>
-                                <Text style={styles.modalSubtitle}>
-                                    Attach external lab report, scan, or investigation to {uploadModal.appt?.userId?.name}'s profile
-                                </Text>
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                        style={styles.keyboardAvoidWrap}
+                    >
+                        <View style={[styles.modalCard, { maxWidth: 500 }]} onStartShouldSetResponder={() => true}>
+                            <View style={styles.modalHeader}>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.modalTitle}>📎 Upload Diagnostic Report</Text>
+                                    <Text style={styles.modalSubtitle}>
+                                        Attach external lab report, scan, or investigation to {uploadModal.appt?.userId?.name}'s profile
+                                    </Text>
+                                </View>
+                                <TouchableOpacity
+                                    style={styles.closeBtn}
+                                    onPress={() => setUploadModal({ open: false, appt: null })}
+                                >
+                                    <Feather name="x" size={18} color="#64748b" />
+                                </TouchableOpacity>
                             </View>
-                            <TouchableOpacity
-                                style={styles.closeBtn}
-                                onPress={() => setUploadModal({ open: false, appt: null })}
-                            >
-                                <Feather name="x" size={18} color="#64748b" />
-                            </TouchableOpacity>
-                        </View>
 
-                        <View style={styles.modalBody}>
-                            <Text style={styles.formLabel}>Select Report File (PDF / Image) *</Text>
-                            <TouchableOpacity
-                                style={styles.filePickerBox}
-                                onPress={handlePickDocument}
-                                activeOpacity={0.8}
-                            >
-                                <Feather name="upload-cloud" size={32} color="#0284c7" />
-                                {uploadFile ? (
-                                    <View style={{ alignItems: 'center', marginTop: 8 }}>
-                                        <Text style={styles.fileNameText} numberOfLines={1}>{uploadFile.name}</Text>
-                                        <Text style={styles.fileSizeText}>
-                                            {uploadFile.size ? `${(uploadFile.size / 1024).toFixed(1)} KB` : 'File ready'}
-                                        </Text>
-                                    </View>
-                                ) : (
-                                    <View style={{ alignItems: 'center', marginTop: 8 }}>
-                                        <Text style={styles.filePickPrompt}>Tap to select document or image</Text>
-                                        <Text style={styles.filePickTypes}>PDF, PNG, JPG accepted</Text>
-                                    </View>
-                                )}
-                            </TouchableOpacity>
-                        </View>
+                            <View style={styles.modalBody}>
+                                <Text style={styles.formLabel}>Select Report File (PDF / Image) *</Text>
+                                <TouchableOpacity
+                                    style={styles.filePickerBox}
+                                    onPress={handlePickDocument}
+                                    activeOpacity={0.8}
+                                >
+                                    <Feather name="upload-cloud" size={32} color="#0284c7" />
+                                    {uploadFile ? (
+                                        <View style={{ alignItems: 'center', marginTop: 8 }}>
+                                            <Text style={styles.fileNameText} numberOfLines={1}>{uploadFile.name}</Text>
+                                            <Text style={styles.fileSizeText}>
+                                                {uploadFile.size ? `${(uploadFile.size / 1024).toFixed(1)} KB` : 'File ready'}
+                                            </Text>
+                                        </View>
+                                    ) : (
+                                        <View style={{ alignItems: 'center', marginTop: 8 }}>
+                                            <Text style={styles.filePickPrompt}>Tap to select document or image</Text>
+                                            <Text style={styles.filePickTypes}>PDF, PNG, JPG accepted</Text>
+                                        </View>
+                                    )}
+                                </TouchableOpacity>
+                            </View>
 
-                        <View style={styles.modalFooter}>
-                            <TouchableOpacity
-                                style={styles.footerCancelBtn}
-                                onPress={() => setUploadModal({ open: false, appt: null })}
-                            >
-                                <Text style={styles.footerCancelBtnText}>Cancel</Text>
-                            </TouchableOpacity>
+                            <View style={styles.modalFooter}>
+                                <TouchableOpacity
+                                    style={styles.footerCancelBtn}
+                                    onPress={() => setUploadModal({ open: false, appt: null })}
+                                >
+                                    <Text style={styles.footerCancelBtnText}>Cancel</Text>
+                                </TouchableOpacity>
 
-                            <TouchableOpacity
-                                style={[styles.footerSubmitBtn, (!uploadFile || uploadingReport) && { opacity: 0.6 }]}
-                                onPress={handleUploadReportSubmit}
-                                disabled={!uploadFile || uploadingReport}
-                            >
-                                {uploadingReport ? (
-                                    <ActivityIndicator size="small" color="#ffffff" />
-                                ) : (
-                                    <Text style={styles.footerSubmitBtnText}>Upload & Attach</Text>
-                                )}
-                            </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[styles.footerSubmitBtn, (!uploadFile || uploadingReport) && { opacity: 0.6 }]}
+                                    onPress={handleUploadReportSubmit}
+                                    disabled={!uploadFile || uploadingReport}
+                                >
+                                    {uploadingReport ? (
+                                        <ActivityIndicator size="small" color="#ffffff" />
+                                    ) : (
+                                        <Text style={styles.footerSubmitBtnText}>Upload & Attach</Text>
+                                    )}
+                                </TouchableOpacity>
+                            </View>
                         </View>
-                    </View>
+                    </KeyboardAvoidingView>
                 </View>
             </Modal>
         </ScrollView>
@@ -1206,7 +1216,6 @@ const styles = StyleSheet.create({
         fontSize: 12,
         fontWeight: '700',
         color: '#64748b',
-        whiteSpace: 'nowrap',
     },
     tabBtnTextActive: {
         color: '#ffffff',
@@ -1425,6 +1434,11 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         padding: 16,
+    },
+    keyboardAvoidWrap: {
+        width: '100%',
+        maxWidth: 640,
+        alignItems: 'center',
     },
     filterModalCard: {
         backgroundColor: '#ffffff',

@@ -10,17 +10,17 @@ import {
     Platform,
     StyleSheet,
     Animated,
-    Dimensions
+    KeyboardAvoidingView,
+    useWindowDimensions
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { doctorAPI } from '../../utils/api';
 
-const { width } = Dimensions.get('window');
-
 const NurseAppointments = () => {
     const navigation = useNavigation();
+    const { width } = useWindowDimensions();
 
     const [appointments, setAppointments] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -427,7 +427,7 @@ const NurseAppointments = () => {
                         style={[styles.tabBtn, activeTab === 'all_day' && styles.tabBtnActive]}
                         onPress={() => setActiveTab('all_day')}
                     >
-                        <Text style={[styles.tabBtnText, activeTab === 'all_day' && styles.tabBtnTextActive]}>
+                        <Text numberOfLines={1} style={[styles.tabBtnText, activeTab === 'all_day' && styles.tabBtnTextActive]}>
                             All ({stats.total})
                         </Text>
                     </TouchableOpacity>
@@ -436,7 +436,7 @@ const NurseAppointments = () => {
                         style={[styles.tabBtn, activeTab === 'confirmed' && styles.tabBtnActive]}
                         onPress={() => setActiveTab('confirmed')}
                     >
-                        <Text style={[styles.tabBtnText, activeTab === 'confirmed' && styles.tabBtnTextActive]}>
+                        <Text numberOfLines={1} style={[styles.tabBtnText, activeTab === 'confirmed' && styles.tabBtnTextActive]}>
                             Confirmed ({stats.confirmed})
                         </Text>
                     </TouchableOpacity>
@@ -445,7 +445,7 @@ const NurseAppointments = () => {
                         style={[styles.tabBtn, activeTab === 'pending' && styles.tabBtnActive]}
                         onPress={() => setActiveTab('pending')}
                     >
-                        <Text style={[styles.tabBtnText, activeTab === 'pending' && styles.tabBtnTextActive]}>
+                        <Text numberOfLines={1} style={[styles.tabBtnText, activeTab === 'pending' && styles.tabBtnTextActive]}>
                             Pending ({stats.pending})
                         </Text>
                     </TouchableOpacity>
@@ -454,7 +454,7 @@ const NurseAppointments = () => {
                         style={[styles.tabBtn, activeTab === 'completed' && styles.tabBtnActive]}
                         onPress={() => setActiveTab('completed')}
                     >
-                        <Text style={[styles.tabBtnText, activeTab === 'completed' && styles.tabBtnTextActive]}>
+                        <Text numberOfLines={1} style={[styles.tabBtnText, activeTab === 'completed' && styles.tabBtnTextActive]}>
                             Completed ({stats.completed})
                         </Text>
                     </TouchableOpacity>
@@ -599,7 +599,7 @@ const NurseAppointments = () => {
 
                                             <TouchableOpacity
                                                 style={styles.actBtnPrimary}
-                                                onPress={() => navigation.navigate('PatientProfile', { patientId: pid, department: dept })}
+                                                onPress={() => navigation.navigate('UnifiedPatientProfile', { patientId: pid, department: dept, id: pid })}
                                                 activeOpacity={0.8}
                                             >
                                                 <Text style={styles.actBtnPrimaryText}>🩺 Profile</Text>
@@ -625,36 +625,41 @@ const NurseAppointments = () => {
                     activeOpacity={1}
                     onPress={() => setDateModalOpen(false)}
                 >
-                    <View style={styles.filterModalCard} onStartShouldSetResponder={() => true}>
-                        <View style={styles.filterModalHeader}>
-                            <Text style={styles.filterModalTitle}>Select Appointment Date</Text>
-                            <TouchableOpacity onPress={() => setDateModalOpen(false)}>
-                                <Feather name="x" size={20} color="#64748b" />
-                            </TouchableOpacity>
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                        style={styles.keyboardAvoidWrap}
+                    >
+                        <View style={styles.filterModalCard} onStartShouldSetResponder={() => true}>
+                            <View style={styles.filterModalHeader}>
+                                <Text style={styles.filterModalTitle}>Select Appointment Date</Text>
+                                <TouchableOpacity onPress={() => setDateModalOpen(false)}>
+                                    <Feather name="x" size={20} color="#64748b" />
+                                </TouchableOpacity>
+                            </View>
+                            <Text style={[styles.formLabel, { marginBottom: 8 }]}>Date (YYYY-MM-DD)</Text>
+                            <TextInput
+                                style={[styles.formInput, { marginBottom: 14 }]}
+                                value={selectedDate}
+                                placeholder="YYYY-MM-DD"
+                                placeholderTextColor="#94a3b8"
+                                onChangeText={setSelectedDate}
+                            />
+                            <View style={{ flexDirection: 'row', gap: 10 }}>
+                                <TouchableOpacity
+                                    style={[styles.footerSubmitBtn, { flex: 1, alignItems: 'center' }]}
+                                    onPress={() => setDateModalOpen(false)}
+                                >
+                                    <Text style={styles.footerSubmitBtnText}>Apply Date</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[styles.footerCancelBtn, { flex: 1, alignItems: 'center' }]}
+                                    onPress={() => { handleSetToday(); setDateModalOpen(false); }}
+                                >
+                                    <Text style={styles.footerCancelBtnText}>Today</Text>
+                                </TouchableOpacity>
+                            </View>
                         </View>
-                        <Text style={[styles.formLabel, { marginBottom: 8 }]}>Date (YYYY-MM-DD)</Text>
-                        <TextInput
-                            style={[styles.formInput, { marginBottom: 14 }]}
-                            value={selectedDate}
-                            placeholder="YYYY-MM-DD"
-                            placeholderTextColor="#94a3b8"
-                            onChangeText={setSelectedDate}
-                        />
-                        <View style={{ flexDirection: 'row', gap: 10 }}>
-                            <TouchableOpacity
-                                style={[styles.footerSubmitBtn, { flex: 1, alignItems: 'center' }]}
-                                onPress={() => setDateModalOpen(false)}
-                            >
-                                <Text style={styles.footerSubmitBtnText}>Apply Date</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[styles.footerCancelBtn, { flex: 1, alignItems: 'center' }]}
-                                onPress={() => { handleSetToday(); setDateModalOpen(false); }}
-                            >
-                                <Text style={styles.footerCancelBtnText}>Today</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
+                    </KeyboardAvoidingView>
                 </TouchableOpacity>
             </Modal>
 
@@ -712,7 +717,11 @@ const NurseAppointments = () => {
                 onRequestClose={() => setVitalsModal({ open: false, appt: null })}
             >
                 <View style={styles.modalOverlay}>
-                    <View style={styles.modalCard} onStartShouldSetResponder={() => true}>
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                        style={styles.keyboardAvoidWrap}
+                    >
+                        <View style={styles.modalCard} onStartShouldSetResponder={() => true}>
                         {/* Modal Header */}
                         <View style={styles.modalHeader}>
                             <View style={{ flex: 1 }}>
@@ -874,6 +883,7 @@ const NurseAppointments = () => {
                             </TouchableOpacity>
                         </View>
                     </View>
+                    </KeyboardAvoidingView>
                 </View>
             </Modal>
         </ScrollView>
@@ -1130,7 +1140,6 @@ const styles = StyleSheet.create({
         fontSize: 12,
         fontWeight: '700',
         color: '#64748b',
-        whiteSpace: 'nowrap',
     },
     tabBtnTextActive: {
         color: '#ffffff',
@@ -1336,6 +1345,11 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         padding: 16,
+    },
+    keyboardAvoidWrap: {
+        width: '100%',
+        maxWidth: 620,
+        alignItems: 'center',
     },
     filterModalCard: {
         backgroundColor: '#ffffff',

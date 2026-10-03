@@ -8,15 +8,12 @@ import {
   TextInput,
   ActivityIndicator,
   Modal,
-  Dimensions,
   Platform,
   useWindowDimensions,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { ipdCommandCenterAPI } from '../../utils/api';
 import socket from '../../utils/socket';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const STAGE_CONFIG = {
   ADMITTED: { label: 'Admitted (<24h)', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.12)', border: '#93c5fd' },

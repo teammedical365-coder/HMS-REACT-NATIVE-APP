@@ -220,10 +220,11 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
         }
 
         const isNurse = role === 'nurse' || role === 'staffnurse' || role === 'headnurse' || roleClean === 'nurse' || roleClean === 'staffnurse' || roleClean === 'headnurse';
-        const isNurseRoute = currentPath && (currentPath === 'NurseDashboard' || currentPath === 'NurseOPDQueue' || currentPath === 'NurseAppointments' || (currentPath === 'NursePatientWorkspace' && isNurse));
+        const isNurseRoute = currentPath && (currentPath === 'NurseDashboard' || currentPath === 'NurseOPDQueue' || currentPath === 'NurseAppointments' || currentPath === 'NursePatientDocuments' || (currentPath === 'NursePatientWorkspace' && isNurse));
         if (isNurse || (isNurseRoute && !isDoctor)) {
             return [
                 { label: 'Nurse Command Center', path: 'NurseDashboard', icon: <Feather name="home" size={18} /> },
+                { label: 'Patient Reports & Consents', path: 'NursePatientDocuments', icon: <Feather name="file-text" size={18} /> },
                 { label: 'OPD Patient Queue', path: 'NurseOPDQueue', icon: <Feather name="users" size={18} /> },
                 { label: 'Appointments', path: 'NurseAppointments', icon: <Feather name="calendar" size={18} /> },
                 { label: 'IPD Command Center', path: 'IPDCommandCenter', icon: <Feather name="activity" size={18} /> },
@@ -466,6 +467,7 @@ const TopBar = ({ toggleSidebar, sidebarOpen, isMobile }) => {
         if (name === 'PatientBillingProfile') return role === 'hospitaladmin' ? 'Billing & Payments' : 'Patient Billing';
         if (name === 'CashierDashboard') return role === 'billing' ? 'Patient Billing' : 'Billing/Payments';
         if (name === 'NurseDashboard') return 'Nurse Command Center';
+        if (name === 'NursePatientDocuments') return 'Patient Reports & Consents';
         if (name === 'NurseOPDQueue') return 'OPD Patient Queue';
         if (name === 'NurseAppointments') return 'Appointments';
         if (name === 'NursePatientWorkspace') return 'Inpatient Workspace';

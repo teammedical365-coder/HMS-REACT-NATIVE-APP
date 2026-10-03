@@ -9,6 +9,8 @@ import {
     ActivityIndicator,
     Alert,
     Modal,
+    Platform,
+    KeyboardAvoidingView,
     useWindowDimensions
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -570,99 +572,104 @@ const NurseDashboard = () => {
             {assignModal.open && (
                 <Modal visible={true} transparent={true} animationType="fade" onRequestClose={() => setAssignModal({ open: false, admission: null, nurseId: '', shift: 'Morning', notes: '' })}>
                     <View style={styles.modalOverlay}>
-                        <View style={styles.modalContent}>
-                            <View style={styles.modalHeader}>
-                                <Text style={styles.modalTitle}>Assign Primary Care Nurse</Text>
-                                <TouchableOpacity onPress={() => setAssignModal({ open: false, admission: null, nurseId: '', shift: 'Morning', notes: '' })}>
-                                    <Feather name="x" size={20} color="#64748b" />
-                                </TouchableOpacity>
-                            </View>
-
-                            <ScrollView style={{ padding: 18 }}>
-                                <View style={styles.modalField}>
-                                    <Text style={styles.modalLabel}>Patient</Text>
-                                    <Text style={styles.modalStaticVal}>
-                                        {typeof assignModal.admission?.patientId === 'object' ? assignModal.admission.patientId?.name : 'Patient'}{' '}
-                                        <Text style={{ color: '#64748b', fontSize: 13 }}>
-                                            ({assignModal.admission?.ward} • Bed {assignModal.admission?.bedNumber})
-                                        </Text>
-                                    </Text>
+                        <KeyboardAvoidingView
+                            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                            style={styles.keyboardAvoidWrap}
+                        >
+                            <View style={styles.modalContent}>
+                                <View style={styles.modalHeader}>
+                                    <Text style={styles.modalTitle}>Assign Primary Care Nurse</Text>
+                                    <TouchableOpacity onPress={() => setAssignModal({ open: false, admission: null, nurseId: '', shift: 'Morning', notes: '' })}>
+                                        <Feather name="x" size={20} color="#64748b" />
+                                    </TouchableOpacity>
                                 </View>
 
-                                <View style={styles.modalField}>
-                                    <Text style={styles.modalLabel}>Select Nurse *</Text>
-                                    <View style={styles.nursesPickerWrap}>
-                                        {hospitalNurses.length === 0 ? (
-                                            <Text style={{ color: '#94a3b8', padding: 8 }}>No registered nurses found</Text>
-                                        ) : (
-                                            hospitalNurses.map((n) => {
-                                                const isSel = assignModal.nurseId === n._id;
+                                <ScrollView style={{ padding: 18 }} keyboardShouldPersistTaps="handled">
+                                    <View style={styles.modalField}>
+                                        <Text style={styles.modalLabel}>Patient</Text>
+                                        <Text style={styles.modalStaticVal}>
+                                            {typeof assignModal.admission?.patientId === 'object' ? assignModal.admission.patientId?.name : 'Patient'}{' '}
+                                            <Text style={{ color: '#64748b', fontSize: 13 }}>
+                                                ({assignModal.admission?.ward} • Bed {assignModal.admission?.bedNumber})
+                                            </Text>
+                                        </Text>
+                                    </View>
+
+                                    <View style={styles.modalField}>
+                                        <Text style={styles.modalLabel}>Select Nurse *</Text>
+                                        <View style={styles.nursesPickerWrap}>
+                                            {hospitalNurses.length === 0 ? (
+                                                <Text style={{ color: '#94a3b8', padding: 8 }}>No registered nurses found</Text>
+                                            ) : (
+                                                hospitalNurses.map((n) => {
+                                                    const isSel = assignModal.nurseId === n._id;
+                                                    return (
+                                                        <TouchableOpacity
+                                                            key={n._id}
+                                                            style={[styles.nurseSelectChip, isSel && styles.nurseSelectChipActive]}
+                                                            onPress={() => setAssignModal(p => ({ ...p, nurseId: n._id }))}
+                                                        >
+                                                            <Text style={[styles.nurseSelectChipText, isSel && styles.nurseSelectChipTextActive]}>
+                                                                {n.name} ({n.specialization || n.role || 'Staff Nurse'})
+                                                            </Text>
+                                                        </TouchableOpacity>
+                                                    );
+                                                })
+                                            )}
+                                        </View>
+                                    </View>
+
+                                    <View style={styles.modalField}>
+                                        <Text style={styles.modalLabel}>Assigned Shift</Text>
+                                        <View style={styles.shiftsRow}>
+                                            {SHIFTS.map((s) => {
+                                                const isSel = assignModal.shift === s;
                                                 return (
                                                     <TouchableOpacity
-                                                        key={n._id}
-                                                        style={[styles.nurseSelectChip, isSel && styles.nurseSelectChipActive]}
-                                                        onPress={() => setAssignModal(p => ({ ...p, nurseId: n._id }))}
+                                                        key={s}
+                                                        style={[styles.shiftChip, isSel && styles.shiftChipActive]}
+                                                        onPress={() => setAssignModal(p => ({ ...p, shift: s }))}
                                                     >
-                                                        <Text style={[styles.nurseSelectChipText, isSel && styles.nurseSelectChipTextActive]}>
-                                                            {n.name} ({n.specialization || n.role || 'Staff Nurse'})
-                                                        </Text>
+                                                        <Text style={[styles.shiftChipText, isSel && styles.shiftChipTextActive]}>{s}</Text>
                                                     </TouchableOpacity>
                                                 );
-                                            })
-                                        )}
+                                            })}
+                                        </View>
                                     </View>
-                                </View>
 
-                                <View style={styles.modalField}>
-                                    <Text style={styles.modalLabel}>Assigned Shift</Text>
-                                    <View style={styles.shiftsRow}>
-                                        {SHIFTS.map((s) => {
-                                            const isSel = assignModal.shift === s;
-                                            return (
-                                                <TouchableOpacity
-                                                    key={s}
-                                                    style={[styles.shiftChip, isSel && styles.shiftChipActive]}
-                                                    onPress={() => setAssignModal(p => ({ ...p, shift: s }))}
-                                                >
-                                                    <Text style={[styles.shiftChipText, isSel && styles.shiftChipTextActive]}>{s}</Text>
-                                                </TouchableOpacity>
-                                            );
-                                        })}
+                                    <View style={styles.modalField}>
+                                        <Text style={styles.modalLabel}>Assignment Notes</Text>
+                                        <TextInput
+                                            style={styles.modalInputText}
+                                            placeholder="Special instructions for the assigned nurse..."
+                                            placeholderTextColor="#94a3b8"
+                                            multiline
+                                            numberOfLines={2}
+                                            value={assignModal.notes}
+                                            onChangeText={(val) => setAssignModal(p => ({ ...p, notes: val }))}
+                                        />
                                     </View>
-                                </View>
+                                </ScrollView>
 
-                                <View style={styles.modalField}>
-                                    <Text style={styles.modalLabel}>Assignment Notes</Text>
-                                    <TextInput
-                                        style={styles.modalInputText}
-                                        placeholder="Special instructions for the assigned nurse..."
-                                        placeholderTextColor="#94a3b8"
-                                        multiline
-                                        numberOfLines={2}
-                                        value={assignModal.notes}
-                                        onChangeText={(val) => setAssignModal(p => ({ ...p, notes: val }))}
-                                    />
+                                <View style={styles.modalFooter}>
+                                    <TouchableOpacity
+                                        style={styles.modalCancelBtn}
+                                        onPress={() => setAssignModal({ open: false, admission: null, nurseId: '', shift: 'Morning', notes: '' })}
+                                    >
+                                        <Text style={styles.modalCancelBtnText}>Cancel</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={[styles.modalSubmitBtn, (!assignModal.nurseId || submittingAssign) && styles.btnDisabled]}
+                                        onPress={handleAssignSubmit}
+                                        disabled={!assignModal.nurseId || submittingAssign}
+                                    >
+                                        <Text style={styles.modalSubmitBtnText}>
+                                            {submittingAssign ? 'Assigning...' : 'Confirm Assignment'}
+                                        </Text>
+                                    </TouchableOpacity>
                                 </View>
-                            </ScrollView>
-
-                            <View style={styles.modalFooter}>
-                                <TouchableOpacity
-                                    style={styles.modalCancelBtn}
-                                    onPress={() => setAssignModal({ open: false, admission: null, nurseId: '', shift: 'Morning', notes: '' })}
-                                >
-                                    <Text style={styles.modalCancelBtnText}>Cancel</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    style={[styles.modalSubmitBtn, (!assignModal.nurseId || submittingAssign) && styles.btnDisabled]}
-                                    onPress={handleAssignSubmit}
-                                    disabled={!assignModal.nurseId || submittingAssign}
-                                >
-                                    <Text style={styles.modalSubmitBtnText}>
-                                        {submittingAssign ? 'Assigning...' : 'Confirm Assignment'}
-                                    </Text>
-                                </TouchableOpacity>
                             </View>
-                        </View>
+                        </KeyboardAvoidingView>
                     </View>
                 </Modal>
             )}
@@ -745,6 +752,7 @@ const styles = StyleSheet.create({
     openWorkspaceBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#2563eb', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, gap: 4 },
     openWorkspaceBtnText: { color: '#ffffff', fontSize: 12, fontWeight: '700' },
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 },
+    keyboardAvoidWrap: { width: '100%', maxWidth: 480, alignItems: 'center' },
     modalContent: { width: '100%', maxWidth: 480, maxHeight: '85%', backgroundColor: '#ffffff', borderRadius: 12, overflow: 'hidden' },
     modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
     modalTitle: { fontSize: 16, fontWeight: '800', color: '#0f172a' },

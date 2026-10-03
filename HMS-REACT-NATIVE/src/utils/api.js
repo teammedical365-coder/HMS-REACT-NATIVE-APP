@@ -493,6 +493,8 @@ export const reportAPI = {
   },
   getReportsByAppointment: async (appointmentId) =>
     (await apiClient.get(`/api/reports/${appointmentId}`)).data,
+  getReportsByPatient: async (patientId) =>
+    (await apiClient.get(`/api/reports/patient/${patientId}`)).data,
   generateAISummary: async (fileUrl, mimeType) =>
     (await apiClient.post('/api/reports/summary', { fileUrl, mimeType })).data,
   searchReports: async (patientId, keyword) =>
@@ -1350,7 +1352,7 @@ export const ipdNursingAPI = {
   recordNursingClearance: async (admissionId, data) =>
     (await apiClient.post(`/api/ipd-nursing/admissions/${admissionId}/nursing-clearance`, data)).data,
   signOffNursingClearance: async (admissionId, data = {}) =>
-    (await apiClient.post(`/api/ipd-nursing/admissions/${admissionId}/discharge-clearance/signoff`, data)).data,
+    (await apiClient.post(`/api/ipd-nursing/admissions/${admissionId}/nursing-clearance`, data)).data,
 };
 
 // ─── IPD Command Center API ───────────────────────────────────────────────────

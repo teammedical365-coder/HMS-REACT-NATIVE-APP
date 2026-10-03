@@ -75,6 +75,7 @@ import NurseDashboard from '../screens/nurse/NurseDashboard';
 import NurseOPDQueue from '../screens/nurse/NurseOPDQueue';
 import NurseAppointments from '../screens/nurse/NurseAppointments';
 import NursePatientWorkspace from '../screens/nurse/NursePatientWorkspace';
+import NursePatientDocuments from '../screens/nurse/NursePatientDocuments';
 import IPDCommandCenter from '../screens/nurse/IPDCommandCenter';
 
 // -- Accountant Pages --
@@ -309,6 +310,7 @@ export const NurseApp = () => (
         <Stack.Screen name="NurseOPDQueue" component={withLayout(NurseOPDQueue)} />
         <Stack.Screen name="NurseAppointments" component={withLayout(NurseAppointments)} />
         <Stack.Screen name="NursePatientWorkspace" component={withLayout(NursePatientWorkspace)} />
+        <Stack.Screen name="NursePatientDocuments" component={withLayout(NursePatientDocuments)} />
         <Stack.Screen name="IPDCommandCenter" component={withLayout(IPDCommandCenter)} />
         <Stack.Screen name="DoctorPatientDetails" component={withLayout(DoctorPatientDetails)} />
         <Stack.Screen name="UnifiedPatientProfile" component={withLayout(UnifiedPatientProfile)} />
