@@ -166,7 +166,9 @@ export default function CentralAdminPricingCards({
                     web: {
                       cursor: 'pointer',
                       boxShadow: '0 4px 10px rgba(37, 99, 235, 0.12)',
-                      transition: 'all 0.15s ease',
+                      transitionProperty: 'all',
+                      transitionDuration: '0.15s',
+                      transitionTimingFunction: 'ease',
                     }
                   }),
                 },
@@ -192,7 +194,9 @@ export default function CentralAdminPricingCards({
                   web: {
                     cursor: 'pointer',
                     boxShadow: '0 4px 14px rgba(37, 99, 235, 0.35)',
-                    transition: 'all 0.15s ease',
+                    transitionProperty: 'all',
+                    transitionDuration: '0.15s',
+                    transitionTimingFunction: 'ease',
                   }
                 }),
               },

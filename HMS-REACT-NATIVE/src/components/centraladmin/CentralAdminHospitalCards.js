@@ -240,7 +240,9 @@ export default function CentralAdminHospitalCards({
                   isMobile && { padding: 14, borderRadius: 14 },
                   Platform.select({
                     web: {
-                      transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+                      transitionProperty: 'all',
+                      transitionDuration: '0.2s',
+                      transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)',
                       cursor: 'pointer',
                     },
                   }),
@@ -354,7 +356,7 @@ export default function CentralAdminHospitalCards({
                       <Pressable 
                         style={({ pressed, hovered }) => [
                           styles.btnSmBranding,
-                          Platform.select({ web: { transition: 'all 0.15s ease', cursor: 'pointer' } }),
+                          Platform.select({ web: { transitionProperty: 'all', transitionDuration: '0.15s', transitionTimingFunction: 'ease', cursor: 'pointer' } }),
                           hovered && { backgroundColor: '#dbeafe', transform: [{ translateY: -1 }] },
                           pressed && { transform: [{ scale: 0.96 }] },
                         ]} 
@@ -367,7 +369,7 @@ export default function CentralAdminHospitalCards({
                     <Pressable 
                       style={({ pressed, hovered }) => [
                         styles.btnSmEdit,
-                        Platform.select({ web: { transition: 'all 0.15s ease', cursor: 'pointer' } }),
+                        Platform.select({ web: { transitionProperty: 'all', transitionDuration: '0.15s', transitionTimingFunction: 'ease', cursor: 'pointer' } }),
                         hovered && { backgroundColor: '#f1f5f9', borderColor: '#94a3b8', transform: [{ translateY: -1 }] },
                         pressed && { transform: [{ scale: 0.96 }] },
                       ]} 
@@ -386,7 +388,7 @@ export default function CentralAdminHospitalCards({
                     <Pressable 
                       style={({ pressed, hovered }) => [
                         styles.btnSmDelete,
-                        Platform.select({ web: { transition: 'all 0.15s ease', cursor: 'pointer' } }),
+                        Platform.select({ web: { transitionProperty: 'all', transitionDuration: '0.15s', transitionTimingFunction: 'ease', cursor: 'pointer' } }),
                         hovered && { backgroundColor: '#fee2e2', borderColor: '#f87171', transform: [{ translateY: -1 }] },
                         pressed && { transform: [{ scale: 0.96 }] },
                       ]} 

@@ -422,7 +422,7 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
                     <Pressable 
                         style={({ pressed, hovered }) => [
                             styles.topBackBtn,
-                            Platform.select({ web: { transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)', cursor: 'pointer' } }),
+                            Platform.select({ web: { transitionProperty: 'all', transitionDuration: '0.2s', transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)', cursor: 'pointer' } }),
                             hovered && {
                                 backgroundColor: 'rgba(22, 38, 110, 0.95)',
                                 borderColor: '#7dd3fc',
@@ -897,7 +897,7 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
                                 isDesktop && { width: '18.8%' },
                                 isTablet && { width: '31%' },
                                 isMobile && { width: '48%' },
-                                Platform.select({ web: { transition: 'all 0.15s ease', cursor: 'pointer' } }),
+                                Platform.select({ web: { transitionProperty: 'all', transitionDuration: '0.15s', transitionTimingFunction: 'ease', cursor: 'pointer' } }),
                                 hovered && {
                                     transform: [{ translateY: -1 }],
                                     opacity: 0.95,

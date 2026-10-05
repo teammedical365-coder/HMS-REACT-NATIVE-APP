@@ -585,7 +585,7 @@ const CentralAdminClinicDetails = ({ clinic, onBack, onDeleteSuccess }) => {
                         onPress={onBack}
                         style={({ pressed, hovered }) => [
                             styles.topBackBtn,
-                            Platform.select({ web: { transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)', cursor: 'pointer' } }),
+                            Platform.select({ web: { transitionProperty: 'all', transitionDuration: '0.2s', transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)', cursor: 'pointer' } }),
                             hovered && {
                                 backgroundColor: '#2563eb',
                                 borderColor: '#93c5fd',

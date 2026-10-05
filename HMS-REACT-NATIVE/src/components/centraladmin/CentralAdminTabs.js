@@ -202,7 +202,9 @@ export default function CentralAdminTabs({ activeTab, setActiveTab, onRevenueAna
                   web: {
                     boxShadow: '0 6px 18px rgba(37, 99, 235, 0.35)',
                     cursor: 'pointer',
-                    transition: 'all 0.2s ease',
+                    transitionProperty: 'all',
+                    transitionDuration: '0.2s',
+                    transitionTimingFunction: 'ease',
                   }
                 }),
               },
@@ -234,7 +236,9 @@ export default function CentralAdminTabs({ activeTab, setActiveTab, onRevenueAna
                   web: {
                     boxShadow: '0 4px 12px rgba(37, 99, 235, 0.16)',
                     cursor: 'pointer',
-                    transition: 'all 0.2s ease',
+                    transitionProperty: 'all',
+                    transitionDuration: '0.2s',
+                    transitionTimingFunction: 'ease',
                   }
                 }),
               },
@@ -296,7 +300,9 @@ export default function CentralAdminTabs({ activeTab, setActiveTab, onRevenueAna
                       web: {
                         boxShadow: `0 4px 14px ${theme.shadow}`,
                         cursor: 'pointer',
-                        transition: 'all 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
+                        transitionProperty: 'all',
+                        transitionDuration: '0.22s',
+                        transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)',
                       }
                     }),
                   } : [
@@ -309,7 +315,9 @@ export default function CentralAdminTabs({ activeTab, setActiveTab, onRevenueAna
                         web: {
                           boxShadow: '0 4px 12px rgba(0, 0, 0, 0.06)',
                           cursor: 'pointer',
-                          transition: 'all 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
+                          transitionProperty: 'all',
+                          transitionDuration: '0.22s',
+                          transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)',
                         }
                       }),
                     }

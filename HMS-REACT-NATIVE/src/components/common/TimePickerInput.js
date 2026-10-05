@@ -40,7 +40,8 @@ const TimePickerInput = ({
                         fontFamily: "'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
                         outline: 'none',
                         boxSizing: 'border-box',
-                        transition: 'border-color 0.2s, box-shadow 0.2s',
+                        transitionProperty: 'border-color, box-shadow',
+                        transitionDuration: '0.2s',
                         cursor: disabled ? 'not-allowed' : 'pointer',
                         ...inputStyle,
                     }}
