@@ -3659,41 +3659,37 @@ const PatientBillingProfile = () => {
                         {/* Table Footer with Pagination (Exact Web line 3329) */}
                         <View style={styles.haTableFooter}>
                             <Text style={styles.haPaginationInfo}>
-                                {displayedTransactions.length === 0
-                                    ? 'Showing 0 of 0 payments'
-                                    : `Showing ${startIndex + 1} - ${Math.min(startIndex + itemsPerPage, displayedTransactions.length)} of ${displayedTransactions.length} payments`}
+                                Showing {displayedTransactions.length === 0 ? 0 : startIndex + 1} - {Math.min(startIndex + itemsPerPage, displayedTransactions.length)} of {displayedTransactions.length} payments
                             </Text>
-                            {displayedTransactions.length > 0 && (
-                                <View style={styles.haPaginationBtns}>
-                                    <TouchableOpacity
-                                        style={[styles.haPageNav, currentPage === 1 && styles.haPageNavDisabled]}
-                                        disabled={currentPage === 1}
-                                        onPress={() => setCurrentPage(p => Math.max(1, p - 1))}
-                                    >
-                                        <Feather name="chevron-left" size={12} color={currentPage === 1 ? '#cbd5e1' : '#64748b'} />
-                                    </TouchableOpacity>
+                            <View style={styles.haPaginationBtns}>
+                                <TouchableOpacity
+                                    style={[styles.haPageNav, (currentPage === 1 || displayedTransactions.length === 0) && styles.haPageNavDisabled]}
+                                    disabled={currentPage === 1 || displayedTransactions.length === 0}
+                                    onPress={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                >
+                                    <Feather name="chevron-left" size={12} color={currentPage === 1 || displayedTransactions.length === 0 ? '#cbd5e1' : '#64748b'} />
+                                </TouchableOpacity>
 
-                                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(pageNum => (
-                                        <TouchableOpacity
-                                            key={pageNum}
-                                            style={[styles.haPageNumber, currentPage === pageNum && styles.haPageNumberActive]}
-                                            onPress={() => setCurrentPage(pageNum)}
-                                        >
-                                            <Text style={[styles.haPageNumberText, currentPage === pageNum && styles.haPageNumberTextActive]}>
-                                                {pageNum}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    ))}
-
+                                {Array.from({ length: totalPages }, (_, i) => i + 1).map(pageNum => (
                                     <TouchableOpacity
-                                        style={[styles.haPageNav, currentPage === totalPages && styles.haPageNavDisabled]}
-                                        disabled={currentPage === totalPages}
-                                        onPress={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                        key={pageNum}
+                                        style={[styles.haPageNumber, currentPage === pageNum && styles.haPageNumberActive]}
+                                        onPress={() => setCurrentPage(pageNum)}
                                     >
-                                        <Feather name="chevron-right" size={12} color={currentPage === totalPages ? '#cbd5e1' : '#64748b'} />
+                                        <Text style={[styles.haPageNumberText, currentPage === pageNum && styles.haPageNumberTextActive]}>
+                                            {pageNum}
+                                        </Text>
                                     </TouchableOpacity>
-                                </View>
-                            )}
+                                ))}
+
+                                <TouchableOpacity
+                                    style={[styles.haPageNav, (currentPage === totalPages || displayedTransactions.length === 0) && styles.haPageNavDisabled]}
+                                    disabled={currentPage === totalPages || displayedTransactions.length === 0}
+                                    onPress={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                >
+                                    <Feather name="chevron-right" size={12} color={currentPage === totalPages || displayedTransactions.length === 0 ? '#cbd5e1' : '#64748b'} />
+                                </TouchableOpacity>
+                            </View>
                         </View>
                     </View>
                 </View>

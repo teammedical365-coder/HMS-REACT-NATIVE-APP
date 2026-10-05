@@ -126,6 +126,7 @@ const HospitalAdminDashboard = () => {
     const tabOffsets = useRef({});
 
     useEffect(() => {
+        if (!isMobile) return;
         const layout = tabOffsets.current[activeTab];
         if (layout && tabScrollRef.current) {
             tabScrollRef.current.scrollTo({
@@ -133,7 +134,7 @@ const HospitalAdminDashboard = () => {
                 animated: true,
             });
         }
-    }, [activeTab]);
+    }, [activeTab, isMobile]);
 
     useEffect(() => {
         Animated.loop(
@@ -1292,7 +1293,12 @@ const HospitalAdminDashboard = () => {
                         nestedScrollEnabled={true}
                         directionalLockEnabled={true}
                         scrollEventThrottle={16}
-                        contentContainerStyle={[styles.haAiTabsScroll, isMobile && { justifyContent: 'flex-start', gap: 8 }]}
+                        style={{ width: '100%' }}
+                        contentContainerStyle={[
+                            styles.haAiTabsScroll,
+                            !isMobile && { width: '100%', justifyContent: 'space-between', gap: 6 },
+                            isMobile && { width: 'auto', minWidth: '100%', justifyContent: 'flex-start', gap: 8 }
+                        ]}
                     >
                         {tabs.map(tab => {
                             const isTabActive = activeTab === tab.id;
@@ -1304,14 +1310,15 @@ const HospitalAdminDashboard = () => {
                                     }}
                                     style={[
                                         styles.haAiTabBtn,
-                                        isMobile && { flexShrink: 0, minWidth: isSmallMobile ? 78 : 86, paddingHorizontal: 8 },
+                                        !isMobile ? { flex: 1, minWidth: 0, paddingHorizontal: 6 } : { flex: 0, flexShrink: 0, minWidth: isSmallMobile ? 74 : 84, paddingHorizontal: 6 },
+                                        Platform.select({ web: { cursor: 'pointer', userSelect: 'none', transition: 'all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)' } }),
                                         isTabActive && styles.haAiTabBtnActive
                                     ]}
                                     onPress={() => setActiveTab(tab.id)}
                                     activeOpacity={0.78}
                                 >
-                                    {isTabActive ? (
-                                        <Animated.View style={{ transform: [{ translateY: floatAnim }] }}>
+                                    <View style={isTabActive ? { transform: [{ translateY: -2 }] } : null}>
+                                        {isTabActive ? (
                                             <ExpoLinearGradient
                                                 colors={getActiveTabGradient(tab.id)}
                                                 start={{ x: 0, y: 0 }}
@@ -1320,12 +1327,12 @@ const HospitalAdminDashboard = () => {
                                             >
                                                 {getTabIcon(tab.id, true)}
                                             </ExpoLinearGradient>
-                                        </Animated.View>
-                                    ) : (
-                                        <View style={styles.haAiTabIconWrap}>
-                                            {getTabIcon(tab.id, false)}
-                                        </View>
-                                    )}
+                                        ) : (
+                                            <View style={styles.haAiTabIconWrap}>
+                                                {getTabIcon(tab.id, false)}
+                                            </View>
+                                        )}
+                                    </View>
                                     <Text
                                         style={[styles.haAiTabLabel, isTabActive && styles.haAiTabLabelActive]}
                                         numberOfLines={1}
@@ -3014,17 +3021,14 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         paddingVertical: 2,
         paddingHorizontal: 4,
-        gap: 8,
     },
     haAiTabBtn: {
-        flexShrink: 0,
-        minWidth: 80,
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
         gap: 4,
         paddingVertical: 6,
-        paddingHorizontal: 8,
+        paddingHorizontal: 6,
         paddingBottom: 8,
         borderRadius: 10,
         borderWidth: 1,
