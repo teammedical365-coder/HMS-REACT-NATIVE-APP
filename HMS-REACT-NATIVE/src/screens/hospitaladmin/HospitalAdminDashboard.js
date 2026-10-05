@@ -122,6 +122,18 @@ const HospitalAdminDashboard = () => {
     const pulseAnim = useRef(new Animated.Value(1)).current;
     const beamAnim = useRef(new Animated.Value(0)).current;
     const floatAnim = useRef(new Animated.Value(0)).current;
+    const tabScrollRef = useRef(null);
+    const tabOffsets = useRef({});
+
+    useEffect(() => {
+        const layout = tabOffsets.current[activeTab];
+        if (layout && tabScrollRef.current) {
+            tabScrollRef.current.scrollTo({
+                x: Math.max(0, layout.x - 20),
+                animated: true,
+            });
+        }
+    }, [activeTab]);
 
     useEffect(() => {
         Animated.loop(
@@ -1199,7 +1211,11 @@ const HospitalAdminDashboard = () => {
     }));
 
     return (
-        <ScrollView style={[styles.hospitaladminPage, isMobile && { padding: 12 }]} contentContainerStyle={styles.hospitaladminContainer}>
+        <ScrollView
+            style={[styles.hospitaladminPage, isMobile && { paddingHorizontal: isSmallMobile ? 4 : 8, paddingTop: 8 }]}
+            contentContainerStyle={styles.hospitaladminContainer}
+            nestedScrollEnabled={true}
+        >
             {/* 1. Modern Hero Header Banner (Matching Web ha-ai-hero-banner) */}
             <View style={styles.haAiHeroBannerWrapper}>
                 <ExpoLinearGradient
@@ -1269,13 +1285,28 @@ const HospitalAdminDashboard = () => {
                     locations={[0, 0.22, 0.6, 1]}
                     style={styles.haAiTabsCard}
                 >
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.haAiTabsScroll, isMobile && { justifyContent: 'flex-start', gap: 6, flexGrow: 0 }]}>
+                    <ScrollView
+                        ref={tabScrollRef}
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        nestedScrollEnabled={true}
+                        directionalLockEnabled={true}
+                        scrollEventThrottle={16}
+                        contentContainerStyle={[styles.haAiTabsScroll, isMobile && { justifyContent: 'flex-start', gap: 8 }]}
+                    >
                         {tabs.map(tab => {
                             const isTabActive = activeTab === tab.id;
                             return (
                                 <TouchableOpacity
                                     key={tab.id}
-                                    style={[styles.haAiTabBtn, isMobile && { flex: 0, minWidth: 68, paddingHorizontal: 4 }, isTabActive && styles.haAiTabBtnActive]}
+                                    onLayout={(e) => {
+                                        tabOffsets.current[tab.id] = e.nativeEvent.layout;
+                                    }}
+                                    style={[
+                                        styles.haAiTabBtn,
+                                        isMobile && { flexShrink: 0, minWidth: isSmallMobile ? 78 : 86, paddingHorizontal: 8 },
+                                        isTabActive && styles.haAiTabBtnActive
+                                    ]}
                                     onPress={() => setActiveTab(tab.id)}
                                     activeOpacity={0.78}
                                 >
@@ -1295,7 +1326,11 @@ const HospitalAdminDashboard = () => {
                                             {getTabIcon(tab.id, false)}
                                         </View>
                                     )}
-                                    <Text style={[styles.haAiTabLabel, isTabActive && styles.haAiTabLabelActive]}>
+                                    <Text
+                                        style={[styles.haAiTabLabel, isTabActive && styles.haAiTabLabelActive]}
+                                        numberOfLines={1}
+                                        ellipsizeMode="tail"
+                                    >
                                         {tab.label}
                                     </Text>
                                     {isTabActive && (
@@ -1862,14 +1897,14 @@ const HospitalAdminDashboard = () => {
                             <View style={[styles.haBottomGrid, width <= 768 && { flexDirection: 'column' }]}>
                                 {/* Left Panel: Appointments Overview (Matching Web .panel) */}
                                 <View style={[styles.haChartPanel, width <= 768 && { width: '100%', minWidth: '100%' }]}>
-                                    <View style={styles.haPanelHead}>
+                                    <View style={[styles.haPanelHead, width < 480 && { flexDirection: 'column', alignItems: 'flex-start', gap: 10 }]}>
                                         <View style={styles.haPanelTitle}>
                                             <View style={styles.haMiniIconBox}>
                                                 <Text style={{ fontSize: 14, color: '#4c72ee' }}>▦</Text>
                                             </View>
                                             <Text style={styles.haPanelTitleText}>Appointments Overview</Text>
                                         </View>
-                                        <View style={styles.haChartRangeRow}>
+                                        <View style={[styles.haChartRangeRow, { flexWrap: 'wrap' }]}>
                                             {[
                                                 { id: 'this_month', label: 'This Month' },
                                                 { id: 'last_month', label: 'Last Month' },
@@ -2977,17 +3012,19 @@ const styles = StyleSheet.create({
     haAiTabsScroll: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        width: '100%',
+        paddingVertical: 2,
+        paddingHorizontal: 4,
+        gap: 8,
     },
     haAiTabBtn: {
-        flex: 1,
+        flexShrink: 0,
+        minWidth: 80,
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
         gap: 4,
         paddingVertical: 6,
-        paddingHorizontal: 6,
+        paddingHorizontal: 8,
         paddingBottom: 8,
         borderRadius: 10,
         borderWidth: 1,
@@ -3595,6 +3632,8 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: 8,
         marginBottom: 12,
     },
     haPanelTitle: {
@@ -3618,6 +3657,7 @@ const styles = StyleSheet.create({
     haChartRangeRow: {
         flexDirection: 'row',
         gap: 6,
+        flexWrap: 'wrap',
     },
     haRangePill: {
         paddingVertical: 6,

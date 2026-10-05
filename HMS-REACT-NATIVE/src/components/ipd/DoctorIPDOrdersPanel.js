@@ -410,11 +410,17 @@ const DoctorIPDOrdersPanel = ({
                 </TouchableOpacity>
             </View>
 
-            {/* Sub-tab Navigation */}
-            <View style={styles.subTabNav}>
+            {/* Sub-tab Navigation (Horizontally scrollable for mobile devices) */}
+            <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.subTabNavContent}
+                style={styles.subTabNavScroll}
+            >
                 <TouchableOpacity
                     style={[styles.subTabBtn, activeTab === 'orders' && styles.subTabBtnActive]}
                     onPress={() => setActiveTab('orders')}
+                    activeOpacity={0.8}
                 >
                     <Text style={[styles.subTabBtnText, activeTab === 'orders' && styles.subTabBtnTextActive]}>
                         📝 Clinical Orders ({existingOrders.length})
@@ -423,6 +429,7 @@ const DoctorIPDOrdersPanel = ({
                 <TouchableOpacity
                     style={[styles.subTabBtn, activeTab === 'clarifications' && styles.subTabBtnActive]}
                     onPress={() => setActiveTab('clarifications')}
+                    activeOpacity={0.8}
                 >
                     <Text style={[styles.subTabBtnText, activeTab === 'clarifications' && styles.subTabBtnTextActive]}>
                         💬 Clarifications ({clarifications.length})
@@ -431,12 +438,13 @@ const DoctorIPDOrdersPanel = ({
                 <TouchableOpacity
                     style={[styles.subTabBtn, activeTab === 'discharge' && styles.subTabBtnActive]}
                     onPress={() => setActiveTab('discharge')}
+                    activeOpacity={0.8}
                 >
                     <Text style={[styles.subTabBtnText, activeTab === 'discharge' && styles.subTabBtnTextActive]}>
                         🏁 Discharge Order
                     </Text>
                 </TouchableOpacity>
-            </View>
+            </ScrollView>
 
             {/* 1. ORDERS TAB */}
             {activeTab === 'orders' && (
@@ -813,18 +821,34 @@ const styles = StyleSheet.create({
     admissionBanner: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#eff6ff', padding: 14, borderRadius: 12, borderWidth: 1, borderColor: '#bfdbfe', marginBottom: 14 },
     bannerLeft: { flex: 1, marginRight: 10 },
     bannerTitle: { fontSize: 14, fontWeight: '800', color: '#1e3a8a', marginBottom: 4 },
-    admissionStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    admissionStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
     admittedBadge: { backgroundColor: '#dcfce7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
     admittedBadgeText: { fontSize: 10, fontWeight: '800', color: '#15803d' },
-    admissionDetailsText: { fontSize: 12, color: '#1e40af', fontWeight: '600' },
+    admissionDetailsText: { fontSize: 12, color: '#1e40af', fontWeight: '600', flexShrink: 1 },
     notAdmittedText: { fontSize: 12, color: '#b45309', fontWeight: '600' },
     refreshBtn: { backgroundColor: '#ffffff', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#bfdbfe' },
     refreshBtnText: { fontSize: 12, fontWeight: '700', color: '#2563eb' },
 
-    subTabNav: { flexDirection: 'row', backgroundColor: '#ffffff', borderRadius: 10, padding: 4, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 14 },
-    subTabBtn: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 8 },
+    subTabNavScroll: { marginBottom: 14 },
+    subTabNavContent: {
+        flexDirection: 'row',
+        backgroundColor: '#ffffff',
+        borderRadius: 10,
+        padding: 4,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        gap: 6,
+        alignItems: 'center',
+    },
+    subTabBtn: {
+        paddingVertical: 9,
+        paddingHorizontal: 16,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 8,
+    },
     subTabBtnActive: { backgroundColor: '#2563eb' },
-    subTabBtnText: { fontSize: 12, fontWeight: '700', color: '#64748b' },
+    subTabBtnText: { fontSize: 12.5, fontWeight: '700', color: '#64748b' },
     subTabBtnTextActive: { color: '#ffffff' },
 
     card: { backgroundColor: '#ffffff', borderRadius: 12, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: '#e2e8f0' },

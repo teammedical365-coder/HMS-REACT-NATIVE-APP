@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
     View,
     Text,
@@ -34,6 +34,9 @@ import PatientVialsSection from '../../components/vials/PatientVialsSection';
 
 const UnifiedPatientProfile = () => {
     const { width } = useWindowDimensions();
+    const isNarrow = width < 480;
+    const isMobile = width < 600;
+    const tabScrollRef = useRef(null);
     const route = useRoute();
     const navigation = useNavigation();
     const { user: authUser } = useAuth();
@@ -797,26 +800,29 @@ const UnifiedPatientProfile = () => {
                 </View>
 
                 {/* Identity Action Buttons (Back, Edit Profile for reception, Download PDF) */}
-                <View style={styles.identityActionsRow}>
+                <View style={[styles.identityActionsRow, isNarrow && styles.identityActionsRowNarrow]}>
                     <TouchableOpacity 
-                        style={[styles.headerActionBtn, styles.backBtn]} 
+                        style={[styles.headerActionBtn, styles.backBtn, isNarrow && styles.backBtnNarrow]} 
                         onPress={() => navigation.goBack()}
+                        activeOpacity={0.8}
                     >
                         <Feather name="arrow-left" size={14} color="#334155" style={{ marginRight: 6 }} />
                         <Text style={styles.backBtnText}>Back</Text>
                     </TouchableOpacity>
                     {isReception && (
                         <TouchableOpacity 
-                            style={[styles.headerActionBtn, styles.editBtn]} 
+                            style={[styles.headerActionBtn, styles.editBtn, isNarrow && styles.editBtnNarrow]} 
                             onPress={() => setShowEditModal(true)}
+                            activeOpacity={0.8}
                         >
                             <Feather name="edit-3" size={14} color="#1e293b" style={{ marginRight: 6 }} />
                             <Text style={styles.editBtnText}>Edit Profile</Text>
                         </TouchableOpacity>
                     )}
                     <TouchableOpacity 
-                        style={[styles.headerActionBtn, styles.downloadPdfBtn]} 
+                        style={[styles.headerActionBtn, styles.downloadPdfBtn, isNarrow && (isReception ? styles.downloadPdfBtnNarrowFull : styles.downloadPdfBtnNarrow)]} 
                         onPress={handleDownloadPDF}
+                        activeOpacity={0.8}
                     >
                         <Feather name="download" size={14} color="#ffffff" style={{ marginRight: 6 }} />
                         <Text style={styles.downloadPdfBtnText}>Download PDF</Text>
@@ -825,7 +831,13 @@ const UnifiedPatientProfile = () => {
             </View>
 
             {/* ====== 5 METRICS CARDS ====== */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.metricsScrollView} contentContainerStyle={styles.metricsContainer}>
+            <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.metricsScrollView}
+                contentContainerStyle={styles.metricsContainer}
+                nestedScrollEnabled={true}
+            >
                 <View style={styles.metricCard}>
                     <View style={[styles.metricIconCircle, { backgroundColor: '#eff6ff' }]}>
                         <Feather name="calendar" size={16} color="#2563eb" />
@@ -868,7 +880,7 @@ const UnifiedPatientProfile = () => {
                     </View>
                     <View style={styles.metricInfo}>
                         <Text style={styles.metricLabel}>Total Paid</Text>
-                        <Text style={[styles.metricVal, { color: '#1e293b' }]}>₹{metrics.totalPaid.toLocaleString('en-IN')}</Text>
+                        <Text style={[styles.metricVal, { color: '#1e293b' }]}>{metrics.totalPaid.toLocaleString('en-IN')}</Text>
                     </View>
                 </View>
             </ScrollView>
@@ -877,7 +889,13 @@ const UnifiedPatientProfile = () => {
             <View style={styles.allergiesBar}>
                 <Text style={styles.allergiesIcon}>🫀</Text>
                 <Text style={styles.allergiesLabel}>Allergies:</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.allergiesPillsScroll}>
+                <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.allergiesPillsScroll}
+                    contentContainerStyle={{ alignItems: 'center', paddingRight: 6 }}
+                    nestedScrollEnabled={true}
+                >
                     {allergiesList.length > 0 ? (
                         allergiesList.map((allergy, idx) => (
                             <View key={idx} style={styles.allergyPill}>
@@ -888,20 +906,28 @@ const UnifiedPatientProfile = () => {
                         <Text style={styles.noAllergiesText}>No allergies recorded</Text>
                     )}
                 </ScrollView>
-                <TouchableOpacity style={styles.addAllergyBtn} onPress={() => setShowAllergyModal(true)}>
+                <TouchableOpacity style={styles.addAllergyBtn} onPress={() => setShowAllergyModal(true)} activeOpacity={0.8}>
                     <Text style={styles.addAllergyBtnText}>+ Add</Text>
                 </TouchableOpacity>
             </View>
 
             {/* ====== TAB NAVIGATION ====== */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabNavScroll} contentContainerStyle={styles.tabNavContainer}>
+            <ScrollView
+                ref={tabScrollRef}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.tabNavScroll}
+                contentContainerStyle={styles.tabNavContainer}
+                nestedScrollEnabled={true}
+            >
                 {tabs.map(tab => (
                     <TouchableOpacity
                         key={tab.key}
                         style={[styles.tabBtn, activeTab === tab.key && styles.tabBtnActive]}
                         onPress={() => setActiveTab(tab.key)}
+                        activeOpacity={0.7}
                     >
-                        <Text style={[styles.tabBtnText, activeTab === tab.key && styles.tabBtnTextActive]}>
+                        <Text style={[styles.tabBtnText, activeTab === tab.key && styles.tabBtnTextActive]} numberOfLines={1}>
                             {tab.label}
                         </Text>
                     </TouchableOpacity>
@@ -1264,11 +1290,11 @@ const UnifiedPatientProfile = () => {
                                 const isPaid = pStatus.includes('paid') || pStatus.includes('completed');
                                 return (
                                     <View key={idx} style={styles.billingItemRow}>
-                                        <View>
+                                        <View style={styles.billingItemLeft}>
                                             <Text style={styles.billingItemDate}>{new Date(t.date).toLocaleDateString('en-IN')}</Text>
-                                            <Text style={styles.billingItemMethod}>{t.data?.paymentMethod || 'Hospital Counter'}</Text>
+                                            <Text style={styles.billingItemMethod} numberOfLines={1}>{t.data?.paymentMethod || 'Hospital Counter'}</Text>
                                         </View>
-                                        <View style={{ alignItems: 'flex-end' }}>
+                                        <View style={styles.billingItemRight}>
                                             <Text style={styles.billingItemAmt}>₹{amt.toLocaleString('en-IN')}</Text>
                                             <Text style={[styles.billingItemStatus, isPaid ? styles.paidStatus : styles.pendingStatus]}>
                                                 {isPaid ? 'Paid' : 'Pending'}
@@ -1467,35 +1493,40 @@ const styles = StyleSheet.create({
     tagChipLocationText: { fontSize: 11, color: '#475569', fontWeight: '500' },
 
     identityActionsRow: { flexDirection: 'row', gap: 10, marginTop: 16, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
+    identityActionsRowNarrow: { flexWrap: 'wrap', gap: 8 },
     headerActionBtn: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' },
     backBtn: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#cbd5e1' },
+    backBtnNarrow: { flexBasis: '47%', flexGrow: 1 },
     backBtnText: { color: '#334155', fontWeight: '700', fontSize: 13 },
     editBtn: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#cbd5e1' },
+    editBtnNarrow: { flexBasis: '47%', flexGrow: 1 },
     editBtnText: { color: '#1e293b', fontWeight: '700', fontSize: 13 },
     downloadPdfBtn: { backgroundColor: '#2563eb' },
+    downloadPdfBtnNarrow: { flexBasis: '47%', flexGrow: 1 },
+    downloadPdfBtnNarrowFull: { width: '100%', flexBasis: '100%', marginTop: 2 },
     downloadPdfBtnText: { color: '#ffffff', fontWeight: '700', fontSize: 13 },
 
     metricsScrollView: { marginHorizontal: 16, marginBottom: 12 },
-    metricsContainer: { flexDirection: 'row', gap: 10 },
-    metricCard: { backgroundColor: '#ffffff', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0', minWidth: 145, flexDirection: 'row', alignItems: 'center', gap: 10 },
+    metricsContainer: { flexDirection: 'row', gap: 10, paddingRight: 16 },
+    metricCard: { backgroundColor: '#ffffff', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0', minWidth: 140, flexShrink: 0, flexDirection: 'row', alignItems: 'center', gap: 10 },
     metricIconCircle: { width: 38, height: 38, borderRadius: 19, justifyContent: 'center', alignItems: 'center' },
     metricInfo: { flex: 1 },
     metricLabel: { fontSize: 11, color: '#64748b', fontWeight: '600', marginBottom: 2 },
     metricVal: { fontSize: 16, fontWeight: '800' },
 
     allergiesBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fef2f2', marginHorizontal: 16, marginBottom: 16, padding: 10, borderRadius: 10, borderWidth: 1, borderColor: '#fecaca' },
-    allergiesIcon: { fontSize: 16, marginRight: 6 },
-    allergiesLabel: { fontSize: 12, fontWeight: '800', color: '#991b1b', marginRight: 8 },
+    allergiesIcon: { fontSize: 16, marginRight: 6, flexShrink: 0 },
+    allergiesLabel: { fontSize: 12, fontWeight: '800', color: '#991b1b', marginRight: 8, flexShrink: 0 },
     allergiesPillsScroll: { flex: 1 },
     allergyPill: { backgroundColor: '#fee2e2', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 12, marginRight: 6, borderWidth: 1, borderColor: '#fca5a5' },
     allergyPillText: { fontSize: 11, color: '#b91c1c', fontWeight: '700' },
     noAllergiesText: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic' },
-    addAllergyBtn: { backgroundColor: '#ef4444', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, marginLeft: 8 },
+    addAllergyBtn: { backgroundColor: '#ef4444', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, marginLeft: 8, flexShrink: 0 },
     addAllergyBtnText: { color: '#ffffff', fontSize: 11, fontWeight: '800' },
 
     tabNavScroll: { backgroundColor: '#ffffff', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-    tabNavContainer: { paddingHorizontal: 16 },
-    tabBtn: { paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 2, borderBottomColor: 'transparent' },
+    tabNavContainer: { paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 4 },
+    tabBtn: { paddingVertical: 12, paddingHorizontal: 14, borderBottomWidth: 2, borderBottomColor: 'transparent', flexShrink: 0 },
     tabBtnActive: { borderBottomColor: '#2563eb' },
     tabBtnText: { fontSize: 13, color: '#64748b', fontWeight: '600' },
     tabBtnTextActive: { color: '#2563eb', fontWeight: '800' },
@@ -1558,7 +1589,9 @@ const styles = StyleSheet.create({
     smallActionBtn: { backgroundColor: '#2563eb', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
     smallActionBtnText: { color: '#ffffff', fontSize: 11, fontWeight: '700' },
 
-    billingItemRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+    billingItemRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', gap: 12 },
+    billingItemLeft: { flex: 1, marginRight: 8 },
+    billingItemRight: { alignItems: 'flex-end', flexShrink: 0 },
     billingItemDate: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
     billingItemMethod: { fontSize: 11, color: '#64748b', marginTop: 2 },
     billingItemAmt: { fontSize: 14, fontWeight: '800', color: '#0f172a' },

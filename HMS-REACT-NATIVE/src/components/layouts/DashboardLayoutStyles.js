@@ -797,7 +797,7 @@ export const styles = StyleSheet.create({
         minWidth: 0,
         width: '100%',
         maxWidth: '100%',
-        overflow: 'hidden',
+        overflow: Platform.OS === 'web' ? 'hidden' : 'visible',
     },
 
     /* Mobile Overlay */

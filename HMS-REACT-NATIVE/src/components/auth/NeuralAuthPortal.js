@@ -362,7 +362,7 @@ const NeuralAuthPortal = ({
                                             <Feather name={getDeviceIcon(primarySession?.os)} size={18} color="#0284c7" />
                                         </View>
                                         <View style={styles.deviceMetaRight}>
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                                                 <Text style={styles.deviceName}>{primarySession?.os || 'Windows PC Workstation'}</Text>
                                                 <View style={styles.browserTag}>
                                                     <Text style={styles.browserTagText}>{primarySession?.browser || 'Chrome'}</Text>
@@ -1049,6 +1049,8 @@ const styles = StyleSheet.create({
         flexDirection: 'row', 
         alignItems: 'center', 
         justifyContent: 'space-between', 
+        flexWrap: 'wrap',
+        gap: 8,
         marginBottom: 12,
         marginTop: 4
     },
@@ -1061,7 +1063,8 @@ const styles = StyleSheet.create({
         paddingHorizontal: 8, 
         paddingVertical: 4, 
         borderRadius: 20, 
-        gap: 6 
+        gap: 6,
+        flexShrink: 1
     },
     pulseDot: { 
         width: 7, 
@@ -1150,12 +1153,14 @@ const styles = StyleSheet.create({
         overflow: 'hidden' 
     },
     btnCancelSession: { 
-        paddingVertical: 10, 
+        paddingVertical: 12, 
         borderRadius: 12, 
         backgroundColor: '#f1f5f9',
         borderWidth: 1,
         borderColor: '#cbd5e1',
-        alignItems: 'center' 
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: 44
     },
     btnCancelSessionText: { 
         color: '#475569', 

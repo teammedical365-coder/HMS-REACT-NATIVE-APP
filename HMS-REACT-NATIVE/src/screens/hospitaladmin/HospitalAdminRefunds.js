@@ -10,13 +10,10 @@ import {
     ActivityIndicator,
     Alert,
     RefreshControl,
-    Dimensions
+    useWindowDimensions,
+    KeyboardAvoidingView,
+    Platform
 } from 'react-native';
-import { Ionicons, Feather } from '@expo/vector-icons';
-import { refundAdminAPI } from '../../utils/api';
-import socket from '../../utils/socket';
-
-const { width } = Dimensions.get('window');
 
 const formatCurrency = (amount) =>
     `₹${Number(amount || 0).toLocaleString('en-IN')}`;
@@ -28,6 +25,9 @@ const formatDateTime = (d) =>
     d ? new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
 
 const HospitalAdminRefunds = () => {
+    const { width, height } = useWindowDimensions();
+    const isMobile = width < 768;
+    const isSmallMobile = width <= 400;
     const [refunds, setRefunds] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -391,7 +391,7 @@ const HospitalAdminRefunds = () => {
                                 </TouchableOpacity>
                             </View>
 
-                            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 480 }}>
+                            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: Math.min(480, height * 0.65) }}>
                                 <View style={styles.modalPatientCard}>
                                     <Text style={{ fontWeight: '700', fontSize: 16, color: '#0f172a' }}>{selectedRefund.patientName}</Text>
                                     <Text style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>MRN: {selectedRefund.patientMRN || '—'}</Text>
@@ -487,47 +487,52 @@ const HospitalAdminRefunds = () => {
 
             {/* Rejection Modal */}
             {rejectModal && (
-                <Modal transparent visible animationType="fade">
+                <Modal transparent visible animationType="fade" onRequestClose={() => setRejectModal(null)}>
                     <View style={styles.modalOverlay}>
-                        <View style={[styles.modalContent, { maxWidth: 440 }]}>
-                            <View style={styles.modalHeader}>
-                                <Text style={[styles.modalHeaderTitle, { color: '#dc2626' }]}>Reject Refund Request</Text>
-                                <TouchableOpacity onPress={() => setRejectModal(null)}>
-                                    <Ionicons name="close" size={24} color="#64748b" />
-                                </TouchableOpacity>
+                        <KeyboardAvoidingView
+                            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                            style={{ width: '100%', maxWidth: 440, alignItems: 'center' }}
+                        >
+                            <View style={[styles.modalContent, { width: '100%', maxWidth: 440 }]}>
+                                <View style={styles.modalHeader}>
+                                    <Text style={[styles.modalHeaderTitle, { color: '#dc2626' }]}>Reject Refund Request</Text>
+                                    <TouchableOpacity onPress={() => setRejectModal(null)}>
+                                        <Ionicons name="close" size={24} color="#64748b" />
+                                    </TouchableOpacity>
+                                </View>
+
+                                <Text style={{ fontSize: 13, color: '#475569', marginBottom: 12 }}>
+                                    Please provide a reason for declining the refund of <Text style={{ fontWeight: 'bold' }}>{formatCurrency(rejectModal.refundAmount)}</Text> for <Text style={{ fontWeight: 'bold' }}>{rejectModal.patientName}</Text>.
+                                </Text>
+
+                                <TextInput
+                                    multiline
+                                    numberOfLines={4}
+                                    placeholder="Enter rejection reason (required for audit trail)..."
+                                    value={rejectionReason}
+                                    onChangeText={setRejectionReason}
+                                    style={styles.rejectionInput}
+                                />
+
+                                <View style={{ flexDirection: 'row', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
+                                    <TouchableOpacity
+                                        style={styles.modalCloseBtn}
+                                        onPress={() => setRejectModal(null)}
+                                    >
+                                        <Text style={styles.modalCloseBtnText}>Cancel</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={[styles.modalRejectBtn, (!rejectionReason.trim() || actionLoading) && { opacity: 0.6 }]}
+                                        disabled={actionLoading || !rejectionReason.trim()}
+                                        onPress={handleRejectSubmit}
+                                    >
+                                        <Text style={styles.modalRejectBtnText}>
+                                            {actionLoading ? 'Rejecting...' : 'Confirm Rejection'}
+                                        </Text>
+                                    </TouchableOpacity>
+                                </View>
                             </View>
-
-                            <Text style={{ fontSize: 13, color: '#475569', marginBottom: 12 }}>
-                                Please provide a reason for declining the refund of <Text style={{ fontWeight: 'bold' }}>{formatCurrency(rejectModal.refundAmount)}</Text> for <Text style={{ fontWeight: 'bold' }}>{rejectModal.patientName}</Text>.
-                            </Text>
-
-                            <TextInput
-                                multiline
-                                numberOfLines={4}
-                                placeholder="Enter rejection reason (required for audit trail)..."
-                                value={rejectionReason}
-                                onChangeText={setRejectionReason}
-                                style={styles.rejectionInput}
-                            />
-
-                            <View style={{ flexDirection: 'row', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
-                                <TouchableOpacity
-                                    style={styles.modalCloseBtn}
-                                    onPress={() => setRejectModal(null)}
-                                >
-                                    <Text style={styles.modalCloseBtnText}>Cancel</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    style={[styles.modalRejectBtn, (!rejectionReason.trim() || actionLoading) && { opacity: 0.6 }]}
-                                    disabled={actionLoading || !rejectionReason.trim()}
-                                    onPress={handleRejectSubmit}
-                                >
-                                    <Text style={styles.modalRejectBtnText}>
-                                        {actionLoading ? 'Rejecting...' : 'Confirm Rejection'}
-                                    </Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
+                        </KeyboardAvoidingView>
                     </View>
                 </Modal>
             )}
@@ -577,7 +582,7 @@ const styles = StyleSheet.create({
     emptySub: { fontSize: 12, color: '#64748b', marginTop: 4, textAlign: 'center' },
 
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 },
-    modalContent: { backgroundColor: '#fff', borderRadius: 12, padding: 20, width: '100%', maxWidth: 540 },
+    modalContent: { backgroundColor: '#fff', borderRadius: 12, padding: 16, width: '100%', maxWidth: 540, maxHeight: '90%' },
     modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderColor: '#e2e8f0', paddingBottom: 12, marginBottom: 14 },
     modalHeaderTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
     modalPatientCard: { backgroundColor: '#f8fafc', padding: 12, borderRadius: 8, marginBottom: 12 },

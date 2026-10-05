@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
     View, Text, TextInput, TouchableOpacity, ScrollView,
-    StyleSheet, ActivityIndicator, Alert, Modal, useWindowDimensions
+    StyleSheet, ActivityIndicator, Alert, Modal, useWindowDimensions,
+    KeyboardAvoidingView, Platform
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { bedAPI } from '../../utils/api';
@@ -158,7 +159,7 @@ const BedManagement = () => {
     const occupancyRate = totalBeds > 0 ? Math.round((occupiedBeds / totalBeds) * 100) : 0;
 
     return (
-        <ScrollView contentContainerStyle={styles.container}>
+        <ScrollView contentContainerStyle={[styles.container, isSmallMobile && { paddingHorizontal: 12, paddingVertical: 14 }]} nestedScrollEnabled={true}>
             {/* 1. Header Banner & Actions */}
             <View style={styles.header}>
                 <View style={{ flex: 1, minWidth: 240 }}>
@@ -428,94 +429,123 @@ const BedManagement = () => {
             )}
 
             {/* 5. Sleek Add / Edit Bed Modal (Web 1:1 Parity) */}
-            <Modal visible={modalOpen} transparent={true} animationType="fade">
-                <View style={styles.modalOverlay}>
+            <Modal
+                visible={modalOpen}
+                transparent={true}
+                animationType="fade"
+                onRequestClose={() => setModalOpen(false)}
+                statusBarTranslucent={true}
+            >
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                    style={styles.modalOverlay}
+                >
                     <View style={styles.modalContent}>
-                        <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                         <View style={styles.modalHeaderRow}>
-                            <View>
-                                <Text style={styles.modalTitle}>{editingBed ? 'Edit Bed Details' : 'Add New Hospital Bed'}</Text>
-                                <Text style={styles.modalSubtitle}>Configure bed identification, ward location, and tier.</Text>
+                            <View style={styles.modalTitleContainer}>
+                                <Text style={styles.modalTitle} numberOfLines={1}>
+                                    {editingBed ? 'Edit Bed Details' : 'Add New Hospital Bed'}
+                                </Text>
+                                <Text style={styles.modalSubtitle} numberOfLines={2}>
+                                    Configure bed identification, ward location, and tier.
+                                </Text>
                             </View>
-                            <TouchableOpacity onPress={() => setModalOpen(false)} style={styles.modalCloseBtn}>
+                            <TouchableOpacity
+                                onPress={() => setModalOpen(false)}
+                                style={styles.modalCloseBtn}
+                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
                                 <Feather name="x" size={18} color="#64748b" />
                             </TouchableOpacity>
                         </View>
 
-                        <View style={{ marginBottom: 14 }}>
-                            <Text style={styles.modalLabel}>Bed Number / Code <Text style={{ color: '#ef4444' }}>*</Text></Text>
-                            <TextInput
-                                style={styles.staffInput}
-                                value={formData.bedNumber}
-                                onChangeText={t => setFormData({ ...formData, bedNumber: t })}
-                                placeholder="e.g. B-101, ICU-04"
-                                placeholderTextColor="#94a3b8"
-                            />
-                        </View>
-
-                        <View style={{ marginBottom: 14 }}>
-                            <Text style={styles.modalLabel}>Ward Name <Text style={{ color: '#ef4444' }}>*</Text></Text>
-                            <TextInput
-                                style={styles.staffInput}
-                                value={formData.ward}
-                                onChangeText={t => setFormData({ ...formData, ward: t })}
-                                placeholder="e.g. General Ward, ICU, Semi-Private"
-                                placeholderTextColor="#94a3b8"
-                            />
-                        </View>
-
-                        <View style={[styles.filterGroup, { marginBottom: 14, zIndex: 20 }]}>
-                            <Text style={styles.modalLabel}>Bed Type / Tier</Text>
-                            <CustomSelect
-                                options={[
-                                    { label: 'General', value: 'General' },
-                                    { label: 'ICU (Intensive Care)', value: 'ICU' },
-                                    { label: 'NICU (Neonatal)', value: 'NICU' },
-                                    { label: 'Private Room', value: 'Private' },
-                                    { label: 'Semi-Private', value: 'Semi-Private' },
-                                    { label: 'Emergency / Trauma', value: 'Emergency' },
-                                    { label: 'Post-Op Recovery', value: 'Post-Op' },
-                                    { label: 'Deluxe Suite', value: 'Deluxe' },
-                                    { label: 'Other', value: 'Other' }
-                                ]}
-                                value={formData.bedType}
-                                onChange={v => setFormData({ ...formData, bedType: v })}
-                                placeholder="Select Bed Type"
-                            />
-                        </View>
-
-                        {editingBed && (
-                            <View style={[styles.filterGroup, { marginBottom: 20, zIndex: 10 }]}>
-                                <Text style={styles.modalLabel}>Operational Status</Text>
-                                <CustomSelect
-                                    options={[
-                                        { label: 'Available', value: 'AVAILABLE' },
-                                        { label: 'Occupied (Set via Admission)', value: 'OCCUPIED' },
-                                        { label: 'Maintenance / Cleaning', value: 'MAINTENANCE' }
-                                    ]}
-                                    value={formData.status}
-                                    onChange={v => setFormData({ ...formData, status: v })}
-                                    placeholder="Select Status"
-                                    disabled={editingBed.status === 'OCCUPIED' || formData.status === 'OCCUPIED'}
+                        <ScrollView
+                            showsVerticalScrollIndicator={false}
+                            keyboardShouldPersistTaps="handled"
+                            nestedScrollEnabled={true}
+                            contentContainerStyle={styles.modalScrollBody}
+                        >
+                            <View style={styles.modalFieldGroup}>
+                                <Text style={styles.modalLabel}>
+                                    Bed Number / Code <Text style={{ color: '#ef4444' }}>*</Text>
+                                </Text>
+                                <TextInput
+                                    style={styles.staffInput}
+                                    value={formData.bedNumber}
+                                    onChangeText={t => setFormData({ ...formData, bedNumber: t })}
+                                    placeholder="e.g. B-101, ICU-04"
+                                    placeholderTextColor="#94a3b8"
+                                    autoCapitalize="characters"
+                                    autoCorrect={false}
                                 />
                             </View>
-                        )}
 
-                        <View style={styles.modalButtons}>
-                            <TouchableOpacity onPress={() => setModalOpen(false)} style={styles.btnCancel}>
-                                <Text style={styles.btnCancelText}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={handleSubmit} disabled={saving} style={styles.btnSubmit}>
-                                {saving ? (
-                                    <ActivityIndicator size="small" color="#fff" />
-                                ) : (
-                                    <Text style={styles.btnSubmitText}>{editingBed ? 'Save Changes' : 'Create Bed'}</Text>
-                                )}
-                            </TouchableOpacity>
-                        </View>
+                            <View style={styles.modalFieldGroup}>
+                                <Text style={styles.modalLabel}>
+                                    Ward Name <Text style={{ color: '#ef4444' }}>*</Text>
+                                </Text>
+                                <TextInput
+                                    style={styles.staffInput}
+                                    value={formData.ward}
+                                    onChangeText={t => setFormData({ ...formData, ward: t })}
+                                    placeholder="e.g. General Ward, ICU, Semi-Private"
+                                    placeholderTextColor="#94a3b8"
+                                    autoCorrect={false}
+                                />
+                            </View>
+
+                            <View style={[styles.modalFieldGroup, { zIndex: 20 }]}>
+                                <Text style={styles.modalLabel}>Bed Type / Tier</Text>
+                                <CustomSelect
+                                    options={[
+                                        { label: 'General', value: 'General' },
+                                        { label: 'ICU (Intensive Care)', value: 'ICU' },
+                                        { label: 'NICU (Neonatal)', value: 'NICU' },
+                                        { label: 'Private Room', value: 'Private' },
+                                        { label: 'Semi-Private', value: 'Semi-Private' },
+                                        { label: 'Emergency / Trauma', value: 'Emergency' },
+                                        { label: 'Post-Op Recovery', value: 'Post-Op' },
+                                        { label: 'Deluxe Suite', value: 'Deluxe' },
+                                        { label: 'Other', value: 'Other' }
+                                    ]}
+                                    value={formData.bedType}
+                                    onChange={v => setFormData({ ...formData, bedType: v })}
+                                    placeholder="Select Bed Type"
+                                />
+                            </View>
+
+                            {editingBed && (
+                                <View style={[styles.modalFieldGroup, { zIndex: 10 }]}>
+                                    <Text style={styles.modalLabel}>Operational Status</Text>
+                                    <CustomSelect
+                                        options={[
+                                            { label: 'Available', value: 'AVAILABLE' },
+                                            { label: 'Occupied (Set via Admission)', value: 'OCCUPIED' },
+                                            { label: 'Maintenance / Cleaning', value: 'MAINTENANCE' }
+                                        ]}
+                                        value={formData.status}
+                                        onChange={v => setFormData({ ...formData, status: v })}
+                                        placeholder="Select Status"
+                                        disabled={editingBed.status === 'OCCUPIED' || formData.status === 'OCCUPIED'}
+                                    />
+                                </View>
+                            )}
+
+                            <View style={styles.modalButtons}>
+                                <TouchableOpacity onPress={() => setModalOpen(false)} style={styles.btnCancel}>
+                                    <Text style={styles.btnCancelText}>Cancel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={handleSubmit} disabled={saving} style={styles.btnSubmit}>
+                                    {saving ? (
+                                        <ActivityIndicator size="small" color="#fff" />
+                                    ) : (
+                                        <Text style={styles.btnSubmitText}>{editingBed ? 'Save Changes' : 'Create Bed'}</Text>
+                                    )}
+                                </TouchableOpacity>
+                            </View>
                         </ScrollView>
                     </View>
-                </View>
+                </KeyboardAvoidingView>
             </Modal>
         </ScrollView>
     );
@@ -635,9 +665,11 @@ const styles = StyleSheet.create({
     },
     searchInput: {
         flex: 1,
-        paddingVertical: 10,
+        minHeight: 42,
+        paddingVertical: Platform.OS === 'android' ? 6 : 10,
         fontSize: 14,
         color: '#0f172a',
+        textAlignVertical: 'center',
     },
     searchClearBtn: {
         padding: 4,
@@ -659,14 +691,17 @@ const styles = StyleSheet.create({
     },
     staffInput: {
         width: '100%',
-        paddingVertical: 10,
+        minHeight: 46,
+        paddingVertical: Platform.OS === 'android' ? 8 : 10,
         paddingHorizontal: 12,
         borderRadius: 8,
         borderColor: '#cbd5e1',
-        borderWidth: 1,
+        borderWidth: 1.5,
         backgroundColor: '#fff',
         color: '#0f172a',
         fontSize: 14,
+        textAlignVertical: 'center',
+        overflow: 'hidden',
     },
     loadingContainer: {
         alignItems: 'center',
@@ -904,29 +939,36 @@ const styles = StyleSheet.create({
     },
     modalOverlay: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.5)',
+        backgroundColor: 'rgba(15, 23, 42, 0.65)',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: 20,
+        paddingHorizontal: 16,
+        paddingVertical: 24,
     },
     modalContent: {
         backgroundColor: '#fff',
-        padding: 16,
-        borderRadius: 14,
-        width: '94%',
+        padding: 18,
+        borderRadius: 16,
+        width: '100%',
         maxWidth: 440,
-        maxHeight: '88%',
+        maxHeight: '90%',
         elevation: 6,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 10 },
         shadowOpacity: 0.15,
         shadowRadius: 25,
+        overflow: 'hidden',
     },
     modalHeaderRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'flex-start',
         marginBottom: 16,
+        gap: 8,
+    },
+    modalTitleContainer: {
+        flex: 1,
+        paddingRight: 6,
     },
     modalTitle: {
         fontSize: 18,
@@ -937,9 +979,22 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: '#64748b',
         marginTop: 2,
+        lineHeight: 16,
     },
     modalCloseBtn: {
-        padding: 4,
+        padding: 6,
+        borderRadius: 16,
+        backgroundColor: '#f1f5f9',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    modalScrollBody: {
+        flexGrow: 1,
+        paddingBottom: 4,
+    },
+    modalFieldGroup: {
+        width: '100%',
+        marginBottom: 14,
     },
     modalLabel: {
         fontSize: 12,
@@ -949,16 +1004,20 @@ const styles = StyleSheet.create({
     },
     modalButtons: {
         flexDirection: 'row',
-        flexWrap: 'wrap',
+        alignItems: 'center',
         justifyContent: 'flex-end',
         gap: 10,
         marginTop: 18,
+        width: '100%',
     },
     btnCancel: {
+        flex: 1,
+        minHeight: 44,
         backgroundColor: '#f1f5f9',
-        paddingVertical: 10,
-        paddingHorizontal: 16,
         borderRadius: 8,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 14,
     },
     btnCancelText: {
         color: '#475569',
@@ -966,12 +1025,13 @@ const styles = StyleSheet.create({
         fontSize: 14,
     },
     btnSubmit: {
+        flex: 1.4,
+        minHeight: 44,
         backgroundColor: '#3b82f6',
-        paddingVertical: 10,
-        paddingHorizontal: 18,
         borderRadius: 8,
-        minWidth: 100,
         alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 16,
     },
     btnSubmitText: {
         color: '#fff',

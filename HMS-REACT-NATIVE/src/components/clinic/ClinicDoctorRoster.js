@@ -9,7 +9,7 @@ const ClinicDoctorRoster = ({ doctors = [] }) => {
                 {/* Translating web class: .clinic-card h3 */}
                 <Text style={styles.clinicCardH3}>Doctor Roster & Availability</Text>
                 
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tableWrapper}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={true} style={styles.tableWrapper} contentContainerStyle={{ flexGrow: 1 }}>
                     {/* Translating web class: .clinic-table */}
                     <View style={styles.clinicTable}>
                         
@@ -80,7 +80,7 @@ const styles = StyleSheet.create({
 
     // Translating web class: .clinic-table
     clinicTable: {
-        width: '100%'
+        minWidth: 520,
     },
     
     clinicTableTrHeader: {

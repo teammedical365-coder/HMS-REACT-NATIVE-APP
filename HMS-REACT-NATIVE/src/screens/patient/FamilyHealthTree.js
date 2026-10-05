@@ -64,6 +64,7 @@ export default function FamilyHealthTree(props) {
 
     const { width } = useWindowDimensions();
     const isDesktop = width >= 1024;
+    const isMobile = width < 600;
 
     const [members, setMembers] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -373,20 +374,26 @@ export default function FamilyHealthTree(props) {
     return (
         <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
             {/* Stats Header Bar */}
-            <View style={styles.statsBar}>
-                <View style={styles.statBox}>
-                    <Text style={styles.statVal}>{stats.totalMembers}</Text>
-                    <Text style={styles.statLbl}>Members</Text>
+            <View style={[styles.statsBar, isMobile && styles.statsBarMobile]}>
+                <View style={[styles.statsMetricsRow, isMobile && styles.statsMetricsRowMobile]}>
+                    <View style={styles.statBox}>
+                        <Text style={styles.statVal}>{stats.totalMembers}</Text>
+                        <Text style={styles.statLbl}>Members</Text>
+                    </View>
+                    <View style={styles.statBox}>
+                        <Text style={[styles.statVal, { color: '#f59e0b' }]}>{stats.conditionsCount}</Text>
+                        <Text style={styles.statLbl}>Conditions</Text>
+                    </View>
+                    <View style={styles.statBox}>
+                        <Text style={[styles.statVal, { color: '#059669' }]}>{stats.generationsCount || 1}</Text>
+                        <Text style={styles.statLbl}>Generations</Text>
+                    </View>
                 </View>
-                <View style={styles.statBox}>
-                    <Text style={[styles.statVal, { color: '#f59e0b' }]}>{stats.conditionsCount}</Text>
-                    <Text style={styles.statLbl}>Conditions</Text>
-                </View>
-                <View style={styles.statBox}>
-                    <Text style={[styles.statVal, { color: '#059669' }]}>{stats.generationsCount || 1}</Text>
-                    <Text style={styles.statLbl}>Generations</Text>
-                </View>
-                <TouchableOpacity style={styles.btnAddMember} onPress={openAddModal}>
+                <TouchableOpacity 
+                    style={[styles.btnAddMember, isMobile && styles.btnAddMemberMobile]} 
+                    onPress={openAddModal}
+                    activeOpacity={0.8}
+                >
                     <Feather name="plus" size={16} color="#ffffff" style={{ marginRight: 4 }} />
                     <Text style={styles.btnAddMemberText}>Add Member</Text>
                 </TouchableOpacity>
@@ -745,11 +752,48 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#f8fafc', padding: 14 },
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 },
     loadingText: { marginTop: 12, color: '#16a34a', fontWeight: '700', fontSize: 14 },
-    statsBar: { flexDirection: 'row', backgroundColor: '#ffffff', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#e2e8f0', alignItems: 'center', marginBottom: 14 },
-    statBox: { marginRight: 16 },
+    statsBar: {
+        flexDirection: 'row',
+        backgroundColor: '#ffffff',
+        borderRadius: 12,
+        padding: 12,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        alignItems: 'center',
+        marginBottom: 14,
+        flexWrap: 'wrap',
+        gap: 12,
+    },
+    statsBarMobile: {
+        flexDirection: 'column',
+        alignItems: 'stretch',
+    },
+    statsMetricsRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 16,
+    },
+    statsMetricsRowMobile: {
+        justifyContent: 'space-between',
+        width: '100%',
+    },
+    statBox: { minWidth: 60 },
     statVal: { fontSize: 18, fontWeight: '800', color: '#0f172a' },
     statLbl: { fontSize: 11, color: '#64748b' },
-    btnAddMember: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#16a34a', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, marginLeft: 'auto' },
+    btnAddMember: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#16a34a',
+        paddingHorizontal: 14,
+        paddingVertical: 9,
+        borderRadius: 8,
+        marginLeft: 'auto',
+    },
+    btnAddMemberMobile: {
+        marginLeft: 0,
+        width: '100%',
+    },
     btnAddMemberText: { color: '#ffffff', fontWeight: '700', fontSize: 13 },
     treeSection: { backgroundColor: '#ffffff', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 14 },
     treeHeaderRow: { marginBottom: 12 },

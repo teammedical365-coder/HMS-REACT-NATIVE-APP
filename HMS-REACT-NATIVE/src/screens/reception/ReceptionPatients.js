@@ -415,22 +415,32 @@ const ReceptionPatients = () => {
     };
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer} showsVerticalScrollIndicator={false}>
+        <ScrollView style={styles.container} contentContainerStyle={[styles.contentContainer, isMobile && { padding: 12, paddingBottom: 60 }]} showsVerticalScrollIndicator={false}>
             {/* 1. TOP HEADER & LIVE DIGITAL CLOCK & INDICATOR */}
-            <View style={styles.pageHeader}>
-                <View>
-                    <View style={styles.headerTitleRow}>
-                        <Text style={styles.headerTitle}>Patient Directory</Text>
-                        <View style={styles.liveIndicatorBadge}>
-                            <View style={styles.livePulseDot} />
-                            <Text style={styles.liveIndicatorText}>System Online • Live Queue</Text>
-                        </View>
+            <View style={[styles.pageHeader, isMobile && styles.pageHeaderMobile]}>
+                <View style={isMobile ? { width: '100%' } : { flex: 1 }}>
+                    <View style={[styles.headerTitleRow, isMobile && styles.headerTitleRowMobile]}>
+                        <Text style={[styles.headerTitle, isMobile && { fontSize: 20 }]}>Patient Directory</Text>
+                        {!isMobile && (
+                            <View style={styles.liveIndicatorBadge}>
+                                <View style={styles.livePulseDot} />
+                                <Text style={styles.liveIndicatorText}>System Online • Live Queue</Text>
+                            </View>
+                        )}
                     </View>
                     <Text style={styles.headerSubtitle}>Complete patient records, appointment scheduling & verification</Text>
+                    {isMobile && (
+                        <View style={styles.headerMobileStatusRow}>
+                            <View style={styles.liveIndicatorBadge}>
+                                <View style={styles.livePulseDot} />
+                                <Text style={styles.liveIndicatorText}>System Online • Live Queue</Text>
+                            </View>
+                        </View>
+                    )}
                 </View>
 
-                <View style={styles.headerRightActions}>
-                    <View style={styles.clockCard}>
+                <View style={[styles.headerRightActions, isMobile && styles.headerRightActionsMobile]}>
+                    <View style={[styles.clockCard, isMobile && { flex: 1, justifyContent: 'center' }]}>
                         <Feather name="clock" size={14} color="#2563eb" />
                         <Text style={styles.clockText}>
                             {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
@@ -438,7 +448,7 @@ const ReceptionPatients = () => {
                     </View>
 
                     <TouchableOpacity
-                        style={styles.refreshHeaderBtn}
+                        style={[styles.refreshHeaderBtn, isMobile && { flex: 1, justifyContent: 'center' }]}
                         onPress={handleManualRefresh}
                         disabled={isRefreshing}
                         activeOpacity={0.7}
@@ -1196,6 +1206,27 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 12,
+    },
+    pageHeaderMobile: {
+        flexDirection: 'column',
+        alignItems: 'flex-start',
+        gap: 10,
+        marginBottom: 16,
+    },
+    headerTitleRowMobile: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+    },
+    headerMobileStatusRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 6,
+    },
+    headerRightActionsMobile: {
+        width: '100%',
+        justifyContent: 'space-between',
+        gap: 8,
     },
     clockCard: {
         flexDirection: 'row',

@@ -863,6 +863,7 @@ const OverviewMode = () => {
     const [cfgMsg, setCfgMsg] = useState('');
     const [overviewMonthStr, setOverviewMonthStr] = useState(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`);
     const [showAllKpis, setShowAllKpis] = useState(false);
+    const [gridContainerWidth, setGridContainerWidth] = useState(0);
     const [showMonthDropdown, setShowMonthDropdown] = useState(false);
     const [showApptModeDropdown, setShowApptModeDropdown] = useState(false);
 
@@ -1075,9 +1076,12 @@ const OverviewMode = () => {
     const isMobileOverview = screenWidth <= 480;
     const ovGap = isMobileOverview ? 8 : 14;
     const ovCols = isMobileOverview ? 3 : 4;
-    // Real container available width inside screen modeContent padding
-    const ovContainerPadH = screenWidth < 375 ? 16 : (screenWidth < 600 ? 24 : 32);
-    const ovAvailWidth = screenWidth - ovContainerPadH;
+    // Real container available width: account for DashboardLayout padding (10*2 for <400, 14*2 for >=400) + modeContent padding (16*2=32)
+    const layoutPadH = screenWidth < 400 ? 20 : 28;
+    const innerPadH = 32;
+    const totalPadH = layoutPadH + innerPadH;
+    const fallbackAvailWidth = Math.max(screenWidth - totalPadH, 240);
+    const ovAvailWidth = gridContainerWidth > 0 ? gridContainerWidth : fallbackAvailWidth;
     const ovCardWidth = Math.floor((ovAvailWidth - (ovCols - 1) * ovGap) / ovCols);
 
     return (
@@ -1086,36 +1090,46 @@ const OverviewMode = () => {
                 <Text style={{ fontSize: isNarrow ? 20 : 24, fontWeight: 'bold', color: '#0f172a' }}>Dashboard Overview</Text>
             </View>
 
-            <View style={[styles.kpiGrid, { gap: ovGap, marginBottom: isMobileOverview ? 10 : 20 }]}>
-                {(isMobileOverview ? (showAllKpis ? kpis : kpis.slice(0, 3)) : kpis).map((k, i) => {
-                    return (
-                        <View
-                            key={i}
-                            style={[
-                                styles.kpiCard,
-                                {
-                                    borderTopColor: k.color,
-                                    borderTopWidth: 4,
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    flex: 0,
-                                    width: ovCardWidth,
-                                    minWidth: ovCardWidth,
-                                    maxWidth: ovCardWidth,
-                                    paddingVertical: isMobileOverview ? 10 : 18,
-                                    paddingHorizontal: isMobileOverview ? 6 : 16,
-                                }
-                            ]}
-                        >
-                            <Text style={{ fontSize: isMobileOverview ? 20 : 28, textAlign: 'center' }}>{k.icon}</Text>
-                            <View style={{ marginTop: isMobileOverview ? 4 : 8, alignItems: 'center', width: '100%' }}>
-                                <Text style={{ fontSize: isMobileOverview ? 15 : 20, fontWeight: '800', color: k.color, textAlign: 'center' }} numberOfLines={1}>{k.value}</Text>
-                                <Text style={{ fontSize: isMobileOverview ? 10 : 12, color: '#64748b', fontWeight: '600', marginTop: 2, textAlign: 'center' }} numberOfLines={2}>{k.label}</Text>
-                                {k.sub && <Text style={{ fontSize: isMobileOverview ? 9 : 11, color: '#94a3b8', marginTop: 2, textAlign: 'center' }} numberOfLines={1}>{k.sub}</Text>}
+            <View
+                style={{ width: '100%' }}
+                onLayout={(e) => {
+                    const w = e.nativeEvent?.layout?.width;
+                    if (w > 0 && Math.abs(w - gridContainerWidth) > 2) {
+                        setGridContainerWidth(w);
+                    }
+                }}
+            >
+                <View style={[styles.kpiGrid, { gap: ovGap, marginBottom: isMobileOverview ? 10 : 20 }]}>
+                    {(isMobileOverview ? (showAllKpis ? kpis : kpis.slice(0, 3)) : kpis).map((k, i) => {
+                        return (
+                            <View
+                                key={i}
+                                style={[
+                                    styles.kpiCard,
+                                    {
+                                        borderTopColor: k.color,
+                                        borderTopWidth: 4,
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        flex: 0,
+                                        width: ovCardWidth,
+                                        minWidth: ovCardWidth,
+                                        maxWidth: ovCardWidth,
+                                        paddingVertical: isMobileOverview ? 10 : 18,
+                                        paddingHorizontal: isMobileOverview ? 6 : 16,
+                                    }
+                                ]}
+                            >
+                                <Text style={{ fontSize: isMobileOverview ? 20 : 28, textAlign: 'center' }}>{k.icon}</Text>
+                                <View style={{ marginTop: isMobileOverview ? 4 : 8, alignItems: 'center', width: '100%' }}>
+                                    <Text style={{ fontSize: isMobileOverview ? 15 : 20, fontWeight: '800', color: k.color, textAlign: 'center' }} numberOfLines={1}>{k.value}</Text>
+                                    <Text style={{ fontSize: isMobileOverview ? 10 : 12, color: '#64748b', fontWeight: '600', marginTop: 2, textAlign: 'center' }} numberOfLines={2}>{k.label}</Text>
+                                    {k.sub && <Text style={{ fontSize: isMobileOverview ? 9 : 11, color: '#94a3b8', marginTop: 2, textAlign: 'center' }} numberOfLines={1}>{k.sub}</Text>}
+                                </View>
                             </View>
-                        </View>
-                    );
-                })}
+                        );
+                    })}
+                </View>
             </View>
             {isMobileOverview && (
                 <TouchableOpacity style={styles.kpiToggleBtn} onPress={() => setShowAllKpis(!showAllKpis)}>

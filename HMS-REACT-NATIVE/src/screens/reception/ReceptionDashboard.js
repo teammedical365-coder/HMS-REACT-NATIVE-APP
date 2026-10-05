@@ -1780,20 +1780,25 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                 </View>
                 {/* ECG / Care Banner — Web: bg gradient white→#f8fafc, border #e2e8f0, radius 18 */}
                 <View style={styles.wQuoteBanner}>
-                    <View style={styles.wQuoteLeft}>
+                    <View style={[styles.wQuoteLeft, isMobile && { flex: 1, paddingRight: 4 }]}>
                         <View style={styles.wQuoteIconBox}><Text style={styles.wQuoteIconText}>{'\u201C'}</Text></View>
-                        <View><Text style={styles.wQuoteTitle}>Compassionate care, every patient, every time.</Text><Text style={styles.wQuoteSub}>{"Let's make a difference together!"}</Text></View>
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.wQuoteTitle}>Compassionate care, every patient, every time.</Text>
+                            <Text style={styles.wQuoteSub}>{"Let's make a difference together!"}</Text>
+                        </View>
                     </View>
-                    <Svg viewBox="0 0 140 44" width={140} height={44} fill="none">
-                        <Defs><LinearGradient id="heartGlow" x1="0" y1="0" x2="1" y2="1"><Stop offset="0%" stopColor="#34d399" /><Stop offset="100%" stopColor="#059669" /></LinearGradient></Defs>
-                        <G translate="45, 2">
-                            <Path d="M20 7 C 12 -2, 0 5, 0 14 C 0 24, 18 34, 20 36 C 22 34, 40 24, 40 14 C 40 5, 28 -2, 20 7 Z" fill="url(#heartGlow)" />
-                            <Path d="M 8 18 L 14 18 L 17 12 L 21 24 L 24 16 L 27 19 L 32 19" stroke="#ffffff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                            <Path d="M 3 24 Q -4 16 2 8 Q 8 20 3 24 Z" fill="#6ee7b7" opacity="0.8" />
-                            <Path d="M 37 24 Q 44 16 38 8 Q 32 20 37 24 Z" fill="#6ee7b7" opacity="0.8" />
-                        </G>
-                        <Circle cx="105" cy="14" r="2" fill="#34d399" /><Circle cx="118" cy="24" r="1.5" fill="#10b981" />
-                    </Svg>
+                    {!isMobile && (
+                        <Svg viewBox="0 0 140 44" width={140} height={44} fill="none">
+                            <Defs><LinearGradient id="heartGlow" x1="0" y1="0" x2="1" y2="1"><Stop offset="0%" stopColor="#34d399" /><Stop offset="100%" stopColor="#059669" /></LinearGradient></Defs>
+                            <G translate="45, 2">
+                                <Path d="M20 7 C 12 -2, 0 5, 0 14 C 0 24, 18 34, 20 36 C 22 34, 40 24, 40 14 C 40 5, 28 -2, 20 7 Z" fill="url(#heartGlow)" />
+                                <Path d="M 8 18 L 14 18 L 17 12 L 21 24 L 24 16 L 27 19 L 32 19" stroke="#ffffff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                                <Path d="M 3 24 Q -4 16 2 8 Q 8 20 3 24 Z" fill="#6ee7b7" opacity="0.8" />
+                                <Path d="M 37 24 Q 44 16 38 8 Q 32 20 37 24 Z" fill="#6ee7b7" opacity="0.8" />
+                            </G>
+                            <Circle cx="105" cy="14" r="2" fill="#34d399" /><Circle cx="118" cy="24" r="1.5" fill="#10b981" />
+                        </Svg>
+                    )}
                 </View>
             </ScrollView>
         );
@@ -2655,17 +2660,17 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         return (
             <View style={styles.intakeContainer}>
                 {/* Centered Heading with Prominent Right Close Button — Web 1:1 */}
-                <View style={styles.regHeadingRow}>
-                    <View style={styles.regHeadingPlaceholder} />
-                    <View style={styles.regHeadingCenter}>
-                        <Text style={styles.regTitleGradient}>
+                <View style={[styles.regHeadingRow, isMobile && styles.regHeadingRowMobile]}>
+                    {!isMobile && <View style={styles.regHeadingPlaceholder} />}
+                    <View style={[styles.regHeadingCenter, isMobile && styles.regHeadingCenterMobile]}>
+                        <Text style={[styles.regTitleGradient, isMobile && styles.regTitleGradientMobile]} numberOfLines={1}>
                             {isPatientPortal ? (followupStatus?.active ? 'Re-Book Appointment' : 'Book Appointment') : 'New Patient Registration'}
                         </Text>
                         <ExpoLinearGradient colors={['#38bdf8', '#6366f1', '#a855f7']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.regTitleGlowAccent} />
                     </View>
-                    <View style={styles.regHeadingRight}>
+                    <View style={[styles.regHeadingRight, isMobile && styles.regHeadingRightMobile]}>
                         <TouchableOpacity 
-                            style={styles.regBtnCloseProminent}
+                            style={[styles.regBtnCloseProminent, isMobile && styles.regBtnCloseProminentMobile]}
                             onPress={handleCloseRegistration}
                             activeOpacity={0.8}
                         >
@@ -2715,7 +2720,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                             </View>
                         </View>
                     ) : (
-                        <View style={styles.stepperContainer}>
+                        <View style={[styles.stepperContainer, isMobile && styles.stepperContainerMobile]}>
                             {[
                                 { step: 1, label: 'Identity' },
                                 { step: 2, label: 'Address' },
@@ -2738,7 +2743,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                                 <Text style={[styles.stepNum, (isActive || isDone) && styles.stepNumActive]}>0{item.step}</Text>
                                             )}
                                         </View>
-                                        <Text style={[styles.stepLabel, isActive && styles.stepLabelActive]}>{item.label}</Text>
+                                        <Text style={[styles.stepLabel, isActive && styles.stepLabelActive, isMobile && styles.stepLabelMobile]}>{item.label}</Text>
                                     </TouchableOpacity>
                                 );
                             })}
@@ -4392,6 +4397,13 @@ const styles = StyleSheet.create({
     // ─── STEPPER STYLES (SLICE 3) ───────────────────────────────────────────
     intakeContainer: { flex: 1, backgroundColor: '#f8fafc', minHeight: 0 },
     regHeadingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, paddingVertical: 14, backgroundColor: '#ffffff', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+    regHeadingRowMobile: { paddingHorizontal: 14, paddingVertical: 10 },
+    regHeadingCenterMobile: { alignItems: 'flex-start', paddingRight: 8 },
+    regTitleGradientMobile: { fontSize: 16, letterSpacing: -0.2 },
+    regHeadingRightMobile: { width: 'auto' },
+    regBtnCloseProminentMobile: { paddingVertical: 5, paddingHorizontal: 10, borderRadius: 8 },
+    stepperContainerMobile: { paddingHorizontal: 6, paddingVertical: 8 },
+    stepLabelMobile: { fontSize: 9.5 },
     regHeadingPlaceholder: { width: 90 },
     regHeadingCenter: { alignItems: 'center', flex: 1 },
     regTitleGradient: { fontSize: 22, fontWeight: '800', color: '#4f46e5', letterSpacing: -0.4 },

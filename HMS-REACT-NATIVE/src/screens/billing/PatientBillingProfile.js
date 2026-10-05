@@ -2491,8 +2491,8 @@ const PatientBillingProfile = () => {
         >
             {/* Top banner when in patient settlement tab (Exact Web line 1765) */}
             {activeTab === 'patient' && !isHospitalAdmin && (
-                <View style={styles.billingHeader}>
-                    <View style={{ flex: 1 }}>
+                <View style={[styles.billingHeader, isMobile && styles.billingHeaderMobile]}>
+                    <View style={isMobile ? { width: '100%', marginBottom: 12 } : { flex: 1, marginRight: 16 }}>
                         <Text style={styles.billingHeaderTitle}>
                             💳 Record & Settle Patient Payment
                         </Text>
@@ -2501,7 +2501,7 @@ const PatientBillingProfile = () => {
                         </Text>
                     </View>
                     <TouchableOpacity
-                        style={styles.btnBack}
+                        style={[styles.btnBack, isMobile && styles.btnBackMobile]}
                         onPress={() => {
                             setActiveTab('history');
                             mainScrollViewRef.current?.scrollTo({ y: 0, animated: false });
@@ -2661,9 +2661,9 @@ const PatientBillingProfile = () => {
                                         </View>
                                     </View>
 
-                                    <View style={styles.haPatBannerRight}>
+                                    <View style={[styles.haPatBannerRight, isMobile && styles.haPatBannerRightMobile]}>
                                         <TouchableOpacity
-                                            style={styles.haPatBackBtn}
+                                            style={[styles.haPatBackBtn, isMobile && styles.haPatBackBtnMobile]}
                                             onPress={() => {
                                                 setActiveTab('history');
                                                 mainScrollViewRef.current?.scrollTo({ y: 0, animated: false });
@@ -2673,7 +2673,7 @@ const PatientBillingProfile = () => {
                                             <Text style={styles.haPatBackBtnText}>← Back to Payment Register</Text>
                                         </TouchableOpacity>
                                         <TouchableOpacity
-                                            style={styles.haPatBtnPrint}
+                                            style={[styles.haPatBtnPrint, isMobile && styles.haPatBtnPrintMobile]}
                                             onPress={() => printConsolidatedBill(patient, billing, 'print')}
                                             activeOpacity={0.8}
                                         >
@@ -4280,14 +4280,18 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: 'rgba(255, 255, 255, 0.2)',
     },
+    billingHeaderMobile: {
+        flexDirection: 'column',
+        alignItems: 'stretch',
+    },
     billingHeaderTitle: {
-        fontSize: 16,
+        fontSize: 15,
         fontWeight: '700',
         color: '#ffffff',
         marginBottom: 2,
     },
     billingHeaderSub: {
-        fontSize: 12.5,
+        fontSize: 12,
         color: 'rgba(255, 255, 255, 0.9)',
     },
     btnBack: {
@@ -4297,6 +4301,10 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         borderWidth: 1,
         borderColor: 'rgba(255, 255, 255, 0.4)',
+    },
+    btnBackMobile: {
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     btnBackText: {
         color: '#ffffff',
@@ -4499,6 +4507,16 @@ const styles = StyleSheet.create({
         flexDirection: 'column',
         alignItems: 'flex-end',
         gap: 8,
+        flexShrink: 0,
+    },
+    haPatBannerRightMobile: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        justifyContent: 'flex-start',
+        width: '100%',
+        gap: 8,
+        marginTop: 10,
     },
     haPatBackBtn: {
         paddingVertical: 7,
@@ -4507,6 +4525,12 @@ const styles = StyleSheet.create({
         borderWidth: 1.5,
         borderColor: '#cbd5e1',
         borderRadius: 8,
+    },
+    haPatBackBtnMobile: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        minWidth: 140,
     },
     haPatBackBtnText: {
         color: '#334155',
@@ -4523,6 +4547,12 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.25,
         shadowRadius: 10,
         elevation: 2,
+    },
+    haPatBtnPrintMobile: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        minWidth: 120,
     },
     haPatBtnPrintText: {
         color: '#ffffff',

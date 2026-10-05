@@ -1,13 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
     View, Text, TextInput, TouchableOpacity, StyleSheet,
-    ScrollView, Image, Animated, Easing, Dimensions, Platform
+    ScrollView, Image, Animated, Easing, useWindowDimensions, Platform
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
-
-const { width } = Dimensions.get('window');
 
 const HospitalAdminHUDForm = ({
     hospitalAdminForm,
@@ -16,6 +14,8 @@ const HospitalAdminHUDForm = ({
     creatingHospitalAdmin,
     hospitals = []
 }) => {
+    const { width } = useWindowDimensions();
+    const isSmallMobile = width <= 400;
     const [selectedFileName, setSelectedFileName] = useState(hospitalAdminForm?.file?.name || '');
     const [latency, setLatency] = useState(12);
 
@@ -71,11 +71,11 @@ const HospitalAdminHUDForm = ({
     );
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+        <ScrollView style={styles.container} contentContainerStyle={[styles.contentContainer, isSmallMobile && { padding: 10 }]} keyboardShouldPersistTaps="handled">
             <View style={styles.unifiedCard}>
                 
                 {/* Visual Header / Cyber Dashboard */}
-                <View style={styles.visualColumn}>
+                <View style={[styles.visualColumn, isSmallMobile && { padding: 14 }]}>
                     <View style={styles.hubImageContainer}>
                         {/* Placeholder for Smart Hospital Hub Image */}
                         <View style={styles.hubImgPlaceholder}>
@@ -113,7 +113,7 @@ const HospitalAdminHUDForm = ({
                 </View>
 
                 {/* Form Section */}
-                <View style={styles.formColumn}>
+                <View style={[styles.formColumn, isSmallMobile && { padding: 14 }]}>
                     <View style={styles.cardHeader}>
                         <View style={styles.iconBox}>
                             <Ionicons name="shield-checkmark" size={28} color="#0099a8" />

@@ -680,7 +680,7 @@ const DashboardLayout = ({ children }) => {
                 <View style={[
                     styles.erpPageContent,
                     {
-                        padding: isDarkModule ? 0 : windowWidth < 400 ? 10 : windowWidth < 768 ? 14 : 24,
+                        padding: isDarkModule ? 0 : windowWidth < 400 ? 8 : windowWidth < 768 ? 12 : 24,
                         backgroundColor: isDarkModule ? '#0b1120' : '#f8fafc',
                     }
                 ]}>
