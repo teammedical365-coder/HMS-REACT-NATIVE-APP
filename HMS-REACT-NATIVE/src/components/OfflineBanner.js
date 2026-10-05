@@ -1,77 +1,43 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native';
-import { subscribeNetworkStatus, pingServer } from '../utils/networkStatus';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { subscribeNetworkStatus, pingServer, isOnline } from '../utils/networkStatus';
 
 export default function OfflineBanner() {
-  const [online, setOnline] = useState(() => {
-    if (typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean') {
-      return navigator.onLine;
-    }
-    return true;
-  });
+  const [online, setOnline] = useState(() => isOnline());
   const [showReconnected, setShowReconnected] = useState(false);
+  const reconnectedTimerRef = useRef(null);
 
   useEffect(() => {
-    // If running in web browser, directly synchronize with browser online/offline events
-    if (typeof window !== 'undefined') {
-      const handleOnline = () => {
-        setOnline(true);
-        setShowReconnected(true);
-        const t = setTimeout(() => setShowReconnected(false), 4000);
-        return () => clearTimeout(t);
-      };
-
-      const handleOffline = () => {
-        setOnline(false);
-        setShowReconnected(false);
-      };
-
-      window.addEventListener('online', handleOnline);
-      window.addEventListener('offline', handleOffline);
-
-      // Initial check against navigator.onLine (only mark offline if explicitly false)
-      if (typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean' && navigator.onLine === false) {
-        setOnline(false);
-      } else {
-        setOnline(true);
-      }
-
-      const unsubscribe = subscribeNetworkStatus((isOnline, { wasOffline }) => {
-        // If the browser has internet, never lock into a false offline state
-        if (typeof navigator === 'undefined' || typeof navigator.onLine !== 'boolean' || navigator.onLine === true) {
-          setOnline(true);
-          return;
-        }
-        setOnline(isOnline);
-        if (isOnline && wasOffline) {
+    const unsubscribe = subscribeNetworkStatus((isNetOnline, { wasOffline }) => {
+      setOnline(isNetOnline);
+      if (isNetOnline) {
+        if (wasOffline) {
           setShowReconnected(true);
-          const t = setTimeout(() => setShowReconnected(false), 4000);
-          return () => clearTimeout(t);
+          if (reconnectedTimerRef.current) {
+            clearTimeout(reconnectedTimerRef.current);
+          }
+          reconnectedTimerRef.current = setTimeout(() => {
+            setShowReconnected(false);
+          }, 4000);
         }
-      });
-
-      return () => {
-        window.removeEventListener('online', handleOnline);
-        window.removeEventListener('offline', handleOffline);
-        unsubscribe();
-      };
-    }
-
-    const unsubscribe = subscribeNetworkStatus((isOnline, { wasOffline }) => {
-      setOnline(isOnline);
-      if (isOnline && wasOffline) {
-        setShowReconnected(true);
-        const t = setTimeout(() => setShowReconnected(false), 4000);
-        return () => clearTimeout(t);
+      } else {
+        setShowReconnected(false);
+        if (reconnectedTimerRef.current) {
+          clearTimeout(reconnectedTimerRef.current);
+          reconnectedTimerRef.current = null;
+        }
       }
     });
-    return unsubscribe;
+
+    return () => {
+      if (reconnectedTimerRef.current) {
+        clearTimeout(reconnectedTimerRef.current);
+      }
+      unsubscribe();
+    };
   }, []);
 
   const handleRetry = async () => {
-    if (typeof navigator === 'undefined' || typeof navigator.onLine !== 'boolean' || navigator.onLine === true) {
-      setOnline(true);
-    }
     await pingServer();
   };
 
