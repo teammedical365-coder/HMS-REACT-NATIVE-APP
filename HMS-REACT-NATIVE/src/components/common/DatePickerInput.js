@@ -21,9 +21,23 @@ const DatePickerInput = ({
 }) => {
     if (Platform.OS === 'web') {
         return (
-            <div style={{ position: 'relative', width: '100%', display: 'flex', alignItems: 'center' }}>
+            <div style={{ position: 'relative', width: '100%', maxWidth: '100%', display: 'flex', alignItems: 'center' }}>
+                <style dangerouslySetInnerHTML={{ __html: `
+                    .hms-date-picker-input::-webkit-calendar-picker-indicator {
+                        position: absolute;
+                        left: 10px;
+                        top: 50%;
+                        transform: translateY(-50%);
+                        cursor: pointer;
+                        opacity: 0.75;
+                    }
+                    .hms-date-picker-input::-webkit-calendar-picker-indicator:hover {
+                        opacity: 1;
+                    }
+                `}} />
                 <input
                     type="date"
+                    className="hms-date-picker-input"
                     value={value || ''}
                     min={min}
                     max={max}
@@ -31,10 +45,17 @@ const DatePickerInput = ({
                     onChange={(e) => {
                         onChange(e.target.value);
                     }}
+                    onClick={(e) => {
+                        try {
+                            if (!disabled && typeof e.target.showPicker === 'function') {
+                                e.target.showPicker();
+                            }
+                        } catch (_) {}
+                    }}
                     style={{
                         width: '100%',
                         height: '42px',
-                        padding: '8px 14px',
+                        padding: '8px 14px 8px 36px',
                         borderRadius: '10px',
                         border: '1.5px solid #cbd5e1',
                         backgroundColor: '#ffffff',

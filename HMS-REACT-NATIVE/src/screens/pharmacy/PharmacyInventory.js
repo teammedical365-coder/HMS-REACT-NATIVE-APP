@@ -654,7 +654,7 @@ const PharmacyInventory = () => {
                         <View style={styles.formSection}>
                             {/* Row 1: Medicine Name, Salt / Composition, Category */}
                             <View style={[styles.formRow, isNarrow && { flexDirection: 'column', gap: 12 }]}>
-                                <View style={[styles.formGroup, isNarrow ? { width: '100%', minWidth: '100%', flex: 0 } : (isTablet ? { width: '100%', minWidth: '100%', flex: 0 } : { flex: 2 })]}>
+                                <View style={[styles.formGroup, isNarrow ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isTablet ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : { flex: 2 })]}>
                                     <Text style={styles.formLabel}>MEDICINE NAME *</Text>
                                     {pendingInvoice ? (
                                         <DropdownSelect
@@ -715,7 +715,7 @@ const PharmacyInventory = () => {
                                         </View>
                                     )}
                                 </View>
-                                <View style={[styles.formGroup, isNarrow ? { width: '100%', minWidth: '100%', flex: 0 } : (isTablet ? { width: '48%', minWidth: 160, flex: 1 } : { flex: 1.5 })]}>
+                                <View style={[styles.formGroup, isNarrow ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isTablet ? { width: '48%', minWidth: 160, flex: 1 } : { flex: 1.5 })]}>
                                     <Text style={styles.formLabel}>SALT / COMPOSITION</Text>
                                     <TextInput 
                                         style={styles.formInput}
@@ -724,7 +724,7 @@ const PharmacyInventory = () => {
                                         placeholder="e.g. Acetaminophen"
                                     />
                                 </View>
-                                <View style={[styles.formGroup, isNarrow ? { width: '100%', minWidth: '100%', flex: 0 } : (isTablet ? { width: '48%', minWidth: 160, flex: 1 } : { flex: 1 })]}>
+                                <View style={[styles.formGroup, isNarrow ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isTablet ? { width: '48%', minWidth: 160, flex: 1 } : { flex: 1 })]}>
                                     <Text style={styles.formLabel}>CATEGORY *</Text>
                                     <TextInput 
                                         style={styles.formInput}
@@ -746,7 +746,7 @@ const PharmacyInventory = () => {
 
                             {newMedicine.isMultiDose && (
                                 <View style={[styles.formRow, isNarrow && { flexDirection: 'column', gap: 12 }]}>
-                                    <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flex: 0 }]}>
+                                    <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 }]}>
                                         <Text style={styles.formLabel}>VOLUME / DOSAGE PER UNIT *</Text>
                                         <TextInput 
                                             style={styles.formInput}
@@ -756,7 +756,7 @@ const PharmacyInventory = () => {
                                             placeholder="e.g. 900"
                                         />
                                     </View>
-                                    <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flex: 0 }]}>
+                                    <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 }]}>
                                         <Text style={styles.formLabel}>VOLUME UNIT *</Text>
                                         <DropdownSelect
                                             options={[
@@ -778,7 +778,7 @@ const PharmacyInventory = () => {
 
                             {/* Quantities & Unit */}
                             <View style={[styles.formRow, isNarrow && { flexDirection: 'row', flexWrap: 'wrap', gap: 12 }]}>
-                                <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flex: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
+                                <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
                                     <Text style={styles.formLabel}>PURCHASE QTY *</Text>
                                     <TextInput 
                                         style={styles.formInput}
@@ -790,7 +790,7 @@ const PharmacyInventory = () => {
                                         placeholder="e.g. 10"
                                     />
                                 </View>
-                                <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flex: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
+                                <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
                                     <Text style={styles.formLabel}>FREE QTY (SCHEME)</Text>
                                     <TextInput 
                                         style={styles.formInput}
@@ -802,7 +802,7 @@ const PharmacyInventory = () => {
                                         placeholder="e.g. 2"
                                     />
                                 </View>
-                                <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flex: 0 }]}>
+                                <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 }]}>
                                     <Text style={styles.formLabel}>UNIT</Text>
                                     <DropdownSelect
                                         options={UNIT_OPTIONS}
@@ -812,7 +812,7 @@ const PharmacyInventory = () => {
                                     />
                                 </View>
                                 {['Strip', 'Capsules', 'Tablets'].includes(newMedicine.unit) && (
-                                    <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flex: 0 }]}>
+                                    <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 }]}>
                                         <Text style={styles.formLabel}>{newMedicine.unit === 'Strip' ? 'UNITS PER STRIP' : 'UNITS PER PACK'}</Text>
                                         <TextInput 
                                             style={styles.formInput}
@@ -827,7 +827,7 @@ const PharmacyInventory = () => {
 
                             {/* Pricing & GST */}
                             <View style={[styles.formRow, isNarrow && { flexDirection: 'row', flexWrap: 'wrap', gap: 12 }]}>
-                                <View style={[styles.formGroup, isNarrow ? { width: '100%', minWidth: '100%', flex: 0 } : {}]}>
+                                <View style={[styles.formGroup, isNarrow ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : {}]}>
                                     <Text style={styles.formLabel}>BUYING PRICE (₹) *</Text>
                                     <TextInput 
                                         style={styles.formInput}
@@ -857,7 +857,7 @@ const PharmacyInventory = () => {
                                         placeholder="0"
                                     />
                                 </View>
-                                <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flex: 0 }]}>
+                                <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 }]}>
                                     <Text style={styles.formLabel}>FINAL AMOUNT (₹)</Text>
                                     <View style={[styles.formInput, { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', justifyContent: 'center' }]}>
                                         <Text style={{ color: '#0369a1', fontWeight: 'bold' }}>
@@ -880,7 +880,7 @@ const PharmacyInventory = () => {
 
                             {/* Selling Price & Batch */}
                             <View style={[styles.formRow, isNarrow && { flexDirection: 'row', flexWrap: 'wrap', gap: 12 }]}>
-                                <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flex: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
+                                <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
                                     <Text style={styles.formLabel}>SELLING PRICE (₹) *</Text>
                                     <TextInput 
                                         style={styles.formInput}
@@ -890,7 +890,7 @@ const PharmacyInventory = () => {
                                         placeholder="0.00"
                                     />
                                 </View>
-                                <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flex: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
+                                <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
                                     <Text style={styles.formLabel}>BATCH NUMBER</Text>
                                     <TextInput 
                                         style={styles.formInput}
@@ -899,7 +899,7 @@ const PharmacyInventory = () => {
                                         placeholder="e.g. BT-2026-001"
                                     />
                                 </View>
-                                <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flex: 0 }]}>
+                                <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 }]}>
                                     <Text style={styles.formLabel}>EXPIRY DATE *</Text>
                                     <DatePickerInput
                                         value={newMedicine.expiryDate}
@@ -907,7 +907,7 @@ const PharmacyInventory = () => {
                                         placeholder="Expiry Date"
                                     />
                                 </View>
-                                <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flex: 0 }]}>
+                                <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 }]}>
                                     <Text style={styles.formLabel}>VENDOR / SUPPLIER</Text>
                                     <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
                                         <View style={{ flex: 1 }}>
@@ -930,7 +930,7 @@ const PharmacyInventory = () => {
 
                             {/* Rack & Min Alert */}
                             <View style={[styles.formRow, isNarrow && { flexDirection: 'row', flexWrap: 'wrap', gap: 12 }]}>
-                                <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flex: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
+                                <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
                                     <Text style={styles.formLabel}>RACK LOCATION</Text>
                                     <TextInput 
                                         style={styles.formInput}
@@ -939,7 +939,7 @@ const PharmacyInventory = () => {
                                         placeholder="e.g. Rack A-3"
                                     />
                                 </View>
-                                <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flex: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
+                                <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
                                     <Text style={styles.formLabel}>MIN STOCK ALERT LEVEL</Text>
                                     <TextInput 
                                         style={styles.formInput}

@@ -14,6 +14,9 @@ import {
     KeyboardAvoidingView,
     Platform
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { refundAdminAPI } from '../../utils/api';
+import socket from '../../utils/socket';
 
 const formatCurrency = (amount) =>
     `₹${Number(amount || 0).toLocaleString('en-IN')}`;
@@ -194,7 +197,8 @@ const HospitalAdminRefunds = () => {
     return (
         <ScrollView
             style={styles.container}
-            contentContainerStyle={{ padding: 16 }}
+            contentContainerStyle={{ padding: isMobile ? 12 : 16 }}
+            nestedScrollEnabled={true}
             refreshControl={
                 <RefreshControl refreshing={refreshing} onRefresh={() => loadRefunds(true)} />
             }
@@ -286,7 +290,7 @@ const HospitalAdminRefunds = () => {
                     </Text>
                 </View>
             ) : (
-                <ScrollView horizontal showsHorizontalScrollIndicator={true}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={true} nestedScrollEnabled={true}>
                     <View style={{ minWidth: 960 }}>
                         {/* Table Header */}
                         <View style={styles.tableHeader}>
@@ -381,17 +385,17 @@ const HospitalAdminRefunds = () => {
 
             {/* Details Modal */}
             {selectedRefund && (
-                <Modal transparent visible animationType="fade">
+                <Modal transparent visible animationType="fade" onRequestClose={() => setSelectedRefund(null)}>
                     <View style={styles.modalOverlay}>
-                        <View style={styles.modalContent}>
+                        <View style={[styles.modalContent, isMobile && { width: '100%', maxWidth: '100%', padding: 14 }]}>
                             <View style={styles.modalHeader}>
                                 <Text style={styles.modalHeaderTitle}>Refund Authorization Details</Text>
-                                <TouchableOpacity onPress={() => setSelectedRefund(null)}>
+                                <TouchableOpacity onPress={() => setSelectedRefund(null)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                                     <Ionicons name="close" size={24} color="#64748b" />
                                 </TouchableOpacity>
                             </View>
 
-                            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: Math.min(480, height * 0.65) }}>
+                            <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled={true} style={{ maxHeight: Math.min(480, height * 0.65) }}>
                                 <View style={styles.modalPatientCard}>
                                     <Text style={{ fontWeight: '700', fontSize: 16, color: '#0f172a' }}>{selectedRefund.patientName}</Text>
                                     <Text style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>MRN: {selectedRefund.patientMRN || '—'}</Text>
@@ -493,10 +497,10 @@ const HospitalAdminRefunds = () => {
                             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                             style={{ width: '100%', maxWidth: 440, alignItems: 'center' }}
                         >
-                            <View style={[styles.modalContent, { width: '100%', maxWidth: 440 }]}>
+                            <View style={[styles.modalContent, { width: '100%', maxWidth: 440 }, isMobile && { width: '100%', padding: 14 }]}>
                                 <View style={styles.modalHeader}>
                                     <Text style={[styles.modalHeaderTitle, { color: '#dc2626' }]}>Reject Refund Request</Text>
-                                    <TouchableOpacity onPress={() => setRejectModal(null)}>
+                                    <TouchableOpacity onPress={() => setRejectModal(null)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                                         <Ionicons name="close" size={24} color="#64748b" />
                                     </TouchableOpacity>
                                 </View>
