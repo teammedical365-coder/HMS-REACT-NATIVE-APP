@@ -15,6 +15,8 @@ import socket from '../../utils/socket';
 import { receptionAPI, hospitalAPI, publicAPI, bedAPI, admissionAPI, uploadAPI, ipdClinicalAPI, policyAPI, patientAuthAPI } from '../../utils/api';
 import { getSubdomain } from '../../utils/subdomain';
 import SlotPicker from '../../components/SlotPicker';
+import DatePickerInput from '../../components/common/DatePickerInput';
+import TimePickerInput from '../../components/common/TimePickerInput';
 
 // NOTE: Do NOT use Dimensions.get at module scope — it is static and
 // won't reflect orientation changes. Use useWindowDimensions() inside component.
@@ -1710,9 +1712,9 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                     <View style={styles.wSearchBar}>
                         <Feather name="search" size={17} color="#94a3b8" style={{ marginRight: 12 }} />
                         <TextInput style={styles.wSearchInput} placeholder="Search Patient by Name, Mobile or MRN..." placeholderTextColor="#94a3b8" value={searchQuery} onChangeText={handleSearchTextChange} />
-                        {searching && <ActivityIndicator size="small" color="#6366f1" />}
+                        {searching ? <ActivityIndicator size="small" color="#6366f1" /> : null}
                     </View>
-                    {searchQuery.trim().length > 0 && searchResults.length > 0 && (
+                    {(searchQuery.trim().length > 0 && searchResults.length > 0) ? (
                         <View style={styles.wSearchDropdown}>
                             {searchResults.map(p => (
                                 <View key={p._id} style={styles.wSearchRow}>
@@ -1731,7 +1733,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                 </View>
                             ))}
                         </View>
-                    )}
+                    ) : null}
                 </View>
                 {/* Quick Access Section */}
                 <View style={styles.wQuickSection}>
@@ -1836,7 +1838,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                         )}
                     </View>
 
-                    {searchQuery.trim().length > 0 && searchResults.length > 0 && (
+                    {(searchQuery.trim().length > 0 && searchResults.length > 0) ? (
                         <View style={styles.deskSearchResultsDropdown}>
                             {searchResults.map(p => (
                                 <View key={p._id} style={styles.deskSearchResultItem}>
@@ -1863,7 +1865,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                 </View>
                             ))}
                         </View>
-                    )}
+                    ) : null}
                 </View>
 
                 {/* 1. HERO BANNER WITH RECEPTIONIST GREETING & QUICK ACTIONS (P2.3 1:1 Web) */}
@@ -3770,23 +3772,24 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
     // ─── MODALS RENDERING ───────────────────────────────────────────────────
     const renderModals = () => (
         <>
-            {/* Hospitalize Modal (P1.3 Doctor Orders & P1.4 Active Admission Warning 1:1 Web) */}
+            {/* Hospitalize Modal (100% 1:1 Parity with Web ReceptionDashboard.jsx) */}
             <Modal visible={hospitalizeModal.open} transparent animationType="fade">
                 <View style={styles.modalOverlay}>
-                    <View style={[styles.modalCard, { maxHeight: '90%' }]}>
+                    <View style={[styles.modalCard, { maxHeight: '92%', maxWidth: isMobile ? '96%' : 640 }]}>
                         <ScrollView showsVerticalScrollIndicator={false}>
                             <View style={styles.modalHeader}>
-                                <Text style={styles.modalTitle}>🏥 Hospitalize Patient</Text>
-                                <TouchableOpacity onPress={() => setHospitalizeModal({ open: false, appointment: null })}>
+                                <View style={{ flex: 1, marginRight: 10 }}>
+                                    <Text style={styles.modalTitle}>🏥 Hospitalize Patient</Text>
+                                    <Text style={[styles.modalPatientSub, { marginTop: 3 }]}>
+                                        {hospitalizeModal.appointment?.userId?.name || hospitalizeModal.appointment?.patientName || 'Patient'} — Dr. {hospitalizeModal.appointment?.doctorName || hospitalizeDoctorOrders[0]?.doctorId?.name || 'Doctor'}
+                                    </Text>
+                                </View>
+                                <TouchableOpacity onPress={() => setHospitalizeModal({ open: false, appointment: null })} style={{ padding: 4 }}>
                                     <Feather name="x" size={20} color="#64748b" />
                                 </TouchableOpacity>
                             </View>
-                            <Text style={styles.modalPatientSub}>
-                                Patient: <Text style={{ fontWeight: '800', color: '#0f172a' }}>{hospitalizeModal.appointment?.userId?.name || hospitalizeModal.appointment?.patientName || 'Patient'}</Text>
-                                {' — Dr. '}{hospitalizeModal.appointment?.doctorName || hospitalizeDoctorOrders[0]?.doctorId?.name || 'Doctor'}
-                            </Text>
 
-                            {/* P1.4 ACTIVE ADMISSION IN-MODAL WARNING BANNER */}
+                            {/* ACTIVE ADMISSION WARNING BANNER (Exact Web parity) */}
                             {Boolean(existingActiveAdmission) ? (
                                 <View style={{
                                     backgroundColor: '#fef2f2',
@@ -3828,76 +3831,195 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                 </View>
                             ) : null}
 
-                            {/* P1.3 DOCTOR CLINICAL DECISION & MEDICINES ORDERED */}
-                            <View style={{ backgroundColor: '#f8fafc', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 14 }}>
-                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                                    <Text style={{ fontWeight: '800', fontSize: 12, color: '#1e293b' }}>
+                            {/* DOCTOR CLINICAL DECISION & MEDICINES ORDERED (Exact Web 1:1) */}
+                            <View style={{
+                                backgroundColor: '#f8fafc',
+                                borderWidth: 1.5,
+                                borderColor: '#e2e8f0',
+                                borderRadius: 10,
+                                padding: 14,
+                                marginBottom: 16
+                            }}>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, borderBottomWidth: 1, borderBottomColor: '#e2e8f0', paddingBottom: 8 }}>
+                                    <Text style={{ fontWeight: '700', fontSize: 13, color: '#1e293b' }}>
                                         🩺 Doctor Clinical Recommendation
                                     </Text>
-                                    <Text style={{ fontSize: 11, color: '#64748b' }}>
-                                        {hospitalizeDoctorOrders.length} Order{hospitalizeDoctorOrders.length === 1 ? '' : 's'}
-                                    </Text>
+                                    <View style={{ backgroundColor: '#e0f2fe', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 9999 }}>
+                                        <Text style={{ color: '#0369a1', fontSize: 10, fontWeight: '700', textTransform: 'uppercase' }}>
+                                            Authoritative &amp; Locked
+                                        </Text>
+                                    </View>
                                 </View>
-                                {loadingHospitalizeOrders ? (
-                                    <ActivityIndicator size="small" color="#0d9488" style={{ padding: 10 }} />
-                                ) : hospitalizeDoctorOrders.length > 0 ? (
-                                    hospitalizeDoctorOrders.map((ord, oIdx) => (
-                                        <View key={ord._id || oIdx} style={{ paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
-                                            <Text style={{ fontSize: 12, fontWeight: '700', color: '#0f172a' }}>
-                                                {ord.orderType || 'IPD Order'}: {ord.instructions || ord.notes || 'Admission indicated'}
+
+                                <View style={{ flexDirection: isMobile ? 'column' : 'row', gap: 10, marginBottom: 10 }}>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={{ color: '#64748b', fontSize: 11 }}>Patient</Text>
+                                        <Text style={{ color: '#0f172a', fontWeight: '700', fontSize: 13 }}>
+                                            {hospitalizeModal.appointment?.userId?.name || hospitalizeModal.appointment?.patientName || 'Patient'}
+                                        </Text>
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={{ color: '#64748b', fontSize: 11 }}>Attending Doctor</Text>
+                                        <Text style={{ color: '#0f172a', fontWeight: '700', fontSize: 13 }}>
+                                            Dr. {hospitalizeModal.appointment?.doctorName || hospitalizeDoctorOrders[0]?.doctorId?.name || 'Assigned Doctor'}
+                                        </Text>
+                                    </View>
+                                </View>
+                                <View style={{ flexDirection: isMobile ? 'column' : 'row', gap: 10, marginBottom: 10 }}>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={{ color: '#64748b', fontSize: 11 }}>Admission Reason</Text>
+                                        <Text style={{ color: '#1e293b', fontWeight: '600', fontSize: 12 }}>
+                                            {hospitalizeDoctorOrders[0]?.admissionReason || hospitalizeModal.appointment?.reason || 'Inpatient Admission Recommended'}
+                                        </Text>
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={{ color: '#64748b', fontSize: 11 }}>Diagnosis</Text>
+                                        <Text style={{ color: '#1e293b', fontWeight: '600', fontSize: 12 }}>
+                                            {hospitalizeDoctorOrders[0]?.diagnosis || hospitalizeModal.appointment?.diagnosis || hospitalizeModal.appointment?.serviceName || 'Clinical Diagnosis on File'}
+                                        </Text>
+                                    </View>
+                                </View>
+
+                                {hospitalizeDoctorOrders[0]?.clinicalNotes ? (
+                                    <View style={{ backgroundColor: '#fff', padding: 8, borderRadius: 6, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 10 }}>
+                                        <Text style={{ color: '#64748b', fontWeight: '600', fontSize: 11 }}>Clinical Notes:</Text>
+                                        <Text style={{ color: '#334155', fontSize: 12 }}>{hospitalizeDoctorOrders[0].clinicalNotes}</Text>
+                                    </View>
+                                ) : null}
+
+                                {/* Medicines Ordered */}
+                                <View style={{ marginTop: 4 }}>
+                                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#475569', marginBottom: 6 }}>
+                                        💊 Medicines Ordered ({hospitalizeDoctorOrders.length}):
+                                    </Text>
+                                    {loadingHospitalizeOrders ? (
+                                        <Text style={{ fontSize: 12, color: '#3b82f6', fontStyle: 'italic' }}>Loading clinical orders...</Text>
+                                    ) : hospitalizeDoctorOrders.length === 0 ? (
+                                        <View style={{ backgroundColor: '#fff', padding: 8, borderRadius: 6, borderWidth: 1, borderColor: '#cbd5e1', borderStyle: 'dashed' }}>
+                                            <Text style={{ fontSize: 11.5, color: '#94a3b8', fontStyle: 'italic' }}>
+                                                No active medication orders recorded yet. (Doctor can prescribe orders directly from the IPD Orders tab).
                                             </Text>
-                                            {ord.medications?.length > 0 && (
-                                                <Text style={{ fontSize: 11, color: '#64748b' }}>
-                                                    Meds: {ord.medications.map(m => m.name || m).join(', ')}
+                                        </View>
+                                    ) : (
+                                        hospitalizeDoctorOrders.map((ord, idx) => (
+                                            <View key={ord._id || idx} style={{ marginBottom: 4, paddingLeft: 6 }}>
+                                                <Text style={{ fontSize: 12, color: '#1e293b' }}>
+                                                    • <Text style={{ fontWeight: '700' }}>{ord.medicineName}</Text> — {ord.dosage?.value || ''} {ord.dosage?.unit || ''}, {ord.route || ''}, {ord.frequency || ''} {ord.schedule?.duration ? `(${ord.schedule.duration})` : ''} {ord.instructions ? `— ${ord.instructions}` : ''}
+                                                </Text>
+                                            </View>
+                                        ))
+                                    )}
+                                </View>
+                            </View>
+
+                            {/* WARD SELECTION */}
+                            {(() => {
+                                const availableWards = Array.from(new Set(availableBeds.map(b => b.ward).filter(Boolean)));
+                                const displayWards = availableWards.length > 0 ? availableWards : ['General', 'Semi-Private', 'Private', 'ICU'];
+                                const wardBeds = availableBeds.filter(b => b.ward === hospitalizeForm.ward);
+
+                                return (
+                                    <>
+                                        <Text style={styles.modalSectionLabel}>Select Ward *</Text>
+                                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
+                                            {displayWards.map(w => (
+                                                <TouchableOpacity 
+                                                    key={w} 
+                                                    onPress={() => setHospitalizeForm(p => ({ ...p, ward: w, bedId: '' }))}
+                                                    style={[styles.modalPill, hospitalizeForm.ward === w && styles.modalPillActive]}
+                                                    disabled={!!existingActiveAdmission}
+                                                >
+                                                    <Text style={[styles.modalPillText, hospitalizeForm.ward === w && styles.modalPillTextActive]}>{w}</Text>
+                                                </TouchableOpacity>
+                                            ))}
+                                        </ScrollView>
+
+                                        <Text style={styles.modalSectionLabel}>Select Available Bed *</Text>
+                                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
+                                            {wardBeds.length > 0 ? (
+                                                wardBeds.map(b => (
+                                                    <TouchableOpacity 
+                                                        key={b._id} 
+                                                        onPress={() => setHospitalizeForm(p => ({ ...p, bedId: b._id }))}
+                                                        style={[styles.bedChip, hospitalizeForm.bedId === b._id && styles.bedChipActive]}
+                                                        disabled={!!existingActiveAdmission}
+                                                    >
+                                                        <Text style={[styles.bedChipText, hospitalizeForm.bedId === b._id && styles.bedChipTextActive]}>
+                                                            Bed #{b.bedNumber} ({b.bedType || 'Standard'})
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                ))
+                                            ) : (
+                                                <Text style={{ color: '#ef4444', fontStyle: 'italic', fontSize: 12, paddingVertical: 4 }}>
+                                                    {hospitalizeForm.ward ? `No vacant beds found in ${hospitalizeForm.ward} ward.` : 'Please select a ward first.'}
                                                 </Text>
                                             )}
+                                        </ScrollView>
+
+                                        {/* ADMISSION DATE & TIME */}
+                                        <View style={{ flexDirection: isMobile ? 'column' : 'row', gap: 12, marginBottom: 14 }}>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={styles.modalSectionLabel}>Admission Date *</Text>
+                                                <DatePickerInput
+                                                    value={hospitalizeForm.admissionDate}
+                                                    onChange={d => setHospitalizeForm(p => ({ ...p, admissionDate: d }))}
+                                                    placeholder="Admission Date"
+                                                    disabled={!!existingActiveAdmission}
+                                                />
+                                            </View>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={styles.modalSectionLabel}>Admission Time *</Text>
+                                                <TimePickerInput
+                                                    value={hospitalizeForm.admissionTime}
+                                                    onChange={t => setHospitalizeForm(p => ({ ...p, admissionTime: t }))}
+                                                    placeholder="Admission Time"
+                                                    disabled={!!existingActiveAdmission}
+                                                />
+                                            </View>
                                         </View>
-                                    ))
-                                ) : (
-                                    <Text style={{ fontSize: 11, color: '#64748b', fontStyle: 'italic' }}>
-                                        No specific IPD clinical order records found. Proceed with standard admission.
-                                    </Text>
-                                )}
-                            </View>
 
-                            <Text style={styles.modalSectionLabel}>Select Ward:</Text>
-                            <View style={styles.modalRowSelector}>
-                                {['General', 'Semi-Private', 'Private', 'ICU'].map(w => (
-                                    <TouchableOpacity 
-                                        key={w} 
-                                        onPress={() => setHospitalizeForm(p => ({ ...p, ward: w }))}
-                                        style={[styles.modalPill, hospitalizeForm.ward === w && styles.modalPillActive]}
-                                        disabled={!!existingActiveAdmission}
-                                    >
-                                        <Text style={[styles.modalPillText, hospitalizeForm.ward === w && styles.modalPillTextActive]}>{w}</Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </View>
+                                        {/* DYNAMIC WARD PRICING BANNER */}
+                                        {Boolean(hospitalizeForm.ward) ? (() => {
+                                            const matchedFacility = hospitalContext?.facilities?.find(f => 
+                                                (f.name || '').toLowerCase().includes(hospitalizeForm.ward.toLowerCase()) || 
+                                                hospitalizeForm.ward.toLowerCase().includes((f.name || '').toLowerCase())
+                                            );
+                                            const pricePerDay = matchedFacility?.pricePerDay || (hospitalizeForm.ward.toLowerCase().includes('icu') ? 20000 : 5000);
+                                            const hourlyRate = Math.round((pricePerDay / 24) * 100) / 100;
+                                            return (
+                                                <View style={{ backgroundColor: '#eff6ff', padding: 14, borderRadius: 10, borderWidth: 1, borderColor: '#bfdbfe', marginBottom: 16 }}>
+                                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                                                        <View>
+                                                            <Text style={{ fontWeight: '700', color: '#1e40af', fontSize: 14 }}>{hospitalizeForm.ward}</Text>
+                                                            <Text style={{ fontSize: 11, color: '#3b82f6' }}>Dynamic Duration &amp; Inpatient Billing</Text>
+                                                        </View>
+                                                        <View style={{ alignItems: 'flex-end' }}>
+                                                            <Text style={{ fontWeight: '800', color: '#1d4ed8', fontSize: 15 }}>
+                                                                ₹{pricePerDay.toLocaleString('en-IN')}/day
+                                                            </Text>
+                                                            <Text style={{ fontSize: 11.5, color: '#64748b', fontWeight: '600' }}>
+                                                                (₹{hourlyRate.toLocaleString('en-IN')}/hour)
+                                                            </Text>
+                                                        </View>
+                                                    </View>
+                                                    <View style={{ backgroundColor: '#ffffff', padding: 8, borderRadius: 6, borderWidth: 1, borderColor: '#dbeafe', marginTop: 4 }}>
+                                                        <Text style={{ fontSize: 11, color: '#475569', lineHeight: 15 }}>
+                                                            ℹ️ <Text style={{ fontWeight: '700' }}>Hourly &amp; Daily Billing:</Text> Charges will be calculated dynamically based on exact hours and days spent in this ward when transferred or discharged (e.g. 4 hrs in ICU = ₹{(hourlyRate * 4).toLocaleString('en-IN')}).
+                                                        </Text>
+                                                    </View>
+                                                </View>
+                                            );
+                                        })() : null}
+                                    </>
+                                );
+                            })()}
 
-                            <Text style={styles.modalSectionLabel}>Select Available Bed:</Text>
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
-                                {availableBeds.length > 0 ? (
-                                    availableBeds.map(b => (
-                                        <TouchableOpacity 
-                                            key={b._id} 
-                                            onPress={() => setHospitalizeForm(p => ({ ...p, bedId: b._id }))}
-                                            style={[styles.bedChip, hospitalizeForm.bedId === b._id && styles.bedChipActive]}
-                                            disabled={!!existingActiveAdmission}
-                                        >
-                                            <Text style={[styles.bedChipText, hospitalizeForm.bedId === b._id && styles.bedChipTextActive]}>
-                                                Bed #{b.bedNumber} ({b.ward || 'General'})
-                                            </Text>
-                                        </TouchableOpacity>
-                                    ))
-                                ) : (
-                                    <Text style={{ color: '#ef4444', fontStyle: 'italic', fontSize: 12 }}>No vacant beds found.</Text>
-                                )}
-                            </ScrollView>
-
-                            <Text style={styles.modalSectionLabel}>Admission Notes / Reason:</Text>
+                            <Text style={styles.modalSectionLabel}>Admission Notes (Administrative):</Text>
                             <TextInput 
-                                placeholder="Reason for hospitalization..."
-                                style={styles.modalInput}
+                                placeholder="Any administrative observations, attendant info, or admission remarks..."
+                                style={[styles.modalInput, { minHeight: 64, textAlignVertical: 'top' }]}
+                                multiline
+                                numberOfLines={3}
                                 value={hospitalizeForm.notes}
                                 onChangeText={t => setHospitalizeForm(p => ({ ...p, notes: t }))}
                                 editable={!existingActiveAdmission}

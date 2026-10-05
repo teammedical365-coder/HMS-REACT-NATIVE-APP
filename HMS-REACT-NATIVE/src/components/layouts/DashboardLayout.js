@@ -292,7 +292,7 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
                                 isCentralAdmin && styles.caSidebarLink,
                                 isActive && !isCentralAdmin && styles.sidebarLinkActive,
                                 isActive && isCentralAdmin && themeObj.bg,
-                                Platform.select({ web: { transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)', cursor: 'pointer' } }),
+                                Platform.select({ web: { transitionProperty: 'all', transitionDuration: '0.2s', transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)', cursor: 'pointer' } }),
                                 !isActive && hovered && {
                                     backgroundColor: '#f1f5f9',
                                     transform: [{ translateX: 3 }],
@@ -327,7 +327,7 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
                 {(isCentralAdmin || role === 'hospitaladmin' || role === 'doctor' || role === 'clinic doctor' || Boolean(currentPath && (currentPath === 'DoctorDashboard' || currentPath === 'DoctorPatients' || currentPath === 'DoctorPatientDetails' || currentPath === 'AIAssistant' || currentPath === 'SurgeryReferrals' || currentPath === 'MySurgeryPlans' || currentPath === 'LabReports'))) && isOpen && (
                     <Pressable
                         style={({ pressed, hovered }) => [
-                            Platform.select({ web: { transition: 'all 0.2s ease', cursor: 'pointer' } }),
+                            Platform.select({ web: { transitionProperty: 'all', transitionDuration: '0.2s', transitionTimingFunction: 'ease', cursor: 'pointer' } }),
                             hovered && {
                                 transform: [{ translateY: -2 }],
                                 ...Platform.select({ web: { filter: 'drop-shadow(0 6px 14px rgba(6, 182, 212, 0.2))' } })
@@ -351,7 +351,7 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
                     style={({ pressed, hovered }) => [
                         styles.sidebarLink,
                         !isOpen && styles.sidebarLinkCollapsed,
-                        Platform.select({ web: { transition: 'all 0.2s ease', cursor: 'pointer' } }),
+                        Platform.select({ web: { transitionProperty: 'all', transitionDuration: '0.2s', transitionTimingFunction: 'ease', cursor: 'pointer' } }),
                         hovered && {
                             backgroundColor: '#fef2f2',
                             transform: [{ translateX: 3 }],
@@ -506,8 +506,8 @@ const TopBar = ({ toggleSidebar, sidebarOpen, isMobile }) => {
 
                 {isCentralAdmin ? (
                     <View style={styles.caTopbarBreadcrumb}>
-                        {!isMobile && <Text style={styles.caBcUserType}>Superadmin</Text>}
-                        {!isMobile && <Text style={styles.caBcDivider}>/</Text>}
+                        {!isMobile ? <Text style={styles.caBcUserType}>Superadmin</Text> : null}
+                        {!isMobile ? <Text style={styles.caBcDivider}>/</Text> : null}
                         <View style={styles.caBcTag}>
                             <Text style={[{ color: '#2563eb', fontSize: 11.5, fontWeight: '800' }]}>
                                 {getCentralAdminTag()}
@@ -516,14 +516,14 @@ const TopBar = ({ toggleSidebar, sidebarOpen, isMobile }) => {
                     </View>
                 ) : (
                     <View style={styles.breadcrumbWrap}>
-                        {!isMobile && (
+                        {!isMobile ? (
                             <>
                                 <Text style={styles.currPageName} numberOfLines={1}>{formatPageName(currentPath)}</Text>
                                 <Text style={styles.pathSlash}>/</Text>
                             </>
-                        )}
+                        ) : null}
                         <Text style={[styles.pathUserRole, isMobile && { fontSize: 10.5, paddingHorizontal: 6 }]} numberOfLines={1}>
-                            {(user?.role || 'Hospital Admin').toUpperCase()}
+                            {(typeof user?.role === 'object' ? user?.role?.name : (user?.role || role || 'Hospital Admin')).toUpperCase()}
                         </Text>
                     </View>
                 )}

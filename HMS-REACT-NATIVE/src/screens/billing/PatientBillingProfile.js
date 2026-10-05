@@ -1124,13 +1124,51 @@ const PatientBillingProfile = () => {
     const printPdfDocument = async (htmlContent) => {
         try {
             if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                const printWindow = window.open('', '_blank');
+                let printWindow = null;
+                try {
+                    printWindow = window.open('', '_blank', 'width=850,height=950');
+                } catch (e) {
+                    printWindow = null;
+                }
                 if (printWindow) {
+                    printWindow.document.open();
                     printWindow.document.write(htmlContent);
                     printWindow.document.close();
-                    printWindow.focus();
-                    setTimeout(() => printWindow.print(), 250);
+                    setTimeout(() => {
+                        try {
+                            printWindow.focus();
+                            printWindow.print();
+                        } catch (err) {}
+                    }, 350);
                     return;
+                } else {
+                    // Direct native print dialog via hidden iframe if popup blocker intervenes (Exact Web parity)
+                    let frame = document.getElementById('hospital-print-frame');
+                    if (!frame) {
+                        frame = document.createElement('iframe');
+                        frame.id = 'hospital-print-frame';
+                        frame.style.position = 'fixed';
+                        frame.style.right = '0';
+                        frame.style.bottom = '0';
+                        frame.style.width = '0';
+                        frame.style.height = '0';
+                        frame.style.border = '0';
+                        document.body.appendChild(frame);
+                    }
+                    const frameDoc = frame.contentWindow || frame.contentDocument?.document || frame.contentDocument;
+                    if (frameDoc && (frameDoc.document || frameDoc.write)) {
+                        const doc = frameDoc.document || frameDoc;
+                        doc.open();
+                        doc.write(htmlContent);
+                        doc.close();
+                        setTimeout(() => {
+                            try {
+                                (frame.contentWindow || frameDoc).focus();
+                                (frame.contentWindow || frameDoc).print();
+                            } catch (err) {}
+                        }, 400);
+                        return;
+                    }
                 }
             }
             await Print.printAsync({ html: htmlContent });
@@ -2354,6 +2392,11 @@ const PatientBillingProfile = () => {
             </div>
         </div>
     </div>
+    <script>
+        window.onload = function() {
+            setTimeout(function() { window.print(); }, 250);
+        };
+    </script>
 </body>
 </html>`;
 
@@ -2515,25 +2558,48 @@ const PatientBillingProfile = () => {
 
             {/* Navigation Tabs (Only for staff, hidden for Hospital Admin - Exact Web line 1806) */}
             {!isHospitalAdmin && (
-                <View style={styles.billingNavTabs}>
+                <ScrollView 
+                    horizontal 
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={[
+                        styles.billingNavTabs,
+                        isMobile && { flexWrap: 'nowrap', paddingBottom: 6 }
+                    ]}
+                    style={{ marginBottom: 20, borderBottomWidth: 2, borderBottomColor: '#e2e8f0' }}
+                >
                     <TouchableOpacity
-                        style={[styles.billingNavTabBtn, activeTab === 'patient' && styles.billingNavTabBtnActive]}
+                        style={[
+                            styles.billingNavTabBtn,
+                            activeTab === 'patient' && styles.billingNavTabBtnActive,
+                            isMobile && { paddingHorizontal: 12, paddingVertical: 10 }
+                        ]}
                         onPress={() => setActiveTab('patient')}
                         activeOpacity={0.8}
                     >
                         <Text style={styles.bntIcon}>💳</Text>
-                        <Text style={[styles.bntTitle, activeTab === 'patient' && styles.bntTitleActive]}>
+                        <Text 
+                            style={[
+                                styles.bntTitle, 
+                                activeTab === 'patient' && styles.bntTitleActive,
+                                isMobile && { fontSize: 13 }
+                            ]}
+                            numberOfLines={1}
+                        >
                             Individual Patient Billing
                         </Text>
                         {patient ? (
-                            <View style={styles.bntBadgeActive}>
-                                <Text style={styles.bntBadgeActiveText} numberOfLines={1}>{patient.name}</Text>
+                            <View style={[styles.bntBadgeActive, isMobile && { maxWidth: 110 }]}>
+                                <Text style={styles.bntBadgeActiveText} numberOfLines={1} ellipsizeMode="tail">{patient.name}</Text>
                             </View>
                         ) : null}
                     </TouchableOpacity>
 
                     <TouchableOpacity
-                        style={[styles.billingNavTabBtn, activeTab === 'history' && styles.billingNavTabBtnActive]}
+                        style={[
+                            styles.billingNavTabBtn,
+                            activeTab === 'history' && styles.billingNavTabBtnActive,
+                            isMobile && { paddingHorizontal: 12, paddingVertical: 10 }
+                        ]}
                         onPress={() => {
                             setActiveTab('history');
                             fetchHospitalHistory();
@@ -2541,14 +2607,21 @@ const PatientBillingProfile = () => {
                         activeOpacity={0.8}
                     >
                         <Text style={styles.bntIcon}>📜</Text>
-                        <Text style={[styles.bntTitle, activeTab === 'history' && styles.bntTitleActive]}>
+                        <Text 
+                            style={[
+                                styles.bntTitle, 
+                                activeTab === 'history' && styles.bntTitleActive,
+                                isMobile && { fontSize: 13 }
+                            ]}
+                            numberOfLines={1}
+                        >
                             Hospital Billing & Payment History
                         </Text>
                         <View style={styles.bntBadge}>
                             <Text style={styles.bntBadgeText}>{historyMetrics.count || historyTransactions.length}</Text>
                         </View>
                     </TouchableOpacity>
-                </View>
+                </ScrollView>
             )}
 
             {/* ========================================================================= */}
@@ -2678,7 +2751,7 @@ const PatientBillingProfile = () => {
                                             activeOpacity={0.8}
                                         >
                                             <Text style={styles.haPatBtnPrintText}>
-                                                {width >= 768 ? '🖨️ Print Consolidated Bill' : '📥 Download'}
+                                                {width >= 768 ? '🖨️ Print Consolidated Bill' : '🖨️ Print Bill'}
                                             </Text>
                                         </TouchableOpacity>
                                     </View>
@@ -4316,22 +4389,22 @@ const styles = StyleSheet.create({
     billingNavTabs: {
         flexDirection: 'row',
         gap: 12,
-        marginBottom: 24,
-        borderBottomWidth: 2,
-        borderBottomColor: '#e2e8f0',
-        paddingBottom: 12,
-        flexWrap: 'wrap',
+        marginBottom: 0,
+        paddingBottom: 4,
+        alignItems: 'center',
     },
     billingNavTabBtn: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 10,
-        paddingVertical: 12,
-        paddingHorizontal: 22,
+        paddingVertical: 11,
+        paddingHorizontal: 18,
         backgroundColor: '#f8fafc',
         borderWidth: 1,
         borderColor: '#e2e8f0',
         borderRadius: 10,
+        maxWidth: '100%',
+        flexShrink: 0,
     },
     billingNavTabBtnActive: {
         backgroundColor: '#0f766e',
@@ -4349,6 +4422,7 @@ const styles = StyleSheet.create({
         fontSize: 14,
         fontWeight: '600',
         color: '#475569',
+        flexShrink: 1,
     },
     bntTitleActive: {
         color: '#ffffff',
@@ -4359,6 +4433,7 @@ const styles = StyleSheet.create({
         paddingVertical: 2,
         borderRadius: 20,
         backgroundColor: '#e2e8f0',
+        flexShrink: 0,
     },
     bntBadgeText: {
         fontSize: 11,
@@ -4370,6 +4445,8 @@ const styles = StyleSheet.create({
         paddingVertical: 2,
         borderRadius: 20,
         backgroundColor: 'rgba(255, 255, 255, 0.25)',
+        maxWidth: 140,
+        flexShrink: 1,
     },
     bntBadgeActiveText: {
         fontSize: 11,

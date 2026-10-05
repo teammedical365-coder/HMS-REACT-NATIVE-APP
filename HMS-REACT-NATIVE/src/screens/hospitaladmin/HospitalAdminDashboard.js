@@ -1311,7 +1311,7 @@ const HospitalAdminDashboard = () => {
                                     style={[
                                         styles.haAiTabBtn,
                                         !isMobile ? { flex: 1, minWidth: 0, paddingHorizontal: 6 } : { flex: 0, flexShrink: 0, minWidth: isSmallMobile ? 74 : 84, paddingHorizontal: 6 },
-                                        Platform.select({ web: { cursor: 'pointer', userSelect: 'none', transition: 'all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)' } }),
+                                        Platform.select({ web: { cursor: 'pointer', userSelect: 'none', transitionProperty: 'all', transitionDuration: '0.2s', transitionTimingFunction: 'cubic-bezier(0.34, 1.56, 0.64, 1)' } }),
                                         isTabActive && styles.haAiTabBtnActive
                                     ]}
                                     onPress={() => setActiveTab(tab.id)}
