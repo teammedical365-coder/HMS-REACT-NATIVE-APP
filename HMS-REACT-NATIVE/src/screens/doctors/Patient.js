@@ -465,8 +465,8 @@ const Patient = ({ route: propRoute } = {}) => {
             )}
 
             {/* ─── 1. CLEAN HEALTHCARE SAAS BANNER (NO ADD PATIENT BUTTON) ─── */}
-            <View style={styles.modernBanner}>
-                <View style={styles.bannerLeft}>
+            <View style={[styles.modernBanner, isMobile && styles.modernBannerMobile]}>
+                <View style={[styles.bannerLeft, isMobile && { minWidth: 0, width: '100%' }]}>
                     <View style={styles.titleRow}>
                         <Text style={styles.exactTitle}>Patient Queue & Consultations</Text>
                         <View style={styles.roleBadge}>
@@ -478,7 +478,7 @@ const Patient = ({ route: propRoute } = {}) => {
                     </Text>
                 </View>
 
-                <View style={styles.bannerRight}>
+                <View style={[styles.bannerRight, isMobile && { width: '100%', justifyContent: 'flex-start', marginTop: 8 }]}>
                     <TouchableOpacity
                         style={[styles.bannerRefreshBtn, refreshing && styles.bannerRefreshBtnDisabled]}
                         onPress={handleManualRefresh}
@@ -1175,9 +1175,14 @@ const styles = StyleSheet.create({
         shadowRadius: 6,
         elevation: 1,
     },
+    modernBannerMobile: {
+        flexDirection: 'column',
+        alignItems: 'flex-start',
+        padding: 16,
+    },
     bannerLeft: {
         flex: 1,
-        minWidth: 260,
+        minWidth: 220,
     },
     titleRow: {
         flexDirection: 'row',
@@ -1243,6 +1248,8 @@ const styles = StyleSheet.create({
         borderRadius: 12,
         paddingHorizontal: 14,
         paddingVertical: 8,
+        maxWidth: '100%',
+        flexShrink: 1,
     },
     dateIconWrap: {
         width: 30,

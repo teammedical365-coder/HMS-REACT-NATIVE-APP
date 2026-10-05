@@ -177,6 +177,14 @@ const DoctorDashboard = () => {
       iconColor: '#db2777',
       path: 'DoctorPatients',
     },
+    {
+      id: 'surgeries_view',
+      title: 'Surgeries & OT',
+      icon: <Feather name="scissors" size={14} color="#0d9488" />,
+      iconBg: '#ccfbf1',
+      iconColor: '#0d9488',
+      path: 'DoctorSurgeries',
+    },
   ];
 
   const downloadReceiptPDF = async (apt) => {

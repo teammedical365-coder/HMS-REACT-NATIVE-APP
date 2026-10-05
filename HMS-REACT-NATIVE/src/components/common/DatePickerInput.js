@@ -21,7 +21,7 @@ const DatePickerInput = ({
 }) => {
     if (Platform.OS === 'web') {
         return (
-            <div style={{ position: 'relative', width: '100%', maxWidth: '100%', display: 'flex', alignItems: 'center' }}>
+            <div style={{ position: 'relative', width: '100%', maxWidth: '100%', minWidth: 0, display: 'flex', alignItems: 'center', boxSizing: 'border-box', ...(typeof style === 'object' ? style : {}) }}>
                 <style dangerouslySetInnerHTML={{ __html: `
                     .hms-date-picker-input::-webkit-calendar-picker-indicator {
                         position: absolute;
@@ -54,6 +54,8 @@ const DatePickerInput = ({
                     }}
                     style={{
                         width: '100%',
+                        maxWidth: '100%',
+                        minWidth: 0,
                         height: '42px',
                         padding: '8px 14px 8px 36px',
                         borderRadius: '10px',

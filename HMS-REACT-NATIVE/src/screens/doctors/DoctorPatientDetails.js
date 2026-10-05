@@ -2042,8 +2042,8 @@ const DoctorPatientDetails = () => {
                             </View>
 
                             {Platform.OS === 'web' ? (
-                                <div style={{ display: 'flex', gap: '12px', width: '100%', marginTop: '6px' }}>
-                                    <div style={{ flex: 1 }}>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', width: '100%', marginTop: '6px' }}>
+                                    <div style={{ flex: '1 1 180px', minWidth: 0 }}>
                                         <label style={{ display: 'block', fontSize: '12.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>Preferred Date *</label>
                                         <input 
                                             type="date" 
@@ -2051,17 +2051,17 @@ const DoctorPatientDetails = () => {
                                             min={new Date().toISOString().split('T')[0]} 
                                             value={surgeryPlanData.preferredDate} 
                                             onChange={e => setSurgeryPlanData(prev => ({...prev, preferredDate: e.target.value}))} 
-                                            style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1.5px solid #cbd5e1', boxSizing: 'border-box', fontSize: '13.5px', backgroundColor: '#ffffff', color: '#0f172a' }} 
+                                            style={{ width: '100%', maxWidth: '100%', minWidth: 0, padding: '9px 12px', borderRadius: '8px', border: '1.5px solid #cbd5e1', boxSizing: 'border-box', fontSize: '13.5px', backgroundColor: '#ffffff', color: '#0f172a' }} 
                                         />
                                     </div>
-                                    <div style={{ flex: 1 }}>
+                                    <div style={{ flex: '1 1 180px', minWidth: 0 }}>
                                         <label style={{ display: 'block', fontSize: '12.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>Preferred Time *</label>
                                         <input 
                                             type="time" 
                                             required 
                                             value={surgeryPlanData.preferredTime} 
                                             onChange={e => setSurgeryPlanData(prev => ({...prev, preferredTime: e.target.value}))} 
-                                            style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1.5px solid #cbd5e1', boxSizing: 'border-box', fontSize: '13.5px', backgroundColor: '#ffffff', color: '#0f172a' }} 
+                                            style={{ width: '100%', maxWidth: '100%', minWidth: 0, padding: '9px 12px', borderRadius: '8px', border: '1.5px solid #cbd5e1', boxSizing: 'border-box', fontSize: '13.5px', backgroundColor: '#ffffff', color: '#0f172a' }} 
                                         />
                                     </div>
                                 </div>

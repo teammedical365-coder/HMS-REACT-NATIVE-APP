@@ -37,6 +37,7 @@ import DoctorPatientDetails from '../screens/doctors/DoctorPatientDetails';
 import AIAssistant from '../screens/doctors/AIAssistant';
 import SurgeryReferrals from '../screens/doctors/SurgeryReferrals';
 import MySurgeryPlans from '../screens/doctors/MySurgeryPlans';
+import DoctorSurgeries from '../screens/doctors/DoctorSurgeries';
 import LabReports from '../screens/user/LabReports';
 
 // -- OT Pages --
@@ -171,6 +172,7 @@ export const HospitalAdminApp = () => {
             <Stack.Screen name="AIAssistant" component={withLayout(AIAssistant)} />
             <Stack.Screen name="SurgeryReferrals" component={withLayout(SurgeryReferrals)} />
             <Stack.Screen name="MySurgeryPlans" component={withLayout(MySurgeryPlans)} />
+            <Stack.Screen name="DoctorSurgeries" component={withLayout(DoctorSurgeries)} />
             <Stack.Screen name="UnifiedPatientProfile" component={withLayout(UnifiedPatientProfile)} />
             <Stack.Screen name="DoctorPatientProfile" component={withLayout(UnifiedPatientProfile)} />
             <Stack.Screen name="LabReports" component={withLayout(LabReports)} />
@@ -230,6 +232,7 @@ export const DoctorApp = () => (
         <Stack.Screen name="AIAssistant" component={withLayout(AIAssistant)} />
         <Stack.Screen name="SurgeryReferrals" component={withLayout(SurgeryReferrals)} />
         <Stack.Screen name="MySurgeryPlans" component={withLayout(MySurgeryPlans)} />
+        <Stack.Screen name="DoctorSurgeries" component={withLayout(DoctorSurgeries)} />
         <Stack.Screen name="IPDCommandCenter" component={withLayout(IPDCommandCenter)} />
         <Stack.Screen name="NursePatientWorkspace" component={withLayout(NursePatientWorkspace)} />
         <Stack.Screen name="NurseDashboard" component={withLayout(NurseDashboard)} />

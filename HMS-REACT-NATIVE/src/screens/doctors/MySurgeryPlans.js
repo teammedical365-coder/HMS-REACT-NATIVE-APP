@@ -123,8 +123,8 @@ const MySurgeryPlans = () => {
             showsVerticalScrollIndicator={false}
         >
             {/* Header Banner */}
-            <View style={styles.bannerCard}>
-                <View style={styles.bannerLeft}>
+            <View style={[styles.bannerCard, isMobile && { flexDirection: 'column', alignItems: 'flex-start', padding: 16 }]}>
+                <View style={[styles.bannerLeft, isMobile && { minWidth: 0, width: '100%' }]}>
                     <View style={styles.titleRow}>
                         <Text style={styles.bannerTitle}>My Surgery Plans</Text>
                         <View style={styles.roleBadge}>
@@ -139,7 +139,7 @@ const MySurgeryPlans = () => {
                     </Text>
                 </View>
 
-                <View style={styles.bannerRight}>
+                <View style={[styles.bannerRight, isMobile && { width: '100%', justifyContent: 'flex-start', marginTop: 10 }]}>
                     <View style={styles.dateCard}>
                         <View style={styles.dateIconWrap}>
                             <Feather name="calendar" size={16} color="#0284c7" />
@@ -325,7 +325,7 @@ const styles = StyleSheet.create({
     },
     bannerLeft: {
         flex: 1,
-        minWidth: 260,
+        minWidth: 200,
     },
     titleRow: {
         flexDirection: 'row',
@@ -382,6 +382,8 @@ const styles = StyleSheet.create({
         borderRadius: 12,
         paddingHorizontal: 14,
         paddingVertical: 8,
+        maxWidth: '100%',
+        flexShrink: 1,
     },
     dateIconWrap: {
         width: 32,
