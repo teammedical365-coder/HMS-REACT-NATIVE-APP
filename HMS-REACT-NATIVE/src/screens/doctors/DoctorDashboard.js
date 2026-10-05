@@ -26,6 +26,7 @@ const DoctorDashboard = () => {
   const { width } = useWindowDimensions();
   const isDesktop = width >= 1024;
   const isTablet = width >= 768;
+  const isMobile = width < 768;
 
   const { user: authUser } = useAuth();
   const [localUser, setLocalUser] = useState({});
@@ -445,19 +446,21 @@ const DoctorDashboard = () => {
                 </View>
               </View>
 
-              <View style={styles.docQuickArtWrapper} pointerEvents="none">
-                <Image
-                  source={require('../../../assets/stethoscope_card_bg.jpg')}
-                  style={styles.docQuickStethoscopeImg}
-                  resizeMode="cover"
-                />
-                <LinearGradient
-                  colors={['#ffffff', 'rgba(255, 255, 255, 0.65)', 'transparent']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 0.7, y: 0 }}
-                  style={StyleSheet.absoluteFill}
-                />
-              </View>
+              {!isMobile && (
+                <View style={styles.docQuickArtWrapper} pointerEvents="none">
+                  <Image
+                    source={require('../../../assets/stethoscope_card_bg.jpg')}
+                    style={styles.docQuickStethoscopeImg}
+                    resizeMode="cover"
+                  />
+                  <LinearGradient
+                    colors={['#ffffff', 'rgba(255, 255, 255, 0.65)', 'transparent']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 0.7, y: 0 }}
+                    style={StyleSheet.absoluteFill}
+                  />
+                </View>
+              )}
             </TouchableOpacity>
 
             {/* AI Assistant Card */}
@@ -514,7 +517,60 @@ const DoctorDashboard = () => {
                 const badge = getStatusBadge(apt.status);
                 const ptName = apt.userId?.name || apt.patientName || 'Patient';
                 const ptId = apt.userId?.patientId || apt.patientId || 'Pending';
-                return (
+                const patientMRN = ptId && ptId !== '—' && ptId !== 'Pending' ? ptId : (apt.userId?._id || ptName.replace(/\s+/g, '-'));
+
+                return isMobile ? (
+                  <View key={apt._id || i} style={[styles.appointmentMobileCard, i > 0 && styles.appointmentCardBorder]}>
+                    <View style={styles.appointmentMobileHeader}>
+                      <View style={styles.appointmentTimeBadge}>
+                        <Feather name="clock" size={12} color="#0284c7" />
+                        <Text style={styles.appointmentTimeText}>{apt.appointmentTime || 'Today'}</Text>
+                        <Text style={styles.appointmentDateText}>• {formatDate(apt.appointmentDate)}</Text>
+                      </View>
+                      <View style={[styles.statusBadge, { backgroundColor: badge.b }]}>
+                        <Text style={[styles.statusBadgeText, { color: badge.c }]}>{apt.status}</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.appointmentMobileBody}>
+                      <Text style={styles.appointmentPatientName}>{ptName}</Text>
+                      <View style={styles.appointmentSubInfoRow}>
+                        <Text style={styles.appointmentPatientId}>MRN: {ptId}</Text>
+                        <Text style={styles.appointmentDotSeparator}>|</Text>
+                        <Text style={styles.appointmentServiceText}>{apt.serviceName || 'Consultation'}</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.appointmentMobileFooter}>
+                      {apt.status === 'completed' && (
+                        <TouchableOpacity
+                          style={styles.appointmentReceiptBtn}
+                          onPress={() => downloadReceiptPDF(apt)}
+                          title="Download Consultation Receipt"
+                          activeOpacity={0.8}
+                        >
+                          <Feather name="file-text" size={12} color="#059669" />
+                          <Text style={styles.appointmentReceiptText}>Receipt</Text>
+                        </TouchableOpacity>
+                      )}
+
+                      <TouchableOpacity
+                        style={[styles.appointmentActionBtn, { flex: 1, justifyContent: 'center' }]}
+                        onPress={() => {
+                          navigation.navigate('DoctorPatientDetails', {
+                            id: patientMRN,
+                            patientId: patientMRN,
+                            appointmentId: apt._id
+                          });
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={styles.appointmentActionText}>Consult Patient</Text>
+                        <Feather name="arrow-right" size={13} color="#2563eb" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : (
                   <View key={apt._id || i} style={styles.appointmentRow}>
                     <View style={styles.appointmentTimeCol}>
                       <Text style={styles.appointmentTimeText}>{apt.appointmentTime || 'Today'}</Text>
@@ -552,7 +608,6 @@ const DoctorDashboard = () => {
                       <TouchableOpacity
                         style={styles.appointmentActionBtn}
                         onPress={() => {
-                          const patientMRN = ptId && ptId !== '—' && ptId !== 'Pending' ? ptId : (apt.userId?._id || ptName.replace(/\s+/g, '-'));
                           navigation.navigate('DoctorPatientDetails', {
                             id: patientMRN,
                             patientId: patientMRN,
@@ -590,10 +645,9 @@ const DoctorDashboard = () => {
                 key={item.id}
                 style={[
                   styles.permissionPillBtn,
-                  isDesktop ? { flex: 1, justifyContent: 'center' } : {
-                    flexBasis: isTablet ? '31.8%' : '48%',
-                    justifyContent: 'flex-start'
-                  }
+                  isDesktop ? { flex: 1, justifyContent: 'center' } : (
+                    isTablet ? { flexBasis: '31.8%', justifyContent: 'flex-start' } : { flexBasis: '100%', width: '100%', justifyContent: 'flex-start' }
+                  )
                 ]}
                 onPress={() => navigation.navigate(item.path)}
                 activeOpacity={0.7}
@@ -606,7 +660,7 @@ const DoctorDashboard = () => {
                 >
                   {item.icon}
                 </View>
-                <Text style={styles.permissionLabel} numberOfLines={1}>{item.title}</Text>
+                <Text style={styles.permissionLabel}>{item.title}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -714,10 +768,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e2e8f0',
     borderRadius: 16,
-    padding: 16,
+    padding: 14,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
     shadowColor: '#000',
     shadowOpacity: 0.02,
     shadowOffset: { width: 0, height: 2 },
@@ -725,11 +779,12 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   statIconWrap: {
-    width: 44,
-    height: 44,
+    width: 40,
+    height: 40,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   statValue: {
     fontSize: 22,
@@ -886,6 +941,48 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 8,
     elevation: 1,
+  },
+  appointmentMobileCard: {
+    padding: 14,
+    backgroundColor: '#ffffff',
+    gap: 10,
+  },
+  appointmentCardBorder: {
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+  },
+  appointmentMobileHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  appointmentTimeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#f0f9ff',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+  },
+  appointmentMobileBody: {
+    gap: 2,
+  },
+  appointmentSubInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  appointmentDotSeparator: {
+    fontSize: 12,
+    color: '#cbd5e1',
+  },
+  appointmentMobileFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 2,
   },
   appointmentRow: {
     flexDirection: 'row',

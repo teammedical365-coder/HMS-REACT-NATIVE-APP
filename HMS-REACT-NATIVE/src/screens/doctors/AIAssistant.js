@@ -606,7 +606,7 @@ const AIAssistant = () => {
                 </View>
 
                 {/* ── AI Feature Mode Switcher (Reports vs Voice Scribe) matching Web ── */}
-                <View style={styles.aiModeNav}>
+                <View style={[styles.aiModeNav, isMobile && styles.aiModeNavMobile]}>
                     <TouchableOpacity
                         style={[styles.modeBtn, activeAIMode === 'reports' && styles.modeBtnActiveReports]}
                         onPress={() => setActiveAIMode('reports')}
@@ -813,10 +813,10 @@ const AIAssistant = () => {
 
                             {/* 3. AI Report Summary Card matching Web */}
                             <View style={styles.card}>
-                                <View style={styles.cardHeader}>
-                                    <View style={styles.cardTitleRow}>
+                                <View style={[styles.cardHeader, isMobile && styles.cardHeaderMobile]}>
+                                    <View style={[styles.cardTitleRow, isMobile && { width: '100%' }]}>
                                         <Text style={styles.cardIcon}>🤖</Text>
-                                        <View>
+                                        <View style={{ flex: 1 }}>
                                             <Text style={styles.cardHeading}>AI Report Summary</Text>
                                             <Text style={styles.targetReportHint}>
                                                 {selectedReport ? `Target: ${selectedReport.fileName || selectedReport.name}` : 'Select a report above'}
@@ -824,7 +824,11 @@ const AIAssistant = () => {
                                         </View>
                                     </View>
                                     <TouchableOpacity 
-                                        style={[styles.btnGenerate, (!selectedReport || isSummaryLoading || isExhausted) && styles.btnDisabled]}
+                                        style={[
+                                            styles.btnGenerate, 
+                                            (!selectedReport || isSummaryLoading || isExhausted) && styles.btnDisabled,
+                                            isMobile && styles.btnGenerateMobile
+                                        ]}
                                         onPress={handleGenerateSummary}
                                         disabled={!selectedReport || isSummaryLoading || isExhausted}
                                     >
@@ -944,7 +948,7 @@ const AIAssistant = () => {
                                     </View>
                                 </View>
 
-                                <View style={styles.compareControlsRow}>
+                                <View style={[styles.compareControlsRow, isMobile && styles.compareControlsRowMobile]}>
                                     <View style={styles.pickerBox}>
                                         <Picker
                                             selectedValue={compareReport1}
@@ -956,7 +960,7 @@ const AIAssistant = () => {
                                             ))}
                                         </Picker>
                                     </View>
-                                    <Text style={styles.vsText}>vs</Text>
+                                    <Text style={[styles.vsText, isMobile && styles.vsTextMobile]}>vs</Text>
                                     <View style={styles.pickerBox}>
                                         <Picker
                                             selectedValue={compareReport2}
@@ -969,7 +973,11 @@ const AIAssistant = () => {
                                         </Picker>
                                     </View>
                                     <TouchableOpacity 
-                                        style={[styles.btnCompare, (isComparing || isExhausted || reports.length < 2) && styles.btnDisabled]}
+                                        style={[
+                                            styles.btnCompare, 
+                                            (isComparing || isExhausted || reports.length < 2) && styles.btnDisabled,
+                                            isMobile && styles.btnCompareMobile
+                                        ]}
                                         onPress={handleCompare}
                                         disabled={isComparing || isExhausted || reports.length < 2}
                                     >
@@ -1400,6 +1408,9 @@ const styles = StyleSheet.create({
         marginBottom: 16,
         gap: 6,
     },
+    aiModeNavMobile: {
+        flexDirection: 'column',
+    },
     modeBtn: {
         flex: 1,
         paddingVertical: 10,
@@ -1468,6 +1479,11 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         alignItems: 'center',
         marginBottom: 12,
+    },
+    cardHeaderMobile: {
+        flexDirection: 'column',
+        alignItems: 'flex-start',
+        gap: 12,
     },
     cardTitleRow: {
         flexDirection: 'row',
@@ -1775,6 +1791,12 @@ const styles = StyleSheet.create({
         paddingVertical: 6,
         paddingHorizontal: 12,
     },
+    btnGenerateMobile: {
+        width: '100%',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 10,
+    },
     btnGenerateText: {
         color: '#fff',
         fontSize: 11,
@@ -1881,6 +1903,11 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         gap: 6,
     },
+    compareControlsRowMobile: {
+        flexDirection: 'column',
+        alignItems: 'stretch',
+        gap: 10,
+    },
     pickerBox: {
         flex: 1,
         backgroundColor: '#f8fafc',
@@ -1898,12 +1925,19 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         color: '#64748b',
     },
+    vsTextMobile: {
+        textAlign: 'center',
+    },
     btnCompare: {
         backgroundColor: '#d97706',
         borderRadius: 8,
         paddingHorizontal: 12,
         height: 38,
         justifyContent: 'center',
+    },
+    btnCompareMobile: {
+        width: '100%',
+        alignItems: 'center',
     },
     btnCompareText: {
         color: '#fff',

@@ -255,12 +255,12 @@ export default function IPDCommandCenter({ navigation }) {
         {/* ── KPI Census Deck (6 Cards) ── */}
         <View style={styles.kpiDeck}>
           {/* 1. Bed Occupancy */}
-          <View style={[styles.kpiCard, isDesktop && styles.kpiCardDesktop, isTablet && styles.kpiCardTablet]}>
-            <View style={[styles.kpiIconWrap, { backgroundColor: 'rgba(59, 130, 246, 0.15)' }]}>
-              <Feather name="pie-chart" size={22} color="#3b82f6" />
+          <View style={[styles.kpiCard, isDesktop && styles.kpiCardDesktop, isTablet && styles.kpiCardTablet, isMobile && styles.kpiCardMobile]}>
+            <View style={[styles.kpiIconWrap, isMobile && styles.kpiIconWrapMobile, { backgroundColor: 'rgba(59, 130, 246, 0.15)' }]}>
+              <Feather name="pie-chart" size={isMobile ? 18 : 22} color="#3b82f6" />
             </View>
             <View style={styles.kpiContent}>
-              <Text style={styles.kpiLabel}>BED OCCUPANCY</Text>
+              <Text style={[styles.kpiLabel, isMobile && styles.kpiLabelMobile]}>BED OCCUPANCY</Text>
               <View style={styles.kpiValGroup}>
                 <Text style={styles.kpiMainVal}>{census?.occupancyRate || '0%'}</Text>
                 <Text style={styles.kpiSubVal}>
@@ -282,12 +282,12 @@ export default function IPDCommandCenter({ navigation }) {
           </View>
 
           {/* 2. Active Inpatients */}
-          <View style={[styles.kpiCard, isDesktop && styles.kpiCardDesktop, isTablet && styles.kpiCardTablet]}>
-            <View style={[styles.kpiIconWrap, { backgroundColor: 'rgba(14, 165, 233, 0.15)' }]}>
-              <Feather name="users" size={22} color="#0ea5e9" />
+          <View style={[styles.kpiCard, isDesktop && styles.kpiCardDesktop, isTablet && styles.kpiCardTablet, isMobile && styles.kpiCardMobile]}>
+            <View style={[styles.kpiIconWrap, isMobile && styles.kpiIconWrapMobile, { backgroundColor: 'rgba(14, 165, 233, 0.15)' }]}>
+              <Feather name="users" size={isMobile ? 18 : 22} color="#0ea5e9" />
             </View>
             <View style={styles.kpiContent}>
-              <Text style={styles.kpiLabel}>ACTIVE INPATIENTS</Text>
+              <Text style={[styles.kpiLabel, isMobile && styles.kpiLabelMobile]}>ACTIVE INPATIENTS</Text>
               <View style={styles.kpiValGroup}>
                 <Text style={styles.kpiMainVal}>{census?.activeInpatients || 0}</Text>
                 <Text style={[styles.kpiSubVal, { color: '#10b981' }]}>
@@ -301,12 +301,12 @@ export default function IPDCommandCenter({ navigation }) {
           </View>
 
           {/* 3. Discharge Pipeline */}
-          <View style={[styles.kpiCard, isDesktop && styles.kpiCardDesktop, isTablet && styles.kpiCardTablet]}>
-            <View style={[styles.kpiIconWrap, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
-              <Feather name="log-out" size={22} color="#10b981" />
+          <View style={[styles.kpiCard, isDesktop && styles.kpiCardDesktop, isTablet && styles.kpiCardTablet, isMobile && styles.kpiCardMobile]}>
+            <View style={[styles.kpiIconWrap, isMobile && styles.kpiIconWrapMobile, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
+              <Feather name="log-out" size={isMobile ? 18 : 22} color="#10b981" />
             </View>
             <View style={styles.kpiContent}>
-              <Text style={styles.kpiLabel}>DISCHARGE PIPELINE</Text>
+              <Text style={[styles.kpiLabel, isMobile && styles.kpiLabelMobile]}>DISCHARGE PIPELINE</Text>
               <View style={styles.kpiValGroup}>
                 <Text style={styles.kpiMainVal}>{census?.dischargesPlanned || 0}</Text>
                 <Text style={styles.kpiSubVal}>Planned</Text>
@@ -318,12 +318,12 @@ export default function IPDCommandCenter({ navigation }) {
           </View>
 
           {/* 4. Long-Stay Patients */}
-          <View style={[styles.kpiCard, isDesktop && styles.kpiCardDesktop, isTablet && styles.kpiCardTablet]}>
-            <View style={[styles.kpiIconWrap, { backgroundColor: 'rgba(245, 158, 11, 0.15)' }]}>
-              <Feather name="clock" size={22} color="#f59e0b" />
+          <View style={[styles.kpiCard, isDesktop && styles.kpiCardDesktop, isTablet && styles.kpiCardTablet, isMobile && styles.kpiCardMobile]}>
+            <View style={[styles.kpiIconWrap, isMobile && styles.kpiIconWrapMobile, { backgroundColor: 'rgba(245, 158, 11, 0.15)' }]}>
+              <Feather name="clock" size={isMobile ? 18 : 22} color="#f59e0b" />
             </View>
             <View style={styles.kpiContent}>
-              <Text style={styles.kpiLabel}>LONG-STAY PATIENTS</Text>
+              <Text style={[styles.kpiLabel, isMobile && styles.kpiLabelMobile]}>LONG-STAY PATIENTS</Text>
               <View style={styles.kpiValGroup}>
                 <Text style={styles.kpiMainVal}>{census?.longStayCount || 0}</Text>
                 <Text style={styles.kpiSubVal}>Stay &gt; 7 Days</Text>
@@ -333,12 +333,12 @@ export default function IPDCommandCenter({ navigation }) {
           </View>
 
           {/* 5. Clinical Workload */}
-          <View style={[styles.kpiCard, isDesktop && styles.kpiCardDesktop, isTablet && styles.kpiCardTablet]}>
-            <View style={[styles.kpiIconWrap, { backgroundColor: 'rgba(139, 92, 246, 0.15)' }]}>
-              <Feather name="activity" size={22} color="#8b5cf6" />
+          <View style={[styles.kpiCard, isDesktop && styles.kpiCardDesktop, isTablet && styles.kpiCardTablet, isMobile && styles.kpiCardMobile]}>
+            <View style={[styles.kpiIconWrap, isMobile && styles.kpiIconWrapMobile, { backgroundColor: 'rgba(139, 92, 246, 0.15)' }]}>
+              <Feather name="activity" size={isMobile ? 18 : 22} color="#8b5cf6" />
             </View>
             <View style={styles.kpiContent}>
-              <Text style={styles.kpiLabel}>CLINICAL WORKLOAD</Text>
+              <Text style={[styles.kpiLabel, isMobile && styles.kpiLabelMobile]}>CLINICAL WORKLOAD</Text>
               <View style={styles.kpiValGroup}>
                 <Text style={styles.kpiMainVal}>
                   {(workload?.pendingMedications || 0) + (workload?.pendingTasks || 0)}
@@ -354,12 +354,12 @@ export default function IPDCommandCenter({ navigation }) {
           </View>
 
           {/* 6. Clarifications */}
-          <View style={[styles.kpiCard, isDesktop && styles.kpiCardDesktop, isTablet && styles.kpiCardTablet]}>
-            <View style={[styles.kpiIconWrap, { backgroundColor: 'rgba(244, 63, 94, 0.15)' }]}>
-              <Feather name="help-circle" size={22} color="#f43f5e" />
+          <View style={[styles.kpiCard, isDesktop && styles.kpiCardDesktop, isTablet && styles.kpiCardTablet, isMobile && styles.kpiCardMobile]}>
+            <View style={[styles.kpiIconWrap, isMobile && styles.kpiIconWrapMobile, { backgroundColor: 'rgba(244, 63, 94, 0.15)' }]}>
+              <Feather name="help-circle" size={isMobile ? 18 : 22} color="#f43f5e" />
             </View>
             <View style={styles.kpiContent}>
-              <Text style={styles.kpiLabel}>CLARIFICATIONS</Text>
+              <Text style={[styles.kpiLabel, isMobile && styles.kpiLabelMobile]}>CLARIFICATIONS</Text>
               <View style={styles.kpiValGroup}>
                 <Text style={styles.kpiMainVal}>{workload?.openClarifications || 0}</Text>
                 <Text style={styles.kpiSubVal}>Open Doctor Questions</Text>
@@ -1393,6 +1393,14 @@ const styles = StyleSheet.create({
     flexBasis: 220,
     minWidth: 200,
   },
+  kpiCardMobile: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: 8,
+    padding: 12,
+    flexBasis: '47%',
+    minWidth: 140,
+  },
   kpiIconWrap: {
     width: 44,
     height: 44,
@@ -1400,6 +1408,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     flexShrink: 0,
+  },
+  kpiIconWrapMobile: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
   },
   kpiContent: {
     flex: 1,
@@ -1411,6 +1424,10 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
     letterSpacing: 0.8,
     marginBottom: 4,
+  },
+  kpiLabelMobile: {
+    fontSize: 10.5,
+    letterSpacing: 0.3,
   },
   kpiValGroup: {
     flexDirection: 'row',
