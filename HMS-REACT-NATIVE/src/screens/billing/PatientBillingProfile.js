@@ -1148,23 +1148,24 @@ const PatientBillingProfile = () => {
                         frame = document.createElement('iframe');
                         frame.id = 'hospital-print-frame';
                         frame.style.position = 'fixed';
-                        frame.style.right = '0';
-                        frame.style.bottom = '0';
-                        frame.style.width = '0';
-                        frame.style.height = '0';
-                        frame.style.border = '0';
+                        frame.style.top = '-9999px';
+                        frame.style.left = '-9999px';
+                        frame.style.width = '1000px';
+                        frame.style.height = '1000px';
+                        frame.style.border = 'none';
                         document.body.appendChild(frame);
                     }
-                    const frameDoc = frame.contentWindow || frame.contentDocument?.document || frame.contentDocument;
-                    if (frameDoc && (frameDoc.document || frameDoc.write)) {
-                        const doc = frameDoc.document || frameDoc;
-                        doc.open();
-                        doc.write(htmlContent);
-                        doc.close();
+                    const fDoc = frame.contentWindow ? frame.contentWindow.document : (frame.contentDocument?.document || frame.contentDocument);
+                    if (fDoc) {
+                        fDoc.open();
+                        fDoc.write(htmlContent);
+                        fDoc.close();
                         setTimeout(() => {
                             try {
-                                (frame.contentWindow || frameDoc).focus();
-                                (frame.contentWindow || frameDoc).print();
+                                if (frame.contentWindow) {
+                                    frame.contentWindow.focus();
+                                    frame.contentWindow.print();
+                                }
                             } catch (err) {}
                         }, 400);
                         return;

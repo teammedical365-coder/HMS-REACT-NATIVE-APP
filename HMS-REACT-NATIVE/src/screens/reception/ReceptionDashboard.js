@@ -1208,10 +1208,15 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                             <span>Generated: ${new Date().toLocaleString('en-IN')}</span>
                                         </div>
                                         <div class="thanks">Thank you for choosing ${hName}</div>
+                                        <script>
+                                            window.onload = function() {
+                                                setTimeout(function() { window.print(); }, 250);
+                                            };
+                                        </script>
                                     </body>
                                     </html>
                                 `;
-                                await Print.printAsync({ html });
+                                triggerReceiptPrint(html);
                             } catch (e) { console.warn('Registration slip print error', e); }
                             setViewMode('desk');
                             fetchData();
@@ -1230,6 +1235,57 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         } finally {
             setSaving(false);
         }
+    };
+
+    // Universal fail-safe invoice/receipt printing & downloading handler (1:1 Web Parity)
+    const triggerReceiptPrint = (htmlContent) => {
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+            let printWindow = null;
+            try {
+                printWindow = window.open('', '_blank', 'width=850,height=950');
+            } catch (e) {
+                printWindow = null;
+            }
+
+            if (printWindow) {
+                printWindow.document.open();
+                printWindow.document.write(htmlContent);
+                printWindow.document.close();
+                return;
+            }
+
+            try {
+                let frame = document.getElementById('hospital-print-frame');
+                if (!frame) {
+                    frame = document.createElement('iframe');
+                    frame.id = 'hospital-print-frame';
+                    frame.style.position = 'fixed';
+                    frame.style.top = '-9999px';
+                    frame.style.left = '-9999px';
+                    frame.style.width = '1000px';
+                    frame.style.height = '1000px';
+                    frame.style.border = 'none';
+                    document.body.appendChild(frame);
+                }
+                const fDoc = frame.contentWindow.document;
+                fDoc.open();
+                fDoc.write(htmlContent);
+                fDoc.close();
+                setTimeout(() => {
+                    try {
+                        frame.contentWindow.focus();
+                        frame.contentWindow.print();
+                    } catch (e) {}
+                }, 400);
+                return;
+            } catch (err) {
+                console.error('Print iframe error:', err);
+            }
+        }
+
+        Print.printAsync({ html: htmlContent }).catch((e) => {
+            console.warn('Native Print error:', e);
+        });
     };
 
     // ─── ACTION HANDLERS FOR QUEUE ──────────────────────────────────────────
@@ -1484,10 +1540,15 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                         <span>Generated: ${new Date().toLocaleString('en-IN')}</span>
                     </div>
                     <div class="thanks">Thank you for choosing ${hName}. Wishing you a speedy recovery!</div>
+                    <script>
+                        window.onload = function() {
+                            setTimeout(function() { window.print(); }, 250);
+                        };
+                    </script>
                 </body>
                 </html>
             `;
-            await Print.printAsync({ html });
+            triggerReceiptPrint(html);
         } catch (err) {
             console.warn('Discharge bill print error:', err);
         }
@@ -1585,7 +1646,13 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         const docName = apt.doctorName || apt.doctorId?.name || 'Doctor';
         const hName = hospitalContext?.name || 'Care Medical Hospital & Health Center';
         const hAddr = [hospitalContext?.address, hospitalContext?.city, hospitalContext?.state].filter(Boolean).join(', ');
+        const hPhone = hospitalContext?.phone || '';
+        const hEmail = hospitalContext?.email || '';
         const issuedBy = currentUser?.name || 'Reception Desk';
+        const rawId = String(apt._id || '00000000');
+        const invNo = `REC-${rawId.slice(-8).toUpperCase()}`;
+        const isToken = apt.tokenNumber != null;
+        const dateDisplay = new Date(apt.appointmentDate || Date.now()).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 
         try {
             const html = `
@@ -1593,42 +1660,267 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                 <html>
                 <head>
                     <meta charset="utf-8">
-                    <title>Consultation Receipt - ${pName}</title>
+                    <title>Consultation Receipt - ${invNo}</title>
                     <style>
-                        body { font-family: Arial, sans-serif; padding: 24px; color: #1e293b; line-height: 1.5; }
-                        .header { text-align: center; border-bottom: 2px solid #0d9488; padding-bottom: 12px; margin-bottom: 16px; }
-                        .h-name { font-size: 20px; font-weight: bold; color: #0f172a; }
-                        .slip-title { font-size: 13px; font-weight: bold; color: #0d9488; margin-top: 6px; text-transform: uppercase; }
-                        table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 12px; }
-                        td { padding: 8px 10px; border: 1px solid #e2e8f0; }
-                        td.label { font-weight: bold; width: 35%; background: #f8fafc; color: #334155; }
-                        .footer { margin-top: 20px; border-top: 1px solid #cbd5e1; padding-top: 8px; font-size: 10px; color: #64748b; display: flex; justify-content: space-between; }
+                        @page { size: A4; margin: 15mm; }
+                        * { box-sizing: border-box; }
+                        body {
+                            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                            color: #0f172a;
+                            margin: 0;
+                            padding: 30px;
+                            background: #f8fafc;
+                        }
+                        .receipt-card {
+                            max-width: 680px;
+                            margin: 0 auto;
+                            background: #ffffff;
+                            border: 1px solid #e2e8f0;
+                            border-radius: 12px;
+                            padding: 36px;
+                            box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+                        }
+                        .header {
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: flex-start;
+                            border-bottom: 2px solid #0d9488;
+                            padding-bottom: 18px;
+                            margin-bottom: 22px;
+                        }
+                        .hosp-title {
+                            font-size: 24px;
+                            font-weight: 800;
+                            color: #0f766e;
+                            margin: 0 0 4px 0;
+                        }
+                        .hosp-sub {
+                            font-size: 13px;
+                            color: #64748b;
+                            margin: 0;
+                        }
+                        .inv-box {
+                            text-align: right;
+                        }
+                        .inv-type {
+                            font-size: 11px;
+                            font-weight: 700;
+                            text-transform: uppercase;
+                            letter-spacing: 1px;
+                            color: #0d9488;
+                        }
+                        .inv-num {
+                            font-size: 18px;
+                            font-weight: 800;
+                            color: #0f172a;
+                            margin-top: 2px;
+                        }
+                        .inv-date {
+                            font-size: 12px;
+                            color: #64748b;
+                            margin-top: 2px;
+                        }
+                        .patient-grid {
+                            display: grid;
+                            grid-template-columns: 1fr 1fr;
+                            gap: 16px;
+                            background: #f8fafc;
+                            border: 1px solid #e2e8f0;
+                            border-radius: 8px;
+                            padding: 16px 20px;
+                            margin-bottom: 24px;
+                        }
+                        .p-field {
+                            display: flex;
+                            flex-direction: column;
+                            gap: 2px;
+                        }
+                        .p-field label {
+                            font-size: 11px;
+                            font-weight: 600;
+                            text-transform: uppercase;
+                            color: #64748b;
+                        }
+                        .p-field strong {
+                            font-size: 14px;
+                            color: #0f172a;
+                        }
+                        table {
+                            width: 100%;
+                            border-collapse: collapse;
+                            margin-bottom: 24px;
+                        }
+                        th {
+                            background: #f1f5f9;
+                            color: #334155;
+                            font-size: 12px;
+                            font-weight: 700;
+                            text-transform: uppercase;
+                            padding: 11px 14px;
+                            text-align: left;
+                            border-top: 1px solid #cbd5e1;
+                            border-bottom: 1px solid #cbd5e1;
+                        }
+                        td {
+                            padding: 14px;
+                            font-size: 13.5px;
+                            border-bottom: 1px solid #e2e8f0;
+                            color: #1e293b;
+                        }
+                        .totals-section {
+                            display: flex;
+                            justify-content: flex-end;
+                            margin-bottom: 28px;
+                        }
+                        .totals-table {
+                            width: 260px;
+                            background: #f8fafc;
+                            border: 1px solid #e2e8f0;
+                            border-radius: 8px;
+                            padding: 14px 18px;
+                        }
+                        .t-row {
+                            display: flex;
+                            justify-content: space-between;
+                            font-size: 13px;
+                            color: #475569;
+                            margin-bottom: 6px;
+                        }
+                        .t-row.grand {
+                            border-top: 1px solid #cbd5e1;
+                            padding-top: 8px;
+                            margin-top: 6px;
+                            margin-bottom: 0;
+                            font-size: 16px;
+                            font-weight: 800;
+                            color: #059669;
+                        }
+                        .footer-stamp {
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: flex-end;
+                            padding-top: 18px;
+                            border-top: 1px dashed #cbd5e1;
+                        }
+                        .stamp-badge {
+                            display: inline-block;
+                            border: 2px solid #16a34a;
+                            color: #16a34a;
+                            font-weight: 800;
+                            font-size: 14px;
+                            padding: 4px 12px;
+                            border-radius: 4px;
+                            letter-spacing: 1px;
+                            transform: rotate(-3deg);
+                        }
+                        .sig-box {
+                            text-align: right;
+                            font-size: 12px;
+                            color: #64748b;
+                        }
+                        .sig-line {
+                            width: 140px;
+                            border-bottom: 1px solid #94a3b8;
+                            margin: 0 0 4px auto;
+                        }
+                        @media print {
+                            body { padding: 0; background: #fff; }
+                            .receipt-card { border: none; box-shadow: none; padding: 0; }
+                        }
                     </style>
                 </head>
                 <body>
-                    <div class="header">
-                        <div class="h-name">${hName}</div>
-                        ${hAddr ? `<div style="font-size: 11px; color: #64748b;">${hAddr}</div>` : ''}
-                        <div class="slip-title">Consultation Fee Receipt</div>
+                    <div class="receipt-card">
+                        <div class="header">
+                            <div>
+                                <h1 class="hosp-title">${hName}</h1>
+                                <p class="hosp-sub">${hAddr || 'Official Hospital Payment Receipt & Voucher'}</p>
+                                ${hPhone || hEmail ? `<p class="hosp-sub" style="font-size: 11px; margin-top: 3px;">${[hPhone && `Ph: ${hPhone}`, hEmail && `Email: ${hEmail}`].filter(Boolean).join('  |  ')}</p>` : ''}
+                            </div>
+                            <div class="inv-box">
+                                <div class="inv-type">Receipt</div>
+                                <div class="inv-num">${invNo}</div>
+                                <div class="inv-date">${dateDisplay}</div>
+                            </div>
+                        </div>
+
+                        <div class="patient-grid">
+                            <div class="p-field">
+                                <label>Patient Name</label>
+                                <strong>${pName}</strong>
+                            </div>
+                            <div class="p-field">
+                                <label>MRN / Patient ID</label>
+                                <strong>${apt.patientId || apt.userId?.patientId || 'N/A'}</strong>
+                            </div>
+                            <div class="p-field">
+                                <label>Consulting Doctor</label>
+                                <strong>Dr. ${docName}</strong>
+                            </div>
+                            <div class="p-field">
+                                <label>Department / Token</label>
+                                <strong>${apt.department || 'General'}${isToken ? ` (Token #${apt.tokenNumber})` : ''}</strong>
+                            </div>
+                        </div>
+
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Description</th>
+                                    <th>Time / Slot</th>
+                                    <th>Method</th>
+                                    <th style="text-align: right;">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>1</td>
+                                    <td><strong>${apt.serviceName || 'Consultation & Clinical Evaluation'}</strong><br><span style="font-size: 12px; color: #64748b;">Dr. ${docName}</span></td>
+                                    <td>${dateDisplay} @ ${apt.appointmentTime || '10:00 AM'}</td>
+                                    <td>${apt.paymentMethod || 'Cash'}</td>
+                                    <td style="text-align: right; font-weight: 700;">₹${Number(apt.amount || 500).toLocaleString('en-IN')}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <div class="totals-section">
+                            <div class="totals-table">
+                                <div class="t-row">
+                                    <span>Sub Total:</span>
+                                    <strong>₹${Number(apt.amount || 500).toLocaleString('en-IN')}</strong>
+                                </div>
+                                <div class="t-row">
+                                    <span>Discount:</span>
+                                    <strong>₹0</strong>
+                                </div>
+                                <div class="t-row grand">
+                                    <span>Total Paid:</span>
+                                    <span>₹${Number(apt.amount || 500).toLocaleString('en-IN')}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="footer-stamp">
+                            <div>
+                                <span class="stamp-badge">✓ PAID</span>
+                                <div style="font-size: 11px; color: #64748b; margin-top: 6px;">Issued by: ${issuedBy}</div>
+                            </div>
+                            <div class="sig-box">
+                                <div class="sig-line"></div>
+                                <span>Authorized Signatory</span>
+                            </div>
+                        </div>
                     </div>
-                    <table>
-                        <tr><td class="label">Patient Name</td><td><strong>${pName}</strong></td></tr>
-                        <tr><td class="label">MRN / Patient ID</td><td>${apt.patientId || apt.userId?.patientId || 'N/A'}</td></tr>
-                        <tr><td class="label">Consulting Doctor</td><td>Dr. ${docName}</td></tr>
-                        <tr><td class="label">Department</td><td>${apt.department || 'General'}</td></tr>
-                        <tr><td class="label">Appointment Time</td><td>${apt.appointmentDate || todayStr} @ ${apt.appointmentTime || '10:00 AM'}</td></tr>
-                        <tr><td class="label">Amount Paid</td><td><strong>₹${Number(apt.amount || 500).toLocaleString('en-IN')}</strong></td></tr>
-                        <tr><td class="label">Payment Method</td><td>${apt.paymentMethod || 'Cash'}</td></tr>
-                        <tr><td class="label">Payment Status</td><td style="color: #16a34a; font-weight: bold;">PAID ✓</td></tr>
-                    </table>
-                    <div class="footer">
-                        <span>Issued by: ${issuedBy}</span>
-                        <span>Date: ${new Date().toLocaleString('en-IN')}</span>
-                    </div>
+                    <script>
+                        window.onload = function() {
+                            setTimeout(function() { window.print(); }, 250);
+                        };
+                    </script>
                 </body>
                 </html>
             `;
-            await Print.printAsync({ html });
+            triggerReceiptPrint(html);
         } catch (e) {
             Alert.alert("Receipt Error", "Could not print receipt: " + e.message);
         }
@@ -3591,10 +3883,15 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                         </tr>
                     </table>
                     <div class="footer">Thank you for your visit. Keep this receipt for your records.</div>
+                    <script>
+                        window.onload = function() {
+                            setTimeout(function() { window.print(); }, 250);
+                        };
+                    </script>
                 </body>
                 </html>
             `;
-            await Print.printAsync({ html });
+            triggerReceiptPrint(html);
         } catch (e) {
             Alert.alert('Print Error', 'Failed to generate receipt print: ' + e.message);
         }
@@ -3775,20 +4072,42 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
             {/* Hospitalize Modal (100% 1:1 Parity with Web ReceptionDashboard.jsx) */}
             <Modal visible={hospitalizeModal.open} transparent animationType="fade">
                 <View style={styles.modalOverlay}>
-                    <View style={[styles.modalCard, { maxHeight: '92%', maxWidth: isMobile ? '96%' : 640 }]}>
-                        <ScrollView showsVerticalScrollIndicator={false}>
-                            <View style={styles.modalHeader}>
-                                <View style={{ flex: 1, marginRight: 10 }}>
-                                    <Text style={styles.modalTitle}>🏥 Hospitalize Patient</Text>
-                                    <Text style={[styles.modalPatientSub, { marginTop: 3 }]}>
-                                        {hospitalizeModal.appointment?.userId?.name || hospitalizeModal.appointment?.patientName || 'Patient'} — Dr. {hospitalizeModal.appointment?.doctorName || hospitalizeDoctorOrders[0]?.doctorId?.name || 'Doctor'}
-                                    </Text>
-                                </View>
-                                <TouchableOpacity onPress={() => setHospitalizeModal({ open: false, appointment: null })} style={{ padding: 4 }}>
-                                    <Feather name="x" size={20} color="#64748b" />
-                                </TouchableOpacity>
+                    <View style={[styles.modalCard, { maxHeight: '90%', maxWidth: isMobile ? '96%' : 620, padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }]}>
+                        {/* PINNED HEADER (Always visible at top, never cut off) */}
+                        <View style={{
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            paddingHorizontal: 24,
+                            paddingTop: 20,
+                            paddingBottom: 14,
+                            borderBottomWidth: 1,
+                            borderBottomColor: '#f1f5f9',
+                            backgroundColor: '#ffffff'
+                        }}>
+                            <View style={{ flex: 1, marginRight: 12 }}>
+                                <Text style={{ fontSize: 19, fontWeight: '700', color: '#0f172a' }}>🏥 Hospitalize Patient</Text>
+                                <Text style={{ marginTop: 4, color: '#64748b', fontSize: 13 }}>
+                                    {hospitalizeModal.appointment?.userId?.name || hospitalizeModal.appointment?.patientName || 'Patient'} — Dr. {hospitalizeModal.appointment?.doctorName || hospitalizeDoctorOrders[0]?.doctorId?.name || 'Doctor'}
+                                </Text>
                             </View>
+                            <TouchableOpacity
+                                onPress={() => setHospitalizeModal({ open: false, appointment: null })}
+                                style={{
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: 16,
+                                    backgroundColor: '#f1f5f9',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                }}
+                            >
+                                <Text style={{ fontSize: 15, color: '#64748b', fontWeight: 'bold' }}>✕</Text>
+                            </TouchableOpacity>
+                        </View>
 
+                        {/* SCROLLABLE BODY */}
+                        <ScrollView style={{ flex: 1, paddingHorizontal: 24, paddingVertical: 18 }} showsVerticalScrollIndicator={false}>
                             {/* ACTIVE ADMISSION WARNING BANNER (Exact Web parity) */}
                             {Boolean(existingActiveAdmission) ? (
                                 <View style={{
@@ -3912,7 +4231,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                 </View>
                             </View>
 
-                            {/* WARD SELECTION */}
+                            {/* WARD & AVAILABLE BED SELECTION (2 Columns) */}
                             {(() => {
                                 const availableWards = Array.from(new Set(availableBeds.map(b => b.ward).filter(Boolean)));
                                 const displayWards = availableWards.length > 0 ? availableWards : ['General', 'Semi-Private', 'Private', 'ICU'];
@@ -3920,63 +4239,164 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
 
                                 return (
                                     <>
-                                        <Text style={styles.modalSectionLabel}>Select Ward *</Text>
-                                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
-                                            {displayWards.map(w => (
-                                                <TouchableOpacity 
-                                                    key={w} 
-                                                    onPress={() => setHospitalizeForm(p => ({ ...p, ward: w, bedId: '' }))}
-                                                    style={[styles.modalPill, hospitalizeForm.ward === w && styles.modalPillActive]}
-                                                    disabled={!!existingActiveAdmission}
-                                                >
-                                                    <Text style={[styles.modalPillText, hospitalizeForm.ward === w && styles.modalPillTextActive]}>{w}</Text>
-                                                </TouchableOpacity>
-                                            ))}
-                                        </ScrollView>
-
-                                        <Text style={styles.modalSectionLabel}>Select Available Bed *</Text>
-                                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
-                                            {wardBeds.length > 0 ? (
-                                                wardBeds.map(b => (
-                                                    <TouchableOpacity 
-                                                        key={b._id} 
-                                                        onPress={() => setHospitalizeForm(p => ({ ...p, bedId: b._id }))}
-                                                        style={[styles.bedChip, hospitalizeForm.bedId === b._id && styles.bedChipActive]}
+                                        {Platform.OS === 'web' ? (
+                                            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px', marginBottom: '16px' }}>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Select Ward *</label>
+                                                    <select
                                                         disabled={!!existingActiveAdmission}
+                                                        value={hospitalizeForm.ward}
+                                                        onChange={(e) => setHospitalizeForm(prev => ({ ...prev, ward: e.target.value, bedId: '' }))}
+                                                        style={{
+                                                            width: '100%',
+                                                            padding: '10px 12px',
+                                                            border: '1.5px solid #cbd5e1',
+                                                            borderRadius: '8px',
+                                                            fontSize: '0.95rem',
+                                                            boxSizing: 'border-box',
+                                                            background: existingActiveAdmission ? '#f8fafc' : '#ffffff',
+                                                            color: '#0f172a',
+                                                            outline: 'none',
+                                                            cursor: 'pointer'
+                                                        }}
                                                     >
-                                                        <Text style={[styles.bedChipText, hospitalizeForm.bedId === b._id && styles.bedChipTextActive]}>
-                                                            Bed #{b.bedNumber} ({b.bedType || 'Standard'})
+                                                        <option value="">-- Choose Ward --</option>
+                                                        {displayWards.map(w => (
+                                                            <option key={w} value={w}>{w}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Select Available Bed *</label>
+                                                    <select
+                                                        value={hospitalizeForm.bedId}
+                                                        onChange={(e) => setHospitalizeForm(prev => ({ ...prev, bedId: e.target.value }))}
+                                                        disabled={!hospitalizeForm.ward || !!existingActiveAdmission}
+                                                        style={{
+                                                            width: '100%',
+                                                            padding: '10px 12px',
+                                                            border: '1.5px solid #cbd5e1',
+                                                            borderRadius: '8px',
+                                                            fontSize: '0.95rem',
+                                                            boxSizing: 'border-box',
+                                                            background: (hospitalizeForm.ward && !existingActiveAdmission) ? '#ffffff' : '#f8fafc',
+                                                            color: '#0f172a',
+                                                            outline: 'none',
+                                                            cursor: hospitalizeForm.ward ? 'pointer' : 'not-allowed'
+                                                        }}
+                                                    >
+                                                        <option value="">{hospitalizeForm.ward ? '-- Choose Available Bed --' : '-- Select Ward First --'}</option>
+                                                        {wardBeds.map(b => (
+                                                            <option key={b._id} value={b._id}>Bed #{b.bedNumber} ({b.bedType || 'Standard'})</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <View style={{ marginBottom: 14 }}>
+                                                <Text style={styles.modalSectionLabel}>Select Ward *</Text>
+                                                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
+                                                    {displayWards.map(w => (
+                                                        <TouchableOpacity 
+                                                            key={w} 
+                                                            onPress={() => setHospitalizeForm(p => ({ ...p, ward: w, bedId: '' }))}
+                                                            style={[styles.modalPill, hospitalizeForm.ward === w && styles.modalPillActive]}
+                                                            disabled={!!existingActiveAdmission}
+                                                        >
+                                                            <Text style={[styles.modalPillText, hospitalizeForm.ward === w && styles.modalPillTextActive]}>{w}</Text>
+                                                        </TouchableOpacity>
+                                                    ))}
+                                                </ScrollView>
+                                                <Text style={styles.modalSectionLabel}>Select Available Bed *</Text>
+                                                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
+                                                    {wardBeds.length > 0 ? (
+                                                        wardBeds.map(b => (
+                                                            <TouchableOpacity 
+                                                                key={b._id} 
+                                                                onPress={() => setHospitalizeForm(p => ({ ...p, bedId: b._id }))}
+                                                                style={[styles.bedChip, hospitalizeForm.bedId === b._id && styles.bedChipActive]}
+                                                                disabled={!!existingActiveAdmission}
+                                                            >
+                                                                <Text style={[styles.bedChipText, hospitalizeForm.bedId === b._id && styles.bedChipTextActive]}>
+                                                                    Bed #{b.bedNumber} ({b.bedType || 'Standard'})
+                                                                </Text>
+                                                            </TouchableOpacity>
+                                                        ))
+                                                    ) : (
+                                                        <Text style={{ color: '#ef4444', fontStyle: 'italic', fontSize: 12, paddingVertical: 4 }}>
+                                                            {hospitalizeForm.ward ? `No vacant beds found in ${hospitalizeForm.ward} ward.` : 'Please select a ward first.'}
                                                         </Text>
-                                                    </TouchableOpacity>
-                                                ))
-                                            ) : (
-                                                <Text style={{ color: '#ef4444', fontStyle: 'italic', fontSize: 12, paddingVertical: 4 }}>
-                                                    {hospitalizeForm.ward ? `No vacant beds found in ${hospitalizeForm.ward} ward.` : 'Please select a ward first.'}
-                                                </Text>
-                                            )}
-                                        </ScrollView>
+                                                    )}
+                                                </ScrollView>
+                                            </View>
+                                        )}
 
-                                        {/* ADMISSION DATE & TIME */}
-                                        <View style={{ flexDirection: isMobile ? 'column' : 'row', gap: 12, marginBottom: 14 }}>
-                                            <View style={{ flex: 1 }}>
-                                                <Text style={styles.modalSectionLabel}>Admission Date *</Text>
-                                                <DatePickerInput
-                                                    value={hospitalizeForm.admissionDate}
-                                                    onChange={d => setHospitalizeForm(p => ({ ...p, admissionDate: d }))}
-                                                    placeholder="Admission Date"
-                                                    disabled={!!existingActiveAdmission}
-                                                />
+                                        {/* ADMISSION DATE & TIME (2 Columns) */}
+                                        {Platform.OS === 'web' ? (
+                                            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px', marginBottom: '16px' }}>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Admission Date *</label>
+                                                    <input
+                                                        type="date"
+                                                        disabled={!!existingActiveAdmission}
+                                                        value={hospitalizeForm.admissionDate}
+                                                        onChange={(e) => setHospitalizeForm(prev => ({ ...prev, admissionDate: e.target.value }))}
+                                                        style={{
+                                                            width: '100%',
+                                                            padding: '9px 12px',
+                                                            border: '1.5px solid #cbd5e1',
+                                                            borderRadius: '8px',
+                                                            fontSize: '0.95rem',
+                                                            boxSizing: 'border-box',
+                                                            background: existingActiveAdmission ? '#f8fafc' : '#ffffff',
+                                                            color: '#0f172a',
+                                                            outline: 'none'
+                                                        }}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Admission Time *</label>
+                                                    <input
+                                                        type="time"
+                                                        disabled={!!existingActiveAdmission}
+                                                        value={hospitalizeForm.admissionTime}
+                                                        onChange={(e) => setHospitalizeForm(prev => ({ ...prev, admissionTime: e.target.value }))}
+                                                        style={{
+                                                            width: '100%',
+                                                            padding: '9px 12px',
+                                                            border: '1.5px solid #cbd5e1',
+                                                            borderRadius: '8px',
+                                                            fontSize: '0.95rem',
+                                                            boxSizing: 'border-box',
+                                                            background: existingActiveAdmission ? '#f8fafc' : '#ffffff',
+                                                            color: '#0f172a',
+                                                            outline: 'none'
+                                                        }}
+                                                    />
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <View style={{ flexDirection: isMobile ? 'column' : 'row', gap: 12, marginBottom: 14 }}>
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={styles.modalSectionLabel}>Admission Date *</Text>
+                                                    <DatePickerInput
+                                                        value={hospitalizeForm.admissionDate}
+                                                        onChange={d => setHospitalizeForm(p => ({ ...p, admissionDate: d }))}
+                                                        placeholder="Admission Date"
+                                                        disabled={!!existingActiveAdmission}
+                                                    />
+                                                </View>
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={styles.modalSectionLabel}>Admission Time *</Text>
+                                                    <TimePickerInput
+                                                        value={hospitalizeForm.admissionTime}
+                                                        onChange={t => setHospitalizeForm(p => ({ ...p, admissionTime: t }))}
+                                                        placeholder="Admission Time"
+                                                        disabled={!!existingActiveAdmission}
+                                                    />
+                                                </View>
                                             </View>
-                                            <View style={{ flex: 1 }}>
-                                                <Text style={styles.modalSectionLabel}>Admission Time *</Text>
-                                                <TimePickerInput
-                                                    value={hospitalizeForm.admissionTime}
-                                                    onChange={t => setHospitalizeForm(p => ({ ...p, admissionTime: t }))}
-                                                    placeholder="Admission Time"
-                                                    disabled={!!existingActiveAdmission}
-                                                />
-                                            </View>
-                                        </View>
+                                        )}
 
                                         {/* DYNAMIC WARD PRICING BANNER */}
                                         {Boolean(hospitalizeForm.ward) ? (() => {
@@ -4014,32 +4434,71 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                 );
                             })()}
 
-                            <Text style={styles.modalSectionLabel}>Admission Notes (Administrative):</Text>
-                            <TextInput 
-                                placeholder="Any administrative observations, attendant info, or admission remarks..."
-                                style={[styles.modalInput, { minHeight: 64, textAlignVertical: 'top' }]}
-                                multiline
-                                numberOfLines={3}
-                                value={hospitalizeForm.notes}
-                                onChangeText={t => setHospitalizeForm(p => ({ ...p, notes: t }))}
-                                editable={!existingActiveAdmission}
-                            />
-
-                            <View style={styles.modalFooter}>
-                                <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setHospitalizeModal({ open: false, appointment: null })}>
-                                    <Text style={styles.modalCancelBtnText}>Cancel</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity 
-                                    style={[styles.modalConfirmBtn, (saving || !!existingActiveAdmission) && { backgroundColor: '#94a3b8' }]} 
-                                    onPress={submitHospitalize} 
-                                    disabled={saving || !!existingActiveAdmission}
-                                >
-                                    <Text style={styles.modalConfirmBtnText}>
-                                        {saving ? 'Admitting...' : existingActiveAdmission ? 'Already Admitted' : '✓ Confirm Admission'}
-                                    </Text>
-                                </TouchableOpacity>
-                            </View>
+                            {/* ADMISSION NOTES (ADMINISTRATIVE) */}
+                            {Platform.OS === 'web' ? (
+                                <div style={{ marginBottom: '20px' }}>
+                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Admission Notes (Administrative)</label>
+                                    <textarea
+                                        placeholder="Any administrative observations, attendant info, or admission remarks..."
+                                        disabled={!!existingActiveAdmission}
+                                        value={hospitalizeForm.notes}
+                                        onChange={(e) => setHospitalizeForm(prev => ({ ...prev, notes: e.target.value }))}
+                                        rows={2}
+                                        style={{
+                                            width: '100%',
+                                            padding: '9px 12px',
+                                            border: '1.5px solid #cbd5e1',
+                                            borderRadius: '8px',
+                                            fontSize: '0.9rem',
+                                            resize: 'vertical',
+                                            boxSizing: 'border-box',
+                                            background: existingActiveAdmission ? '#f8fafc' : '#ffffff',
+                                            color: '#0f172a',
+                                            outline: 'none',
+                                            fontFamily: 'inherit'
+                                        }}
+                                    />
+                                </div>
+                            ) : (
+                                <View style={{ marginBottom: 16 }}>
+                                    <Text style={styles.modalSectionLabel}>Admission Notes (Administrative):</Text>
+                                    <TextInput 
+                                        placeholder="Any administrative observations, attendant info, or admission remarks..."
+                                        style={[styles.modalInput, { minHeight: 64, textAlignVertical: 'top' }]}
+                                        multiline
+                                        numberOfLines={3}
+                                        value={hospitalizeForm.notes}
+                                        onChangeText={t => setHospitalizeForm(p => ({ ...p, notes: t }))}
+                                        editable={!existingActiveAdmission}
+                                    />
+                                </View>
+                            )}
                         </ScrollView>
+
+                        {/* PINNED FOOTER (Always visible at bottom) */}
+                        <View style={{
+                            flexDirection: 'row',
+                            justifyContent: 'flex-end',
+                            gap: 10,
+                            paddingHorizontal: 24,
+                            paddingVertical: 14,
+                            borderTopWidth: 1,
+                            borderTopColor: '#f1f5f9',
+                            backgroundColor: '#ffffff'
+                        }}>
+                            <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setHospitalizeModal({ open: false, appointment: null })}>
+                                <Text style={styles.modalCancelBtnText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity 
+                                style={[styles.modalConfirmBtn, (saving || !!existingActiveAdmission) && { backgroundColor: '#94a3b8' }]} 
+                                onPress={submitHospitalize} 
+                                disabled={saving || !!existingActiveAdmission}
+                            >
+                                <Text style={styles.modalConfirmBtnText}>
+                                    {saving ? 'Admitting...' : existingActiveAdmission ? 'Already Admitted' : '✓ Confirm Admission'}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
                 </View>
             </Modal>
