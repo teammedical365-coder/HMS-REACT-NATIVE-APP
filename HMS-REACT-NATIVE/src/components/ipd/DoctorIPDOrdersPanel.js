@@ -126,12 +126,30 @@ const DoctorIPDOrdersPanel = ({
 
     // Fetch active admission
     const fetchAdmission = useCallback(async () => {
-        if (!patientId) return;
+        if (!patientId || patientId === 'undefined' || patientId === 'null') return;
         setLoadingAdmission(true);
         try {
-            const res = await admissionAPI.getAdmissions({ patientId, status: 'ADMITTED' });
-            const list = res.data?.admissions || res.data || (Array.isArray(res) ? res : []);
-            const active = list.find(a => (a.status || '').toUpperCase() === 'ADMITTED');
+            let list = [];
+            try {
+                if (typeof admissionAPI.getPatientAdmissions === 'function') {
+                    const ptRes = await admissionAPI.getPatientAdmissions(patientId);
+                    list = ptRes.admissions || ptRes.data || (Array.isArray(ptRes) ? ptRes : []);
+                }
+            } catch (ptErr) {
+                // Fallback to active admissions
+            }
+            if (!list || list.length === 0) {
+                const res = typeof admissionAPI.getActiveAdmissions === 'function' 
+                    ? await admissionAPI.getActiveAdmissions() 
+                    : await admissionAPI.getAdmissions({ status: 'ADMITTED' });
+                list = res.admissions || res.data || (Array.isArray(res) ? res : []);
+            }
+            const active = list.find(a => {
+                const p = a.patientId?._id || a.patientId;
+                const matchesPatient = String(p) === String(patientId);
+                const isActive = ['ADMITTED', 'Admitted', 'admitted'].includes(a.status);
+                return matchesPatient && isActive;
+            });
             setActiveAdmission(active || null);
         } catch (err) {
             console.warn('Could not fetch admission status:', err);
@@ -241,52 +259,111 @@ const DoctorIPDOrdersPanel = ({
         setMedicationRows(prev => prev.filter((_, i) => i !== index));
     };
 
-    // Submit New Clinical Order
+    // Calculate end date based on duration
+    const computeEndDate = (startDateStr, durationStr) => {
+        try {
+            const start = new Date(startDateStr);
+            const numDaysMatch = String(durationStr || '').match(/(\d+)/);
+            const days = numDaysMatch ? parseInt(numDaysMatch[1], 10) : 3;
+            const end = new Date(start);
+            end.setDate(start.getDate() + days);
+            return end;
+        } catch {
+            return undefined;
+        }
+    };
+
+    // Submit New Clinical Order (Matching Web 1:1 per-medication order submission)
     const handleSubmitOrder = async () => {
         if (!diagnosis.trim()) {
-            Alert.alert('Required', 'Please enter a diagnosis for the inpatient order.');
+            Alert.alert('Required', 'Please enter a primary diagnosis for the inpatient order.');
             return;
         }
 
         const validMeds = medicationRows.filter(m => m.medicineName.trim());
+        if (validMeds.length === 0) {
+            Alert.alert('Required', 'Please add at least one medication order with medicine name.');
+            return;
+        }
+
+        if (!activeAdmission?._id) {
+            Alert.alert(
+                'Patient Not Admitted', 
+                'Patient is not currently hospitalized / admitted to an IPD bed. Please admit the patient with ward and bed allocation before placing IPD orders.'
+            );
+            return;
+        }
+
+        for (const [idx, med] of validMeds.entries()) {
+            if (!med.medicineName.trim()) {
+                Alert.alert('Required', `Row #${idx + 1}: Medicine Name is required.`);
+                return;
+            }
+            if (med.dosageValue === '' || Number(med.dosageValue) <= 0) {
+                Alert.alert('Required', `Row #${idx + 1}: Valid Dose (> 0) is required.`);
+                return;
+            }
+            if (!med.route) {
+                Alert.alert('Required', `Row #${idx + 1}: Route is required.`);
+                return;
+            }
+            if (!med.frequency) {
+                Alert.alert('Required', `Row #${idx + 1}: Frequency is required.`);
+                return;
+            }
+        }
+
+        let compiledNotes = clinicalNotes ? `Notes: ${clinicalNotes}` : '';
+        if (investigationNotes.trim()) compiledNotes += `\n[Lab Advice]: ${investigationNotes.trim()}`;
+        if (procedureNotes.trim()) compiledNotes += `\n[Procedure Advice]: ${procedureNotes.trim()}`;
+        if (anesthesiaNotes.trim()) compiledNotes += `\n[Anesthesia Advice]: ${anesthesiaNotes.trim()}`;
 
         setSubmitting(true);
         try {
-            const payload = {
-                patientId,
-                admissionId: activeAdmission?._id || null,
-                doctorId: activeDoctor?._id || activeDoctor?.id,
-                doctorName: activeDoctor?.name || 'Attending Doctor',
-                admissionReason,
-                diagnosis,
-                clinicalNotes,
-                dietOrders: clinicalNotes,
-                investigationNotes,
-                procedureNotes,
-                anesthesiaNotes,
-                medications: validMeds.map(m => ({
-                    medicineName: m.medicineName.trim(),
-                    dosage: `${m.dosageValue} ${m.dosageUnit}`.trim(),
-                    route: m.route,
-                    frequency: m.frequency,
-                    duration: m.duration,
-                    instructions: m.instructions
-                }))
-            };
+            for (const med of validMeds) {
+                const startDate = new Date(med.startDate || new Date());
+                const endDate = computeEndDate(med.startDate || new Date(), med.duration || '3 days');
 
-            const res = await ipdClinicalAPI.createOrder(payload);
-            if (res && res.success) {
-                Alert.alert('Success', 'Inpatient clinical order created successfully!');
-                setClinicalNotes('');
-                setInvestigationNotes('');
-                setProcedureNotes('');
-                setAnesthesiaNotes('');
-                setMedicationRows([createEmptyMedRow()]);
-                fetchOrders();
-                if (onOrderCreated) onOrderCreated(res.data);
-            } else {
-                Alert.alert('Error', res?.message || 'Failed to create order.');
+                const payload = {
+                    patientId: patientId,
+                    admissionId: activeAdmission?._id || null,
+                    appointmentId: appointment?._id || null,
+                    diagnosis: diagnosis.trim(),
+                    admissionReason: admissionReason || 'Observation & Monitoring',
+                    clinicalNotes: compiledNotes.trim(),
+                    medicineName: med.medicineName.trim(),
+                    inventoryItemId: med.inventoryItemId || undefined,
+                    dosage: {
+                        value: Number(med.dosageValue) || 1,
+                        unit: med.dosageUnit || 'mg'
+                    },
+                    route: med.route || 'Oral',
+                    frequency: med.frequency || 'OD',
+                    scheduledTimes: med.scheduledTimes || ['10:00 AM'],
+                    schedule: {
+                        startDate: startDate,
+                        endDate: endDate,
+                        duration: med.duration || '3 days',
+                        scheduledTimes: med.scheduledTimes || ['10:00 AM']
+                    },
+                    instructions: med.instructions || ''
+                };
+
+                const res = await ipdClinicalAPI.createOrder(payload);
+                if (!res || !res.success) {
+                    throw new Error(res?.message || 'Failed to submit clinical order');
+                }
             }
+
+            Alert.alert('Success', 'Inpatient clinical orders placed successfully!');
+            setClinicalNotes('');
+            setInvestigationNotes('');
+            setProcedureNotes('');
+            setAnesthesiaNotes('');
+            setMedicationRows([createEmptyMedRow()]);
+            fetchOrders();
+            fetchAdmission();
+            if (onOrderCreated) onOrderCreated();
         } catch (err) {
             console.error('Order creation error:', err);
             Alert.alert('Error', err?.response?.data?.message || err.message || 'Failed to submit order.');

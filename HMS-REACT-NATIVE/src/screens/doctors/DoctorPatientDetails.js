@@ -164,6 +164,7 @@ const DoctorPatientDetails = () => {
     const route = useRoute();
     const navigation = useNavigation();
     const { width } = useWindowDimensions();
+    const isMobile = width < 900;
     const isTablet = width > 768;
 
     const id = route.params?.id || route.params?.patientId;
@@ -511,26 +512,88 @@ const DoctorPatientDetails = () => {
         }
     };
 
-    const handleCreateSurgeryPlan = async () => {
+    const openCreateSurgeryModal = (ref = null) => {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const defaultDate = tomorrow.toISOString().split('T')[0];
+
+        const defaultSurgeon = (surgeonsList && surgeonsList.length > 0)
+            ? (surgeonsList[0].userId?._id || surgeonsList[0]._id || user?._id || user?.id || '')
+            : (user?._id || user?.id || '');
+
+        setSurgeryPlanData(prev => ({
+            ...prev,
+            surgery: ref?.reason || prev.surgery || '',
+            diagnosis: sessionData.diagnosis || ref?.reason || prev.diagnosis || '',
+            surgeonId: prev.surgeonId || defaultSurgeon,
+            preferredDate: prev.preferredDate || defaultDate,
+            preferredTime: prev.preferredTime || '10:00',
+            admissionRequired: prev.admissionRequired || false,
+            admissionDate: prev.admissionDate || defaultDate,
+            preOpRequired: prev.preOpRequired || false,
+            referralId: ref?._id || prev.referralId || undefined,
+            referringDoctorId: ref?.referringDoctorId?._id || ref?.referringDoctorId || prev.referringDoctorId || undefined
+        }));
+        setShowSurgeryPlanModal(true);
+    };
+
+    const handleCreateSurgeryPlan = async (e) => {
+        if (e && e.preventDefault) e.preventDefault();
         try {
+            const resolvedPtId = appointment?.userId?._id || 
+                appointment?.clinicPatientId?._id || 
+                (typeof appointment?.clinicPatientId === 'string' ? appointment.clinicPatientId : null) || 
+                (typeof appointment?.userId === 'string' ? appointment.userId : null) || 
+                (typeof id === 'string' && id.match(/^[0-9a-fA-F]{24}$/) ? id : null) || 
+                appointment?.patientId || 
+                intakeData?.userId || 
+                id;
+
+            const resolvedSurgeonId = (typeof surgeryPlanData.surgeonId === 'object' && surgeryPlanData.surgeonId?._id)
+                ? surgeryPlanData.surgeonId._id
+                : (surgeryPlanData.surgeonId || user?._id || user?.id);
+
+            if (!surgeryPlanData.surgery?.trim()) {
+                Alert.alert('Required', 'Please enter surgery / procedure name.');
+                return;
+            }
+            if (!resolvedSurgeonId) {
+                Alert.alert('Required', 'Please select an operating surgeon.');
+                return;
+            }
+            if (!surgeryPlanData.preferredDate) {
+                Alert.alert('Required', 'Please select a preferred date for surgery.');
+                return;
+            }
+            if (!surgeryPlanData.preferredTime) {
+                Alert.alert('Required', 'Please select a preferred time for surgery.');
+                return;
+            }
+
             const dataToSubmit = {
                 ...surgeryPlanData,
-                patientId: appointment?.userId?._id || appointment?.patientId || intakeData?.userId,
+                surgery: surgeryPlanData.surgery.trim(),
+                surgeonId: resolvedSurgeonId,
+                patientId: resolvedPtId,
                 appointmentId: appointment?._id,
                 referralId: surgeryPlanData.referralId || undefined,
                 referringDoctorId: surgeryPlanData.referringDoctorId || undefined
             };
             const res = await otAPI.createSurgeryPlan(dataToSubmit);
-            if(res.success) {
-                Alert.alert('Success', 'Surgery Plan created successfully!');
+            if (res && res.success) {
+                Alert.alert('Success', 'Surgery Plan created & pushed to OT Dashboard!');
                 setShowSurgeryPlanModal(false);
-                setOperationRequired(false);
+                setOperationRequired(true);
+                // Reset form
                 setSurgeryPlanData({
                     surgery: '', diagnosis: '', surgeonId: '', preferredDate: '', preferredTime: '', admissionRequired: false, admissionDate: '', preOpRequired: false, notes: '', referralId: '', referringDoctorId: ''
                 });
+            } else {
+                Alert.alert('Error', res?.message || 'Failed to create surgery plan');
             }
         } catch(err) {
-            Alert.alert('Error', err.response?.data?.message || 'Error creating surgery plan');
+            console.error('Error creating surgery plan:', err);
+            Alert.alert('Error', err.response?.data?.message || err.message || 'Error creating surgery plan');
         }
     };
 
@@ -1131,10 +1194,10 @@ const DoctorPatientDetails = () => {
     return (
         <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
             <ScrollView horizontal={false} style={styles.containerScroll}>
-                <View style={isJrDoctor ? styles.containerGridJr : styles.containerGrid}>
+                <View style={isJrDoctor || isMobile ? styles.containerGridMobile : styles.containerGrid}>
                     
                     {/* LEFT PANEL */}
-                    <View style={styles.leftPanel}>
+                    <View style={[styles.leftPanel, isMobile && styles.leftPanelMobile]}>
                         {/* Patient Header Card */}
                         <View style={styles.patientHeader}>
                             <TouchableOpacity style={styles.backLink} onPress={() => navigation.navigate('DoctorPatients')}>
@@ -1401,7 +1464,7 @@ const DoctorPatientDetails = () => {
 
                     {/* RIGHT PANEL - SESSION NOTEPAD */}
                     {!isJrDoctor && (
-                        <View style={[styles.rightPanel, viewingPastSession ? styles.rightPanelTimeMachine : null]}>
+                        <View style={[styles.rightPanel, isMobile && styles.rightPanelMobile, viewingPastSession ? styles.rightPanelTimeMachine : null]}>
                             {viewingPastSession ? (
                                 <>
                                     <View style={[styles.rightHeader, { backgroundColor: '#eff6ff', borderBottomColor: '#bfdbfe' }]}>
@@ -1551,14 +1614,7 @@ const DoctorPatientDetails = () => {
                                                     <View style={styles.surgeryActions}>
                                                         <TouchableOpacity 
                                                             style={styles.surgeryBtn} 
-                                                            onPress={() => {
-                                                                setSurgeryPlanData(prev => ({ 
-                                                                    ...prev, 
-                                                                    diagnosis: sessionData.diagnosis || prev.diagnosis || '',
-                                                                    surgeonId: prev.surgeonId || user?._id || user?.id || ''
-                                                                }));
-                                                                setShowSurgeryPlanModal(true);
-                                                            }}
+                                                            onPress={() => openCreateSurgeryModal()}
                                                         >
                                                             <Text style={styles.surgeryBtnText}>+ Create Surgery Plan (Self / Direct)</Text>
                                                         </TouchableOpacity>
@@ -1939,45 +1995,100 @@ const DoctorPatientDetails = () => {
 
                             <View style={styles.sessionField}>
                                 <Text style={styles.fieldLabel}>Surgeon *</Text>
-                                <View style={styles.pickerContainer}>
-                                    <Picker 
-                                        selectedValue={surgeryPlanData.surgeonId} 
-                                        onValueChange={val => setSurgeryPlanData(prev => ({...prev, surgeonId: val}))}
+                                {Platform.OS === 'web' ? (
+                                    <select 
+                                        value={typeof surgeryPlanData.surgeonId === 'object' ? surgeryPlanData.surgeonId?._id : surgeryPlanData.surgeonId} 
+                                        onChange={e => setSurgeryPlanData(prev => ({...prev, surgeonId: e.target.value}))}
+                                        style={{
+                                            width: '100%',
+                                            padding: '10px 12px',
+                                            borderRadius: '8px',
+                                            border: '1.5px solid #cbd5e1',
+                                            backgroundColor: '#ffffff',
+                                            fontSize: '13.5px',
+                                            color: '#1e293b',
+                                            outline: 'none',
+                                            cursor: 'pointer'
+                                        }}
                                     >
-                                        <Picker.Item label="-- Select Surgeon --" value="" />
+                                        <option value="">-- Select Surgeon --</option>
                                         {surgeonsList.map(s => {
                                             const sId = s.userId?._id || s.userId || s._id;
                                             const docName = s.name || s.userId?.name || 'Doctor';
                                             return (
-                                                <Picker.Item key={s._id || sId} label={`Dr. ${docName.replace(/^Dr\.?\s*/i, '')} ${s.specialty ? `(${s.specialty})` : ''}`} value={sId} />
+                                                <option key={s._id || sId} value={sId}>
+                                                    Dr. {docName.replace(/^Dr\.?\s*/i, '')} {s.specialty ? `(${s.specialty})` : ''}
+                                                </option>
                                             );
                                         })}
-                                    </Picker>
-                                </View>
+                                    </select>
+                                ) : (
+                                    <View style={styles.pickerContainer}>
+                                        <Picker 
+                                            selectedValue={surgeryPlanData.surgeonId} 
+                                            onValueChange={val => setSurgeryPlanData(prev => ({...prev, surgeonId: val}))}
+                                        >
+                                            <Picker.Item label="-- Select Surgeon --" value="" />
+                                            {surgeonsList.map(s => {
+                                                const sId = s.userId?._id || s.userId || s._id;
+                                                const docName = s.name || s.userId?.name || 'Doctor';
+                                                return (
+                                                    <Picker.Item key={s._id || sId} label={`Dr. ${docName.replace(/^Dr\.?\s*/i, '')} ${s.specialty ? `(${s.specialty})` : ''}`} value={sId} />
+                                                );
+                                            })}
+                                        </Picker>
+                                    </View>
+                                )}
                             </View>
 
-                            <View style={styles.formRow}>
-                                <View style={{ flex: 1 }}>
-                                    <Text style={styles.fieldLabel}>Preferred Date *</Text>
-                                    <TextInput 
-                                        style={styles.input} 
-                                        placeholder="YYYY-MM-DD" 
-                                        placeholderTextColor="#94a3b8"
-                                        value={surgeryPlanData.preferredDate} 
-                                        onChangeText={text => setSurgeryPlanData(prev => ({...prev, preferredDate: text}))} 
-                                    />
+                            {Platform.OS === 'web' ? (
+                                <div style={{ display: 'flex', gap: '12px', width: '100%', marginTop: '6px' }}>
+                                    <div style={{ flex: 1 }}>
+                                        <label style={{ display: 'block', fontSize: '12.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>Preferred Date *</label>
+                                        <input 
+                                            type="date" 
+                                            required 
+                                            min={new Date().toISOString().split('T')[0]} 
+                                            value={surgeryPlanData.preferredDate} 
+                                            onChange={e => setSurgeryPlanData(prev => ({...prev, preferredDate: e.target.value}))} 
+                                            style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1.5px solid #cbd5e1', boxSizing: 'border-box', fontSize: '13.5px', backgroundColor: '#ffffff', color: '#0f172a' }} 
+                                        />
+                                    </div>
+                                    <div style={{ flex: 1 }}>
+                                        <label style={{ display: 'block', fontSize: '12.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>Preferred Time *</label>
+                                        <input 
+                                            type="time" 
+                                            required 
+                                            value={surgeryPlanData.preferredTime} 
+                                            onChange={e => setSurgeryPlanData(prev => ({...prev, preferredTime: e.target.value}))} 
+                                            style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1.5px solid #cbd5e1', boxSizing: 'border-box', fontSize: '13.5px', backgroundColor: '#ffffff', color: '#0f172a' }} 
+                                        />
+                                    </div>
+                                </div>
+                            ) : (
+                                <View style={styles.formRow}>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={styles.fieldLabel}>Preferred Date *</Text>
+                                        <TextInput 
+                                            style={styles.input} 
+                                            placeholder="YYYY-MM-DD" 
+                                            placeholderTextColor="#94a3b8"
+                                            value={surgeryPlanData.preferredDate} 
+                                            onChangeText={text => setSurgeryPlanData(prev => ({...prev, preferredDate: text}))} 
+                                        />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={styles.fieldLabel}>Preferred Time *</Text>
+                                        <TextInput 
+                                            style={styles.input} 
+                                            placeholder="HH:MM (e.g. 09:30)" 
+                                            placeholderTextColor="#94a3b8"
+                                            value={surgeryPlanData.preferredTime} 
+                                            onChangeText={text => setSurgeryPlanData(prev => ({...prev, preferredTime: text}))} 
+                                        />
+                                    </View>
                                 </View>
-                                <View style={{ flex: 1 }}>
-                                    <Text style={styles.fieldLabel}>Preferred Time *</Text>
-                                    <TextInput 
-                                        style={styles.input} 
-                                        placeholder="HH:MM (e.g. 09:30)" 
-                                        placeholderTextColor="#94a3b8"
-                                        value={surgeryPlanData.preferredTime} 
-                                        onChangeText={text => setSurgeryPlanData(prev => ({...prev, preferredTime: text}))} 
-                                    />
-                                </View>
-                            </View>
+                            )}
 
                             <TouchableOpacity 
                                 style={styles.checkboxRow} 
@@ -1991,14 +2102,30 @@ const DoctorPatientDetails = () => {
 
                             {Boolean(surgeryPlanData.admissionRequired) && (
                                 <View style={styles.sessionField}>
-                                    <Text style={styles.fieldLabel}>Admission Date *</Text>
-                                    <TextInput 
-                                        style={styles.input} 
-                                        placeholder="YYYY-MM-DD" 
-                                        placeholderTextColor="#94a3b8"
-                                        value={surgeryPlanData.admissionDate} 
-                                        onChangeText={text => setSurgeryPlanData(prev => ({...prev, admissionDate: text}))} 
-                                    />
+                                    {Platform.OS === 'web' ? (
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '12.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>Admission Date *</label>
+                                            <input 
+                                                type="date" 
+                                                required={surgeryPlanData.admissionRequired} 
+                                                min={new Date().toISOString().split('T')[0]} 
+                                                value={surgeryPlanData.admissionDate} 
+                                                onChange={e => setSurgeryPlanData(prev => ({...prev, admissionDate: e.target.value}))} 
+                                                style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1.5px solid #cbd5e1', boxSizing: 'border-box', fontSize: '13.5px', backgroundColor: '#ffffff', color: '#0f172a' }} 
+                                            />
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <Text style={styles.fieldLabel}>Admission Date *</Text>
+                                            <TextInput 
+                                                style={styles.input} 
+                                                placeholder="YYYY-MM-DD" 
+                                                placeholderTextColor="#94a3b8"
+                                                value={surgeryPlanData.admissionDate} 
+                                                onChangeText={text => setSurgeryPlanData(prev => ({...prev, admissionDate: text}))} 
+                                            />
+                                        </>
+                                    )}
                                 </View>
                             )}
 
@@ -2159,15 +2286,7 @@ const DoctorPatientDetails = () => {
                                         style={[styles.modalActionBtn, { flex: 1, backgroundColor: '#dcfce7', borderWidth: 2, borderColor: '#bbf7d0' }]}
                                         onPress={() => {
                                             handleReviewReferral(activeReferralForReview._id, 'ACCEPTED', 'Surgery confirmed after evaluation').then(() => {
-                                                setSurgeryPlanData(prev => ({
-                                                    ...prev,
-                                                    surgery: activeReferralForReview.reason || prev.surgery || '',
-                                                    diagnosis: activeReferralForReview.reason || '',
-                                                    surgeonId: user?._id || '',
-                                                    referralId: activeReferralForReview._id,
-                                                    referringDoctorId: activeReferralForReview.referringDoctorId?._id || ''
-                                                }));
-                                                setShowSurgeryPlanModal(true);
+                                                openCreateSurgeryModal(activeReferralForReview);
                                             });
                                         }}
                                     >
@@ -2279,6 +2398,7 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#f0f4ff' },
     containerScroll: { flex: 1 },
     containerGrid: { flexDirection: 'row', flex: 1, minHeight: '100%' },
+    containerGridMobile: { flexDirection: 'column', flex: 1 },
     containerGridJr: { flexDirection: 'column', flex: 1 },
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f0f4ff' },
     loadingText: { marginTop: 16, color: '#64748b', fontSize: 16 },
@@ -2286,7 +2406,9 @@ const styles = StyleSheet.create({
     backBtnText: { color: 'white', fontWeight: 'bold' },
     
     leftPanel: { flex: 0.45, borderRightWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#f8fafc' },
+    leftPanelMobile: { flex: undefined, width: '100%', borderRightWidth: 0, borderBottomWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#f8fafc' },
     rightPanel: { flex: 0.55, backgroundColor: '#ffffff' },
+    rightPanelMobile: { flex: undefined, width: '100%', backgroundColor: '#ffffff' },
     rightPanelTimeMachine: { borderLeftWidth: 4, borderColor: '#3b82f6', backgroundColor: '#f8fafc' },
     
     patientHeader: { padding: 20, backgroundColor: '#0f172a' },
@@ -2346,7 +2468,7 @@ const styles = StyleSheet.create({
     tabPanel: { flex: 1 },
     panelTitle: { fontSize: 17, fontWeight: 'bold', color: '#0f172a', borderBottomWidth: 2, borderColor: '#e2e8f0', paddingBottom: 8, marginBottom: 16 },
     overviewGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10 },
-    ovCard: { width: '48%', backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 12, padding: 12 },
+    ovCard: { flexBasis: '48%', flexGrow: 1, minWidth: 150, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 12, padding: 12 },
     ovLabel: { fontSize: 10.5, color: '#94a3b8', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: 3 },
     ovValue: { fontSize: 13.5, color: '#1e293b', fontWeight: '600' },
 
