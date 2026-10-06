@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Dimensions, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Platform, useWindowDimensions, RefreshControl } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { labAPI } from '../../utils/api';
 import { LinearGradient } from 'expo-linear-gradient';
 
-const { width } = Dimensions.get('window');
-
 const AssignedTests = () => {
+    const { width } = useWindowDimensions();
     const [requests, setRequests] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [uploadingId, setUploadingId] = useState(null);
 
     useEffect(() => {
@@ -20,12 +20,26 @@ const AssignedTests = () => {
         try {
             const res = await labAPI.getRequests('pending');
             if (res.success) {
-                setRequests(res.requests);
+                setRequests(res.requests || []);
             }
         } catch (err) {
             console.error(err);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const onRefresh = async () => {
+        setRefreshing(true);
+        try {
+            const res = await labAPI.getRequests('pending');
+            if (res.success) {
+                setRequests(res.requests || []);
+            }
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setRefreshing(false);
         }
     };
 
@@ -42,8 +56,8 @@ const AssignedTests = () => {
             `Upload ${fileName} for this patient?`,
             [
                 { text: "Cancel", style: "cancel" },
-                { 
-                    text: "Upload File", 
+                {
+                    text: "Upload File",
                     onPress: async () => {
                         setUploadingId(reportId);
                         try {
@@ -117,8 +131,14 @@ const AssignedTests = () => {
     const isLargeScreen = width > 768;
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
-            <View style={[styles.header, !isLargeScreen && { flexDirection: 'column', alignItems: 'flex-start', gap: 15 }]}>
+        <ScrollView
+            style={styles.container}
+            contentContainerStyle={[styles.contentContainer, width < 400 && { padding: 16 }]}
+            refreshControl={
+                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#0ea5e9']} />
+            }
+        >
+            <View style={[styles.header, !isLargeScreen && { flexDirection: 'column', alignItems: 'flex-start', gap: 15 }, width < 400 && { padding: 16, marginBottom: 24 }]}>
                 <View>
                     <Text style={styles.headerTitle}>📋 Pending Lab Requests</Text>
                     <Text style={styles.headerSubtitle}>View and process requested tests</Text>
@@ -132,7 +152,7 @@ const AssignedTests = () => {
             ) : (
                 <View style={[styles.grid, !isLargeScreen && { flexDirection: 'column' }]}>
                     {requests.map(req => (
-                        <View key={req._id} style={styles.card}>
+                        <View key={req._id} style={[styles.card, !isLargeScreen && { minWidth: '100%', width: '100%' }]}>
                             <View style={styles.cardHeader}>
                                 <Text style={styles.patientName}>{req.userId?.name || 'Unknown Patient'}</Text>
                                 <Text style={styles.patientId}>{req.patientId}</Text>
@@ -161,7 +181,7 @@ const AssignedTests = () => {
                             </View>
 
                             <View style={styles.cardFooter}>
-                                <TouchableOpacity 
+                                <TouchableOpacity
                                     style={[styles.btnUpload, uploadingId === req._id && { opacity: 0.7 }]}
                                     disabled={uploadingId === req._id}
                                     onPress={() => handleFileUpload(req._id)}
@@ -232,20 +252,6 @@ const styles = StyleSheet.create({
         marginTop: 4,
         fontWeight: '500'
     },
-    searchBox: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: 'white',
-        borderWidth: 1,
-        borderColor: 'rgba(226, 232, 240, 0.8)',
-        borderRadius: 14,
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-        width: 300
-    },
-    searchIcon: {
-        fontSize: 16
-    },
     emptyState: {
         padding: 40,
         alignItems: 'center',
@@ -264,7 +270,8 @@ const styles = StyleSheet.create({
     },
     card: {
         flex: 1,
-        minWidth: 340,
+        minWidth: 260,
+        maxWidth: '100%',
         backgroundColor: 'rgba(255, 255, 255, 0.7)',
         borderRadius: 20,
         borderWidth: 1,
@@ -307,7 +314,7 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#64748b',
         fontWeight: '700',
-        width: 140
+        width: 110
     },
     infoValue: {
         fontSize: 14,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,27 +10,35 @@ import {
   Modal,
   Platform,
   useWindowDimensions,
+  Animated,
+  Easing,
+  Pressable,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ipdCommandCenterAPI } from '../../utils/api';
 import socket from '../../utils/socket';
 
 const STAGE_CONFIG = {
-  ADMITTED: { label: 'Admitted (<24h)', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.12)', border: '#93c5fd' },
-  ACTIVE_CARE: { label: 'Active Care', color: '#0ea5e9', bg: 'rgba(14, 165, 233, 0.12)', border: '#7dd3fc' },
-  INVESTIGATION: { label: 'Investigation', color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.12)', border: '#c4b5fd' },
-  PROCEDURE_OT: { label: 'OT / Procedure', color: '#ec4899', bg: 'rgba(236, 72, 153, 0.12)', border: '#f9a8d4' },
-  POST_OP: { label: 'Post-Op Recovery', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.12)', border: '#fcd34d' },
-  DISCHARGE_PLANNED: { label: 'Discharge Planned', color: '#10b981', bg: 'rgba(16, 185, 129, 0.12)', border: '#6ee7b7' },
-  DISCHARGE_CLEARANCE: { label: 'Safety Clearance', color: '#059669', bg: 'rgba(5, 150, 105, 0.12)', border: '#34d399' },
-  DISCHARGED: { label: 'Discharged (24h)', color: '#64748b', bg: 'rgba(100, 116, 139, 0.12)', border: '#cbd5e1' },
+  ADMITTED: { label: 'Admitted (<24h)', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)', border: '#93c5fd' },
+  ACTIVE_CARE: { label: 'Active Care', color: '#0ea5e9', bg: 'rgba(14, 165, 233, 0.1)', border: '#7dd3fc' },
+  INVESTIGATION: { label: 'Investigation', color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.1)', border: '#c4b5fd' },
+  PROCEDURE_OT: { label: 'OT / Procedure', color: '#ec4899', bg: 'rgba(236, 72, 153, 0.1)', border: '#f9a8d4' },
+  POST_OP: { label: 'Post-Op Recovery', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)', border: '#fcd34d' },
+  DISCHARGE_PLANNED: { label: 'Discharge Planned', color: '#10b981', bg: 'rgba(16, 185, 129, 0.1)', border: '#6ee7b7' },
+  DISCHARGE_CLEARANCE: { label: 'Safety Clearance', color: '#059669', bg: 'rgba(5, 150, 105, 0.1)', border: '#34d399' },
+  DISCHARGED: { label: 'Discharged (24h)', color: '#64748b', bg: 'rgba(100, 116, 139, 0.1)', border: '#cbd5e1' },
 };
 
 export default function IPDCommandCenter({ navigation }) {
-  const { width: windowWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const isDesktop = windowWidth >= 1024;
   const isTablet = windowWidth >= 768 && windowWidth < 1024;
   const isMobile = windowWidth < 768;
+  const isSmallPhone = windowWidth < 380;
+  const isVerySmall = windowWidth < 350;
 
   const [activeTab, setActiveTab] = useState('board'); // 'board', 'wards', 'analytics', 'reconcile'
   const [loading, setLoading] = useState(true);
@@ -48,7 +56,7 @@ export default function IPDCommandCenter({ navigation }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedWard, setSelectedWard] = useState('ALL');
   const [selectedStage, setSelectedStage] = useState('ALL');
-  const [wardDropdownOpen, setWardDropdownOpen] = useState(false);
+  const [wardModalOpen, setWardModalOpen] = useState(false);
 
   // Blocker Drawer Modal
   const [blockerModalOpen, setBlockerModalOpen] = useState(false);
@@ -64,6 +72,53 @@ export default function IPDCommandCenter({ navigation }) {
   // Bed Reconciliation State
   const [reconcileResult, setReconcileResult] = useState(null);
   const [reconciling, setReconciling] = useState(false);
+
+  // Pulse & Spin Animations
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const spinAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const pulseLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.35,
+          duration: 900,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 900,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    pulseLoop.start();
+    return () => pulseLoop.stop();
+  }, [pulseAnim]);
+
+  useEffect(() => {
+    if (refreshing || reconciling) {
+      const spinLoop = Animated.loop(
+        Animated.timing(spinAnim, {
+          toValue: 1,
+          duration: 900,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        })
+      );
+      spinLoop.start();
+      return () => spinLoop.stop();
+    } else {
+      spinAnim.setValue(0);
+    }
+  }, [refreshing, reconciling, spinAnim]);
+
+  const spinRotation = spinAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
 
   // ── Fetch Main Data ──
   const fetchCommandCenterData = useCallback(async (isSilent = false) => {
@@ -132,7 +187,7 @@ export default function IPDCommandCenter({ navigation }) {
 
   // ── Socket.IO Realtime Listeners ──
   useEffect(() => {
-    if (!socket) return;
+    if (!socket || !socket.on) return;
 
     const handleRealtimeEvent = () => {
       fetchCommandCenterData(true);
@@ -202,21 +257,62 @@ export default function IPDCommandCenter({ navigation }) {
     return ['ALL', ...Array.from(wards)];
   }, [wardBreakdown]);
 
+  // Responsive padding calculations & safe area clearance
+  const scrollPaddingHorizontal = isVerySmall ? 10 : isSmallPhone ? 12 : isMobile ? 16 : isTablet ? 20 : 28;
+  const availableContentWidth = windowWidth - scrollPaddingHorizontal * 2;
+  const topInsetPadding = Math.max(insets.top, isMobile ? 10 : 16);
+  const bottomInsetPadding = Math.max(insets.bottom + 20, isMobile ? 44 : 56);
+
+  // Responsive column width for mobile Kanban
+  const mobileKanbanColumnWidth = Math.min(Math.max(availableContentWidth * 0.9, 280), 340);
+
   return (
     <View style={styles.container}>
       <ScrollView
-        contentContainerStyle={[styles.scrollContent, isDesktop && styles.scrollContentDesktop]}
+        contentContainerStyle={[
+          styles.scrollContent,
+          {
+            paddingHorizontal: scrollPaddingHorizontal,
+            paddingTop: topInsetPadding,
+            paddingBottom: bottomInsetPadding,
+            gap: isVerySmall ? 12 : isSmallPhone ? 14 : isDesktop ? 20 : 16,
+          },
+        ]}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
       >
         {/* ── Top Command Bar ── */}
-        <View style={[styles.ccHeader, !isMobile && styles.ccHeaderDesktop]}>
+        <LinearGradient
+          colors={['rgba(15, 23, 42, 0.95)', 'rgba(30, 41, 59, 0.85)']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[
+            styles.ccHeader,
+            isVerySmall && { padding: 12 },
+            !isMobile && styles.ccHeaderDesktop,
+          ]}
+        >
           <View style={[styles.ccHeaderLeft, !isMobile && styles.ccHeaderLeftDesktop]}>
             <View style={styles.ccBadgeLive}>
-              <View style={styles.pulseDot} />
+              <Animated.View
+                style={[
+                  styles.pulseDot,
+                  {
+                    transform: [{ scale: pulseAnim }],
+                  },
+                ]}
+              />
               <Text style={styles.ccBadgeLiveText}>LIVE COMMAND CENTER</Text>
             </View>
-            <Text style={styles.ccMainTitle}>IPD Clinical Operations & Census</Text>
+            <Text
+              style={[
+                styles.ccMainTitle,
+                isVerySmall ? { fontSize: 18 } : isSmallPhone ? { fontSize: 20 } : null,
+              ]}
+            >
+              IPD Clinical Operations & Census
+            </Text>
             <Text style={styles.ccSubTitle}>
               Real-time patient progression, bed occupancy, doctor-nurse coordination & discharge blocker intelligence
             </Text>
@@ -230,50 +326,63 @@ export default function IPDCommandCenter({ navigation }) {
               </Text>
             </View>
 
-            <View style={[styles.headerActionsRow, !isMobile && styles.headerActionsRowDesktop]}>
+            <View style={[styles.headerActionsRow, isMobile && styles.headerActionsRowMobile]}>
               <TouchableOpacity
-                style={[styles.btnRefresh, refreshing && styles.btnRefreshActive]}
+                style={[styles.btnRefresh, refreshing && styles.btnRefreshActive, isMobile && { flex: 1 }]}
                 onPress={() => fetchCommandCenterData(false)}
                 activeOpacity={0.7}
               >
-                <Feather name="refresh-cw" size={14} color="#e2e8f0" />
+                <Animated.View style={{ transform: [{ rotate: spinRotation }] }}>
+                  <Feather name="refresh-cw" size={14} color="#e2e8f0" />
+                </Animated.View>
                 <Text style={styles.btnRefreshText}>{refreshing ? 'Refreshing...' : 'Refresh'}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.btnWorkspaceShortcut}
+                style={[styles.btnWorkspaceShortcut, isMobile && { flex: 1.2 }]}
                 onPress={() => navigation.navigate('NurseDashboard')}
                 activeOpacity={0.8}
               >
-                <Feather name="user-check" size={14} color="#ffffff" />
-                <Text style={styles.btnWorkspaceShortcutText}>Nurse Station</Text>
+                <LinearGradient
+                  colors={['#0284c7', '#0369a1']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.btnWorkspaceGradient}
+                >
+                  <Feather name="user-check" size={14} color="#ffffff" />
+                  <Text style={styles.btnWorkspaceShortcutText}>Nurse Station</Text>
+                </LinearGradient>
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </LinearGradient>
 
         {/* ── KPI Census Deck (6 Cards) ── */}
-        <View style={styles.kpiDeck}>
+        <View style={[styles.kpiDeck, isVerySmall && { gap: 8 }]}>
           {/* 1. Bed Occupancy */}
           <View style={[styles.kpiCard, isDesktop && styles.kpiCardDesktop, isTablet && styles.kpiCardTablet, isMobile && styles.kpiCardMobile]}>
-            <View style={[styles.kpiIconWrap, isMobile && styles.kpiIconWrapMobile, { backgroundColor: 'rgba(59, 130, 246, 0.15)' }]}>
-              <Feather name="pie-chart" size={isMobile ? 18 : 22} color="#3b82f6" />
+            <View style={styles.kpiHeaderRow}>
+              <View style={[styles.kpiIconWrap, { backgroundColor: 'rgba(59, 130, 246, 0.15)' }]}>
+                <Feather name="pie-chart" size={18} color="#60a5fa" />
+              </View>
+              <Text style={styles.kpiLabel}>BED OCCUPANCY</Text>
             </View>
             <View style={styles.kpiContent}>
-              <Text style={[styles.kpiLabel, isMobile && styles.kpiLabelMobile]}>BED OCCUPANCY</Text>
               <View style={styles.kpiValGroup}>
-                <Text style={styles.kpiMainVal}>{census?.occupancyRate || '0%'}</Text>
+                <Text style={[styles.kpiMainVal, isVerySmall && { fontSize: 20 }]}>{census?.occupancyRate || '0%'}</Text>
                 <Text style={styles.kpiSubVal}>
                   ({census?.occupiedBeds || 0} / {census?.totalBeds || 0} Beds)
                 </Text>
               </View>
               <View style={styles.kpiBarTrack}>
-                <View
+                <LinearGradient
+                  colors={['#3b82f6', '#06b6d4']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
                   style={[
                     styles.kpiBarFill,
                     {
                       width: `${Math.min(100, census?.occupancyRateValue || parseFloat(census?.occupancyRate) || 0)}%`,
-                      backgroundColor: '#3b82f6',
                     },
                   ]}
                 />
@@ -283,14 +392,16 @@ export default function IPDCommandCenter({ navigation }) {
 
           {/* 2. Active Inpatients */}
           <View style={[styles.kpiCard, isDesktop && styles.kpiCardDesktop, isTablet && styles.kpiCardTablet, isMobile && styles.kpiCardMobile]}>
-            <View style={[styles.kpiIconWrap, isMobile && styles.kpiIconWrapMobile, { backgroundColor: 'rgba(14, 165, 233, 0.15)' }]}>
-              <Feather name="users" size={isMobile ? 18 : 22} color="#0ea5e9" />
+            <View style={styles.kpiHeaderRow}>
+              <View style={[styles.kpiIconWrap, { backgroundColor: 'rgba(6, 182, 212, 0.15)' }]}>
+                <Feather name="users" size={18} color="#22d3ee" />
+              </View>
+              <Text style={styles.kpiLabel}>ACTIVE INPATIENTS</Text>
             </View>
             <View style={styles.kpiContent}>
-              <Text style={[styles.kpiLabel, isMobile && styles.kpiLabelMobile]}>ACTIVE INPATIENTS</Text>
               <View style={styles.kpiValGroup}>
-                <Text style={styles.kpiMainVal}>{census?.activeInpatients || 0}</Text>
-                <Text style={[styles.kpiSubVal, { color: '#10b981' }]}>
+                <Text style={[styles.kpiMainVal, isVerySmall && { fontSize: 20 }]}>{census?.activeInpatients || 0}</Text>
+                <Text style={[styles.kpiSubVal, { color: '#34d399', fontWeight: '600' }]}>
                   +{census?.admittedToday || 0} Today
                 </Text>
               </View>
@@ -302,13 +413,15 @@ export default function IPDCommandCenter({ navigation }) {
 
           {/* 3. Discharge Pipeline */}
           <View style={[styles.kpiCard, isDesktop && styles.kpiCardDesktop, isTablet && styles.kpiCardTablet, isMobile && styles.kpiCardMobile]}>
-            <View style={[styles.kpiIconWrap, isMobile && styles.kpiIconWrapMobile, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
-              <Feather name="log-out" size={isMobile ? 18 : 22} color="#10b981" />
+            <View style={styles.kpiHeaderRow}>
+              <View style={[styles.kpiIconWrap, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
+                <Feather name="log-out" size={18} color="#34d399" />
+              </View>
+              <Text style={styles.kpiLabel}>DISCHARGE PIPELINE</Text>
             </View>
             <View style={styles.kpiContent}>
-              <Text style={[styles.kpiLabel, isMobile && styles.kpiLabelMobile]}>DISCHARGE PIPELINE</Text>
               <View style={styles.kpiValGroup}>
-                <Text style={styles.kpiMainVal}>{census?.dischargesPlanned || 0}</Text>
+                <Text style={[styles.kpiMainVal, isVerySmall && { fontSize: 20 }]}>{census?.dischargesPlanned || 0}</Text>
                 <Text style={styles.kpiSubVal}>Planned</Text>
               </View>
               <Text style={styles.kpiHint}>
@@ -319,13 +432,15 @@ export default function IPDCommandCenter({ navigation }) {
 
           {/* 4. Long-Stay Patients */}
           <View style={[styles.kpiCard, isDesktop && styles.kpiCardDesktop, isTablet && styles.kpiCardTablet, isMobile && styles.kpiCardMobile]}>
-            <View style={[styles.kpiIconWrap, isMobile && styles.kpiIconWrapMobile, { backgroundColor: 'rgba(245, 158, 11, 0.15)' }]}>
-              <Feather name="clock" size={isMobile ? 18 : 22} color="#f59e0b" />
+            <View style={styles.kpiHeaderRow}>
+              <View style={[styles.kpiIconWrap, { backgroundColor: 'rgba(245, 158, 11, 0.15)' }]}>
+                <Feather name="clock" size={18} color="#fbbf24" />
+              </View>
+              <Text style={styles.kpiLabel}>LONG-STAY PATIENTS</Text>
             </View>
             <View style={styles.kpiContent}>
-              <Text style={[styles.kpiLabel, isMobile && styles.kpiLabelMobile]}>LONG-STAY PATIENTS</Text>
               <View style={styles.kpiValGroup}>
-                <Text style={styles.kpiMainVal}>{census?.longStayCount || 0}</Text>
+                <Text style={[styles.kpiMainVal, isVerySmall && { fontSize: 20 }]}>{census?.longStayCount || 0}</Text>
                 <Text style={styles.kpiSubVal}>Stay &gt; 7 Days</Text>
               </View>
               <Text style={styles.kpiHint}>Clinical course review suggested</Text>
@@ -334,13 +449,15 @@ export default function IPDCommandCenter({ navigation }) {
 
           {/* 5. Clinical Workload */}
           <View style={[styles.kpiCard, isDesktop && styles.kpiCardDesktop, isTablet && styles.kpiCardTablet, isMobile && styles.kpiCardMobile]}>
-            <View style={[styles.kpiIconWrap, isMobile && styles.kpiIconWrapMobile, { backgroundColor: 'rgba(139, 92, 246, 0.15)' }]}>
-              <Feather name="activity" size={isMobile ? 18 : 22} color="#8b5cf6" />
+            <View style={styles.kpiHeaderRow}>
+              <View style={[styles.kpiIconWrap, { backgroundColor: 'rgba(168, 85, 247, 0.15)' }]}>
+                <Feather name="activity" size={18} color="#c084fc" />
+              </View>
+              <Text style={styles.kpiLabel}>CLINICAL WORKLOAD</Text>
             </View>
             <View style={styles.kpiContent}>
-              <Text style={[styles.kpiLabel, isMobile && styles.kpiLabelMobile]}>CLINICAL WORKLOAD</Text>
               <View style={styles.kpiValGroup}>
-                <Text style={styles.kpiMainVal}>
+                <Text style={[styles.kpiMainVal, isVerySmall && { fontSize: 20 }]}>
                   {(workload?.pendingMedications || 0) + (workload?.pendingTasks || 0)}
                 </Text>
                 <Text style={styles.kpiSubVal}>Pending Actions</Text>
@@ -355,13 +472,15 @@ export default function IPDCommandCenter({ navigation }) {
 
           {/* 6. Clarifications */}
           <View style={[styles.kpiCard, isDesktop && styles.kpiCardDesktop, isTablet && styles.kpiCardTablet, isMobile && styles.kpiCardMobile]}>
-            <View style={[styles.kpiIconWrap, isMobile && styles.kpiIconWrapMobile, { backgroundColor: 'rgba(244, 63, 94, 0.15)' }]}>
-              <Feather name="help-circle" size={isMobile ? 18 : 22} color="#f43f5e" />
+            <View style={styles.kpiHeaderRow}>
+              <View style={[styles.kpiIconWrap, { backgroundColor: 'rgba(244, 63, 94, 0.15)' }]}>
+                <Feather name="help-circle" size={18} color="#fb7185" />
+              </View>
+              <Text style={styles.kpiLabel}>CLARIFICATIONS</Text>
             </View>
             <View style={styles.kpiContent}>
-              <Text style={[styles.kpiLabel, isMobile && styles.kpiLabelMobile]}>CLARIFICATIONS</Text>
               <View style={styles.kpiValGroup}>
-                <Text style={styles.kpiMainVal}>{workload?.openClarifications || 0}</Text>
+                <Text style={[styles.kpiMainVal, isVerySmall && { fontSize: 20 }]}>{workload?.openClarifications || 0}</Text>
                 <Text style={styles.kpiSubVal}>Open Doctor Questions</Text>
               </View>
               <Text style={styles.kpiHint}>Doctor ↔ Nurse active threads</Text>
@@ -369,17 +488,19 @@ export default function IPDCommandCenter({ navigation }) {
           </View>
         </View>
 
-        {/* ── Navigation Tabs & Filters Bar ── */}
+        {/* ── Navigation Tabs Bar ── */}
         <View style={[styles.tabsBar, !isMobile && styles.tabsBarDesktop]}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
+            nestedScrollEnabled={true}
             contentContainerStyle={styles.tabsScroll}
             style={styles.tabsScrollFlex}
           >
             <TouchableOpacity
               style={[styles.tabBtn, activeTab === 'board' && styles.tabBtnActive]}
               onPress={() => setActiveTab('board')}
+              activeOpacity={0.8}
             >
               <Feather name="layers" size={15} color={activeTab === 'board' ? '#38bdf8' : '#94a3b8'} />
               <Text style={[styles.tabBtnText, activeTab === 'board' && styles.tabBtnTextActive]}>
@@ -395,6 +516,7 @@ export default function IPDCommandCenter({ navigation }) {
             <TouchableOpacity
               style={[styles.tabBtn, activeTab === 'wards' && styles.tabBtnActive]}
               onPress={() => setActiveTab('wards')}
+              activeOpacity={0.8}
             >
               <Feather name="pie-chart" size={15} color={activeTab === 'wards' ? '#38bdf8' : '#94a3b8'} />
               <Text style={[styles.tabBtnText, activeTab === 'wards' && styles.tabBtnTextActive]}>
@@ -410,6 +532,7 @@ export default function IPDCommandCenter({ navigation }) {
             <TouchableOpacity
               style={[styles.tabBtn, activeTab === 'analytics' && styles.tabBtnActive]}
               onPress={() => setActiveTab('analytics')}
+              activeOpacity={0.8}
             >
               <Feather name="trending-up" size={15} color={activeTab === 'analytics' ? '#38bdf8' : '#94a3b8'} />
               <Text style={[styles.tabBtnText, activeTab === 'analytics' && styles.tabBtnTextActive]}>
@@ -420,6 +543,7 @@ export default function IPDCommandCenter({ navigation }) {
             <TouchableOpacity
               style={[styles.tabBtn, activeTab === 'reconcile' && styles.tabBtnActive]}
               onPress={() => setActiveTab('reconcile')}
+              activeOpacity={0.8}
             >
               <Feather name="database" size={15} color={activeTab === 'reconcile' ? '#38bdf8' : '#94a3b8'} />
               <Text style={[styles.tabBtnText, activeTab === 'reconcile' && styles.tabBtnTextActive]}>
@@ -428,11 +552,11 @@ export default function IPDCommandCenter({ navigation }) {
             </TouchableOpacity>
           </ScrollView>
 
-          {/* Right filters (Search & Ward Selector) on the same row on desktop/tablet */}
+          {/* Right filters (Search & Ward Selector) */}
           {activeTab === 'board' && (
             <View style={[styles.flowFiltersRight, isMobile && styles.flowFiltersRightMobile]}>
-              <View style={styles.searchWrap}>
-                <Feather name="search" size={15} color="#94a3b8" style={{ marginRight: 8 }} />
+              <View style={[styles.searchWrap, isMobile && { width: '100%' }]}>
+                <Feather name="search" size={16} color="#64748b" style={{ marginRight: 8 }} />
                 <TextInput
                   style={styles.searchInput}
                   placeholder="Search patient, MRN, Bed..."
@@ -441,44 +565,28 @@ export default function IPDCommandCenter({ navigation }) {
                   onChangeText={setSearchQuery}
                 />
                 {searchQuery.length > 0 && (
-                  <TouchableOpacity onPress={() => setSearchQuery('')}>
+                  <TouchableOpacity
+                    onPress={() => setSearchQuery('')}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    style={styles.clearSearchBtn}
+                  >
                     <Feather name="x" size={16} color="#94a3b8" />
                   </TouchableOpacity>
                 )}
               </View>
 
-              {/* Ward Selector */}
-              <View style={styles.wardFilterWrap}>
-                <TouchableOpacity
-                  style={styles.wardSelectBtn}
-                  onPress={() => setWardDropdownOpen(!wardDropdownOpen)}
-                >
-                  <Feather name="filter" size={14} color="#38bdf8" />
-                  <Text style={styles.wardSelectBtnText}>
-                    {selectedWard === 'ALL' ? 'All Wards' : `Ward: ${selectedWard}`}
-                  </Text>
-                  <Feather name="chevron-down" size={14} color="#94a3b8" />
-                </TouchableOpacity>
-
-                {wardDropdownOpen && (
-                  <View style={styles.wardDropdownMenu}>
-                    {availableWards.map((w) => (
-                      <TouchableOpacity
-                        key={w}
-                        style={[styles.wardDropdownItem, selectedWard === w && styles.wardDropdownItemActive]}
-                        onPress={() => {
-                          setSelectedWard(w);
-                          setWardDropdownOpen(false);
-                        }}
-                      >
-                        <Text style={[styles.wardDropdownItemText, selectedWard === w && styles.wardDropdownItemTextActive]}>
-                          {w === 'ALL' ? 'All Wards' : `Ward: ${w}`}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                )}
-              </View>
+              {/* Ward Selector Button */}
+              <TouchableOpacity
+                style={[styles.wardSelectBtn, isMobile && { width: '100%' }]}
+                onPress={() => setWardModalOpen(true)}
+                activeOpacity={0.8}
+              >
+                <Feather name="filter" size={15} color="#64748b" style={{ marginRight: 8 }} />
+                <Text style={styles.wardSelectBtnText} numberOfLines={1}>
+                  {selectedWard === 'ALL' ? 'All Wards' : `Ward: ${selectedWard}`}
+                </Text>
+                <Feather name="chevron-down" size={15} color="#94a3b8" style={{ marginLeft: 'auto' }} />
+              </TouchableOpacity>
             </View>
           )}
         </View>
@@ -498,11 +606,13 @@ export default function IPDCommandCenter({ navigation }) {
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
+              nestedScrollEnabled={true}
               contentContainerStyle={styles.stageFilterPillsScroll}
             >
               <TouchableOpacity
                 style={[styles.stagePill, selectedStage === 'ALL' && styles.stagePillActive]}
                 onPress={() => setSelectedStage('ALL')}
+                activeOpacity={0.8}
               >
                 <Text style={[styles.stagePillText, selectedStage === 'ALL' && styles.stagePillTextActive]}>
                   All Stages ({flowCards.length})
@@ -517,241 +627,49 @@ export default function IPDCommandCenter({ navigation }) {
                     key={stageKey}
                     style={[
                       styles.stagePill,
-                      { borderColor: cfg.border },
-                      isSelected && { backgroundColor: cfg.bg, borderColor: cfg.color },
+                      { borderColor: isSelected ? cfg.border : 'rgba(255, 255, 255, 0.08)' },
+                      isSelected && { backgroundColor: cfg.bg },
                     ]}
                     onPress={() => setSelectedStage(stageKey)}
+                    activeOpacity={0.8}
                   >
                     <View style={[styles.stageDot, { backgroundColor: cfg.color }]} />
-                    <Text style={[styles.stagePillText, isSelected && { color: '#f8fafc', fontWeight: '700' }]}>
+                    <Text style={[styles.stagePillText, isSelected && { color: '#ffffff', fontWeight: '700' }]}>
                       {cfg.label}
                     </Text>
-                    <View style={[styles.stageCountBadge, { backgroundColor: cfg.bg }]}>
-                      <Text style={[styles.stageCountText, { color: cfg.color }]}>{count}</Text>
+                    <View style={styles.stageCountBadge}>
+                      <Text style={[styles.stageCountText, isSelected && { color: '#ffffff' }]}>{count}</Text>
                     </View>
                   </TouchableOpacity>
                 );
               })}
             </ScrollView>
 
-            {/* Kanban Columns */}
-            <View style={styles.flowColumnsContainer}>
-              {Object.entries(STAGE_CONFIG).map(([stageKey, cfg]) => {
-                const patients = flowBoard[stageKey] || [];
-                if (selectedStage !== 'ALL' && selectedStage !== stageKey) return null;
+            {/* Kanban Columns — Rendered with Responsive Native Architecture */}
+            {isMobile && selectedStage === 'ALL' ? (
+              /* Option A: True Horizontal ScrollView for Mobile Kanban when ALL stages active */
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={true}
+                nestedScrollEnabled={true}
+                contentContainerStyle={styles.kanbanHorizontalScroll}
+              >
+                {Object.entries(STAGE_CONFIG).map(([stageKey, cfg]) => {
+                  const patients = flowBoard[stageKey] || [];
+                  return renderKanbanColumn(stageKey, cfg, patients, mobileKanbanColumnWidth);
+                })}
+              </ScrollView>
+            ) : (
+              /* Single Selected Column or Desktop/Tablet Multi-Column Grid */
+              <View style={styles.flowColumnsContainer}>
+                {Object.entries(STAGE_CONFIG).map(([stageKey, cfg]) => {
+                  const patients = flowBoard[stageKey] || [];
+                  if (selectedStage !== 'ALL' && selectedStage !== stageKey) return null;
 
-                return (
-                  <View
-                    key={stageKey}
-                    style={[
-                      styles.flowColumn,
-                      isDesktop && styles.flowColumnDesktop,
-                      isTablet && styles.flowColumnTablet,
-                      selectedStage !== 'ALL' && styles.flowColumnSingle,
-                    ]}
-                  >
-                    {/* Column Header */}
-                    <View style={[styles.flowColumnHeader, { borderTopColor: cfg.color }]}>
-                      <View style={styles.colTitleLeft}>
-                        <View style={[styles.colDot, { backgroundColor: cfg.color }]} />
-                        <Text style={styles.colTitle}>{cfg.label}</Text>
-                      </View>
-                      <View style={[styles.colCounterBadge, { backgroundColor: cfg.bg }]}>
-                        <Text style={[styles.colCounterText, { color: cfg.color }]}>{patients.length}</Text>
-                      </View>
-                    </View>
-
-                    {/* Column Patient Cards */}
-                    <View style={styles.flowCardsList}>
-                      {patients.length === 0 ? (
-                        <View style={styles.emptyStageBox}>
-                          <Text style={styles.emptyStageText}>No patients in this stage</Text>
-                        </View>
-                      ) : (
-                        patients.map((card) => {
-                          const wl = card.workloadSummary || {};
-                          const vitals = card.latestVitals;
-
-                          return (
-                            <View key={card.admissionId} style={styles.patientCard}>
-                              {/* Top Name & Los */}
-                              <View style={styles.pcardTop}>
-                                <View style={styles.pcardAvatar}>
-                                  <Text style={styles.pcardAvatarText}>
-                                    {card.patient?.name ? card.patient.name.slice(0, 2).toUpperCase() : 'PT'}
-                                  </Text>
-                                </View>
-                                <View style={styles.pcardInfo}>
-                                  <View style={styles.pcardNameRow}>
-                                    <Text style={styles.pcardName} numberOfLines={1}>
-                                      {card.patient?.name || 'Unknown Patient'}
-                                    </Text>
-                                    <View style={styles.losPill}>
-                                      <Text style={styles.losPillText}>{card.losDays || 0}d Stay</Text>
-                                    </View>
-                                  </View>
-                                  <View style={styles.pcardMeta}>
-                                    <Text style={styles.pcardMetaText}>
-                                      {card.patient?.age || '—'}y / {card.patient?.gender || '—'}
-                                    </Text>
-                                    <Text style={styles.dotSep}>•</Text>
-                                    <Text style={styles.pcardMetaText}>MRN: {card.patient?.mrn || '—'}</Text>
-                                  </View>
-                                </View>
-                              </View>
-
-                              {/* Location & Bed Badges */}
-                              <View style={styles.locationBadgesRow}>
-                                <View style={[styles.locBadge, styles.wardBadge]}>
-                                  <Text style={styles.wardBadgeText}>Ward: {card.location?.ward || '—'}</Text>
-                                </View>
-                                <View style={[styles.locBadge, styles.bedBadge]}>
-                                  <Text style={styles.bedBadgeText}>
-                                    Bed {card.location?.bedNumber || '—'} ({card.location?.bedType || 'General'})
-                                  </Text>
-                                </View>
-                              </View>
-
-                              {/* Doctor Row */}
-                              <View style={styles.doctorRow}>
-                                <Feather name="user" size={13} color="#94a3b8" />
-                                <Text style={styles.doctorName}>Dr. {card.doctor?.name || 'Attending'}</Text>
-                              </View>
-
-                              {/* Latest Vitals Snapshot */}
-                              {vitals && (
-                                <View
-                                  style={[
-                                    styles.vitalsStrip,
-                                    wl.hasCriticalVitals && styles.vitalsStripCritical,
-                                  ]}
-                                >
-                                  <View style={styles.vitalItem}>
-                                    <Text style={styles.vitalLabel}>BP</Text>
-                                    <Text style={styles.vitalValue}>{vitals.bloodPressure || '—'}</Text>
-                                  </View>
-                                  <View style={styles.vitalItem}>
-                                    <Text style={styles.vitalLabel}>HR</Text>
-                                    <Text style={styles.vitalValue}>
-                                      {vitals.pulseRate ? `${vitals.pulseRate} bpm` : '—'}
-                                    </Text>
-                                  </View>
-                                  <View style={styles.vitalItem}>
-                                    <Text style={styles.vitalLabel}>SpO2</Text>
-                                    <Text style={styles.vitalValue}>
-                                      {vitals.spo2 ? `${vitals.spo2}%` : '—'}
-                                    </Text>
-                                  </View>
-                                  <View style={styles.vitalItem}>
-                                    <Text style={styles.vitalLabel}>Temp</Text>
-                                    <Text style={styles.vitalValue}>
-                                      {vitals.temperature ? `${vitals.temperature}°F` : '—'}
-                                    </Text>
-                                  </View>
-                                </View>
-                              )}
-
-                              {/* Alert Flags Strip */}
-                              <View style={styles.flagsStrip}>
-                                {wl.urgentTasksCount > 0 && (
-                                  <View style={[styles.flagTag, styles.flagUrgent]}>
-                                    <Feather name="alert-triangle" size={11} color="#f59e0b" />
-                                    <Text style={styles.flagUrgentText}>
-                                      {wl.urgentTasksCount} Urgent Task{wl.urgentTasksCount > 1 ? 's' : ''}
-                                    </Text>
-                                  </View>
-                                )}
-                                {wl.overdueDosesCount > 0 && (
-                                  <View style={[styles.flagTag, styles.flagOverdue]}>
-                                    <Feather name="clock" size={11} color="#ef4444" />
-                                    <Text style={styles.flagOverdueText}>
-                                      {wl.overdueDosesCount} Overdue Dose{wl.overdueDosesCount > 1 ? 's' : ''}
-                                    </Text>
-                                  </View>
-                                )}
-                                {wl.openClarificationsCount > 0 && (
-                                  <View style={[styles.flagTag, styles.flagClarification]}>
-                                    <Feather name="help-circle" size={11} color="#38bdf8" />
-                                    <Text style={styles.flagClarificationText}>
-                                      {wl.openClarificationsCount} Clarification
-                                    </Text>
-                                  </View>
-                                )}
-                                {card.hasDischargeSummary && (
-                                  <View
-                                    style={[
-                                      styles.flagTag,
-                                      card.dischargeSummaryStatus === 'FINALIZED'
-                                        ? styles.flagSummarySigned
-                                        : styles.flagSummaryDraft,
-                                    ]}
-                                  >
-                                    <Feather
-                                      name="file-text"
-                                      size={11}
-                                      color={card.dischargeSummaryStatus === 'FINALIZED' ? '#10b981' : '#f59e0b'}
-                                    />
-                                    <Text
-                                      style={
-                                        card.dischargeSummaryStatus === 'FINALIZED'
-                                          ? styles.flagSummarySignedText
-                                          : styles.flagSummaryDraftText
-                                      }
-                                    >
-                                      Summary: {card.dischargeSummaryStatus}
-                                    </Text>
-                                  </View>
-                                )}
-                              </View>
-
-                              {/* Assigned Nurses */}
-                              {card.assignedNurses?.length > 0 ? (
-                                <View style={styles.nurseRow}>
-                                  <Feather name="user-check" size={13} color="#10b981" />
-                                  <Text style={styles.nurseNames} numberOfLines={1}>
-                                    Nurse: {card.assignedNurses.map((n) => n.name).join(', ')}
-                                  </Text>
-                                </View>
-                              ) : (
-                                <View style={[styles.nurseRow, styles.nurseRowUnassigned]}>
-                                  <Feather name="alert-circle" size={13} color="#f59e0b" />
-                                  <Text style={styles.nurseUnassignedText}>No Nurse Assigned</Text>
-                                </View>
-                              )}
-
-                              {/* Card Actions Footer */}
-                              <View style={styles.pcardActions}>
-                                <TouchableOpacity
-                                  style={styles.btnBlockers}
-                                  onPress={() => handleOpenBlockerModal(card.admissionId)}
-                                  activeOpacity={0.7}
-                                >
-                                  <Feather name="shield" size={13} color="#38bdf8" />
-                                  <Text style={styles.btnBlockersText}>Blockers</Text>
-                                </TouchableOpacity>
-
-                                <TouchableOpacity
-                                  style={styles.btnWorkspace}
-                                  onPress={() =>
-                                    navigation.navigate('NursePatientWorkspace', {
-                                      admissionId: card.admissionId,
-                                    })
-                                  }
-                                  activeOpacity={0.8}
-                                >
-                                  <Text style={styles.btnWorkspaceText}>Workspace</Text>
-                                  <Feather name="arrow-right" size={13} color="#ffffff" />
-                                </TouchableOpacity>
-                              </View>
-                            </View>
-                          );
-                        })
-                      )}
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
+                  return renderKanbanColumn(stageKey, cfg, patients, undefined, isDesktop, isTablet, selectedStage !== 'ALL');
+                })}
+              </View>
+            )}
           </View>
         )}
 
@@ -763,6 +681,7 @@ export default function IPDCommandCenter({ navigation }) {
                 key={idx}
                 style={[
                   styles.wardCard,
+                  isVerySmall && { padding: 12 },
                   isDesktop && styles.wardCardDesktop,
                   isTablet && styles.wardCardTablet,
                 ]}
@@ -775,28 +694,31 @@ export default function IPDCommandCenter({ navigation }) {
                 </View>
 
                 {/* Ward Metrics Row */}
-                <View style={styles.wardMetricsRow}>
-                  <View style={styles.wStat}>
+                <View style={[styles.wardMetricsRow, isVerySmall && { flexWrap: 'wrap', gap: 8 }]}>
+                  <View style={[styles.wStat, isVerySmall && { flexBasis: '47%' }]}>
                     <Text style={styles.wStatNum}>{w.totalBeds}</Text>
                     <Text style={styles.wStatLbl}>Total Beds</Text>
                   </View>
-                  <View style={styles.wStat}>
-                    <Text style={[styles.wStatNum, { color: '#0ea5e9' }]}>{w.occupiedBeds}</Text>
+                  <View style={[styles.wStat, isVerySmall && { flexBasis: '47%' }]}>
+                    <Text style={[styles.wStatNum, { color: '#38bdf8' }]}>{w.occupiedBeds}</Text>
                     <Text style={styles.wStatLbl}>Occupied</Text>
                   </View>
-                  <View style={styles.wStat}>
-                    <Text style={[styles.wStatNum, { color: '#10b981' }]}>{w.availableBeds}</Text>
+                  <View style={[styles.wStat, isVerySmall && { flexBasis: '47%' }]}>
+                    <Text style={[styles.wStatNum, { color: '#34d399' }]}>{w.availableBeds}</Text>
                     <Text style={styles.wStatLbl}>Available</Text>
                   </View>
-                  <View style={styles.wStat}>
-                    <Text style={[styles.wStatNum, { color: '#f59e0b' }]}>{w.maintenanceBeds}</Text>
+                  <View style={[styles.wStat, isVerySmall && { flexBasis: '47%' }]}>
+                    <Text style={[styles.wStatNum, { color: '#fbbf24' }]}>{w.maintenanceBeds}</Text>
                     <Text style={styles.wStatLbl}>Maint.</Text>
                   </View>
                 </View>
 
                 {/* Ward Progress Bar */}
                 <View style={styles.wardProgressBar}>
-                  <View
+                  <LinearGradient
+                    colors={['#3b82f6', '#06b6d4']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
                     style={[
                       styles.wardProgressFill,
                       {
@@ -826,9 +748,7 @@ export default function IPDCommandCenter({ navigation }) {
                           }
                           activeOpacity={0.7}
                         >
-                          <View style={styles.wptBedBadge}>
-                            <Text style={styles.wptBedText}>Bed {pt.bedNumber}</Text>
-                          </View>
+                          <Text style={styles.wptBed}>Bed {pt.bedNumber}</Text>
                           <Text style={styles.wptName} numberOfLines={1}>
                             {pt.patientName}
                           </Text>
@@ -878,7 +798,7 @@ export default function IPDCommandCenter({ navigation }) {
 
             {/* Daily Timeline Table / Visual Bars */}
             <View style={styles.analyticsTableCard}>
-              <View style={styles.tableCardHeader}>
+              <View style={[styles.tableCardHeader, isMobile && { flexDirection: 'column', alignItems: 'flex-start', gap: 10 }]}>
                 <Text style={styles.tableCardTitle}>Daily Census Timeline ({trendsDays} Days)</Text>
                 <View style={styles.timeframeButtonsRow}>
                   {[7, 14, 30].map((days) => (
@@ -886,6 +806,7 @@ export default function IPDCommandCenter({ navigation }) {
                       key={days}
                       style={[styles.btnTimeframe, trendsDays === days && styles.btnTimeframeActive]}
                       onPress={() => setTrendsDays(days)}
+                      activeOpacity={0.8}
                     >
                       <Text
                         style={[
@@ -893,7 +814,7 @@ export default function IPDCommandCenter({ navigation }) {
                           trendsDays === days && styles.btnTimeframeTextActive,
                         ]}
                       >
-                        {days}D
+                        Past {days} Days
                       </Text>
                     </TouchableOpacity>
                   ))}
@@ -903,24 +824,29 @@ export default function IPDCommandCenter({ navigation }) {
               {/* Chart Legend */}
               <View style={styles.chartLegendRow}>
                 <View style={styles.legendItem}>
-                  <View style={[styles.legendColorBox, { backgroundColor: '#3b82f6' }]} />
+                  <View style={[styles.legendColorBox, { backgroundColor: '#10b981' }]} />
                   <Text style={styles.legendText}>Admissions</Text>
                 </View>
                 <View style={styles.legendItem}>
-                  <View style={[styles.legendColorBox, { backgroundColor: '#10b981' }]} />
+                  <View style={[styles.legendColorBox, { backgroundColor: '#f43f5e' }]} />
                   <Text style={styles.legendText}>Discharges</Text>
                 </View>
               </View>
 
-              {/* Bar Chart Scroll */}
-              <ScrollView horizontal showsHorizontalScrollIndicator={true} contentContainerStyle={styles.trendsBarChart}>
+              {/* Bar Chart Scroll with Android nested scroll enabled */}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={true}
+                nestedScrollEnabled={true}
+                contentContainerStyle={styles.trendsBarChart}
+              >
                 {(trendsData?.dailyTrends || []).map((day, idx) => (
                   <View key={idx} style={styles.trendDayCol}>
                     <View style={styles.barPair}>
                       <View
                         style={[
                           styles.barAdmissions,
-                          { height: Math.max(4, Math.min(120, (day.admissions || 0) * 16 + 4)) },
+                          { height: Math.min(120, (day.admissions || 0) * 20 + 4) },
                         ]}
                       >
                         {day.admissions > 0 && (
@@ -930,7 +856,7 @@ export default function IPDCommandCenter({ navigation }) {
                       <View
                         style={[
                           styles.barDischarges,
-                          { height: Math.max(4, Math.min(120, (day.discharges || 0) * 16 + 4)) },
+                          { height: Math.min(120, (day.discharges || 0) * 20 + 4) },
                         ]}
                       >
                         {day.discharges > 0 && (
@@ -944,49 +870,65 @@ export default function IPDCommandCenter({ navigation }) {
               </ScrollView>
             </View>
 
-            {/* Nurse Workload Distribution */}
+            {/* Nurse Workload Distribution — Exact 5-Column Table */}
             <View style={styles.analyticsTableCard}>
               <View style={styles.tableCardHeader}>
                 <Text style={styles.tableCardTitle}>Active Nurse Workload & Performance Today</Text>
               </View>
 
-              {nurseWorkloadData.length === 0 ? (
-                <View style={styles.emptyTableBox}>
-                  <Text style={styles.emptyTableText}>No nurse assignments found</Text>
-                </View>
-              ) : (
-                <View style={styles.nurseTable}>
-                  {nurseWorkloadData.map((nw, idx) => (
-                    <View key={idx} style={styles.nurseRowCard}>
-                      <View style={styles.nurseCardTop}>
-                        <View style={styles.nurseCardLeft}>
-                          <Feather name="user" size={14} color="#38bdf8" style={{ marginRight: 6 }} />
-                          <Text style={styles.nurseCardName}>{nw.nurseName}</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={true}
+                nestedScrollEnabled={true}
+                style={styles.workloadTableWrapper}
+              >
+                <View style={styles.tableInner}>
+                  {/* Table Header */}
+                  <View style={styles.tableHeaderRow}>
+                    <Text style={[styles.thCell, { width: 180 }]}>NURSE NAME</Text>
+                    <Text style={[styles.thCell, { width: 170 }]}>ACTIVE ASSIGNED PATIENTS</Text>
+                    <Text style={[styles.thCell, { width: 160 }]}>COVERED WARDS</Text>
+                    <Text style={[styles.thCell, { width: 170 }]}>TASKS COMPLETED TODAY</Text>
+                    <Text style={[styles.thCell, { width: 190 }]}>MAR DOSES ADMINISTERED TODAY</Text>
+                  </View>
+
+                  {/* Table Body */}
+                  {nurseWorkloadData.length === 0 ? (
+                    <View style={styles.emptyTableBox}>
+                      <Text style={styles.emptyTableText}>No nurse assignments found</Text>
+                    </View>
+                  ) : (
+                    nurseWorkloadData.map((nw, idx) => (
+                      <View key={idx} style={[styles.tableDataRow, idx % 2 === 1 && styles.tableDataRowAlt]}>
+                        <View style={[styles.tdCell, styles.nurseCell, { width: 180 }]}>
+                          <Feather name="user" size={14} color="#94a3b8" style={{ marginRight: 6 }} />
+                          <Text style={styles.nurseNameText} numberOfLines={1}>{nw.nurseName}</Text>
                         </View>
-                        <View style={styles.nursePatientsPill}>
-                          <Text style={styles.nursePatientsPillText}>
-                            {nw.activePatientsCount} Patients
+                        <View style={[styles.tdCell, { width: 170 }]}>
+                          <View style={styles.countPill}>
+                            <Text style={styles.countPillText}>{nw.activePatientsCount} Patients</Text>
+                          </View>
+                        </View>
+                        <View style={[styles.tdCell, { width: 160 }]}>
+                          <Text style={styles.wardCoveredText} numberOfLines={1}>
+                            {nw.assignedWards?.join(', ') || 'General'}
                           </Text>
                         </View>
-                      </View>
-
-                      <View style={styles.nurseCardBottom}>
-                        <Text style={styles.nurseWardsText}>
-                          Wards: {nw.assignedWards?.join(', ') || 'General'}
-                        </Text>
-                        <View style={styles.nurseStatsPillsRow}>
+                        <View style={[styles.tdCell, { width: 170 }]}>
                           <View style={styles.taskPill}>
-                            <Text style={styles.taskPillText}>{nw.completedTasksToday} Tasks</Text>
+                            <Text style={styles.taskPillText}>{nw.completedTasksToday} Completed</Text>
                           </View>
+                        </View>
+                        <View style={[styles.tdCell, { width: 190 }]}>
                           <View style={styles.marPill}>
                             <Text style={styles.marPillText}>{nw.administeredDosesToday} Doses</Text>
                           </View>
                         </View>
                       </View>
-                    </View>
-                  ))}
+                    ))
+                  )}
                 </View>
-              )}
+              </ScrollView>
             </View>
           </View>
         )}
@@ -994,9 +936,17 @@ export default function IPDCommandCenter({ navigation }) {
         {/* ── TAB 4: BED CONCURRENCY & RECONCILIATION ── */}
         {!loading && activeTab === 'reconcile' && (
           <View style={styles.reconcileContainer}>
-            <View style={styles.reconcileHeroBox}>
+            <LinearGradient
+              colors={['rgba(30, 41, 59, 0.9)', 'rgba(15, 23, 42, 0.9)']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={[
+                styles.reconcileHeroBox,
+                isMobile && { flexDirection: 'column', alignItems: 'flex-start' },
+              ]}
+            >
               <View style={styles.reconcileHeroIcon}>
-                <Feather name="database" size={32} color="#38bdf8" />
+                <Feather name="database" size={28} color="#38bdf8" />
               </View>
               <View style={styles.reconcileHeroContent}>
                 <Text style={styles.reconcileHeroTitle}>Bed Concurrency Guard & State Healer</Text>
@@ -1004,46 +954,51 @@ export default function IPDCommandCenter({ navigation }) {
                   Validates active admissions against bed allocation tables, detects orphaned locks, resets ghost occupancy, and fixes desynchronized bed states.
                 </Text>
                 <TouchableOpacity
-                  style={[styles.btnRunReconcile, reconciling && styles.btnRunReconcileRunning]}
+                  style={[styles.btnRunReconcile, reconciling && styles.btnRunReconcileRunning, isMobile && { width: '100%' }]}
                   onPress={handleRunReconciliation}
                   disabled={reconciling}
                   activeOpacity={0.8}
                 >
-                  <Feather
-                    name="refresh-cw"
-                    size={16}
-                    color="#ffffff"
-                    style={{ marginRight: 8 }}
-                  />
-                  <Text style={styles.btnRunReconcileText}>
-                    {reconciling ? 'Reconciling Beds...' : 'Run State Reconciliation'}
-                  </Text>
+                  <LinearGradient
+                    colors={['#0284c7', '#0369a1']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.btnRunReconcileInner}
+                  >
+                    <Animated.View style={reconciling ? { transform: [{ rotate: spinRotation }] } : undefined}>
+                      <Feather name="refresh-cw" size={15} color="#ffffff" style={{ marginRight: 8 }} />
+                    </Animated.View>
+                    <Text style={styles.btnRunReconcileText}>
+                      {reconciling ? 'Reconciling Beds...' : 'Run State Reconciliation'}
+                    </Text>
+                  </LinearGradient>
                 </TouchableOpacity>
               </View>
-            </View>
+            </LinearGradient>
 
             {reconcileResult && (
               <View style={styles.reconcileResultsPanel}>
                 <Text style={styles.reconcileResultsTitle}>Reconciliation Report</Text>
-                <View style={styles.reconcileKpiRow}>
-                  <View style={styles.rkpiBox}>
+                <View style={[styles.reconcileKpiRow, isMobile && { flexWrap: 'wrap' }]}>
+                  <View style={[styles.rkpiBox, isMobile && { flexBasis: '47%' }]}>
                     <Text style={styles.rkpiVal}>{reconcileResult.totalBedsChecked || 0}</Text>
                     <Text style={styles.rkpiLbl}>Beds Checked</Text>
                   </View>
-                  <View style={styles.rkpiBox}>
+                  <View style={[styles.rkpiBox, isMobile && { flexBasis: '47%' }]}>
                     <Text style={styles.rkpiVal}>{reconcileResult.activeAdmissionsCount || 0}</Text>
                     <Text style={styles.rkpiLbl}>Active Inpatients</Text>
                   </View>
                   <View
                     style={[
                       styles.rkpiBox,
+                      isMobile && { flexBasis: '100%' },
                       (reconcileResult.anomaliesFixedCount || 0) > 0 && styles.rkpiBoxGreen,
                     ]}
                   >
                     <Text
                       style={[
                         styles.rkpiVal,
-                        (reconcileResult.anomaliesFixedCount || 0) > 0 && { color: '#10b981' },
+                        (reconcileResult.anomaliesFixedCount || 0) > 0 && { color: '#34d399' },
                       ]}
                     >
                       {reconcileResult.anomaliesFixedCount || 0}
@@ -1057,7 +1012,7 @@ export default function IPDCommandCenter({ navigation }) {
                     <Text style={styles.anomaliesTitle}>Repaired Items:</Text>
                     {reconcileResult.anomaliesFixed.map((ano, idx) => (
                       <View key={idx} style={styles.anomalyItem}>
-                        <Feather name="check-circle" size={15} color="#10b981" style={{ marginRight: 8 }} />
+                        <Feather name="check-circle" size={15} color="#34d399" style={{ marginRight: 8, marginTop: 1 }} />
                         <View style={{ flex: 1 }}>
                           <Text style={styles.anoBed}>
                             Bed {ano.bedNumber} ({ano.ward})
@@ -1075,6 +1030,68 @@ export default function IPDCommandCenter({ navigation }) {
         )}
       </ScrollView>
 
+      {/* ── WARD SELECTOR MODAL ── */}
+      <Modal
+        visible={wardModalOpen}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setWardModalOpen(false)}
+      >
+        <Pressable
+          style={[
+            styles.modalOverlay,
+            {
+              paddingTop: Math.max(insets.top + 16, 24),
+              paddingBottom: Math.max(insets.bottom + 16, 24),
+            },
+          ]}
+          onPress={() => setWardModalOpen(false)}
+        >
+          <Pressable
+            style={[
+              styles.wardModalCard,
+              { maxHeight: Math.min(windowHeight - insets.top - insets.bottom - 48, 480) },
+            ]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.wardModalHeader}>
+              <View style={styles.wardModalTitleRow}>
+                <Feather name="filter" size={16} color="#38bdf8" style={{ marginRight: 8 }} />
+                <Text style={styles.wardModalTitle}>Filter by Ward</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setWardModalOpen(false)}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                style={styles.modalCloseHitbox}
+              >
+                <Feather name="x" size={18} color="#94a3b8" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: 300 }} showsVerticalScrollIndicator={true}>
+              {availableWards.map((w) => {
+                const isSelected = selectedWard === w;
+                return (
+                  <TouchableOpacity
+                    key={w}
+                    style={[styles.wardModalItem, isSelected && styles.wardModalItemActive]}
+                    onPress={() => {
+                      setSelectedWard(w);
+                      setWardModalOpen(false);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.wardModalItemText, isSelected && styles.wardModalItemTextActive]}>
+                      {w === 'ALL' ? 'All Wards' : `Ward: ${w}`}
+                    </Text>
+                    {isSelected && <Feather name="check" size={16} color="#38bdf8" />}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       {/* ── DISCHARGE BLOCKER MODAL / INSPECTOR ── */}
       <Modal
         visible={blockerModalOpen}
@@ -1082,29 +1099,43 @@ export default function IPDCommandCenter({ navigation }) {
         transparent={true}
         onRequestClose={() => setBlockerModalOpen(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
+        <Pressable
+          style={[
+            styles.modalOverlay,
+            {
+              paddingTop: Math.max(insets.top + 16, 24),
+              paddingBottom: Math.max(insets.bottom + 16, 24),
+            },
+          ]}
+          onPress={() => setBlockerModalOpen(false)}
+        >
+          <Pressable
+            style={[
+              styles.modalCard,
+              { maxHeight: Math.min(windowHeight - insets.top - insets.bottom - 48, 680) },
+            ]}
+            onPress={(e) => e.stopPropagation()}
+          >
             {/* Modal Header */}
             <View style={styles.modalHeader}>
               <View style={styles.modalTitleLeft}>
-                <View style={styles.modalShieldIconWrap}>
-                  <Feather name="shield" size={18} color="#38bdf8" />
-                </View>
-                <View>
-                  <Text style={styles.modalTitle}>Discharge Blocker Intelligence</Text>
+                <Feather name="shield" size={24} color="#38bdf8" style={{ marginRight: 10 }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.modalTitle} numberOfLines={1}>Discharge Blocker Intelligence</Text>
                   <Text style={styles.modalSubtitle}>Comprehensive Safety & Clinical Criteria Analysis</Text>
                 </View>
               </View>
               <TouchableOpacity
                 style={styles.modalCloseBtn}
                 onPress={() => setBlockerModalOpen(false)}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
               >
-                <Feather name="x" size={18} color="#94a3b8" />
+                <Feather name="x" size={20} color="#94a3b8" />
               </TouchableOpacity>
             </View>
 
             {/* Modal Body */}
-            <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
+            <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={true}>
               {loadingBlockers ? (
                 <View style={styles.modalLoadingBox}>
                   <ActivityIndicator size="large" color="#38bdf8" />
@@ -1123,15 +1154,15 @@ export default function IPDCommandCenter({ navigation }) {
                   >
                     <Feather
                       name={blockerData.canDischarge ? 'check-circle' : 'alert-triangle'}
-                      size={22}
-                      color={blockerData.canDischarge ? '#10b981' : '#ef4444'}
-                      style={{ marginRight: 10 }}
+                      size={24}
+                      color={blockerData.canDischarge ? '#34d399' : '#f87171'}
+                      style={{ marginRight: 12, marginTop: 2 }}
                     />
                     <View style={{ flex: 1 }}>
                       <Text
                         style={[
                           styles.bannerTitle,
-                          { color: blockerData.canDischarge ? '#10b981' : '#ef4444' },
+                          { color: blockerData.canDischarge ? '#34d399' : '#f87171' },
                         ]}
                       >
                         {blockerData.canDischarge
@@ -1153,19 +1184,48 @@ export default function IPDCommandCenter({ navigation }) {
                       {(!blockerData.blockers || blockerData.blockers.length === 0) ? (
                         <Text style={styles.noBlockersText}>No active blockers reported</Text>
                       ) : (
-                        blockerData.blockers.map((b, idx) => (
-                          <View key={idx} style={styles.blockerRow}>
-                            <View style={[styles.blockerTypePill, { backgroundColor: getBlockerTypeBg(b.type) }]}>
-                              <Text style={[styles.blockerTypePillText, { color: getBlockerTypeColor(b.type) }]}>
-                                {b.type}
-                              </Text>
+                        blockerData.blockers.map((b, idx) => {
+                          const typeLower = (b.type || '').toLowerCase();
+                          const isBlocking = typeLower === 'blocking' || typeLower === 'critical' || typeLower === 'hard';
+                          const isWarning = typeLower === 'warning';
+                          const isInfo = typeLower === 'info';
+
+                          return (
+                            <View
+                              key={idx}
+                              style={[
+                                styles.blockerRow,
+                                isBlocking && styles.blockerRowBlocking,
+                                isWarning && styles.blockerRowWarning,
+                                isInfo && styles.blockerRowInfo,
+                              ]}
+                            >
+                              <View
+                                style={[
+                                  styles.blockerTypePill,
+                                  isBlocking && styles.blockerTypePillBlocking,
+                                  isWarning && styles.blockerTypePillWarning,
+                                  isInfo && styles.blockerTypePillInfo,
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.blockerTypePillText,
+                                    isBlocking && { color: '#fca5a5' },
+                                    isWarning && { color: '#fcd34d' },
+                                    isInfo && { color: '#93c5fd' },
+                                  ]}
+                                >
+                                  {b.type}
+                                </Text>
+                              </View>
+                              <View style={styles.blockerDetails}>
+                                <Text style={styles.blockerItemTitle}>{b.title}</Text>
+                                <Text style={styles.blockerItemMsg}>{b.message}</Text>
+                              </View>
                             </View>
-                            <View style={styles.blockerDetails}>
-                              <Text style={styles.blockerItemTitle}>{b.title}</Text>
-                              <Text style={styles.blockerItemMsg}>{b.message}</Text>
-                            </View>
-                          </View>
-                        ))
+                          );
+                        })
                       )}
                     </View>
                   </View>
@@ -1176,48 +1236,268 @@ export default function IPDCommandCenter({ navigation }) {
             </ScrollView>
 
             {/* Modal Footer */}
-            <View style={styles.modalFooter}>
+            <View style={[styles.modalFooter, isSmallPhone && { flexDirection: 'column-reverse', gap: 8 }]}>
               <TouchableOpacity
-                style={styles.btnCloseModal}
+                style={[styles.btnCloseModal, isSmallPhone && { width: '100%', alignItems: 'center' }]}
                 onPress={() => setBlockerModalOpen(false)}
+                activeOpacity={0.7}
               >
                 <Text style={styles.btnCloseModalText}>Close</Text>
               </TouchableOpacity>
 
               {selectedAdmissionId && (
                 <TouchableOpacity
-                  style={styles.btnGotoWorkspace}
+                  style={[styles.btnGotoWorkspace, isSmallPhone && { width: '100%' }]}
                   onPress={() => {
                     setBlockerModalOpen(false);
                     navigation.navigate('NursePatientWorkspace', {
                       admissionId: selectedAdmissionId,
                     });
                   }}
+                  activeOpacity={0.8}
                 >
-                  <Text style={styles.btnGotoWorkspaceText}>Open Patient Workspace</Text>
-                  <Feather name="arrow-right" size={14} color="#ffffff" style={{ marginLeft: 6 }} />
+                  <LinearGradient
+                    colors={['#0284c7', '#0369a1']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.btnGotoWorkspaceInner}
+                  >
+                    <Text style={styles.btnGotoWorkspaceText}>Open Patient Workspace</Text>
+                    <Feather name="arrow-right" size={14} color="#ffffff" style={{ marginLeft: 6 }} />
+                  </LinearGradient>
                 </TouchableOpacity>
               )}
             </View>
-          </View>
-        </View>
+          </Pressable>
+        </Pressable>
       </Modal>
     </View>
   );
-}
 
-function getBlockerTypeBg(type = '') {
-  const t = type.toUpperCase();
-  if (t === 'BLOCKING' || t === 'CRITICAL' || t === 'HARD' || t === 'ERROR') return 'rgba(239, 68, 68, 0.15)';
-  if (t === 'WARNING' || t === 'MEDIUM') return 'rgba(245, 158, 11, 0.15)';
-  return 'rgba(56, 189, 248, 0.15)';
-}
+  // Helper render function for each Kanban Column
+  function renderKanbanColumn(stageKey, cfg, patients, fixedWidth, isDesktopView, isTabletView, isSingle) {
+    return (
+      <View
+        key={stageKey}
+        style={[
+          styles.flowColumn,
+          fixedWidth ? { width: fixedWidth, flexShrink: 0 } : null,
+          isDesktopView && styles.flowColumnDesktop,
+          isTabletView && styles.flowColumnTablet,
+          isSingle && styles.flowColumnSingle,
+        ]}
+      >
+        {/* Column Header */}
+        <View style={[styles.flowColumnHeader, { borderTopColor: cfg.color }]}>
+          <View style={styles.colTitleLeft}>
+            <View style={[styles.colDot, { backgroundColor: cfg.color }]} />
+            <Text style={styles.colTitle}>{cfg.label}</Text>
+          </View>
+          <View style={[styles.colCounterBadge, { backgroundColor: cfg.bg }]}>
+            <Text style={[styles.colCounterText, { color: cfg.color }]}>{patients.length}</Text>
+          </View>
+        </View>
 
-function getBlockerTypeColor(type = '') {
-  const t = type.toUpperCase();
-  if (t === 'BLOCKING' || t === 'CRITICAL' || t === 'HARD' || t === 'ERROR') return '#ef4444';
-  if (t === 'WARNING' || t === 'MEDIUM') return '#f59e0b';
-  return '#38bdf8';
+        {/* Column Patient Cards List */}
+        <View style={styles.flowCardsList}>
+          {patients.length === 0 ? (
+            <View style={styles.emptyStageBox}>
+              <Text style={styles.emptyStageText}>No patients in this stage</Text>
+            </View>
+          ) : (
+            patients.map((card) => {
+              const wl = card.workloadSummary || {};
+              const vitals = card.latestVitals;
+
+              return (
+                <View key={card.admissionId} style={styles.patientCard}>
+                  {/* Top Name & Los */}
+                  <View style={styles.pcardTop}>
+                    <LinearGradient
+                      colors={['#0284c7', '#0369a1']}
+                      style={styles.pcardAvatar}
+                    >
+                      <Text style={styles.pcardAvatarText}>
+                        {card.patient?.name ? card.patient.name.slice(0, 2).toUpperCase() : 'PT'}
+                      </Text>
+                    </LinearGradient>
+                    <View style={styles.pcardInfo}>
+                      <View style={styles.pcardNameRow}>
+                        <Text style={styles.pcardName} numberOfLines={1}>
+                          {card.patient?.name || 'Unknown Patient'}
+                        </Text>
+                        <View style={styles.losPill}>
+                          <Text style={styles.losPillText}>{card.losDays || 0}d Stay</Text>
+                        </View>
+                      </View>
+                      <View style={styles.pcardMeta}>
+                        <Text style={styles.pcardMetaText}>
+                          {card.patient?.age || '—'}y / {card.patient?.gender || '—'}
+                        </Text>
+                        <Text style={styles.dotSep}>•</Text>
+                        <Text style={styles.pcardMetaText}>MRN: {card.patient?.mrn || '—'}</Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Location & Bed Badges */}
+                  <View style={styles.locationBadgesRow}>
+                    <View style={[styles.locBadge, styles.wardBadge]}>
+                      <Text style={styles.wardBadgeText}>Ward: {card.location?.ward || '—'}</Text>
+                    </View>
+                    <View style={[styles.locBadge, styles.bedBadge]}>
+                      <Text style={styles.bedBadgeText}>
+                        Bed {card.location?.bedNumber || '—'} ({card.location?.bedType || 'General'})
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Doctor Row */}
+                  <View style={styles.doctorRow}>
+                    <Feather name="user" size={13} color="#38bdf8" />
+                    <Text style={styles.doctorName}>Dr. {card.doctor?.name || 'Attending'}</Text>
+                  </View>
+
+                  {/* Latest Vitals Snapshot */}
+                  {vitals && (
+                    <View
+                      style={[
+                        styles.vitalsStrip,
+                        wl.hasCriticalVitals && styles.vitalsStripCritical,
+                      ]}
+                    >
+                      <View style={styles.vitalItem}>
+                        <Text style={styles.vitalLabel}>BP</Text>
+                        <Text style={styles.vitalValue}>{vitals.bloodPressure || '—'}</Text>
+                      </View>
+                      <View style={styles.vitalItem}>
+                        <Text style={styles.vitalLabel}>HR</Text>
+                        <Text style={styles.vitalValue}>
+                          {vitals.pulseRate ? `${vitals.pulseRate} bpm` : '—'}
+                        </Text>
+                      </View>
+                      <View style={styles.vitalItem}>
+                        <Text style={styles.vitalLabel}>SpO2</Text>
+                        <Text style={styles.vitalValue}>
+                          {vitals.spo2 ? `${vitals.spo2}%` : '—'}
+                        </Text>
+                      </View>
+                      <View style={styles.vitalItem}>
+                        <Text style={styles.vitalLabel}>Temp</Text>
+                        <Text style={styles.vitalValue}>
+                          {vitals.temperature ? `${vitals.temperature}°F` : '—'}
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+
+                  {/* Alert Flags Strip */}
+                  <View style={styles.flagsStrip}>
+                    {wl.urgentTasksCount > 0 && (
+                      <View style={[styles.flagTag, styles.flagUrgent]}>
+                        <Feather name="alert-triangle" size={11} color="#f87171" />
+                        <Text style={styles.flagUrgentText}>
+                          {wl.urgentTasksCount} Urgent Task
+                        </Text>
+                      </View>
+                    )}
+                    {wl.overdueDosesCount > 0 && (
+                      <View style={[styles.flagTag, styles.flagOverdue]}>
+                        <Feather name="clock" size={11} color="#fbbf24" />
+                        <Text style={styles.flagOverdueText}>
+                          {wl.overdueDosesCount} Overdue Dose
+                        </Text>
+                      </View>
+                    )}
+                    {wl.openClarificationsCount > 0 && (
+                      <View style={[styles.flagTag, styles.flagClarification]}>
+                        <Feather name="help-circle" size={11} color="#fb7185" />
+                        <Text style={styles.flagClarificationText}>
+                          {wl.openClarificationsCount} Clarification
+                        </Text>
+                      </View>
+                    )}
+                    {card.hasDischargeSummary && (
+                      <View
+                        style={[
+                          styles.flagTag,
+                          card.dischargeSummaryStatus === 'FINALIZED'
+                            ? styles.flagSummarySigned
+                            : styles.flagSummaryDraft,
+                        ]}
+                      >
+                        <Feather
+                          name="file-text"
+                          size={11}
+                          color={card.dischargeSummaryStatus === 'FINALIZED' ? '#34d399' : '#cbd5e1'}
+                        />
+                        <Text
+                          style={
+                            card.dischargeSummaryStatus === 'FINALIZED'
+                              ? styles.flagSummarySignedText
+                              : styles.flagSummaryDraftText
+                          }
+                        >
+                          Summary: {card.dischargeSummaryStatus}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Assigned Nurses */}
+                  {card.assignedNurses?.length > 0 ? (
+                    <View style={styles.nurseRow}>
+                      <Feather name="user-check" size={13} color="#10b981" />
+                      <Text style={styles.nurseNames}>
+                        Nurse: {card.assignedNurses.map((n) => n.name).join(', ')}
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={styles.nurseRow}>
+                      <Feather name="alert-circle" size={13} color="#fbbf24" />
+                      <Text style={styles.nurseUnassignedText}>No Nurse Assigned</Text>
+                    </View>
+                  )}
+
+                  {/* Card Actions Footer */}
+                  <View style={styles.pcardActions}>
+                    <TouchableOpacity
+                      style={styles.btnBlockers}
+                      onPress={() => handleOpenBlockerModal(card.admissionId)}
+                      activeOpacity={0.7}
+                    >
+                      <Feather name="shield" size={13} color="#e2e8f0" />
+                      <Text style={styles.btnBlockersText}>Blockers</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.btnWorkspace}
+                      onPress={() =>
+                        navigation.navigate('NursePatientWorkspace', {
+                          admissionId: card.admissionId,
+                        })
+                      }
+                      activeOpacity={0.8}
+                    >
+                      <LinearGradient
+                        colors={['#0284c7', '#0369a1']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.btnWorkspaceInner}
+                      >
+                        <Text style={styles.btnWorkspaceText}>Workspace</Text>
+                        <Feather name="arrow-right" size={13} color="#ffffff" />
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              );
+            })
+          )}
+        </View>
+      </View>
+    );
+  }
 }
 
 const styles = StyleSheet.create({
@@ -1226,29 +1506,27 @@ const styles = StyleSheet.create({
     backgroundColor: '#0b1120',
   },
   scrollContent: {
-    padding: 16,
-    paddingBottom: 40,
-  },
-  scrollContentDesktop: {
-    paddingHorizontal: 32,
-    paddingVertical: 24,
-    paddingBottom: 48,
+    // Dynamically applied in JSX
   },
 
   // ── Header ──
   ccHeader: {
-    backgroundColor: 'rgba(15, 23, 42, 0.95)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: 16,
     padding: 16,
-    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    elevation: 8,
   },
   ccHeaderDesktop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 22,
+    paddingHorizontal: 24,
+    paddingVertical: 20,
   },
   ccHeaderLeft: {
     marginBottom: 12,
@@ -1256,7 +1534,7 @@ const styles = StyleSheet.create({
   ccHeaderLeftDesktop: {
     marginBottom: 0,
     flex: 1,
-    marginRight: 24,
+    marginRight: 20,
   },
   ccBadgeLive: {
     flexDirection: 'row',
@@ -1266,13 +1544,14 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(16, 185, 129, 0.35)',
     borderRadius: 999,
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 3.5,
+    minHeight: 28,
     alignSelf: 'flex-start',
     marginBottom: 6,
   },
   pulseDot: {
-    width: 7,
-    height: 7,
+    width: 8,
+    height: 8,
     borderRadius: 4,
     backgroundColor: '#10b981',
     marginRight: 6,
@@ -1284,24 +1563,25 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   ccMainTitle: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '800',
     color: '#ffffff',
     marginBottom: 4,
   },
   ccSubTitle: {
-    fontSize: 13,
+    fontSize: 12.5,
     color: '#94a3b8',
-    lineHeight: 19,
+    lineHeight: 18,
   },
   ccHeaderRight: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 10,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.06)',
+    gap: 10,
   },
   ccHeaderRightDesktop: {
     flexDirection: 'row',
@@ -1323,26 +1603,27 @@ const styles = StyleSheet.create({
   headerActionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginTop: 6,
-  },
-  headerActionsRowDesktop: {
-    marginTop: 0,
     gap: 10,
+  },
+  headerActionsRowMobile: {
+    width: '100%',
+    gap: 8,
   },
   btnRefresh: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 6,
-    backgroundColor: 'rgba(30, 41, 59, 0.9)',
+    backgroundColor: 'rgba(30, 41, 59, 0.8)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.12)',
     borderRadius: 10,
     paddingHorizontal: 14,
-    paddingVertical: 9,
+    paddingVertical: 10,
+    minHeight: 44,
   },
   btnRefreshActive: {
-    opacity: 0.6,
+    opacity: 0.7,
   },
   btnRefreshText: {
     fontSize: 13,
@@ -1350,13 +1631,18 @@ const styles = StyleSheet.create({
     color: '#e2e8f0',
   },
   btnWorkspaceShortcut: {
+    borderRadius: 10,
+    overflow: 'hidden',
+    minHeight: 44,
+  },
+  btnWorkspaceGradient: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 6,
-    backgroundColor: '#0284c7',
-    borderRadius: 10,
     paddingHorizontal: 16,
-    paddingVertical: 9,
+    paddingVertical: 10,
+    height: '100%',
   },
   btnWorkspaceShortcutText: {
     fontSize: 13,
@@ -1364,26 +1650,22 @@ const styles = StyleSheet.create({
     color: '#ffffff',
   },
 
-  // ── KPI Deck ──
+  // ── KPI Census Deck ──
   kpiDeck: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 14,
-    marginBottom: 18,
+    gap: 12,
   },
   kpiCard: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 14,
-    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    backgroundColor: 'rgba(15, 23, 42, 0.75)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.07)',
     borderRadius: 14,
-    padding: 16,
+    padding: 13,
     flexGrow: 1,
     flexShrink: 1,
     flexBasis: '47%',
-    minWidth: 150,
+    minWidth: 135,
   },
   kpiCardDesktop: {
     flexBasis: 180,
@@ -1394,46 +1676,39 @@ const styles = StyleSheet.create({
     minWidth: 200,
   },
   kpiCardMobile: {
-    flexDirection: 'column',
-    alignItems: 'flex-start',
-    gap: 8,
-    padding: 12,
     flexBasis: '47%',
-    minWidth: 140,
+    minWidth: 135,
+  },
+  kpiHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
   },
   kpiIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    flexShrink: 0,
-  },
-  kpiIconWrapMobile: {
     width: 36,
     height: 36,
     borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexShrink: 0,
   },
   kpiContent: {
     flex: 1,
     minWidth: 0,
   },
   kpiLabel: {
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: '700',
     color: '#94a3b8',
-    letterSpacing: 0.8,
-    marginBottom: 4,
-  },
-  kpiLabelMobile: {
-    fontSize: 10.5,
-    letterSpacing: 0.3,
+    letterSpacing: 0.5,
+    flex: 1,
   },
   kpiValGroup: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    gap: 6,
-    marginBottom: 4,
+    gap: 4,
+    flexWrap: 'wrap',
   },
   kpiMainVal: {
     fontSize: 22,
@@ -1441,11 +1716,12 @@ const styles = StyleSheet.create({
     color: '#f8fafc',
   },
   kpiSubVal: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#64748b',
-    fontWeight: '500',
+    fontWeight: '600',
   },
   kpiBarTrack: {
+    width: '100%',
     height: 5,
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: 999,
@@ -1457,17 +1733,17 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   kpiHint: {
-    fontSize: 11,
+    fontSize: 10.5,
     color: '#64748b',
+    lineHeight: 14,
     marginTop: 4,
   },
 
-  // ── Tabs Bar ──
+  // ── Navigation Tabs Bar ──
   tabsBar: {
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.08)',
     paddingBottom: 12,
-    marginBottom: 16,
     gap: 12,
   },
   tabsBarDesktop: {
@@ -1485,13 +1761,15 @@ const styles = StyleSheet.create({
   tabBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 9,
-    paddingHorizontal: 16,
+    gap: 7,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    minHeight: 44,
     borderRadius: 10,
     backgroundColor: 'transparent',
     borderWidth: 1,
     borderColor: 'transparent',
+    flexShrink: 0,
   },
   tabBtnActive: {
     backgroundColor: 'rgba(56, 189, 248, 0.12)',
@@ -1523,18 +1801,18 @@ const styles = StyleSheet.create({
     color: '#bae6fd',
   },
 
-  // ── Flow Filters (in Tabs bar on desktop) ──
+  // ── Filters Right ──
   flowFiltersRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
   flowFiltersRightMobile: {
     width: '100%',
-    flexWrap: 'wrap',
+    flexDirection: 'column',
+    gap: 8,
   },
   searchWrap: {
-    minWidth: 200,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(15, 23, 42, 0.8)',
@@ -1542,82 +1820,55 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 10,
     paddingHorizontal: 12,
-    height: 38,
+    minHeight: 44,
+    minWidth: 180,
   },
   searchInput: {
     flex: 1,
     color: '#f8fafc',
     fontSize: 13,
+    paddingVertical: 0,
   },
-  wardFilterWrap: {
-    position: 'relative',
-    minWidth: 130,
+  clearSearchBtn: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   wardSelectBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
     backgroundColor: 'rgba(15, 23, 42, 0.8)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 10,
-    paddingHorizontal: 12,
-    height: 38,
+    paddingHorizontal: 14,
+    minHeight: 44,
   },
   wardSelectBtnText: {
-    fontSize: 12,
-    color: '#e2e8f0',
+    fontSize: 13,
+    color: '#f8fafc',
     fontWeight: '600',
-  },
-  wardDropdownMenu: {
-    position: 'absolute',
-    top: 44,
-    left: 0,
-    right: 0,
-    backgroundColor: '#1e293b',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
-    borderRadius: 8,
-    zIndex: 999,
-    shadowColor: '#000',
-    shadowOpacity: 0.5,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  wardDropdownItem: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  wardDropdownItemActive: {
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
-  },
-  wardDropdownItemText: {
-    fontSize: 12,
-    color: '#cbd5e1',
-  },
-  wardDropdownItemTextActive: {
-    color: '#38bdf8',
-    fontWeight: '700',
   },
 
   // ── Stage Filter Pills ──
   stageFilterPillsScroll: {
     flexDirection: 'row',
     gap: 8,
-    paddingBottom: 12,
+    paddingBottom: 6,
   },
   stagePill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 13,
+    minHeight: 44,
     borderRadius: 999,
     backgroundColor: 'rgba(15, 23, 42, 0.6)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
+    flexShrink: 0,
   },
   stagePillActive: {
     backgroundColor: 'rgba(56, 189, 248, 0.15)',
@@ -1634,10 +1885,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   stagePillTextActive: {
-    color: '#38bdf8',
+    color: '#ffffff',
     fontWeight: '700',
   },
   stageCountBadge: {
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
     borderRadius: 999,
     paddingHorizontal: 6,
     paddingVertical: 1,
@@ -1645,28 +1897,41 @@ const styles = StyleSheet.create({
   stageCountText: {
     fontSize: 11,
     fontWeight: '700',
+    color: '#cbd5e1',
   },
 
   // ── Flow Columns Container ──
+  boardWrapper: {
+    gap: 14,
+  },
+  kanbanHorizontalScroll: {
+    flexDirection: 'row',
+    gap: 14,
+    paddingBottom: 10,
+  },
   flowColumnsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 18,
+    gap: 16,
     alignItems: 'flex-start',
   },
   flowColumn: {
     backgroundColor: 'rgba(15, 23, 42, 0.7)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.07)',
     borderRadius: 14,
     overflow: 'hidden',
-    minHeight: 400,
     width: '100%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 15,
+    elevation: 4,
   },
   flowColumnDesktop: {
     flexGrow: 1,
     flexShrink: 0,
-    flexBasis: 285,
+    flexBasis: 290,
     minWidth: 280,
     maxWidth: 380,
   },
@@ -1686,7 +1951,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingVertical: 11,
     backgroundColor: 'rgba(30, 41, 59, 0.6)',
     borderTopWidth: 3,
     borderBottomWidth: 1,
@@ -1695,7 +1960,7 @@ const styles = StyleSheet.create({
   colTitleLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 7,
   },
   colDot: {
     width: 8,
@@ -1721,42 +1986,46 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   emptyStageBox: {
-    minHeight: 120,
+    minHeight: 110,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
     borderStyle: 'dashed',
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
     borderRadius: 10,
-    margin: 8,
   },
   emptyStageText: {
-    fontSize: 12.5,
+    fontSize: 12,
     color: '#64748b',
     fontStyle: 'italic',
   },
 
   // ── Patient Card ──
   patientCard: {
-    backgroundColor: 'rgba(30, 41, 59, 0.95)',
+    backgroundColor: 'rgba(30, 41, 59, 0.7)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: 12,
-    padding: 12,
+    padding: 13,
+    gap: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 3,
   },
   pcardTop: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: 10,
-    marginBottom: 8,
   },
   pcardAvatar: {
     width: 36,
     height: 36,
-    borderRadius: 18,
-    backgroundColor: '#0284c7',
+    borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
+    flexShrink: 0,
   },
   pcardAvatarText: {
     fontSize: 13,
@@ -1765,52 +2034,53 @@ const styles = StyleSheet.create({
   },
   pcardInfo: {
     flex: 1,
+    minWidth: 0,
   },
   pcardNameRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 2,
+    gap: 6,
   },
   pcardName: {
-    fontSize: 14,
+    fontSize: 13.5,
     fontWeight: '700',
     color: '#f8fafc',
     flex: 1,
-    marginRight: 6,
   },
   losPill: {
-    backgroundColor: 'rgba(14, 165, 233, 0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(14, 165, 233, 0.3)',
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 1.5,
+    flexShrink: 0,
   },
   losPillText: {
-    fontSize: 10,
-    color: '#38bdf8',
+    fontSize: 10.5,
+    color: '#fbbf24',
     fontWeight: '700',
   },
   pcardMeta: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    marginTop: 2,
+    flexWrap: 'wrap',
   },
   pcardMetaText: {
     fontSize: 11,
     color: '#94a3b8',
   },
   dotSep: {
+    marginHorizontal: 4,
     color: '#64748b',
-    fontSize: 10,
+    fontSize: 11,
   },
 
   // Location Badges
   locationBadgesRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 6,
-    marginBottom: 6,
   },
   locBadge: {
     borderRadius: 6,
@@ -1818,19 +2088,19 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   wardBadge: {
-    backgroundColor: 'rgba(59, 130, 246, 0.15)',
+    backgroundColor: 'rgba(14, 165, 233, 0.15)',
   },
   wardBadgeText: {
-    fontSize: 10,
-    color: '#60a5fa',
+    fontSize: 11,
+    color: '#38bdf8',
     fontWeight: '600',
   },
   bedBadge: {
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    backgroundColor: 'rgba(168, 85, 247, 0.15)',
   },
   bedBadgeText: {
-    fontSize: 10,
-    color: '#34d399',
+    fontSize: 11,
+    color: '#c084fc',
     fontWeight: '600',
   },
 
@@ -1839,12 +2109,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 8,
   },
   doctorName: {
-    fontSize: 11,
+    fontSize: 11.5,
     color: '#cbd5e1',
     fontWeight: '500',
+    flex: 1,
   },
 
   // Vitals Strip
@@ -1853,27 +2123,27 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around',
     backgroundColor: 'rgba(15, 23, 42, 0.6)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
     borderRadius: 8,
     paddingVertical: 6,
-    paddingHorizontal: 8,
-    marginBottom: 8,
+    paddingHorizontal: 6,
   },
   vitalsStripCritical: {
-    borderColor: '#ef4444',
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderColor: 'rgba(239, 68, 68, 0.4)',
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
   },
   vitalItem: {
+    flex: 1,
     alignItems: 'center',
   },
   vitalLabel: {
-    fontSize: 9,
-    color: '#94a3b8',
-    fontWeight: '600',
+    fontSize: 9.5,
+    color: '#64748b',
+    fontWeight: '700',
   },
   vitalValue: {
     fontSize: 11,
-    color: '#f8fafc',
+    color: '#f1f5f9',
     fontWeight: '700',
     marginTop: 1,
   },
@@ -1883,7 +2153,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
-    marginBottom: 8,
   },
   flagTag: {
     flexDirection: 'row',
@@ -1892,45 +2161,52 @@ const styles = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 3,
     borderRadius: 6,
+    flexShrink: 1,
   },
   flagUrgent: {
-    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    backgroundColor: 'rgba(239, 68, 68, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
   },
   flagUrgentText: {
-    fontSize: 10,
-    color: '#f59e0b',
+    fontSize: 10.5,
+    color: '#f87171',
     fontWeight: '600',
   },
   flagOverdue: {
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    backgroundColor: 'rgba(245, 158, 11, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.3)',
   },
   flagOverdueText: {
-    fontSize: 10,
-    color: '#ef4444',
+    fontSize: 10.5,
+    color: '#fbbf24',
     fontWeight: '600',
   },
   flagClarification: {
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    backgroundColor: 'rgba(244, 63, 94, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(244, 63, 94, 0.3)',
   },
   flagClarificationText: {
-    fontSize: 10,
-    color: '#38bdf8',
+    fontSize: 10.5,
+    color: '#fb7185',
     fontWeight: '600',
   },
   flagSummarySigned: {
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    backgroundColor: 'rgba(16, 185, 129, 0.2)',
   },
   flagSummarySignedText: {
-    fontSize: 10,
-    color: '#10b981',
+    fontSize: 10.5,
+    color: '#34d399',
     fontWeight: '600',
   },
   flagSummaryDraft: {
-    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    backgroundColor: 'rgba(148, 163, 184, 0.2)',
   },
   flagSummaryDraftText: {
-    fontSize: 10,
-    color: '#f59e0b',
+    fontSize: 10.5,
+    color: '#cbd5e1',
     fontWeight: '600',
   },
 
@@ -1939,22 +2215,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 10,
   },
   nurseNames: {
     fontSize: 11,
-    color: '#34d399',
+    color: '#94a3b8',
     flex: 1,
-  },
-  nurseRowUnassigned: {
-    backgroundColor: 'rgba(245, 158, 11, 0.1)',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    flexWrap: 'wrap',
   },
   nurseUnassignedText: {
     fontSize: 11,
-    color: '#f59e0b',
+    color: '#fbbf24',
     fontWeight: '600',
   },
 
@@ -1962,9 +2232,7 @@ const styles = StyleSheet.create({
   pcardActions: {
     flexDirection: 'row',
     gap: 8,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.06)',
-    paddingTop: 8,
+    marginTop: 4,
   },
   btnBlockers: {
     flex: 1,
@@ -1972,26 +2240,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 5,
-    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    backgroundColor: 'rgba(15, 23, 42, 0.8)',
     borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.3)',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
     borderRadius: 8,
-    paddingVertical: 6,
+    paddingVertical: 9,
+    minHeight: 44,
   },
   btnBlockersText: {
     fontSize: 12,
-    color: '#38bdf8',
+    color: '#e2e8f0',
     fontWeight: '600',
   },
   btnWorkspace: {
-    flex: 1,
+    flex: 1.3,
+    borderRadius: 8,
+    overflow: 'hidden',
+    minHeight: 44,
+  },
+  btnWorkspaceInner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 5,
-    backgroundColor: '#0284c7',
-    borderRadius: 8,
-    paddingVertical: 6,
+    paddingVertical: 9,
+    height: '100%',
   },
   btnWorkspaceText: {
     fontSize: 12,
@@ -2003,16 +2276,21 @@ const styles = StyleSheet.create({
   wardBreakdownGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 18,
+    gap: 16,
     alignItems: 'flex-start',
   },
   wardCard: {
-    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    backgroundColor: 'rgba(15, 23, 42, 0.8)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: 14,
     padding: 16,
     width: '100%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 15,
+    elevation: 3,
   },
   wardCardDesktop: {
     flexGrow: 1,
@@ -2032,20 +2310,20 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   wardName: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '700',
     color: '#f8fafc',
   },
   wardOccupancyPill: {
-    backgroundColor: 'rgba(14, 165, 233, 0.15)',
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
     borderWidth: 1,
-    borderColor: 'rgba(14, 165, 233, 0.3)',
-    borderRadius: 12,
-    paddingHorizontal: 8,
+    borderColor: 'rgba(56, 189, 248, 0.3)',
+    borderRadius: 999,
+    paddingHorizontal: 9,
     paddingVertical: 3,
   },
   wardOccupancyPillText: {
-    fontSize: 11,
+    fontSize: 11.5,
     color: '#38bdf8',
     fontWeight: '700',
   },
@@ -2058,26 +2336,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   wStatNum: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '800',
     color: '#f8fafc',
   },
   wStatLbl: {
-    fontSize: 10,
-    color: '#94a3b8',
+    fontSize: 10.5,
+    color: '#64748b',
+    fontWeight: '600',
     marginTop: 2,
   },
   wardProgressBar: {
+    width: '100%',
     height: 6,
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 3,
+    borderRadius: 999,
     overflow: 'hidden',
     marginBottom: 14,
   },
   wardProgressFill: {
     height: '100%',
-    backgroundColor: '#0284c7',
-    borderRadius: 3,
+    borderRadius: 999,
   },
   wardActivePatientsPreview: {
     borderTopWidth: 1,
@@ -2087,14 +2366,14 @@ const styles = StyleSheet.create({
   wardActivePatientsTitle: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#cbd5e1',
+    color: '#94a3b8',
     marginBottom: 8,
   },
   wardPtList: {
     gap: 6,
   },
   noPtText: {
-    fontSize: 11,
+    fontSize: 12,
     color: '#64748b',
     fontStyle: 'italic',
   },
@@ -2102,26 +2381,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: 'rgba(30, 41, 59, 0.7)',
+    backgroundColor: 'rgba(30, 41, 59, 0.6)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
     borderRadius: 8,
     paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingVertical: 9,
+    minHeight: 44,
   },
-  wptBedBadge: {
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  wptBedText: {
-    fontSize: 10,
+  wptBed: {
+    fontSize: 11.5,
     fontWeight: '700',
-    color: '#34d399',
+    color: '#38bdf8',
   },
   wptName: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#f8fafc',
+    color: '#f1f5f9',
     flex: 1,
   },
   wptDoc: {
@@ -2131,57 +2407,57 @@ const styles = StyleSheet.create({
 
   // ── Tab 3: Analytics ──
   analyticsContainer: {
-    gap: 16,
+    gap: 18,
   },
   analyticsTopDeck: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: 14,
   },
   analyticsSummaryCard: {
     flex: 1,
-    minWidth: 200,
-    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    minWidth: 240,
+    backgroundColor: 'rgba(15, 23, 42, 0.8)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: 14,
-    padding: 14,
+    padding: 16,
   },
   analyticsCardTitle: {
-    fontSize: 13,
+    fontSize: 13.5,
     fontWeight: '700',
-    color: '#cbd5e1',
+    color: '#94a3b8',
     marginBottom: 8,
   },
   alosMetricRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
     gap: 6,
-    marginBottom: 6,
+    marginBottom: 4,
   },
   alosNumber: {
-    fontSize: 28,
+    fontSize: 32,
     fontWeight: '900',
     color: '#38bdf8',
   },
   alosUnit: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#94a3b8',
-    fontWeight: '600',
   },
   alosSub: {
-    fontSize: 11,
+    fontSize: 11.5,
     color: '#64748b',
     lineHeight: 16,
   },
   balanceRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 12,
+    marginTop: 4,
   },
   balBox: {
     flex: 1,
     padding: 10,
-    borderRadius: 8,
+    borderRadius: 10,
     alignItems: 'center',
   },
   balBoxAdmissions: {
@@ -2195,53 +2471,61 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(239, 68, 68, 0.25)',
   },
   balNumGreen: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: '800',
-    color: '#10b981',
+    color: '#34d399',
   },
   balNumRed: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: '800',
-    color: '#ef4444',
+    color: '#f87171',
   },
   balLbl: {
-    fontSize: 10,
+    fontSize: 11,
     color: '#94a3b8',
     marginTop: 2,
   },
   analyticsTableCard: {
-    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    backgroundColor: 'rgba(15, 23, 42, 0.8)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: 14,
-    padding: 14,
+    padding: 16,
   },
   tableCardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 14,
+    flexWrap: 'wrap',
+    gap: 8,
   },
   tableCardTitle: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
     color: '#f8fafc',
   },
   timeframeButtonsRow: {
     flexDirection: 'row',
     gap: 6,
+    flexWrap: 'wrap',
   },
   btnTimeframe: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    minHeight: 44,
+    borderRadius: 8,
     backgroundColor: 'rgba(30, 41, 59, 0.8)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    justifyContent: 'center',
   },
   btnTimeframeActive: {
     backgroundColor: '#0284c7',
+    borderColor: '#0284c7',
   },
   btnTimeframeText: {
-    fontSize: 11,
+    fontSize: 11.5,
     color: '#94a3b8',
     fontWeight: '600',
   },
@@ -2252,7 +2536,7 @@ const styles = StyleSheet.create({
   chartLegendRow: {
     flexDirection: 'row',
     gap: 16,
-    marginBottom: 10,
+    marginBottom: 12,
   },
   legendItem: {
     flexDirection: 'row',
@@ -2265,39 +2549,42 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   legendText: {
-    fontSize: 11,
+    fontSize: 11.5,
     color: '#94a3b8',
   },
   trendsBarChart: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: 14,
-    paddingVertical: 10,
+    height: 170,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
   },
   trendDayCol: {
     alignItems: 'center',
-    minWidth: 40,
+    minWidth: 44,
   },
   barPair: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: 4,
-    height: 120,
+    height: 130,
     marginBottom: 6,
   },
   barAdmissions: {
-    width: 16,
-    backgroundColor: '#3b82f6',
-    borderTopLeftRadius: 3,
-    borderTopRightRadius: 3,
+    width: 14,
+    backgroundColor: '#10b981',
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
     alignItems: 'center',
     justifyContent: 'flex-start',
   },
   barDischarges: {
-    width: 16,
-    backgroundColor: '#10b981',
-    borderTopLeftRadius: 3,
-    borderTopRightRadius: 3,
+    width: 14,
+    backgroundColor: '#f43f5e',
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
     alignItems: 'center',
     justifyContent: 'flex-start',
   },
@@ -2308,86 +2595,101 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   trendDateLbl: {
-    fontSize: 10,
-    color: '#94a3b8',
-  },
-  emptyTableBox: {
-    paddingVertical: 20,
-    alignItems: 'center',
-  },
-  emptyTableText: {
-    fontSize: 12,
+    fontSize: 10.5,
     color: '#64748b',
-    fontStyle: 'italic',
   },
-  nurseTable: {
-    gap: 8,
+
+  // ── Workload Table ──
+  workloadTableWrapper: {
+    width: '100%',
   },
-  nurseRowCard: {
-    backgroundColor: 'rgba(30, 41, 59, 0.7)',
-    borderRadius: 10,
-    padding: 10,
+  tableInner: {
+    minWidth: 870,
   },
-  nurseCardTop: {
+  tableHeaderRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    paddingVertical: 10,
   },
-  nurseCardLeft: {
+  thCell: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#94a3b8',
+    letterSpacing: 0.5,
+    paddingHorizontal: 10,
+  },
+  tableDataRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.04)',
+    paddingVertical: 10,
+    minHeight: 44,
+  },
+  tableDataRowAlt: {
+    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+  },
+  tdCell: {
+    paddingHorizontal: 10,
+  },
+  nurseCell: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  nurseCardName: {
+  nurseNameText: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#f8fafc',
+    color: '#e2e8f0',
   },
-  nursePatientsPill: {
-    backgroundColor: 'rgba(14, 165, 233, 0.15)',
-    borderRadius: 6,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
+  countPill: {
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    alignSelf: 'flex-start',
   },
-  nursePatientsPillText: {
-    fontSize: 11,
+  countPillText: {
+    fontSize: 11.5,
     color: '#38bdf8',
     fontWeight: '700',
   },
-  nurseCardBottom: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  nurseWardsText: {
-    fontSize: 11,
-    color: '#94a3b8',
-  },
-  nurseStatsPillsRow: {
-    flexDirection: 'row',
-    gap: 6,
+  wardCoveredText: {
+    fontSize: 12.5,
+    color: '#e2e8f0',
   },
   taskPill: {
-    backgroundColor: 'rgba(245, 158, 11, 0.15)',
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    alignSelf: 'flex-start',
   },
   taskPillText: {
-    fontSize: 10,
-    color: '#f59e0b',
-    fontWeight: '600',
+    fontSize: 11.5,
+    color: '#34d399',
+    fontWeight: '700',
   },
   marPill: {
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    backgroundColor: 'rgba(168, 85, 247, 0.15)',
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    alignSelf: 'flex-start',
   },
   marPillText: {
-    fontSize: 10,
-    color: '#10b981',
-    fontWeight: '600',
+    fontSize: 11.5,
+    color: '#c084fc',
+    fontWeight: '700',
+  },
+  emptyTableBox: {
+    paddingVertical: 24,
+    alignItems: 'center',
+  },
+  emptyTableText: {
+    fontSize: 12.5,
+    color: '#64748b',
+    fontStyle: 'italic',
   },
 
   // ── Tab 4: Bed Reconciliation ──
@@ -2395,102 +2697,114 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   reconcileHeroBox: {
-    backgroundColor: 'rgba(15, 23, 42, 0.85)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 14,
-    padding: 16,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 16,
+    padding: 20,
     flexDirection: 'row',
-    gap: 14,
+    gap: 18,
+    alignItems: 'center',
   },
   reconcileHeroIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 12,
-    backgroundColor: 'rgba(14, 165, 233, 0.15)',
+    width: 60,
+    height: 60,
+    borderRadius: 16,
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
     justifyContent: 'center',
     alignItems: 'center',
+    flexShrink: 0,
   },
   reconcileHeroContent: {
     flex: 1,
   },
   reconcileHeroTitle: {
-    fontSize: 15,
+    fontSize: 17,
     fontWeight: '700',
     color: '#f8fafc',
-    marginBottom: 4,
+    marginBottom: 5,
   },
   reconcileHeroDesc: {
-    fontSize: 11,
+    fontSize: 12.5,
     color: '#94a3b8',
-    lineHeight: 16,
-    marginBottom: 12,
+    lineHeight: 18,
+    marginBottom: 14,
   },
   btnRunReconcile: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#0284c7',
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    borderRadius: 10,
+    overflow: 'hidden',
     alignSelf: 'flex-start',
+    shadowColor: '#0284c7',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 4,
+    minHeight: 44,
   },
   btnRunReconcileRunning: {
     opacity: 0.7,
   },
+  btnRunReconcileInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 11,
+    height: '100%',
+  },
   btnRunReconcileText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     color: '#ffffff',
   },
   reconcileResultsPanel: {
-    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    backgroundColor: 'rgba(15, 23, 42, 0.8)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: 14,
-    padding: 14,
+    padding: 16,
   },
   reconcileResultsTitle: {
-    fontSize: 14,
+    fontSize: 14.5,
     fontWeight: '700',
     color: '#f8fafc',
-    marginBottom: 12,
+    marginBottom: 14,
   },
   reconcileKpiRow: {
     flexDirection: 'row',
     gap: 10,
-    marginBottom: 14,
+    marginBottom: 16,
   },
   rkpiBox: {
     flex: 1,
-    backgroundColor: 'rgba(30, 41, 59, 0.7)',
+    backgroundColor: 'rgba(30, 41, 59, 0.6)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
     borderRadius: 10,
-    padding: 10,
+    padding: 12,
     alignItems: 'center',
+    minHeight: 70,
+    justifyContent: 'center',
   },
   rkpiBoxGreen: {
-    backgroundColor: 'rgba(16, 185, 129, 0.12)',
-    borderWidth: 1,
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
     borderColor: 'rgba(16, 185, 129, 0.3)',
   },
   rkpiVal: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: '800',
     color: '#f8fafc',
   },
   rkpiLbl: {
-    fontSize: 10,
+    fontSize: 11,
     color: '#94a3b8',
-    marginTop: 2,
+    marginTop: 3,
+    textAlign: 'center',
   },
   anomaliesList: {
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.06)',
-    paddingTop: 10,
     gap: 8,
   },
   anomaliesTitle: {
-    fontSize: 12,
+    fontSize: 12.5,
     fontWeight: '700',
     color: '#cbd5e1',
     marginBottom: 4,
@@ -2498,26 +2812,30 @@ const styles = StyleSheet.create({
   anomalyItem: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    backgroundColor: 'rgba(30, 41, 59, 0.6)',
-    borderRadius: 8,
-    padding: 8,
+    backgroundColor: 'rgba(30, 41, 59, 0.7)',
+    borderLeftWidth: 3,
+    borderLeftColor: '#10b981',
+    borderRadius: 6,
+    padding: 10,
   },
   anoBed: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
-    color: '#f8fafc',
+    color: '#38bdf8',
   },
   anoAction: {
-    fontSize: 11,
+    fontSize: 12,
     color: '#34d399',
     fontWeight: '600',
+    marginTop: 1,
   },
   anoReason: {
-    fontSize: 10,
+    fontSize: 11.5,
     color: '#94a3b8',
+    marginTop: 2,
   },
 
-  // ── Modal ──
+  // ── Modals ──
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.75)',
@@ -2526,102 +2844,109 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   modalCard: {
-    width: '94%',
-    maxWidth: 550,
-    maxHeight: '85%',
+    width: '100%',
+    maxWidth: 620,
     backgroundColor: '#0f172a',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.12)',
     borderRadius: 16,
     overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 25 },
+    shadowOpacity: 0.7,
+    shadowRadius: 40,
+    elevation: 10,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 14,
+    padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.08)',
   },
   modalTitleLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-  },
-  modalShieldIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: 'rgba(14, 165, 233, 0.15)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    flex: 1,
+    marginRight: 10,
   },
   modalTitle: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
     color: '#f8fafc',
   },
   modalSubtitle: {
-    fontSize: 10,
+    fontSize: 11,
     color: '#94a3b8',
+    marginTop: 1,
   },
   modalCloseBtn: {
-    padding: 4,
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalCloseHitbox: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   modalBody: {
-    padding: 14,
+    padding: 16,
   },
   modalLoadingBox: {
-    paddingVertical: 30,
+    paddingVertical: 36,
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
   },
   modalLoadingText: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#94a3b8',
     textAlign: 'center',
   },
   blockerDecisionBanner: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 14,
+    padding: 14,
+    borderRadius: 12,
+    marginBottom: 16,
   },
   decisionBannerClear: {
-    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
     borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.3)',
+    borderColor: 'rgba(16, 185, 129, 0.35)',
   },
   decisionBannerBlocked: {
-    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
     borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.3)',
+    borderColor: 'rgba(239, 68, 68, 0.35)',
   },
   bannerTitle: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
-    marginBottom: 2,
+    marginBottom: 3,
   },
   bannerDesc: {
-    fontSize: 11,
+    fontSize: 12,
     color: '#cbd5e1',
-    lineHeight: 16,
+    lineHeight: 17,
   },
   blockersListSection: {
-    marginBottom: 10,
-  },
-  checklistTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#cbd5e1',
     marginBottom: 8,
   },
+  checklistTitle: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#94a3b8',
+    marginBottom: 10,
+  },
   blockerItems: {
-    gap: 8,
+    gap: 9,
   },
   noBlockersText: {
-    fontSize: 12,
+    fontSize: 12.5,
     color: '#64748b',
     fontStyle: 'italic',
   },
@@ -2630,80 +2955,169 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: 10,
     backgroundColor: 'rgba(30, 41, 59, 0.6)',
-    borderRadius: 8,
-    padding: 10,
+    borderRadius: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: '#64748b',
+    padding: 11,
+  },
+  blockerRowBlocking: {
+    borderLeftColor: '#ef4444',
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+  },
+  blockerRowWarning: {
+    borderLeftColor: '#f59e0b',
+    backgroundColor: 'rgba(245, 158, 11, 0.08)',
+  },
+  blockerRowInfo: {
+    borderLeftColor: '#3b82f6',
+    backgroundColor: 'rgba(59, 130, 246, 0.08)',
   },
   blockerTypePill: {
-    borderRadius: 6,
+    borderRadius: 4,
     paddingHorizontal: 6,
     paddingVertical: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  blockerTypePillBlocking: {
+    backgroundColor: 'rgba(239, 68, 68, 0.25)',
+  },
+  blockerTypePillWarning: {
+    backgroundColor: 'rgba(245, 158, 11, 0.25)',
+  },
+  blockerTypePillInfo: {
+    backgroundColor: 'rgba(59, 130, 246, 0.25)',
   },
   blockerTypePillText: {
-    fontSize: 9,
+    fontSize: 9.5,
     fontWeight: '800',
+    letterSpacing: 0.4,
   },
   blockerDetails: {
     flex: 1,
   },
   blockerItemTitle: {
-    fontSize: 12,
+    fontSize: 12.5,
     fontWeight: '700',
     color: '#f8fafc',
     marginBottom: 2,
   },
   blockerItemMsg: {
-    fontSize: 11,
+    fontSize: 11.5,
     color: '#94a3b8',
-    lineHeight: 15,
+    lineHeight: 16,
   },
   modalErrorText: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#ef4444',
     textAlign: 'center',
     paddingVertical: 20,
   },
   modalFooter: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     justifyContent: 'flex-end',
     alignItems: 'center',
     gap: 10,
-    padding: 12,
+    padding: 14,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.08)',
   },
   btnCloseModal: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: 'rgba(30, 41, 59, 0.8)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    minHeight: 44,
+    justifyContent: 'center',
   },
   btnCloseModalText: {
-    fontSize: 12,
+    fontSize: 12.5,
     fontWeight: '600',
     color: '#cbd5e1',
   },
   btnGotoWorkspace: {
+    borderRadius: 8,
+    overflow: 'hidden',
+    minHeight: 44,
+  },
+  btnGotoWorkspaceInner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0284c7',
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 8,
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    height: '100%',
   },
   btnGotoWorkspaceText: {
-    fontSize: 12,
+    fontSize: 12.5,
     fontWeight: '700',
     color: '#ffffff',
   },
 
+  // ── Ward Modal ──
+  wardModalCard: {
+    width: '90%',
+    maxWidth: 360,
+    backgroundColor: '#1e293b',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    overflow: 'hidden',
+    padding: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  wardModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    marginBottom: 6,
+  },
+  wardModalTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  wardModalTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#f8fafc',
+  },
+  wardModalItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    minHeight: 44,
+    borderRadius: 8,
+  },
+  wardModalItemActive: {
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+  },
+  wardModalItemText: {
+    fontSize: 13,
+    color: '#cbd5e1',
+  },
+  wardModalItemTextActive: {
+    color: '#38bdf8',
+    fontWeight: '700',
+  },
+
+  // ── Loading Container ──
   loadingContainer: {
     paddingVertical: 40,
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
   },
   loadingText: {
-    fontSize: 13,
+    fontSize: 13.5,
     color: '#94a3b8',
   },
 });

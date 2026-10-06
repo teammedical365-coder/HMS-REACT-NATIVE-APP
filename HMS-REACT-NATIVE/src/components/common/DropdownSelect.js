@@ -9,7 +9,8 @@ import {
     TextInput,
     Pressable,
     Dimensions,
-    Platform
+    Platform,
+    ActivityIndicator
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 
@@ -30,7 +31,14 @@ const DropdownSelect = ({
     inputStyle,
     textStyle,
     dropdownStyle,
-    searchable = false
+    searchable = false,
+    insideModal = false,
+    loading = false,
+    loadingText = 'Loading...',
+    emptyText = 'No options found',
+    error = null,
+    errorText = 'Unable to load options',
+    onRetry = null,
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
@@ -38,29 +46,39 @@ const DropdownSelect = ({
     const triggerRef = useRef(null);
 
     // Normalize options
-    const normalizedOptions = options.map(opt => {
-        if (typeof opt === 'object' && opt !== null) {
-            return {
-                label: opt.label !== undefined ? String(opt.label) : String(opt.value),
-                value: opt.value !== undefined ? opt.value : opt.label
-            };
-        }
-        return { label: String(opt), value: opt };
-    });
+    const normalizedOptions = (Array.isArray(options) ? options : [])
+        .filter(opt => opt !== null && opt !== undefined)
+        .map(opt => {
+            if (typeof opt === 'object') {
+                return {
+                    label: opt.label !== undefined ? String(opt.label) : String(opt.value),
+                    value: opt.value !== undefined ? opt.value : opt.label
+                };
+            }
+            return { label: String(opt), value: opt };
+        });
 
     const selectedOption = normalizedOptions.find(o => String(o.value) === String(value));
-    const displayText = selectedOption ? selectedOption.label : placeholder;
+    const displayText = selectedOption ? selectedOption.label : (loading && !value ? loadingText : placeholder);
     const isPlaceholder = !selectedOption;
 
-    const filteredOptions = normalizedOptions.filter(opt =>
-        opt.label.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    const filteredOptions = normalizedOptions.filter(opt => {
+        if (placeholder && (opt.value === '' || opt.label === placeholder)) {
+            return false;
+        }
+        return opt.label.toLowerCase().includes(searchQuery.toLowerCase());
+    });
 
     const isSearchEnabled = searchable || normalizedOptions.length > 8;
 
     const handleOpen = () => {
         if (disabled) return;
         setSearchQuery('');
+
+        if (insideModal) {
+            setIsOpen(!isOpen);
+            return;
+        }
 
         if (Platform.OS === 'web' && triggerRef.current) {
             const node = triggerRef.current;
@@ -84,7 +102,7 @@ const DropdownSelect = ({
     const calculatePosition = (x, y, width, height) => {
         const windowHeight = Dimensions.get('window').height;
         const windowWidth = Dimensions.get('window').width;
-        const estimatedHeight = Math.min(260, Math.max(100, filteredOptions.length * 42 + (isSearchEnabled ? 50 : 20)));
+        const estimatedHeight = Math.min(260, Math.max(100, filteredOptions.length * 44 + (isSearchEnabled ? 50 : 20)));
 
         let top = y + height + 4;
         let showAbove = false;
@@ -94,11 +112,9 @@ const DropdownSelect = ({
             showAbove = true;
         }
 
-        let left = Math.max(10, x);
-        const menuWidth = Math.max(width || 180, 160);
-        if (left + menuWidth > windowWidth - 10) {
-            left = Math.max(10, windowWidth - menuWidth - 10);
-        }
+        const maxMenuWidth = Math.max(160, windowWidth - 20);
+        const menuWidth = Math.min(maxMenuWidth, Math.max(width || 180, 160));
+        const left = Math.max(10, Math.min(x || 10, windowWidth - menuWidth - 10));
 
         setDropdownPosition({ top, left, width: menuWidth, showAbove });
         setIsOpen(true);
@@ -109,8 +125,126 @@ const DropdownSelect = ({
         setIsOpen(false);
     };
 
+    const renderMenuContent = () => {
+        if (loading) {
+            return (
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="small" color="#2563eb" />
+                    <Text style={styles.loadingText}>{loadingText}</Text>
+                </View>
+            );
+        }
+
+        if (error) {
+            return (
+                <View style={styles.errorContainer}>
+                    <Feather name="alert-circle" size={16} color="#ef4444" style={{ marginBottom: 4 }} />
+                    <Text style={styles.errorText}>
+                        {typeof error === 'string' ? error : errorText}
+                    </Text>
+                    {onRetry ? (
+                        <TouchableOpacity style={styles.retryBtn} onPress={onRetry} activeOpacity={0.7}>
+                            <Feather name="refresh-cw" size={12} color="#2563eb" style={{ marginRight: 4 }} />
+                            <Text style={styles.retryBtnText}>Retry</Text>
+                        </TouchableOpacity>
+                    ) : null}
+                </View>
+            );
+        }
+
+        return (
+            <>
+                {isSearchEnabled && (
+                    <View style={styles.searchContainer}>
+                        <Feather name="search" size={14} color="#94a3b8" style={{ marginRight: 6 }} />
+                        <TextInput
+                            style={styles.searchInput}
+                            placeholder="Search..."
+                            placeholderTextColor="#94a3b8"
+                            value={searchQuery}
+                            onChangeText={setSearchQuery}
+                            autoFocus={Platform.OS === 'web'}
+                        />
+                        {searchQuery ? (
+                            <TouchableOpacity onPress={() => setSearchQuery('')}>
+                                <Feather name="x" size={14} color="#94a3b8" />
+                            </TouchableOpacity>
+                        ) : null}
+                    </View>
+                )}
+
+                <ScrollView
+                    style={{ maxHeight: 220 }}
+                    nestedScrollEnabled={true}
+                    keyboardShouldPersistTaps="handled"
+                >
+                    {placeholder && (
+                        <TouchableOpacity
+                            style={[
+                                styles.optionItem,
+                                value === '' && styles.optionItemSelected
+                            ]}
+                            onPress={() => handleSelect('')}
+                            activeOpacity={0.7}
+                        >
+                            <Text
+                                style={[
+                                    styles.optionText,
+                                    value === '' && styles.optionTextSelected,
+                                    { fontStyle: 'italic', color: '#94a3b8' }
+                                ]}
+                                numberOfLines={2}
+                            >
+                                {placeholder}
+                            </Text>
+                            {value === '' && (
+                                <Feather name="check" size={14} color="#2563eb" />
+                            )}
+                        </TouchableOpacity>
+                    )}
+
+                    {filteredOptions.map((opt, idx) => {
+                        const isSelected = String(opt.value) === String(value);
+                        return (
+                            <TouchableOpacity
+                                key={`${opt.value}-${idx}`}
+                                style={[
+                                    styles.optionItem,
+                                    isSelected && styles.optionItemSelected
+                                ]}
+                                onPress={() => handleSelect(opt.value)}
+                                activeOpacity={0.7}
+                            >
+                                <Text
+                                    style={[
+                                        styles.optionText,
+                                        isSelected && styles.optionTextSelected
+                                    ]}
+                                    numberOfLines={2}
+                                >
+                                    {opt.label}
+                                </Text>
+                                {isSelected && (
+                                    <Feather name="check" size={15} color="#2563eb" />
+                                )}
+                            </TouchableOpacity>
+                        );
+                    })}
+
+                    {filteredOptions.length === 0 && (
+                        <View style={styles.emptyContainer}>
+                            <Text style={styles.emptyText}>
+                                {searchQuery ? 'No options found' : emptyText}
+                            </Text>
+                        </View>
+                    )}
+                </ScrollView>
+            </>
+        );
+    };
+
     return (
-        <View style={[{ width: '100%' }, style]}>
+        <View style={[{ width: '100%', position: 'relative' }, style]}>
             <TouchableOpacity
                 ref={triggerRef}
                 style={[
@@ -140,111 +274,39 @@ const DropdownSelect = ({
                 />
             </TouchableOpacity>
 
-            <Modal
-                transparent={true}
-                visible={isOpen}
-                animationType="none"
-                onRequestClose={() => setIsOpen(false)}
-                statusBarTranslucent={true}
-            >
-                <Pressable style={styles.modalBackdrop} onPress={() => setIsOpen(false)}>
-                    <View
-                        style={[
-                            styles.dropdownMenu,
-                            dropdownPosition ? {
-                                position: 'absolute',
-                                top: dropdownPosition.top,
-                                left: dropdownPosition.left,
-                                width: dropdownPosition.width,
-                            } : styles.fallbackCenter,
-                            dropdownStyle
-                        ]}
-                        onStartShouldSetResponder={() => true}
-                    >
-                        {isSearchEnabled && (
-                            <View style={styles.searchContainer}>
-                                <Feather name="search" size={14} color="#94a3b8" style={{ marginRight: 6 }} />
-                                <TextInput
-                                    style={styles.searchInput}
-                                    placeholder="Search..."
-                                    placeholderTextColor="#94a3b8"
-                                    value={searchQuery}
-                                    onChangeText={setSearchQuery}
-                                    autoFocus={Platform.OS === 'web'}
-                                />
-                                {searchQuery ? (
-                                    <TouchableOpacity onPress={() => setSearchQuery('')}>
-                                        <Feather name="x" size={14} color="#94a3b8" />
-                                    </TouchableOpacity>
-                                ) : null}
-                            </View>
-                        )}
-
-                        <ScrollView
-                            style={{ maxHeight: 220 }}
-                            nestedScrollEnabled={true}
-                            keyboardShouldPersistTaps="handled"
-                        >
-                            {placeholder && (
-                                <TouchableOpacity
-                                    style={[
-                                        styles.optionItem,
-                                        value === '' && styles.optionItemSelected
-                                    ]}
-                                    onPress={() => handleSelect('')}
-                                >
-                                    <Text
-                                        style={[
-                                            styles.optionText,
-                                            value === '' && styles.optionTextSelected,
-                                            { fontStyle: 'italic', color: '#94a3b8' }
-                                        ]}
-                                    >
-                                        {placeholder}
-                                    </Text>
-                                    {value === '' && (
-                                        <Feather name="check" size={14} color="#2563eb" />
-                                    )}
-                                </TouchableOpacity>
-                            )}
-
-                            {filteredOptions.map((opt, idx) => {
-                                const isSelected = String(opt.value) === String(value);
-                                return (
-                                    <TouchableOpacity
-                                        key={`${opt.value}-${idx}`}
-                                        style={[
-                                            styles.optionItem,
-                                            isSelected && styles.optionItemSelected
-                                        ]}
-                                        onPress={() => handleSelect(opt.value)}
-                                        activeOpacity={0.7}
-                                    >
-                                        <Text
-                                            style={[
-                                                styles.optionText,
-                                                isSelected && styles.optionTextSelected
-                                            ]}
-                                            numberOfLines={1}
-                                        >
-                                            {opt.label}
-                                        </Text>
-                                        {isSelected && (
-                                            <Feather name="check" size={15} color="#2563eb" />
-                                        )}
-                                    </TouchableOpacity>
-                                );
-                            })}
-
-                            {filteredOptions.length === 0 && (
-                                <View style={styles.emptyContainer}>
-                                    <Text style={styles.emptyText}>No options found</Text>
-                                </View>
-                            )}
-                        </ScrollView>
+            {insideModal ? (
+                isOpen && (
+                    <View style={[styles.inlineDropdownMenu, dropdownStyle]}>
+                        {renderMenuContent()}
                     </View>
-                </Pressable>
-            </Modal>
+                )
+            ) : (
+                <Modal
+                    transparent={true}
+                    visible={isOpen}
+                    animationType="none"
+                    onRequestClose={() => setIsOpen(false)}
+                    statusBarTranslucent={true}
+                >
+                    <Pressable style={styles.modalBackdrop} onPress={() => setIsOpen(false)}>
+                        <View
+                            style={[
+                                styles.dropdownMenu,
+                                dropdownPosition ? {
+                                    position: 'absolute',
+                                    top: dropdownPosition.top,
+                                    left: dropdownPosition.left,
+                                    width: dropdownPosition.width,
+                                } : styles.fallbackCenter,
+                                dropdownStyle
+                            ]}
+                            onStartShouldSetResponder={() => true}
+                        >
+                            {renderMenuContent()}
+                        </View>
+                    </Pressable>
+                </Modal>
+            )}
         </View>
     );
 };
@@ -360,6 +422,60 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: '#94a3b8',
         fontStyle: 'italic',
+    },
+    loadingContainer: {
+        paddingVertical: 18,
+        paddingHorizontal: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexDirection: 'row',
+        gap: 8,
+    },
+    loadingText: {
+        fontSize: 13,
+        color: '#64748b',
+        fontWeight: '500',
+    },
+    errorContainer: {
+        paddingVertical: 14,
+        paddingHorizontal: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    errorText: {
+        fontSize: 12.5,
+        color: '#ef4444',
+        textAlign: 'center',
+        marginBottom: 8,
+    },
+    retryBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 6,
+        paddingHorizontal: 14,
+        borderRadius: 6,
+        backgroundColor: '#eff6ff',
+        borderWidth: 1,
+        borderColor: '#bfdbfe',
+    },
+    retryBtnText: {
+        fontSize: 12,
+        color: '#2563eb',
+        fontWeight: '600',
+    },
+    inlineDropdownMenu: {
+        marginTop: 4,
+        backgroundColor: '#ffffff',
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#cbd5e1',
+        overflow: 'hidden',
+        width: '100%',
+        elevation: 3,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
     }
 });
 

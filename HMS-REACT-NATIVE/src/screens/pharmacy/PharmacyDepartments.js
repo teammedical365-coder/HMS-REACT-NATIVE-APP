@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Modal, Dimensions, Alert, useWindowDimensions } from 'react-native';
 import { pharmacyAPI, billingAPI } from '../../utils/api';
-import { Picker } from '@react-native-picker/picker'; // Using Picker for dropdowns
+import DropdownSelect from '../../components/common/DropdownSelect';
 
 const PharmacyDepartments = () => {
     const { width } = useWindowDimensions();
@@ -10,7 +10,7 @@ const PharmacyDepartments = () => {
     const [stocks, setStocks] = useState([]);
     const [inventory, setInventory] = useState([]);
     const [patients, setPatients] = useState([]);
-    
+
     // Modals state
     const [showDeptModal, setShowDeptModal] = useState(false);
     const [showTransferModal, setShowTransferModal] = useState(false);
@@ -128,7 +128,7 @@ const PharmacyDepartments = () => {
     const handleUsageMedicineChange = (itemValue) => {
         const medId = itemValue;
         const stockItem = stocks.find(s => s.medicineId?._id === medId && s.departmentId?._id === usageForm.departmentId);
-        
+
         setUsageForm(prev => ({
             ...prev,
             medicineId: medId,
@@ -196,22 +196,22 @@ const PharmacyDepartments = () => {
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
                         <Text style={styles.modalTitle}>Add New Department</Text>
-                        
+
                         <View style={styles.formGroup}>
                             <Text style={styles.formLabel}>Department Name</Text>
-                            <TextInput 
-                                style={styles.formInput} 
-                                value={deptForm.name} 
+                            <TextInput
+                                style={styles.formInput}
+                                value={deptForm.name}
                                 onChangeText={(val) => setDeptForm({...deptForm, name: val})}
                                 placeholder="e.g., ICU, Ward A"
                             />
                         </View>
-                        
+
                         <View style={styles.formGroup}>
                             <Text style={styles.formLabel}>Description</Text>
-                            <TextInput 
-                                style={[styles.formInput, { height: 80 }]} 
-                                value={deptForm.description} 
+                            <TextInput
+                                style={[styles.formInput, { height: 80 }]}
+                                value={deptForm.description}
                                 onChangeText={(val) => setDeptForm({...deptForm, description: val})}
                                 multiline={true}
                             />
@@ -230,159 +230,161 @@ const PharmacyDepartments = () => {
             </Modal>
 
             {/* Transfer Modal */}
-            <Modal visible={showTransferModal} transparent={true} animationType="fade">
+            <Modal visible={showTransferModal} transparent={true} animationType="fade" onRequestClose={() => setShowTransferModal(false)}>
                 <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>Transfer Stock to Department</Text>
-                        
-                        <View style={styles.formGroup}>
-                            <Text style={styles.formLabel}>Department</Text>
-                            <View style={styles.pickerWrapper}>
-                                <Picker
-                                    selectedValue={transferForm.departmentId}
-                                    onValueChange={(val) => setTransferForm({...transferForm, departmentId: val})}
-                                    style={styles.picker}
-                                >
-                                    <Picker.Item label="Select Department" value="" />
-                                    {departments.map(d => (
-                                        <Picker.Item key={d._id} label={d.name} value={d._id} />
-                                    ))}
-                                </Picker>
-                            </View>
-                        </View>
-                        
-                        <View style={styles.formGroup}>
-                            <Text style={styles.formLabel}>Medicine (From Main Stock)</Text>
-                            <View style={styles.pickerWrapper}>
-                                <Picker
-                                    selectedValue={transferForm.medicineId}
-                                    onValueChange={(val) => setTransferForm({...transferForm, medicineId: val})}
-                                    style={styles.picker}
-                                >
-                                    <Picker.Item label="Select Medicine" value="" />
-                                    {inventory.map(med => (
-                                        <Picker.Item key={med._id} label={`${med.name} (Available: ${med.stockQuantity})`} value={med._id} />
-                                    ))}
-                                </Picker>
-                            </View>
-                        </View>
+                    <View style={[styles.modalContent, { maxHeight: '90%' }]}>
+                        <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled={true}>
+                            <Text style={styles.modalTitle}>Transfer Stock to Department</Text>
 
-                        <View style={styles.formGroup}>
-                            <Text style={styles.formLabel}>Quantity to Transfer</Text>
-                            <TextInput 
-                                style={styles.formInput} 
-                                value={transferForm.quantity} 
-                                onChangeText={(val) => setTransferForm({...transferForm, quantity: val})}
-                                keyboardType="numeric"
-                            />
-                        </View>
+                            <View style={styles.formGroup}>
+                                <Text style={styles.formLabel}>Department</Text>
+                                <DropdownSelect
+                                    insideModal={true}
+                                    options={[
+                                        { label: 'Select Department', value: '' },
+                                        ...departments.map(d => ({ label: d.name, value: d._id }))
+                                    ]}
+                                    value={transferForm.departmentId}
+                                    onChange={(val) => setTransferForm({...transferForm, departmentId: val})}
+                                    placeholder="Select Department"
+                                />
+                            </View>
 
-                        <View style={styles.modalActions}>
-                            <TouchableOpacity style={styles.btnSecondary} onPress={() => setShowTransferModal(false)}>
-                                <Text style={styles.btnSecondaryText}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.btnPrimary} onPress={handleTransfer}>
-                                <Text style={styles.btnPrimaryText}>Transfer</Text>
-                            </TouchableOpacity>
-                        </View>
+                            <View style={styles.formGroup}>
+                                <Text style={styles.formLabel}>Medicine (From Main Stock)</Text>
+                                <DropdownSelect
+                                    insideModal={true}
+                                    options={[
+                                        { label: 'Select Medicine', value: '' },
+                                        ...inventory.map(med => ({
+                                            label: `${med.name} (Available: ${med.stockQuantity != null ? med.stockQuantity : (med.stock || 0)})`,
+                                            value: med._id
+                                        }))
+                                    ]}
+                                    value={transferForm.medicineId}
+                                    onChange={(val) => setTransferForm({...transferForm, medicineId: val})}
+                                    placeholder="Select Medicine"
+                                />
+                            </View>
+
+                            <View style={styles.formGroup}>
+                                <Text style={styles.formLabel}>Quantity to Transfer</Text>
+                                <TextInput
+                                    style={styles.formInput}
+                                    value={transferForm.quantity}
+                                    onChangeText={(val) => setTransferForm({...transferForm, quantity: val})}
+                                    keyboardType="numeric"
+                                />
+                            </View>
+
+                            <View style={styles.modalActions}>
+                                <TouchableOpacity style={styles.btnSecondary} onPress={() => setShowTransferModal(false)}>
+                                    <Text style={styles.btnSecondaryText}>Cancel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={styles.btnPrimary} onPress={handleTransfer}>
+                                    <Text style={styles.btnPrimaryText}>Transfer</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </ScrollView>
                     </View>
                 </View>
             </Modal>
 
             {/* Usage Modal */}
-            <Modal visible={showUsageModal} transparent={true} animationType="fade">
+            <Modal visible={showUsageModal} transparent={true} animationType="fade" onRequestClose={() => setShowUsageModal(false)}>
                 <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>Record Usage & Bill Patient</Text>
-                        
-                        <View style={styles.formGroup}>
-                            <Text style={styles.formLabel}>Department Using Stock</Text>
-                            <View style={styles.pickerWrapper}>
-                                <Picker
-                                    selectedValue={usageForm.departmentId}
-                                    onValueChange={(val) => setUsageForm({...usageForm, departmentId: val})}
-                                    style={styles.picker}
-                                >
-                                    <Picker.Item label="Select Department" value="" />
-                                    {departments.map(d => (
-                                        <Picker.Item key={d._id} label={d.name} value={d._id} />
-                                    ))}
-                                </Picker>
+                    <View style={[styles.modalContent, { maxHeight: '90%' }]}>
+                        <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled={true}>
+                            <Text style={styles.modalTitle}>Record Usage & Bill Patient</Text>
+
+                            <View style={styles.formGroup}>
+                                <Text style={styles.formLabel}>Department Using Stock</Text>
+                                <DropdownSelect
+                                    insideModal={true}
+                                    options={[
+                                        { label: 'Select Department', value: '' },
+                                        ...departments.map(d => ({ label: d.name, value: d._id }))
+                                    ]}
+                                    value={usageForm.departmentId}
+                                    onChange={(val) => setUsageForm({...usageForm, departmentId: val})}
+                                    placeholder="Select Department"
+                                />
                             </View>
-                        </View>
-                        
-                        <View style={styles.formGroup}>
-                            <Text style={styles.formLabel}>Patient (Search)</Text>
-                            <TextInput 
-                                style={styles.formInput} 
-                                value={patientSearch} 
-                                onChangeText={searchPatients}
-                                placeholder="Type patient name or ID..."
-                            />
-                            {patients.length > 0 && !usageForm.patientId && (
-                                <View style={styles.searchResults}>
-                                    {patients.map(p => (
-                                        <TouchableOpacity 
-                                            key={p._id} 
-                                            style={styles.searchResultItem}
-                                            onPress={() => {
-                                                setUsageForm({...usageForm, patientId: p._id});
-                                                setPatientSearch(`${p.name} (${p.patientId})`);
-                                                setPatients([]);
-                                            }}
-                                        >
-                                            <Text style={styles.searchResultText}>{p.name} - {p.patientId}</Text>
-                                        </TouchableOpacity>
-                                    ))}
+
+                            <View style={styles.formGroup}>
+                                <Text style={styles.formLabel}>Patient (Search)</Text>
+                                <TextInput
+                                    style={styles.formInput}
+                                    value={patientSearch}
+                                    onChangeText={searchPatients}
+                                    placeholder="Type patient name or ID..."
+                                />
+                                {patients.length > 0 && !usageForm.patientId && (
+                                    <View style={styles.searchResults}>
+                                        {patients.map(p => (
+                                            <TouchableOpacity
+                                                key={p._id}
+                                                style={styles.searchResultItem}
+                                                onPress={() => {
+                                                    setUsageForm({...usageForm, patientId: p._id});
+                                                    setPatientSearch(`${p.name} (${p.patientId})`);
+                                                    setPatients([]);
+                                                }}
+                                            >
+                                                <Text style={styles.searchResultText}>{p.name} - {p.patientId}</Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
+                                )}
+                            </View>
+
+                            <View style={styles.formGroup}>
+                                <Text style={styles.formLabel}>Medicine Used</Text>
+                                <DropdownSelect
+                                    insideModal={true}
+                                    options={[
+                                        { label: 'Select Medicine', value: '' },
+                                        ...stocks.filter(s => s.departmentId?._id === usageForm.departmentId).map(s => ({
+                                            label: `${s.medicineId?.name || 'Medicine'} (Stock: ${s.quantity})`,
+                                            value: s.medicineId?._id
+                                        }))
+                                    ]}
+                                    value={usageForm.medicineId}
+                                    onChange={handleUsageMedicineChange}
+                                    placeholder="Select Medicine"
+                                />
+                            </View>
+
+                            <View style={{ flexDirection: 'row', gap: 10 }}>
+                                <View style={[styles.formGroup, { flex: 1 }]}>
+                                    <Text style={styles.formLabel}>Quantity Used</Text>
+                                    <TextInput
+                                        style={styles.formInput}
+                                        value={usageForm.quantity}
+                                        onChangeText={(val) => setUsageForm({...usageForm, quantity: val})}
+                                        keyboardType="numeric"
+                                    />
                                 </View>
-                            )}
-                        </View>
-
-                        <View style={styles.formGroup}>
-                            <Text style={styles.formLabel}>Medicine Used</Text>
-                            <View style={styles.pickerWrapper}>
-                                <Picker
-                                    selectedValue={usageForm.medicineId}
-                                    onValueChange={handleUsageMedicineChange}
-                                    style={styles.picker}
-                                >
-                                    <Picker.Item label="Select Medicine" value="" />
-                                    {stocks.filter(s => s.departmentId?._id === usageForm.departmentId).map(s => (
-                                        <Picker.Item key={s.medicineId?._id} label={`${s.medicineId?.name} (Stock: ${s.quantity})`} value={s.medicineId?._id} />
-                                    ))}
-                                </Picker>
+                                <View style={[styles.formGroup, { flex: 1 }]}>
+                                    <Text style={styles.formLabel}>Unit Price (₹)</Text>
+                                    <TextInput
+                                        style={styles.formInput}
+                                        value={usageForm.unitPrice}
+                                        onChangeText={(val) => setUsageForm({...usageForm, unitPrice: val})}
+                                        keyboardType="numeric"
+                                    />
+                                </View>
                             </View>
-                        </View>
 
-                        <View style={{ flexDirection: 'row', gap: 10 }}>
-                            <View style={[styles.formGroup, { flex: 1 }]}>
-                                <Text style={styles.formLabel}>Quantity Used</Text>
-                                <TextInput 
-                                    style={styles.formInput} 
-                                    value={usageForm.quantity} 
-                                    onChangeText={(val) => setUsageForm({...usageForm, quantity: val})}
-                                    keyboardType="numeric"
-                                />
+                            <View style={styles.modalActions}>
+                                <TouchableOpacity style={styles.btnSecondary} onPress={() => setShowUsageModal(false)}>
+                                    <Text style={styles.btnSecondaryText}>Cancel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={styles.btnSuccess} onPress={handleUsage}>
+                                    <Text style={styles.btnSuccessText}>Record & Bill</Text>
+                                </TouchableOpacity>
                             </View>
-                            <View style={[styles.formGroup, { flex: 1 }]}>
-                                <Text style={styles.formLabel}>Unit Price (₹)</Text>
-                                <TextInput 
-                                    style={styles.formInput} 
-                                    value={usageForm.unitPrice} 
-                                    onChangeText={(val) => setUsageForm({...usageForm, unitPrice: val})}
-                                    keyboardType="numeric"
-                                />
-                            </View>
-                        </View>
-
-                        <View style={styles.modalActions}>
-                            <TouchableOpacity style={styles.btnSecondary} onPress={() => setShowUsageModal(false)}>
-                                <Text style={styles.btnSecondaryText}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.btnSuccess} onPress={handleUsage}>
-                                <Text style={styles.btnSuccessText}>Record & Bill</Text>
-                            </TouchableOpacity>
-                        </View>
+                        </ScrollView>
                     </View>
                 </View>
             </Modal>
@@ -404,7 +406,7 @@ const styles = StyleSheet.create({
     },
     headerTitle: {
         fontSize: 22, // Reduced from standard bold if requested, but web CSS has font-weight: 600
-        fontWeight: 'normal', 
+        fontWeight: 'normal',
         color: '#2c3e50',
     },
     actionButtons: {
@@ -451,7 +453,7 @@ const styles = StyleSheet.create({
         color: '#ffffff',
         fontWeight: 'normal',
     },
-    
+
     departmentsGrid: {
         flexDirection: 'row',
         flexWrap: 'wrap',

@@ -6,6 +6,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../../utils/api';
+import { formatToDisplay } from '../../components/common/DatePickerInput';
 
 const Pharmacy = () => {
     const navigation = useNavigation();
@@ -40,7 +41,7 @@ const Pharmacy = () => {
     const fetchPharmacyOrders = async (token) => {
         try {
             setIsLoading(true);
-            const response = await api.get('/api/pharmacy/my-orders');
+            const response = await api.get('/api/pharmacy/orders/my-orders');
 
             if (response.data.success) {
                 const fetchedOrders = response.data.orders || [];
@@ -78,12 +79,7 @@ const Pharmacy = () => {
 
     const formatDate = (dateString) => {
         if (!dateString) return 'N/A';
-        const date = new Date(dateString);
-        return date.toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-        });
+        return formatToDisplay(dateString);
     };
 
     const getStatusLabel = (status) => {

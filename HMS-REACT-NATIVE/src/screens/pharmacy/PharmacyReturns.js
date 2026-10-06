@@ -3,7 +3,7 @@ import {
     View, Text, TextInput, TouchableOpacity, ScrollView, 
     StyleSheet, ActivityIndicator, Alert, Dimensions, useWindowDimensions 
 } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
+import DropdownSelect from '../../components/common/DropdownSelect';
 import { pharmacyOrderAPI, pharmacyAPI } from '../../utils/api';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
@@ -487,18 +487,19 @@ const PharmacyReturns = () => {
                                     {exchangedItems.map((item, idx) => (
                                         <View key={idx} style={styles.tableRow}>
                                             <View style={{ width: 250, padding: 12, justifyContent: 'center' }}>
-                                                <View style={styles.pickerWrapper}>
-                                                    <Picker
-                                                        selectedValue={item.medicineId}
-                                                        onValueChange={(val) => handleExchangeItemChange(idx, 'medicineId', val)}
-                                                        style={styles.picker}
-                                                    >
-                                                        <Picker.Item label="Select Medicine" value="" />
-                                                        {inventory.map(inv => (
-                                                            <Picker.Item key={inv._id} label={`${inv.name} (Stock: ${inv.stock})`} value={inv._id} />
-                                                        ))}
-                                                    </Picker>
-                                                </View>
+                                                <DropdownSelect
+                                                    options={[
+                                                        { label: 'Select Medicine', value: '' },
+                                                        ...(inventory || []).map(inv => ({
+                                                            label: `${inv.name} (Stock: ${inv.stock})`,
+                                                            value: inv._id
+                                                        }))
+                                                    ]}
+                                                    value={item.medicineId}
+                                                    onChange={(val) => handleExchangeItemChange(idx, 'medicineId', val)}
+                                                    placeholder="Select Medicine"
+                                                    width={226}
+                                                />
                                             </View>
                                             <Text style={[styles.tableCell, { width: 100 }]}>₹{item.pricePerUnit}</Text>
                                             <View style={{ width: 100, padding: 12, justifyContent: 'center' }}>

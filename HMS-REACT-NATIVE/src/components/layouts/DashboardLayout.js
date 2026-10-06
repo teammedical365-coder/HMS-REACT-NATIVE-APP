@@ -11,7 +11,8 @@ import GlobalSearch from '../GlobalSearch';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import Svg, { Defs, RadialGradient, LinearGradient as SvgLinearGradient, Stop, Ellipse, Rect, Path, Line, Circle } from 'react-native-svg';
-import { styles, SIDEBAR_WIDTH, SIDEBAR_COLLAPSED } from './DashboardLayoutStyles';
+import { styles, SIDEBAR_WIDTH, SIDEBAR_COLLAPSED, TOPBAR_HEIGHT } from './DashboardLayoutStyles';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import OfflineBanner from '../OfflineBanner';
 
 // Cute 3D AI Robot Illustration with glowing pedestal (Web ha-sidebar-ai-card parity)
@@ -84,6 +85,8 @@ const HaSidebarAiCard = () => {
 };
 
 const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
+    const insets = useSafeAreaInsets();
+    const topInset = Platform.OS === 'web' ? 0 : Math.max(0, insets?.top || 0);
     const { user } = useSelector(state => state.auth);
     const dispatch = useDispatch();
     const { branding } = useBranding();
@@ -247,7 +250,12 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
             isMobile && !isOpen && [styles.erpSidebarMobileHidden, { left: -mobileSidebarWidth, width: mobileSidebarWidth }],
             isMobile && isOpen && [styles.erpSidebarMobileVisible, { width: mobileSidebarWidth }]
         ]}>
-            <View style={[styles.sidebarBrand, !isOpen && styles.sidebarBrandCollapsed, isCentralAdmin && styles.caSidebarBrand]}>
+            <View style={[
+                styles.sidebarBrand,
+                !isOpen && styles.sidebarBrandCollapsed,
+                isCentralAdmin && styles.caSidebarBrand,
+                isMobile && topInset > 0 && { height: TOPBAR_HEIGHT + topInset, paddingTop: topInset }
+            ]}>
                 <View style={[styles.caBrandContainer, { flex: 1, minWidth: 0 }]}>
                     {!isOpen ? (
                         <View style={styles.brandDot} />
@@ -400,6 +408,8 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
 };
 
 const TopBar = ({ toggleSidebar, sidebarOpen, isMobile }) => {
+    const insets = useSafeAreaInsets();
+    const topInset = Platform.OS === 'web' ? 0 : Math.max(0, insets?.top || 0);
     const { user } = useSelector(state => state.auth);
     const dispatch = useDispatch();
     const route = useRoute();
@@ -498,7 +508,12 @@ const TopBar = ({ toggleSidebar, sidebarOpen, isMobile }) => {
     };
 
     return (
-        <View style={[styles.erpTopbar, isCentralAdmin && styles.caErpTopbar, isMobile && { paddingHorizontal: 10, gap: 8 }]}>
+        <View style={[
+            styles.erpTopbar,
+            isCentralAdmin && styles.caErpTopbar,
+            isMobile && { paddingHorizontal: 10, gap: 8 },
+            topInset > 0 && { height: TOPBAR_HEIGHT + topInset, paddingTop: topInset }
+        ]}>
             <View style={styles.topbarLeft}>
                 <TouchableOpacity style={styles.sidebarToggle} onPress={toggleSidebar} activeOpacity={0.6}>
                     <Feather name="menu" size={24} color="#1e293b" />

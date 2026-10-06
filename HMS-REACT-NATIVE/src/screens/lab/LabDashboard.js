@@ -1,13 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { labAPI } from '../../utils/api';
 import { LinearGradient } from 'expo-linear-gradient';
 
-const { width } = Dimensions.get('window');
-
 const LabDashboard = () => {
     const navigation = useNavigation();
+    const { width } = useWindowDimensions();
     const [stats, setStats] = useState({ pending: 0, completed: 0, revenue: 0, labName: 'Lab' });
     const [loading, setLoading] = useState(true);
 
@@ -39,8 +38,8 @@ const LabDashboard = () => {
     const isLargeScreen = width > 768;
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
-            <View style={[styles.header, !isLargeScreen && { flexDirection: 'column', alignItems: 'flex-start' }]}>
+        <ScrollView style={styles.container} contentContainerStyle={[styles.contentContainer, width < 400 && { padding: 16 }]}>
+            <View style={[styles.header, !isLargeScreen && { flexDirection: 'column', alignItems: 'flex-start' }, width < 400 && { padding: 16, marginBottom: 24 }]}>
                 <View>
                     <Text style={styles.headerTitle}>🔬 {stats.labName} Dashboard</Text>
                     <Text style={styles.headerSubtitle}>Manage test requests and upload reports</Text>
@@ -48,8 +47,8 @@ const LabDashboard = () => {
             </View>
 
             <View style={[styles.statsGrid, !isLargeScreen && { flexDirection: 'column' }]}>
-                <TouchableOpacity 
-                    style={styles.statCard} 
+                <TouchableOpacity
+                    style={[styles.statCard, !isLargeScreen && { minWidth: '100%', width: '100%' }]}
                     onPress={() => navigation.navigate('AssignedTests')}
                     activeOpacity={0.8}
                 >
@@ -57,12 +56,12 @@ const LabDashboard = () => {
                     <Text style={styles.statValue}>{stats.pending}</Text>
                     <Text style={styles.statLabel}>Pending Requests</Text>
                 </TouchableOpacity>
-                <View style={styles.statCard}>
+                <View style={[styles.statCard, !isLargeScreen && { minWidth: '100%', width: '100%' }]}>
                     <View style={[styles.cardIndicator, { backgroundColor: '#10b981' }]} />
                     <Text style={styles.statValue}>{stats.completed}</Text>
                     <Text style={styles.statLabel}>Completed Reports</Text>
                 </View>
-                <View style={styles.statCard}>
+                <View style={[styles.statCard, !isLargeScreen && { minWidth: '100%', width: '100%' }]}>
                     <View style={[styles.cardIndicator, { backgroundColor: '#8b5cf6' }]} />
                     <Text style={styles.statValue}>₹{stats.revenue}</Text>
                     <Text style={styles.statLabel}>Est. Revenue</Text>
@@ -70,8 +69,8 @@ const LabDashboard = () => {
             </View>
 
             <View style={[styles.actionsContainer, !isLargeScreen && { flexDirection: 'column' }]}>
-                <TouchableOpacity 
-                    style={styles.actionBtnPrimary}
+                <TouchableOpacity
+                    style={[styles.actionBtnPrimary, !isLargeScreen && { minWidth: '100%', width: '100%' }]}
                     onPress={() => navigation.navigate('AssignedTests')}
                 >
                     <LinearGradient
@@ -83,8 +82,8 @@ const LabDashboard = () => {
                         <Text style={styles.actionBtnTextPrimary}>📋 View Assigned Tests</Text>
                     </LinearGradient>
                 </TouchableOpacity>
-                <TouchableOpacity 
-                    style={styles.actionBtnSecondary}
+                <TouchableOpacity
+                    style={[styles.actionBtnSecondary, !isLargeScreen && { minWidth: '100%', width: '100%' }]}
                     onPress={() => navigation.navigate('CompletedReports')}
                 >
                     <Text style={styles.actionBtnTextSecondary}>🗄️ Past Records</Text>
@@ -147,12 +146,13 @@ const styles = StyleSheet.create({
     },
     statCard: {
         flex: 1,
-        minWidth: 280,
+        minWidth: 220,
+        maxWidth: '100%',
         backgroundColor: 'rgba(255, 255, 255, 0.7)',
         borderWidth: 1,
         borderColor: 'rgba(255, 255, 255, 0.6)',
         borderRadius: 20,
-        padding: 28,
+        padding: 24,
         position: 'relative',
         overflow: 'hidden',
         justifyContent: 'center',
@@ -193,11 +193,11 @@ const styles = StyleSheet.create({
         shadowRadius: 20,
         elevation: 5,
         flex: 1,
-        minWidth: 200
+        minWidth: 160
     },
     gradientBg: {
         paddingVertical: 16,
-        paddingHorizontal: 32,
+        paddingHorizontal: 24,
         alignItems: 'center',
         justifyContent: 'center'
     },
@@ -208,7 +208,7 @@ const styles = StyleSheet.create({
     },
     actionBtnSecondary: {
         paddingVertical: 16,
-        paddingHorizontal: 32,
+        paddingHorizontal: 24,
         borderRadius: 16,
         borderWidth: 1,
         borderColor: 'rgba(59, 130, 246, 0.2)',
@@ -221,7 +221,7 @@ const styles = StyleSheet.create({
         shadowRadius: 32,
         elevation: 5,
         flex: 1,
-        minWidth: 200
+        minWidth: 160
     },
     actionBtnTextSecondary: {
         color: '#3b82f6',

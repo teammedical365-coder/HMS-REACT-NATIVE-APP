@@ -39,6 +39,7 @@ import SurgeryReferrals from '../screens/doctors/SurgeryReferrals';
 import MySurgeryPlans from '../screens/doctors/MySurgeryPlans';
 import DoctorSurgeries from '../screens/doctors/DoctorSurgeries';
 import LabReports from '../screens/user/LabReports';
+import UserPharmacy from '../screens/user/Pharmacy';
 
 // -- OT Pages --
 import OTDashboard from '../screens/ot/OTDashboard';
@@ -324,5 +325,7 @@ export const PatientApp = () => (
     <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
         <Stack.Screen name="PatientDashboard" component={PatientDashboard} />
         <Stack.Screen name="UnifiedPatientProfile" component={UnifiedPatientProfile} />
+        <Stack.Screen name="UserPharmacy" component={UserPharmacy} />
+        <Stack.Screen name="PatientPharmacy" component={UserPharmacy} />
     </Stack.Navigator>
 );

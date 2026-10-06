@@ -1,31 +1,37 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Dimensions, TextInput, Linking, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, TextInput, Linking, Alert, Platform, useWindowDimensions, RefreshControl } from 'react-native';
+import { useDispatch, useSelector } from 'react-redux';
 import * as Print from 'expo-print';
-import { labAPI } from '../../utils/api';
-
-const { width } = Dimensions.get('window');
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+import { fetchLabRequests } from '../../store/slices/labSlice';
+import DatePickerInput from '../../components/common/DatePickerInput';
 
 const CompletedReports = () => {
-    const [requests, setRequests] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const { width } = useWindowDimensions();
+    const dispatch = useDispatch();
+    const { requests = [], loading } = useSelector((state) => state.lab);
+
     const [searchTerm, setSearchTerm] = useState('');
     const [filterDate, setFilterDate] = useState('');
+    const [refreshing, setRefreshing] = useState(false);
 
     useEffect(() => {
         loadRequests();
     }, []);
 
-    const loadRequests = async () => {
-        setLoading(true);
+    const loadRequests = () => {
+        dispatch(fetchLabRequests('completed'));
+    };
+
+    const onRefresh = async () => {
+        setRefreshing(true);
         try {
-            const res = await labAPI.getRequests('completed');
-            if (res.success) {
-                setRequests(res.requests || []);
-            }
+            await dispatch(fetchLabRequests('completed')).unwrap();
         } catch (err) {
-            console.error(err);
+            console.error("Refresh completed reports error:", err);
         } finally {
-            setLoading(false);
+            setRefreshing(false);
         }
     };
 
@@ -34,10 +40,45 @@ const CompletedReports = () => {
         Linking.openURL(url).catch(() => Alert.alert("Error", "Cannot open URL"));
     };
 
-    const handleDownload = (url) => {
+    const handleDownload = async (url, fileName) => {
         if (!url) return;
-        // Mock download logic for RN
-        Linking.openURL(url).catch(() => Alert.alert("Error", "Cannot download file"));
+
+        if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof document !== 'undefined') {
+            try {
+                const response = await fetch(url);
+                const blob = await response.blob();
+                const blobUrl = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = blobUrl;
+                link.download = fileName || 'lab-report.pdf';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                window.URL.revokeObjectURL(blobUrl);
+            } catch (error) {
+                console.error("Web download failed, falling back to window.open:", error);
+                window.open(url, '_blank');
+            }
+        } else {
+            try {
+                const rawName = fileName || url.split('/').pop()?.split('?')[0] || `lab_report_${Date.now()}.pdf`;
+                const sanitizedName = rawName.toLowerCase().endsWith('.pdf') ? rawName : `${rawName}.pdf`;
+                const targetUri = `${FileSystem.documentDirectory || FileSystem.cacheDirectory}${sanitizedName}`;
+
+                const downloadResult = await FileSystem.downloadAsync(url, targetUri);
+                if (downloadResult && downloadResult.uri) {
+                    const isShareAvailable = await Sharing.isAvailableAsync();
+                    if (isShareAvailable) {
+                        await Sharing.shareAsync(downloadResult.uri);
+                    } else {
+                        Alert.alert("Download Complete", `Report saved to: ${downloadResult.uri}`);
+                    }
+                }
+            } catch (nativeErr) {
+                console.error("Native download failed, falling back to Linking:", nativeErr);
+                Linking.openURL(url).catch(() => Alert.alert("Error", "Cannot download file"));
+            }
+        }
     };
 
     const handlePrint = async (url) => {
@@ -82,19 +123,19 @@ const CompletedReports = () => {
         }
     };
 
-    const filteredReports = requests.filter(report => {
-        const matchesSearch = 
+    const filteredReports = (requests || []).filter(report => {
+        const matchesSearch =
             report.userId?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
             report.testNames?.some(t => t.toLowerCase().includes(searchTerm.toLowerCase()));
-        
+
         const matchesDate = filterDate ? report.updatedAt?.startsWith(filterDate) : true;
-        
+
         return matchesSearch && matchesDate;
     });
 
     const formatDate = (dateString) => {
         if (!dateString) return 'N/A';
-        return new Date(dateString).toLocaleDateString('en-US', { 
+        return new Date(dateString).toLocaleDateString('en-US', {
             year: 'numeric', month: 'short', day: 'numeric'
         });
     };
@@ -102,35 +143,43 @@ const CompletedReports = () => {
     const isLargeScreen = width > 768;
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
-            <View style={[styles.header, !isLargeScreen && { flexDirection: 'column', alignItems: 'stretch' }]}>
+        <ScrollView
+            style={styles.container}
+            contentContainerStyle={[styles.contentContainer, width < 400 && { padding: 16 }]}
+            refreshControl={
+                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#22c55e']} />
+            }
+        >
+            <View style={[styles.header, !isLargeScreen && { flexDirection: 'column', alignItems: 'stretch' }, width < 400 && { padding: 16, marginBottom: 24 }]}>
                 <View style={!isLargeScreen && { marginBottom: 15 }}>
                     <Text style={styles.headerTitle}>✅ Completed Reports</Text>
                     <Text style={styles.headerSubtitle}>Full archive of diagnostic results and patient files.</Text>
                 </View>
-                
-                <View style={[styles.controls, !isLargeScreen && { flexDirection: 'column' }]}>
-                    <View style={styles.searchBox}>
+
+                <View style={[styles.controls, !isLargeScreen && { flexDirection: 'column', width: '100%' }]}>
+                    <View style={[styles.searchBox, !isLargeScreen && { minWidth: '100%', width: '100%' }]}>
                         <Text style={styles.searchIcon}>🔍</Text>
-                        <TextInput 
+                        <TextInput
                             style={styles.searchInput}
                             placeholder="Search patient or test name..."
                             value={searchTerm}
                             onChangeText={setSearchTerm}
                         />
                     </View>
-                    <View style={styles.dateFilter}>
-                        <TextInput 
-                            style={styles.dateInput}
-                            placeholder="YYYY-MM-DD"
+                    <View style={[styles.dateFilter, !isLargeScreen && { minWidth: '100%', width: '100%' }]}>
+                        <DatePickerInput
                             value={filterDate}
-                            onChangeText={setFilterDate}
+                            onChange={(val) => setFilterDate(val || '')}
+                            placeholder="Filter by date..."
+                            allowClear={true}
+                            style={{ width: '100%' }}
+                            inputStyle={styles.datePickerInput}
                         />
                     </View>
                 </View>
             </View>
 
-            {loading ? (
+            {loading && (!requests || requests.length === 0) ? (
                 <View style={styles.loadingContainer}>
                     <ActivityIndicator size="large" color="#22c55e" />
                     <Text style={styles.loadingText}>Loading records...</Text>
@@ -145,7 +194,7 @@ const CompletedReports = () => {
                         </View>
                     ) : (
                         filteredReports.map((report) => (
-                            <View key={report._id} style={styles.card}>
+                            <View key={report._id} style={[styles.card, !isLargeScreen && { minWidth: '100%', width: '100%' }]}>
                                 <View style={styles.cardTop}>
                                     <View style={styles.patientMeta}>
                                         <Text style={styles.idBadge}>ID: {report.patientId}</Text>
@@ -165,7 +214,7 @@ const CompletedReports = () => {
                                         <Text style={styles.infoLabel}>👨‍⚕️ Requesting Doctor</Text>
                                         <Text style={styles.infoDesc}>{report.doctorId?.name}</Text>
                                     </View>
-                                    
+
                                     <View style={styles.testsBlock}>
                                         <Text style={styles.infoLabel}>🧪 Conducted Tests</Text>
                                         <View style={styles.testTags}>
@@ -188,11 +237,11 @@ const CompletedReports = () => {
                                     </View>
                                 )}
 
-                                <View style={styles.cardActions}>
+                                <View style={[styles.cardActions, width < 380 && { flexDirection: 'column' }]}>
                                     <TouchableOpacity style={[styles.btnAction, styles.btnSecondary]} onPress={() => handleView(report.reportFile?.url)}>
                                         <Text style={styles.btnSecondaryText}>👁️ View</Text>
                                     </TouchableOpacity>
-                                    <TouchableOpacity style={[styles.btnAction, styles.btnPrimary]} onPress={() => handleDownload(report.reportFile?.url)}>
+                                    <TouchableOpacity style={[styles.btnAction, styles.btnPrimary]} onPress={() => handleDownload(report.reportFile?.url, report.reportFile?.name)}>
                                         <Text style={styles.btnPrimaryText}>⬇️ Download</Text>
                                     </TouchableOpacity>
                                     <TouchableOpacity style={[styles.btnAction, styles.btnPrint]} onPress={() => handlePrint(report.reportFile?.url)}>
@@ -258,7 +307,8 @@ const styles = StyleSheet.create({
         borderRadius: 14,
         paddingHorizontal: 16,
         height: 45,
-        minWidth: 250
+        minWidth: 200,
+        flex: 1
     },
     searchIcon: {
         marginRight: 8,
@@ -270,7 +320,17 @@ const styles = StyleSheet.create({
         color: '#0f172a'
     },
     dateFilter: {
-        minWidth: 150
+        minWidth: 150,
+        flex: 1
+    },
+    datePickerInput: {
+        backgroundColor: 'white',
+        borderWidth: 1,
+        borderColor: 'rgba(226, 232, 240, 0.8)',
+        borderRadius: 14,
+        paddingHorizontal: 16,
+        height: 45,
+        justifyContent: 'center'
     },
     dateInput: {
         backgroundColor: 'white',
@@ -318,7 +378,8 @@ const styles = StyleSheet.create({
     },
     card: {
         flex: 1,
-        minWidth: 340,
+        minWidth: 260,
+        maxWidth: '100%',
         backgroundColor: 'rgba(255, 255, 255, 0.7)',
         borderRadius: 20,
         borderWidth: 1,

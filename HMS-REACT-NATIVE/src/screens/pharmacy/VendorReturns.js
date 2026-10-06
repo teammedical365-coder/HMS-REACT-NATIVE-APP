@@ -3,7 +3,8 @@ import {
     View, Text, TextInput, TouchableOpacity, ScrollView, 
     StyleSheet, ActivityIndicator, Alert, Dimensions, useWindowDimensions 
 } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
+import DropdownSelect from '../../components/common/DropdownSelect';
+import { formatToDisplay } from '../../components/common/DatePickerInput';
 import { pharmacyAPI } from '../../utils/api';
 
 const VendorReturns = () => {
@@ -142,18 +143,18 @@ const VendorReturns = () => {
                         <View style={[styles.addItemGrid, !isLargeScreen && { flexDirection: 'column', alignItems: 'stretch' }]}>
                             <View style={[styles.formGroup, isLargeScreen && { flex: 2 }]}>
                                 <Text style={styles.labelSmall}>Select Medicine</Text>
-                                <View style={styles.pickerWrapper}>
-                                    <Picker
-                                        selectedValue={selectedMedicineId}
-                                        onValueChange={setSelectedMedicineId}
-                                        style={styles.picker}
-                                    >
-                                        <Picker.Item label="-- Choose from Inventory --" value="" />
-                                        {inventory.filter(i => i.stock > 0).map(i => (
-                                            <Picker.Item key={i._id} label={`${i.name} (Stock: ${i.stock})`} value={i._id} />
-                                        ))}
-                                    </Picker>
-                                </View>
+                                <DropdownSelect
+                                    options={[
+                                        { label: '-- Choose from Inventory --', value: '' },
+                                        ...inventory.filter(i => (i.stock || 0) > 0).map(i => ({
+                                            label: `${i.name} (Stock: ${i.stock})`,
+                                            value: i._id
+                                        }))
+                                    ]}
+                                    value={selectedMedicineId}
+                                    onChange={setSelectedMedicineId}
+                                    placeholder="-- Choose from Inventory --"
+                                />
                             </View>
                             <View style={[styles.formGroup, isLargeScreen && { flex: 1 }]}>
                                 <Text style={styles.labelSmall}>Qty</Text>
@@ -166,18 +167,17 @@ const VendorReturns = () => {
                             </View>
                             <View style={[styles.formGroup, isLargeScreen && { flex: 1 }]}>
                                 <Text style={styles.labelSmall}>Reason</Text>
-                                <View style={styles.pickerWrapper}>
-                                    <Picker
-                                        selectedValue={returnReason}
-                                        onValueChange={setReturnReason}
-                                        style={styles.picker}
-                                    >
-                                        <Picker.Item label="Expired" value="Expired" />
-                                        <Picker.Item label="Damaged" value="Damaged" />
-                                        <Picker.Item label="Excess Stock" value="Excess Stock" />
-                                        <Picker.Item label="Other" value="Other" />
-                                    </Picker>
-                                </View>
+                                <DropdownSelect
+                                    options={[
+                                        { label: 'Expired', value: 'Expired' },
+                                        { label: 'Damaged', value: 'Damaged' },
+                                        { label: 'Excess Stock', value: 'Excess Stock' },
+                                        { label: 'Other', value: 'Other' },
+                                    ]}
+                                    value={returnReason}
+                                    onChange={setReturnReason}
+                                    placeholder="Select Reason"
+                                />
                             </View>
                             <View style={[styles.formGroup, isLargeScreen && { justifyContent: 'flex-end', marginBottom: 0 }]}>
                                 <TouchableOpacity style={styles.btnAdd} onPress={handleAddItem}>
@@ -255,7 +255,7 @@ const VendorReturns = () => {
                             ) : (
                                 returnsHistory.map((ret, idx) => (
                                     <View key={idx} style={styles.historyTableRow}>
-                                        <Text style={[styles.historyTableCell, { width: 100 }]}>{new Date(ret.returnDate).toLocaleDateString()}</Text>
+                                        <Text style={[styles.historyTableCell, { width: 100 }]}>{formatToDisplay(ret.returnDate)}</Text>
                                         <Text style={[styles.historyTableCell, { width: 150, fontWeight: '500' }]}>{ret.vendorName}</Text>
                                         <Text style={[styles.historyTableCell, { width: 80 }]}>{ret.items?.length || 0}</Text>
                                         <Text style={[styles.historyTableCell, { width: 100, color: '#dc2626', fontWeight: '500' }]}>₹{ret.totalReturnAmount}</Text>

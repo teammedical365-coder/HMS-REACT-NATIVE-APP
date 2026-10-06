@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { 
-    View, Text, TextInput, TouchableOpacity, ScrollView, 
-    StyleSheet, ActivityIndicator, Alert, Dimensions, Modal, Platform, useWindowDimensions 
+import {
+    View, Text, TextInput, TouchableOpacity, ScrollView,
+    StyleSheet, ActivityIndicator, Alert, Dimensions, Modal, Platform, useWindowDimensions
 } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
+import DropdownSelect from '../../components/common/DropdownSelect';
+import DatePickerInput, { formatToDisplay, formatToYMD } from '../../components/common/DatePickerInput';
 import { pharmacyOrderAPI, pharmacyAPI, hospitalAPI, apiClient } from '../../utils/api';
 import { API_BASE_URL, STORAGE_KEYS } from '../../utils/Constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -14,8 +15,8 @@ import * as Sharing from 'expo-sharing';
 const backendUrl = API_BASE_URL;
 
 const getAuthToken = async () => {
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-        const t = localStorage.getItem('token') || localStorage.getItem('superadmin_token') || localStorage.getItem(STORAGE_KEYS.TOKEN);
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+        const t = window.localStorage.getItem('token') || window.localStorage.getItem('superadmin_token') || window.localStorage.getItem(STORAGE_KEYS.TOKEN);
         if (t) return String(t).replace(/^"(.*)"$/, '$1').trim();
     }
     const asyncT = (await AsyncStorage.getItem(STORAGE_KEYS.TOKEN)) || (await AsyncStorage.getItem('token')) || '';
@@ -27,7 +28,7 @@ const PharmacyOrders = () => {
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [checkedItems, setCheckedItems] = useState({});
-    
+
     // Filters
     const [searchTerm, setSearchTerm] = useState('');
     const [dateFilter, setDateFilter] = useState('');
@@ -36,9 +37,74 @@ const PharmacyOrders = () => {
     // External Data
     const [inventory, setInventory] = useState([]);
     const [doctors, setDoctors] = useState([]);
+    const [loadingDoctors, setLoadingDoctors] = useState(false);
+    const [doctorError, setDoctorError] = useState(null);
     const [hospitalInfo, setHospitalInfo] = useState({});
     const [dashboardStats, setDashboardStats] = useState({ todayCollection: 0, overallCollection: 0, pendingCollection: 0, doctorGuaranteedAmount: 0 });
     const [billingSettings, setBillingSettings] = useState({ gstin: '', dlNumber: '' });
+
+    // Memoized Doctor Options for Payment Modal (Authorizing Doctor: value = real doctor _id)
+    const doctorOptions = useMemo(() => {
+        return (doctors || [])
+            .map(dr => {
+                const idVal = String(dr._id || dr.id || dr.doctorId || '').trim();
+                if (!idVal) return null;
+
+                let rawName = '';
+                if (typeof dr.name === 'string' && dr.name.trim()) {
+                    rawName = dr.name.trim();
+                } else if (typeof dr.fullName === 'string' && dr.fullName.trim()) {
+                    rawName = dr.fullName.trim();
+                } else if (dr.userId && typeof dr.userId.name === 'string' && dr.userId.name.trim()) {
+                    rawName = dr.userId.name.trim();
+                } else if (dr.user && typeof dr.user.name === 'string' && dr.user.name.trim()) {
+                    rawName = dr.user.name.trim();
+                } else if (typeof dr.doctorName === 'string' && dr.doctorName.trim()) {
+                    rawName = dr.doctorName.trim();
+                }
+
+                if (!rawName) return null;
+
+                const cleanName = rawName.replace(/^Dr\.?\s+/i, '').trim();
+                const formattedName = `Dr. ${cleanName}`;
+
+                const dept = (dr.specialty || dr.specialization || (Array.isArray(dr.departments) && dr.departments[0]) || dr.department || '').trim();
+                const label = dept ? `${formattedName} (${dept})` : formattedName;
+
+                return { label, value: idVal };
+            })
+            .filter(Boolean);
+    }, [doctors]);
+
+    // Memoized Doctor Options for Walk-in Billing Modal (value = doctor name string matching Web)
+    const walkInDoctorOptions = useMemo(() => {
+        return (doctors || [])
+            .map(dr => {
+                let rawName = '';
+                if (typeof dr.name === 'string' && dr.name.trim()) {
+                    rawName = dr.name.trim();
+                } else if (typeof dr.fullName === 'string' && dr.fullName.trim()) {
+                    rawName = dr.fullName.trim();
+                } else if (dr.userId && typeof dr.userId.name === 'string' && dr.userId.name.trim()) {
+                    rawName = dr.userId.name.trim();
+                } else if (dr.user && typeof dr.user.name === 'string' && dr.user.name.trim()) {
+                    rawName = dr.user.name.trim();
+                } else if (typeof dr.doctorName === 'string' && dr.doctorName.trim()) {
+                    rawName = dr.doctorName.trim();
+                }
+
+                if (!rawName) return null;
+
+                const cleanName = rawName.replace(/^Dr\.?\s+/i, '').trim();
+                const formattedName = `Dr. ${cleanName}`;
+
+                const dept = (dr.specialty || dr.specialization || (Array.isArray(dr.departments) && dr.departments[0]) || dr.department || '').trim();
+                const label = dept ? `${formattedName} (${dept})` : formattedName;
+
+                return { label, value: formattedName };
+            })
+            .filter(Boolean);
+    }, [doctors]);
 
     // Modals
     const [showBillModal, setShowBillModal] = useState(false);
@@ -93,11 +159,98 @@ const PharmacyOrders = () => {
 
     const fetchDoctors = async () => {
         try {
-            const res = await apiClient.get('/api/doctor');
-            const data = res.data;
-            if (data.success) setDoctors(data.doctors || data.data || []);
+            setLoadingDoctors(true);
+            setDoctorError(null);
+            let docs = [];
+
+            // Tier 1: Exact Web Parity — Direct fetch with getAuthToken()
+            try {
+                const token = await getAuthToken();
+                const headers = { 'Content-Type': 'application/json' };
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+
+                const res = await fetch(`${backendUrl}/api/doctor`, { headers });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && data.success && Array.isArray(data.doctors)) {
+                        docs = data.doctors;
+                    } else if (data && Array.isArray(data.data)) {
+                        docs = data.data;
+                    } else if (Array.isArray(data)) {
+                        docs = data;
+                    }
+                }
+            } catch (err1) {
+                console.warn("[PharmacyOrders] Tier 1 fetchDoctors error:", err1?.message);
+            }
+
+            // Tier 2: apiClient / doctorAPI
+            if (!docs || docs.length === 0) {
+                try {
+                    const res = await apiClient.get('/api/doctor');
+                    const data = res.data;
+                    if (data && data.success && Array.isArray(data.doctors)) {
+                        docs = data.doctors;
+                    } else if (data && Array.isArray(data.data)) {
+                        docs = data.data;
+                    } else if (Array.isArray(data)) {
+                        docs = data;
+                    }
+                } catch (err2) {
+                    console.warn("[PharmacyOrders] Tier 2 fetchDoctors error:", err2?.message);
+                }
+            }
+
+            // Tier 3: Query scoped by hospitalId if available
+            if (!docs || docs.length === 0) {
+                try {
+                    const hid = hospitalInfo?._id || hospitalInfo?.id || (await AsyncStorage.getItem(STORAGE_KEYS.HOSPITAL_BRANDING_ID)) || process.env.EXPO_PUBLIC_TENANT_ID;
+                    if (hid) {
+                        const token = await getAuthToken();
+                        const headers = {};
+                        if (token) headers['Authorization'] = `Bearer ${token}`;
+                        const res = await fetch(`${backendUrl}/api/doctor?hospitalId=${encodeURIComponent(hid)}`, { headers });
+                        if (res.ok) {
+                            const data = await res.json();
+                            if (data && data.success && Array.isArray(data.doctors)) {
+                                docs = data.doctors;
+                            } else if (data && Array.isArray(data.data)) {
+                                docs = data.data;
+                            }
+                        }
+                    }
+                } catch (err3) {
+                    console.warn("[PharmacyOrders] Tier 3 fetchDoctors error:", err3?.message);
+                }
+            }
+
+            // Tier 4: Public fallback without auth header (returns active hospital doctors)
+            if (!docs || docs.length === 0) {
+                try {
+                    const res = await fetch(`${backendUrl}/api/doctor`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data && data.success && Array.isArray(data.doctors)) {
+                            docs = data.doctors;
+                        }
+                    }
+                } catch (err4) {
+                    console.warn("[PharmacyOrders] Tier 4 fetchDoctors error:", err4?.message);
+                }
+            }
+
+            if (docs && docs.length > 0) {
+                setDoctors(docs);
+                setDoctorError(null);
+            } else {
+                setDoctors([]);
+                setDoctorError("No doctors available");
+            }
         } catch (error) {
             console.error("Failed to load doctors", error);
+            setDoctorError("Unable to load doctors");
+        } finally {
+            setLoadingDoctors(false);
         }
     };
 
@@ -139,9 +292,9 @@ const PharmacyOrders = () => {
             const token = await getAuthToken();
             const res = await fetch(`${backendUrl}/api/pharmacy/hospital-billing`, {
                 method: 'PUT',
-                headers: { 
+                headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}` 
+                    'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify(billingSettings)
             });
@@ -197,8 +350,8 @@ const PharmacyOrders = () => {
 
         try {
             const token = await getAuthToken();
-            // Web endpoint: POST /api/pharmacy-orders/walk-in
-            const res = await fetch(`${backendUrl}/api/pharmacy-orders/walk-in`, {
+            // Existing backend route: POST /api/pharmacy/orders/outside-patient-bill
+            const res = await fetch(`${backendUrl}/api/pharmacy/orders/outside-patient-bill`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,
@@ -314,8 +467,11 @@ const PharmacyOrders = () => {
             else if (fStr.includes('BD') || fStr.includes('BID') || fStr.includes('2')) itemFreqPerDay = 2;
             else if (fStr.includes('QID') || fStr.includes('4')) itemFreqPerDay = 4;
 
-            let finalQty = Number(item.qty || item.quantity || item.totalReqd || 0);
-            if (finalQty === 0) {
+            let finalQty = item.finalQty !== undefined && item.finalQty !== null && item.finalQty !== ''
+                ? Number(item.finalQty)
+                : Number(item.qty || item.quantity || item.totalReqd || 0);
+
+            if (finalQty === 0 && !item.userEditedQty) {
                 if (itemDose > 0 && itemDays > 0) {
                     finalQty = itemDose * itemFreqPerDay * itemDays;
                 } else {
@@ -326,17 +482,33 @@ const PharmacyOrders = () => {
             const invMatch = (inventory || []).find(inv => {
                 if (!inv || !inv.name) return false;
                 const invName = inv.name.trim().toLowerCase();
-                return (item.inventoryId && (inv._id === item.inventoryId || inv.id === item.inventoryId)) ||
-                       (item.medicineId && (inv._id === item.medicineId || inv.id === item.medicineId)) ||
-                       invName === rawName || rawName.includes(invName) || invName.includes(rawName);
+                if (item.inventoryId && (inv._id === item.inventoryId || inv.id === item.inventoryId)) return true;
+                if (item.medicineId && (inv._id === item.medicineId || inv.id === item.medicineId)) return true;
+                if (invName === rawName || rawName.includes(invName) || invName.includes(rawName)) return true;
+                const firstWordRaw = rawName.split(/[\s\-_/]+/)[0];
+                const firstWordInv = invName.split(/[\s\-_/]+/)[0];
+                if (firstWordRaw && firstWordRaw.length > 3 && firstWordRaw === firstWordInv) return true;
+                return false;
             });
+
+            // Extract & format Batch and Expiry Date with inventory fallback
+            const batch = item.batch || item.batchNumber || item.batchNo || invMatch?.batchNumber || invMatch?.batch || invMatch?.batchNo || 'N/A';
+            const rawExp = item.exp || item.expiryDate || item.expiry || item.expDate || invMatch?.expiryDate || invMatch?.expiry || invMatch?.expDate || invMatch?.exp || null;
+            let exp = 'N/A';
+            if (rawExp) {
+                if (typeof rawExp === 'string' && /^\d{2}[\/-]\d{2,4}$/.test(rawExp.trim())) {
+                    exp = rawExp.trim();
+                } else {
+                    exp = formatToDisplay(rawExp) || (typeof rawExp === 'string' ? rawExp.trim() : 'N/A');
+                }
+            }
 
             let sellingPrice = invMatch ? Number(invMatch.sellingPrice || invMatch.price || 0) : Number(item.sellingPrice || item.price || item.unitRate || 0);
             let buyingPrice = invMatch ? Number(invMatch.buyingPrice || invMatch.costPrice || 0) : Number(item.buyingPrice || item.costPrice || 0);
-            
+
             const unit = (invMatch ? (invMatch.unit || '') : (item.unit || '')).toLowerCase();
-            const unitsPerStrip = invMatch ? Number(invMatch.unitsPerStrip) : 1; 
-            const volumePerUnit = invMatch ? (Number(invMatch.volumePerUnit) || Number(invMatch.packVolume)) : 1; 
+            const unitsPerStrip = invMatch ? Number(invMatch.unitsPerStrip) : 1;
+            const volumePerUnit = invMatch ? (Number(invMatch.volumePerUnit) || Number(invMatch.packVolume)) : 1;
 
             if (sellingPrice === 0) {
                 sellingPrice = isLiquidOrInj ? 120 : 15;
@@ -344,7 +516,7 @@ const PharmacyOrders = () => {
             if (buyingPrice === 0) {
                 buyingPrice = sellingPrice * 0.7;
             }
-            
+
             if (!invMatch && !isLiquidOrInj && sellingPrice >= 120) {
                 sellingPrice = 15;
                 buyingPrice = 10;
@@ -353,7 +525,19 @@ const PharmacyOrders = () => {
             let billedQty = finalQty;
             let displayUnit = unit || 'units';
 
-            if (['strip', 'strips'].includes(unit) || (!isLiquidOrInj && unitsPerStrip > 1)) {
+            if (item.userEditedQty) {
+                // User explicitly set the quantity in bill modal: bill the exact user entered units
+                billedQty = finalQty;
+                if (['strip', 'strips'].includes(unit)) {
+                    displayUnit = 'strip(s)';
+                } else if (['capsule', 'capsules', 'tablet', 'tablets', 'tabs'].includes(unit)) {
+                    displayUnit = unitsPerStrip > 1 ? 'strip(s)' : 'tabs';
+                } else if (['syrup', 'injection', 'vial', 'drops', 'vials'].includes(unit) || isLiquidOrInj) {
+                    displayUnit = (unit === 'syrup' || rawName.includes('syrup')) ? 'bottle(s)' : 'vial(s)';
+                } else {
+                    displayUnit = unit || 'units';
+                }
+            } else if (['strip', 'strips'].includes(unit) || (!isLiquidOrInj && unitsPerStrip > 1)) {
                 const packCapacity = unitsPerStrip > 1 ? unitsPerStrip : 10;
                 billedQty = Math.ceil(finalQty / packCapacity);
                 displayUnit = 'strip(s)';
@@ -366,10 +550,20 @@ const PharmacyOrders = () => {
                     displayUnit = 'tabs';
                 }
             } else if (['syrup', 'injection', 'vial', 'drops', 'vials'].includes(unit) || isLiquidOrInj) {
-                const fallbackVolume = rawName.includes('syrup') ? 100 : 10;
-                const packCapacity = volumePerUnit > 1 ? volumePerUnit : fallbackVolume;
-                billedQty = Math.ceil(finalQty / packCapacity);
-                displayUnit = (unit === 'syrup' || rawName.includes('syrup')) ? 'bottle(s)' : 'vial(s)';
+                if (rawName.includes('syrup') || unit === 'syrup') {
+                    const fallbackVolume = 100;
+                    const packCapacity = volumePerUnit > 1 ? volumePerUnit : fallbackVolume;
+                    billedQty = Math.ceil(finalQty / packCapacity);
+                    displayUnit = 'bottle(s)';
+                } else {
+                    // For injections and single-dose vials: discrete units
+                    if (finalQty <= 10 || !volumePerUnit || volumePerUnit <= 1) {
+                        billedQty = finalQty;
+                    } else {
+                        billedQty = Math.ceil(finalQty / volumePerUnit);
+                    }
+                    displayUnit = (unit === 'injection' || rawName.includes('inj')) ? 'vial(s)' : (unit || 'vial(s)');
+                }
             } else {
                 billedQty = finalQty;
                 displayUnit = unit || 'units';
@@ -379,10 +573,10 @@ const PharmacyOrders = () => {
             const unitLabel = unit || 'units';
             const effectiveRate = sellingPrice;
 
-            const itemBase = billedQty * sellingPrice; 
+            const itemBase = billedQty * sellingPrice;
             const itemCostBase = billedQty * buyingPrice;
             const gstPercent = Number(item.gst || item.gstPercent || 12);
-            
+
             totalSubtotal += itemBase;
             processedItemsTemp.push(item);
 
@@ -397,11 +591,14 @@ const PharmacyOrders = () => {
                 durationDays: itemDays,
                 unitRate: effectiveRate,
                 unitLabel,
-                finalQty,
+                finalQty: billedQty,
+                billedQty,
                 itemBase,
                 itemCostBase,
                 gstPercent,
-                isLiquidOrInj
+                isLiquidOrInj,
+                batch,
+                exp
             };
         });
 
@@ -419,9 +616,9 @@ const PharmacyOrders = () => {
         const finalizedItems = tempItems.map(item => {
             const discountedCostBase = item.itemCostBase * (1 - discountRatio);
             const itemTax = discountedCostBase * (item.gstPercent / 100);
-            const itemTotal = item.itemBase; 
+            const itemTotal = item.itemBase;
             totalTax += itemTax;
-            
+
             return {
                 ...item,
                 itemTax,
@@ -469,13 +666,13 @@ const PharmacyOrders = () => {
             if (oStatus === 'completed') {
                 if (pStatus === 'paid') {
                     overallCollection += amount;
-                    
+
                     let modeStr = (order.paymentMode || 'cash').toLowerCase().trim();
                     let isCash = true;
                     if (['upi', 'online', 'card', 'net_banking', 'net banking', 'netbanking'].includes(modeStr)) {
                         isCash = false;
                     }
-                    
+
                     if (isCash) overallCash += amount;
                     else overallOnline += amount;
 
@@ -510,6 +707,9 @@ const PharmacyOrders = () => {
         setAuthorizationNote('');
         setDiscountPercent(String(order.discountPercent || 0));
         setShowPaymentModal(true);
+        if (!doctors || doctors.length === 0) {
+            fetchDoctors();
+        }
     };
 
     const handleCompleteOrder = async (orderId, payloadObj = null, totalItems = 100) => {
@@ -546,7 +746,7 @@ const PharmacyOrders = () => {
         const dlNumber = hospital?.dlNumber || '';
 
         const invoiceNo = order?._id?.slice(-8).toUpperCase() || 'N/A';
-        const invoiceDate = new Date().toLocaleDateString();
+        const invoiceDate = formatToDisplay(order?.createdAt) || formatToDisplay(new Date());
         const patientName = order?.userId?.name || order?.patientName || 'N/A';
         const doctorName = order?.doctorId?.name || order?.doctorName || 'N/A';
 
@@ -565,18 +765,16 @@ const PharmacyOrders = () => {
         let totalSgst = 0;
 
         const tableRows = (invoiceData?.processedItems || []).map((item, idx) => {
-            // Use the same calculation approach as Web's generateReceipt
-            const billedQty = item.packagingBreakdown
-                ? item.packagingBreakdown.replace(/[^0-9.]/g, '').trim() || item.finalQty
-                : item.finalQty;
+            // Use the exact billed quantity and rates calculated for invoice
+            const billedQty = Number(item.finalQty || item.billedQty || (item.packagingBreakdown ? item.packagingBreakdown.replace(/[^0-9.]/g, '').trim() : 1)) || 1;
             const unitRate = Number(item.unitRate || 0);
             const gstPercent = Number(item.gstPercent || 0);
-            const itemTaxable = Number(item.itemBase || (billedQty * unitRate));
+            const itemTaxable = Number(item.itemBase !== undefined ? item.itemBase : (billedQty * unitRate));
             const cgstPct = gstPercent / 2;
             const sgstPct = gstPercent / 2;
             const itemCgst = (itemTaxable * cgstPct) / 100;
             const itemSgst = (itemTaxable * sgstPct) / 100;
-            const itemTotal = itemTaxable + itemCgst + itemSgst;
+            const itemTotal = Number(item.itemTotal !== undefined ? item.itemTotal : (itemTaxable + itemCgst + itemSgst));
 
             subtotal += itemTaxable;
             totalCgst += itemCgst;
@@ -584,11 +782,14 @@ const PharmacyOrders = () => {
 
             return `<tr>
                 <td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">${idx + 1}</td>
-                <td style="padding:6px 8px;border:1px solid #ddd;">${item.medicineName || item.name || ''}</td>
+                <td style="padding:6px 8px;border:1px solid #ddd;">
+                    <div style="font-weight:bold;color:#0f172a;">${item.medicineName || item.name || ''}</div>
+                    <div style="font-size:8px;color:#64748b;margin-top:2px;">Batch: ${item.batch || 'N/A'} | Exp: ${item.exp || 'N/A'}</div>
+                </td>
                 <td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">${billedQty}</td>
                 <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;">${unitRate.toFixed(2)}</td>
                 <td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">${gstPercent}%</td>
-                <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;">${itemTotal.toFixed(2)}</td>
+                <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;font-weight:bold;">${itemTotal.toFixed(2)}</td>
             </tr>`;
         }).join('');
 
@@ -685,7 +886,7 @@ const PharmacyOrders = () => {
                     <Text style={styles.headerTitle}>Pharmacy Orders</Text>
                     <Text style={styles.headerSubtitle}>Process prescriptions sent by doctors and confirm payments.</Text>
                 </View>
-                <TouchableOpacity 
+                <TouchableOpacity
                     style={[styles.btnAction, { backgroundColor: '#10b981', marginTop: isLargeScreen ? 0 : 10 }]}
                     onPress={() => setShowWalkInModal(true)}
                 >
@@ -720,7 +921,7 @@ const PharmacyOrders = () => {
                 <View style={[styles.filterGrid, !isLargeScreen && { flexDirection: 'column' }]}>
                     <View style={styles.formGroup}>
                         <Text style={styles.label}>GST Number</Text>
-                        <TextInput 
+                        <TextInput
                             style={styles.input}
                             value={billingSettings.gstin}
                             onChangeText={(t) => setBillingSettings(prev => ({...prev, gstin: t}))}
@@ -729,7 +930,7 @@ const PharmacyOrders = () => {
                     </View>
                     <View style={styles.formGroup}>
                         <Text style={styles.label}>Drug License (DL) Number</Text>
-                        <TextInput 
+                        <TextInput
                             style={styles.input}
                             value={billingSettings.dlNumber}
                             onChangeText={(t) => setBillingSettings(prev => ({...prev, dlNumber: t}))}
@@ -747,31 +948,33 @@ const PharmacyOrders = () => {
             {/* Filters */}
             <View style={styles.sectionCard}>
                 <View style={[styles.filterGrid, !isLargeScreen && { flexDirection: 'column' }]}>
-                    <TextInput 
-                        style={[styles.input, { flex: 2 }]}
+                    <TextInput
+                        style={[styles.input, isLargeScreen ? { flex: 2 } : { width: '100%' }]}
                         placeholder="Search by Patient Name, Phone or Doctor..."
                         value={searchTerm}
                         onChangeText={setSearchTerm}
                     />
-                    <TextInput 
-                        style={[styles.input, { flex: 1 }]}
-                        placeholder="YYYY-MM-DD"
-                        value={dateFilter}
-                        onChangeText={setDateFilter}
-                    />
-                    <View style={[styles.pickerWrapper, { flex: 1 }]}>
-                        <Picker
-                            selectedValue={statusFilter}
-                            onValueChange={setStatusFilter}
-                            style={styles.picker}
-                        >
-                            <Picker.Item label="All Statuses" value="All" />
-                            <Picker.Item label="Pending / Upcoming" value="Pending" />
-                            <Picker.Item label="Completed" value="Completed" />
-                        </Picker>
+                    <View style={isLargeScreen ? { flex: 1, minWidth: 160 } : { width: '100%' }}>
+                        <DatePickerInput
+                            placeholder="Filter by Date"
+                            value={dateFilter}
+                            onChange={(val) => setDateFilter(val)}
+                        />
                     </View>
-                    <TouchableOpacity 
-                        style={[styles.btnActionSecondary, { backgroundColor: '#e2e8f0' }]} 
+                    <View style={isLargeScreen ? { flex: 1, minWidth: 160 } : { width: '100%' }}>
+                        <DropdownSelect
+                            options={[
+                                { label: 'All Statuses', value: 'All' },
+                                { label: 'Pending / Upcoming', value: 'Pending' },
+                                { label: 'Completed', value: 'Completed' },
+                            ]}
+                            value={statusFilter}
+                            onChange={setStatusFilter}
+                            placeholder="Select Status"
+                        />
+                    </View>
+                    <TouchableOpacity
+                        style={[styles.btnActionSecondary, { backgroundColor: '#e2e8f0' }, !isLargeScreen && { width: '100%' }]}
                         onPress={() => { setSearchTerm(''); setDateFilter(''); setStatusFilter('All'); }}
                     >
                         <Text style={{ color: '#475569', fontWeight: 'bold' }}>Clear Filters</Text>
@@ -809,7 +1012,7 @@ const PharmacyOrders = () => {
                                 }
                                 let matchesDate = true;
                                 if (dateFilter) {
-                                    const orderDate = order.createdAt ? new Date(order.createdAt).toISOString().split('T')[0] : '';
+                                    const orderDate = order.createdAt ? formatToYMD(order.createdAt) : '';
                                     matchesDate = orderDate === dateFilter;
                                 }
                                 let matchesStatus = true;
@@ -826,7 +1029,7 @@ const PharmacyOrders = () => {
                                 const calculatedData = getInvoiceCalculations(order);
                                 const isCompleted = order.orderStatus === 'Completed';
                                 const isPaid = order.paymentStatus === 'Paid' || order.paymentStatus === 'PAID_BY_DOCTOR';
-                                
+
                                 return (
                                     <View key={order._id} style={styles.tableRow}>
                                         <View style={[styles.tableCell, { width: 180 }]}>
@@ -842,9 +1045,10 @@ const PharmacyOrders = () => {
                                             {orderItems.map((item, idx) => (
                                                 <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
                                                     {order.orderStatus === 'Upcoming' ? (
-                                                        <TouchableOpacity 
+                                                        <TouchableOpacity
                                                             style={[styles.checkbox, !isChecked(order._id, idx) && { backgroundColor: 'white' }]}
                                                             onPress={() => toggleCheck(order._id, idx)}
+                                                            hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
                                                         >
                                                             {isChecked(order._id, idx) && <Text style={{ color: 'white', fontSize: 10 }}>✓</Text>}
                                                         </TouchableOpacity>
@@ -853,7 +1057,7 @@ const PharmacyOrders = () => {
                                                             {(item.purchased || isCompleted || isPaid) ? '✓' : '✗'}
                                                         </Text>
                                                     )}
-                                                    <Text style={{ 
+                                                    <Text style={{
                                                         color: (!isCompleted && !(item.purchased || isPaid)) && order.orderStatus !== 'Upcoming' ? '#94a3b8' : '#334155',
                                                         textDecorationLine: (!isCompleted && !(item.purchased || isPaid)) && order.orderStatus !== 'Upcoming' ? 'line-through' : 'none',
                                                         fontSize: 13,
@@ -893,7 +1097,7 @@ const PharmacyOrders = () => {
                                             </Text>
                                         </View>
                                         <View style={[styles.tableCell, { width: 180, flexDirection: 'row', gap: 8, flexWrap: 'wrap' }]}>
-                                            <TouchableOpacity 
+                                            <TouchableOpacity
                                                 style={[styles.btnAction, { backgroundColor: '#0284c7', paddingVertical: 6, paddingHorizontal: 10 }]}
                                                 onPress={() => {
                                                     setSelectedOrder(order);
@@ -904,7 +1108,7 @@ const PharmacyOrders = () => {
                                                 <Text style={{ color: 'white', fontSize: 12, fontWeight: 'bold' }}>📋 View Bill</Text>
                                             </TouchableOpacity>
                                             {order.orderStatus === 'Upcoming' && (
-                                                <TouchableOpacity 
+                                                <TouchableOpacity
                                                     style={[styles.btnAction, { backgroundColor: '#dcfce7', paddingVertical: 6, paddingHorizontal: 10 }]}
                                                     onPress={() => openPaymentModal(order)}
                                                 >
@@ -941,10 +1145,10 @@ const PharmacyOrders = () => {
                                                 <Text style={{ fontSize: 12, color: '#64748b', fontWeight: 'bold', marginTop: 4 }}>Pharmacy & Dispensary Section</Text>
                                                 <Text style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{hospitalInfo?.address || 'Mumbai, Maharashtra'} | Ph: {hospitalInfo?.phone || '9089089899'}</Text>
                                             </View>
-                                            
+
                                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginVertical: 12 }}>
                                                 <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#334155' }}>INV NO: <Text style={{ color: '#0f172a' }}>{selectedOrder?.billNo || selectedOrder?._id?.slice(-8).toUpperCase()}</Text></Text>
-                                                <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#334155' }}>DATE: <Text style={{ color: '#0f172a' }}>{selectedOrder?.createdAt ? new Date(selectedOrder.createdAt).toLocaleDateString() : new Date().toLocaleDateString()}</Text></Text>
+                                                <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#334155' }}>DATE: <Text style={{ color: '#0f172a' }}>{selectedOrder?.createdAt ? formatToDisplay(selectedOrder.createdAt) : formatToDisplay(new Date())}</Text></Text>
                                             </View>
 
                                             <View style={{ backgroundColor: '#f8fafc', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', flexDirection: 'row', flexWrap: 'wrap', gap: 15 }}>
@@ -984,22 +1188,37 @@ const PharmacyOrders = () => {
                                                                         </Text>
                                                                     ) : (
                                                                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                                                                            <TextInput 
-                                                                                style={{ width: 40, padding: 2, borderWidth: 1, borderColor: '#cbd5e1', fontSize: 11, textAlign: 'center' }}
-                                                                                value={String(item.finalQty)}
+                                                                            <TextInput
+                                                                                style={{ width: 50, padding: 4, borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 4, fontSize: 12, textAlign: 'center', backgroundColor: '#ffffff', color: '#0f172a' }}
+                                                                                value={item.finalQty !== undefined && item.finalQty !== null ? String(item.finalQty) : ''}
                                                                                 keyboardType="numeric"
                                                                                 onChangeText={(val) => {
-                                                                                    const num = Number(val);
-                                                                                    if (num < 0) return;
+                                                                                    const cleaned = val.replace(/[^0-9]/g, '');
+                                                                                    const num = cleaned === '' ? 0 : parseInt(cleaned, 10);
                                                                                     const updatedOrder = { ...selectedOrder };
-                                                                                    const itemsArray = updatedOrder.prescribedItems || updatedOrder.items || [];
-                                                                                    itemsArray[idx] = { ...itemsArray[idx], qty: num, quantity: num, totalReqd: num };
-                                                                                    if (updatedOrder.prescribedItems) updatedOrder.prescribedItems = itemsArray;
-                                                                                    if (updatedOrder.items) updatedOrder.items = itemsArray;
-                                                                                    setSelectedOrder(updatedOrder);
+                                                                                    const itemsArray = [...(updatedOrder.prescribedItems || updatedOrder.items || [])];
+                                                                                    if (itemsArray[idx]) {
+                                                                                        itemsArray[idx] = {
+                                                                                            ...itemsArray[idx],
+                                                                                            qty: num,
+                                                                                            quantity: num,
+                                                                                            totalReqd: num,
+                                                                                            finalQty: cleaned === '' ? '' : num,
+                                                                                            userEditedQty: true
+                                                                                        };
+                                                                                        if (updatedOrder.prescribedItems) updatedOrder.prescribedItems = itemsArray;
+                                                                                        if (updatedOrder.items) updatedOrder.items = itemsArray;
+                                                                                        setSelectedOrder(updatedOrder);
+                                                                                        setOrders(list => list.map(o => o._id === updatedOrder._id ? updatedOrder : o));
+                                                                                        if (paymentFlowOrder?._id === updatedOrder._id) {
+                                                                                            setPaymentFlowOrder(updatedOrder);
+                                                                                        }
+                                                                                    }
                                                                                 }}
                                                                             />
-                                                                            <Text style={{ fontSize: 10, color: '#059669' }}>{item.unitLabel}</Text>
+                                                                            <Text style={{ fontSize: 11, color: '#059669', fontWeight: 'bold' }}>
+                                                                                {item.packagingBreakdown ? `(📦 ${item.packagingBreakdown})` : item.unitLabel}
+                                                                            </Text>
                                                                         </View>
                                                                     )}
                                                                 </View>
@@ -1020,7 +1239,7 @@ const PharmacyOrders = () => {
                                                     {selectedOrder?.orderStatus !== 'Completed' && (
                                                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4, alignItems: 'center' }}>
                                                             <Text style={{ fontSize: 11 }}>Discount (%):</Text>
-                                                            <TextInput 
+                                                            <TextInput
                                                                 style={{ width: 50, padding: 2, borderWidth: 1, borderColor: '#cbd5e1', fontSize: 11, textAlign: 'right' }}
                                                                 value={String(discountPercent)}
                                                                 keyboardType="numeric"
@@ -1040,7 +1259,7 @@ const PharmacyOrders = () => {
                                                     </View>
                                                 </View>
                                             </View>
-                                            
+
                                         </View>
                                     </ScrollView>
                                     <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: '#e2e8f0', flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
@@ -1094,49 +1313,63 @@ const PharmacyOrders = () => {
                                 <Text style={{ fontSize: 24, color: '#94a3b8' }}>✕</Text>
                             </TouchableOpacity>
                         </View>
-                        <View style={{ padding: 20 }}>
-                            <Text style={{ fontWeight: 'bold', marginBottom: 10 }}>Payment Received From</Text>
-                            <View style={{ flexDirection: 'row', gap: 20, marginBottom: 20 }}>
-                                <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center' }} onPress={() => setPaymentSource('Patient')}>
-                                    <View style={[styles.radio, paymentSource === 'Patient' && styles.radioSelected]} />
-                                    <Text style={{ marginLeft: 8 }}>Patient</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center' }} onPress={() => setPaymentSource('Doctor')}>
-                                    <View style={[styles.radio, paymentSource === 'Doctor' && styles.radioSelected]} />
-                                    <Text style={{ marginLeft: 8 }}>Pending by Doctor</Text>
-                                </TouchableOpacity>
-                            </View>
-
-                            {paymentSource === 'Doctor' && (
-                                <View style={{ backgroundColor: '#f8fafc', padding: 15, borderRadius: 6, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 20 }}>
-                                    <Text style={{ color: '#8b5cf6', fontWeight: 'bold', marginBottom: 5 }}>Select Authorizing Doctor *</Text>
-                                    <View style={styles.pickerWrapper}>
-                                        <Picker selectedValue={authorizedByDoctor} onValueChange={setAuthorizedByDoctor} style={styles.picker}>
-                                            <Picker.Item label="-- Select Doctor --" value="" />
-                                            {(doctors || []).map(dr => (
-                                                <Picker.Item key={dr._id} label={`Dr. ${dr.name || dr.userId?.name}`} value={dr._id} />
-                                            ))}
-                                        </Picker>
-                                    </View>
-                                    <Text style={{ marginTop: 10, marginBottom: 5 }}>Authorization Note</Text>
-                                    <TextInput 
-                                        style={styles.input} 
-                                        value={authorizationNote} 
-                                        onChangeText={setAuthorizationNote} 
-                                        placeholder="e.g. Doctor verbally approved" 
-                                    />
+                        <ScrollView style={{ maxHeight: 450 }} nestedScrollEnabled={true} keyboardShouldPersistTaps="handled">
+                            <View style={{ padding: 20 }}>
+                                <Text style={{ fontWeight: 'bold', marginBottom: 10 }}>Payment Received From</Text>
+                                <View style={{ flexDirection: 'row', gap: 20, marginBottom: 20 }}>
+                                    <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center' }} onPress={() => setPaymentSource('Patient')}>
+                                        <View style={[styles.radio, paymentSource === 'Patient' && styles.radioSelected]} />
+                                        <Text style={{ marginLeft: 8 }}>Patient</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={{ flexDirection: 'row', alignItems: 'center' }}
+                                        onPress={() => {
+                                            setPaymentSource('Doctor');
+                                            if ((!doctors || doctors.length === 0) && !loadingDoctors) {
+                                                fetchDoctors();
+                                            }
+                                        }}
+                                    >
+                                        <View style={[styles.radio, paymentSource === 'Doctor' && styles.radioSelected]} />
+                                        <Text style={{ marginLeft: 8 }}>Pending by Doctor</Text>
+                                    </TouchableOpacity>
                                 </View>
-                            )}
+
+                                {paymentSource === 'Doctor' && (
+                                    <View style={{ backgroundColor: '#f8fafc', padding: 15, borderRadius: 6, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 20 }}>
+                                        <Text style={{ color: '#8b5cf6', fontWeight: 'bold', marginBottom: 5 }}>Select Authorizing Doctor *</Text>
+                                        <DropdownSelect
+                                            insideModal={true}
+                                            options={doctorOptions}
+                                            value={authorizedByDoctor}
+                                            onChange={setAuthorizedByDoctor}
+                                            placeholder="-- Select Doctor --"
+                                            loading={loadingDoctors}
+                                            loadingText="Loading doctors..."
+                                            emptyText="No doctors available"
+                                            error={doctorError}
+                                            errorText="Unable to load doctors"
+                                            onRetry={fetchDoctors}
+                                        />
+                                        <Text style={{ marginTop: 10, marginBottom: 5 }}>Authorization Note</Text>
+                                        <TextInput
+                                            style={styles.input}
+                                            value={authorizationNote}
+                                            onChangeText={setAuthorizationNote}
+                                            placeholder="e.g. Doctor verbally approved"
+                                        />
+                                    </View>
+                                )}
 
                             {paymentSource === 'Patient' && (
                                 <View style={{ marginBottom: 20 }}>
                                     <Text style={{ fontWeight: 'bold', marginBottom: 10 }}>Payment Mode</Text>
                                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
                                         {['CASH', 'UPI', 'CARD', 'ONLINE'].map(mode => (
-                                            <TouchableOpacity 
-                                                key={mode} 
+                                            <TouchableOpacity
+                                                key={mode}
                                                 style={[
-                                                    styles.paymentModeBtn, 
+                                                    styles.paymentModeBtn,
                                                     paymentMode === mode && styles.paymentModeBtnSelected
                                                 ]}
                                                 onPress={() => setPaymentMode(mode)}
@@ -1154,7 +1387,8 @@ const PharmacyOrders = () => {
                             )}
 
                             <Text style={{ color: '#64748b', fontSize: 13 }}>This will instantly complete the order, decrement stock, and log the payment.</Text>
-                        </View>
+                            </View>
+                        </ScrollView>
                         <View style={styles.modalFooter}>
                             <TouchableOpacity style={[styles.btnAction, { backgroundColor: '#f1f5f9', paddingHorizontal: 20 }]} onPress={() => setShowPaymentModal(false)}>
                                 <Text style={{ color: '#334155', fontWeight: 'bold' }}>Cancel</Text>
@@ -1165,8 +1399,8 @@ const PharmacyOrders = () => {
                                 }
                                 let selectedDoctorName = '';
                                 if (authorizedByDoctor) {
-                                    const doc = doctors.find(d => d._id === authorizedByDoctor);
-                                    if (doc) selectedDoctorName = doc.name;
+                                    const doc = doctors.find(d => String(d._id) === String(authorizedByDoctor) || String(d.id) === String(authorizedByDoctor) || String(d.doctorId) === String(authorizedByDoctor));
+                                    if (doc) selectedDoctorName = doc.name || doc.userId?.name || doc.fullName || '';
                                 }
                                 const paymentFlowItems = paymentFlowOrder.items || paymentFlowOrder.prescribedItems || [];
                                 const calcData = getInvoiceCalculations(paymentFlowOrder, discountPercent);
@@ -1230,72 +1464,70 @@ const PharmacyOrders = () => {
                                 </View>
                                 <View style={styles.formGroup}>
                                     <Text style={styles.label}>Doctor Name (Optional)</Text>
-                                    <View style={styles.pickerWrapper}>
-                                        <Picker
-                                            selectedValue={walkInForm.doctorName}
-                                            onValueChange={(v) => setWalkInForm({ ...walkInForm, doctorName: v })}
-                                            style={styles.picker}
-                                        >
-                                            <Picker.Item label="-- Select Doctor --" value="" />
-                                            {(doctors || []).map((doc, idx) => (
-                                                <Picker.Item key={doc._id || idx} label={`Dr. ${doc.name}${doc.department ? ` (${doc.department})` : ''}`} value={doc.name} />
-                                            ))}
-                                        </Picker>
-                                    </View>
+                                    <DropdownSelect
+                                        insideModal={true}
+                                        options={walkInDoctorOptions}
+                                        value={walkInForm.doctorName}
+                                        onChange={(v) => setWalkInForm({ ...walkInForm, doctorName: v })}
+                                        placeholder="-- Select Doctor --"
+                                        loading={loadingDoctors}
+                                        loadingText="Loading doctors..."
+                                        emptyText="No doctors available"
+                                        error={doctorError}
+                                        errorText="Unable to load doctors"
+                                        onRetry={fetchDoctors}
+                                    />
                                 </View>
                             </View>
 
                             {/* Medicine Search & Add */}
                             <View style={{ borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, padding: 12, marginBottom: 20 }}>
                                 <Text style={[styles.label, { fontWeight: 'bold', marginBottom: 8 }]}>Add Medicines from Inventory</Text>
-                                <View style={styles.pickerWrapper}>
-                                    <Picker
-                                        selectedValue={walkInSearch}
-                                        onValueChange={(invId) => {
-                                            if (!invId) return;
-                                            const item = (inventory || []).find(i => i._id === invId);
-                                            if (item) {
-                                                setWalkInForm(prev => {
-                                                    const exists = (prev.items || []).find(i => i.inventoryId === invId);
-                                                    if (exists) return prev;
-                                                    const unitPrice = item.sellingPrice || item.price || 15;
-                                                    const gst = (item.cgstPercent || 0) + (item.sgstPercent || 0) || 12;
-                                                    return {
-                                                        ...prev,
-                                                        items: [...(prev.items || []), {
-                                                            inventoryId: item._id,
-                                                            medicineName: item.name || item.medicineName || 'Medicine',
-                                                            batch: item.batchNumber || 'N/A',
-                                                            exp: item.expiryDate ? new Date(item.expiryDate).toLocaleDateString() : 'N/A',
-                                                            quantity: 1,
-                                                            dosage: '',
-                                                            unitRate: unitPrice,
-                                                            gstPercent: gst,
-                                                            stock: item.stock,
-                                                            unit: item.unit || 'units'
-                                                        }]
-                                                    };
-                                                });
-                                            }
-                                            setWalkInSearch('');
-                                        }}
-                                        style={styles.picker}
-                                    >
-                                        <Picker.Item label="-- Search & Select Medicine --" value="" />
-                                        {(inventory || []).filter(i => (i.stock || i.quantity || 0) > 0).map((item, idx) => {
+                                <DropdownSelect
+                                    insideModal={true}
+                                    options={[
+                                        { label: '-- Search & Select Medicine --', value: '' },
+                                        ...(inventory || []).filter(i => (i.stock || i.quantity || 0) > 0).map((item, idx) => {
                                             const itemName = item.name || item.medicineName || 'Unknown Medicine';
                                             const itemStock = item.stock || item.quantity || 0;
                                             const itemPrice = item.sellingPrice || item.price || 0;
-                                            return (
-                                                <Picker.Item
-                                                    key={item._id || idx}
-                                                    value={item._id}
-                                                    label={`${itemName} (Batch: ${item.batchNumber || 'N/A'} | Stock: ${itemStock} | ₹${itemPrice})`}
-                                                />
-                                            );
-                                        })}
-                                    </Picker>
-                                </View>
+                                            return {
+                                                value: item._id,
+                                                label: `${itemName} (Batch: ${item.batchNumber || 'N/A'} | Stock: ${itemStock} | ₹${itemPrice})`
+                                            };
+                                        })
+                                    ]}
+                                    value={walkInSearch}
+                                    onChange={(invId) => {
+                                        if (!invId) return;
+                                        const item = (inventory || []).find(i => i._id === invId);
+                                        if (item) {
+                                            setWalkInForm(prev => {
+                                                const exists = (prev.items || []).find(i => i.inventoryId === invId);
+                                                if (exists) return prev;
+                                                const unitPrice = item.sellingPrice || item.price || 15;
+                                                const gst = (item.cgstPercent || 0) + (item.sgstPercent || 0) || 12;
+                                                return {
+                                                    ...prev,
+                                                    items: [...(prev.items || []), {
+                                                        inventoryId: item._id,
+                                                        medicineName: item.name || item.medicineName || 'Medicine',
+                                                        batch: item.batchNumber || 'N/A',
+                                                        exp: item.expiryDate ? formatToDisplay(item.expiryDate) : 'N/A',
+                                                        quantity: 1,
+                                                        dosage: '',
+                                                        unitRate: unitPrice,
+                                                        gstPercent: gst,
+                                                        stock: item.stock,
+                                                        unit: item.unit || 'units'
+                                                    }]
+                                                };
+                                            });
+                                        }
+                                        setWalkInSearch('');
+                                    }}
+                                    placeholder="-- Search & Select Medicine --"
+                                />
 
                                 {/* Items Table */}
                                 {walkInForm.items.length > 0 && (

@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Modal, ActivityIndicator, Alert, Platform, useWindowDimensions } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as DocumentPicker from 'expo-document-picker';
 import { pharmacyAPI } from '../../utils/api';
 import PurchaseInvoiceHistory from './PurchaseInvoiceHistory';
 import DropdownSelect from '../../components/common/DropdownSelect';
-import DatePickerInput from '../../components/common/DatePickerInput';
+import DatePickerInput, { formatToDisplay, formatToYMD } from '../../components/common/DatePickerInput';
 
 const UNIT_OPTIONS = [
     { label: 'Tablets', value: 'Tablets' },
@@ -122,23 +123,23 @@ const PharmacyInventory = () => {
     const STORAGE_KEY = (invoiceId) => 'pendingInvoiceMedicines_' + invoiceId;
 
     const storageGet = async (key) => {
-        if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
-            return localStorage.getItem(key);
+        if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+            return window.localStorage.getItem(key);
         }
         return AsyncStorage.getItem(key);
     };
 
     const storageSet = async (key, value) => {
-        if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
-            localStorage.setItem(key, value);
+        if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+            window.localStorage.setItem(key, value);
         } else {
             await AsyncStorage.setItem(key, value);
         }
     };
 
     const storageRemove = async (key) => {
-        if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
-            localStorage.removeItem(key);
+        if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+            window.localStorage.removeItem(key);
         } else {
             await AsyncStorage.removeItem(key);
         }
@@ -182,9 +183,9 @@ const PharmacyInventory = () => {
         setInvoiceStats({ total: 0, imported: 0, remaining: 0 });
     };
 
-    const handleSelectPdf = () => {
-        if (Platform.OS === 'web' && typeof document !== 'undefined') {
-            const input = document.createElement('input');
+    const handleSelectPdf = async () => {
+        if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.document !== 'undefined') {
+            const input = window.document.createElement('input');
             input.type = 'file';
             // Accept PDF, DOC, DOCX, JPG, JPEG, PNG, WEBP formats
             input.accept = 'application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/jpeg,image/png,image/webp,.pdf,.doc,.docx,.jpg,.jpeg,.png,.webp';
@@ -207,7 +208,31 @@ const PharmacyInventory = () => {
             };
             input.click();
         } else {
-            Alert.alert('Info', 'Document picker is available on web runtime.');
+            try {
+                const result = await DocumentPicker.getDocumentAsync({
+                    type: ['application/pdf'],
+                    copyToCacheDirectory: true
+                });
+                if (result.canceled || !result.assets || result.assets.length === 0) {
+                    return;
+                }
+                const asset = result.assets[0];
+                const ext = (asset.name || '').split('.').pop().toLowerCase();
+                if (ext !== 'pdf' && asset.mimeType !== 'application/pdf') {
+                    setPdfError('Please upload a valid PDF invoice.');
+                    Alert.alert('Invalid File', 'Only PDF files are supported for invoice parsing.');
+                    return;
+                }
+                if (asset.size && asset.size > 10 * 1024 * 1024) {
+                    setPdfError('File size must be less than 10MB.');
+                    Alert.alert('File Too Large', 'File size must be less than 10MB.');
+                    return;
+                }
+                await processPdfUpload(asset);
+            } catch (err) {
+                console.error('Error selecting document:', err);
+                Alert.alert('Error', 'Failed to pick invoice document.');
+            }
         }
     };
 
@@ -217,7 +242,17 @@ const PharmacyInventory = () => {
         setUploadingPdf(true);
         try {
             const formData = new FormData();
-            formData.append('invoice', file);
+            if (file && file.uri) {
+                // Native mobile asset from expo-document-picker
+                formData.append('invoice', {
+                    uri: Platform.OS === 'android' ? file.uri : file.uri.replace('file://', ''),
+                    name: file.name || 'invoice.pdf',
+                    type: file.mimeType || 'application/pdf'
+                });
+            } else {
+                // Browser File object on web
+                formData.append('invoice', file);
+            }
 
             const uploadRes = await pharmacyAPI.uploadPurchaseInvoice(formData);
 
@@ -276,8 +311,8 @@ const PharmacyInventory = () => {
             sgstPercent: med.gst ? (parseFloat(med.gst) / 2) : '',
             cgst: med.gst ? (parseFloat(med.gst) / 2) : '',
             sgst: med.gst ? (parseFloat(med.gst) / 2) : '',
-            expiryDate: med.expiry ? new Date(med.expiry).toISOString().split('T')[0] : prev.expiryDate,
-            purchaseDate: new Date().toISOString().split('T')[0]
+            expiryDate: med.expiry ? (formatToYMD(med.expiry) || prev.expiryDate) : prev.expiryDate,
+            purchaseDate: formatToYMD(new Date())
         }));
     };
 
@@ -495,8 +530,8 @@ const PharmacyInventory = () => {
             vendor: med.vendor || '',
             vendorId: med.vendorId || '',
             batchNumber: med.batchNumber || '',
-            expiryDate: med.expiryDate ? new Date(med.expiryDate).toISOString().split('T')[0] : '',
-            purchaseDate: med.purchaseDate ? new Date(med.purchaseDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+            expiryDate: med.expiryDate ? formatToYMD(med.expiryDate) : '',
+            purchaseDate: med.purchaseDate ? formatToYMD(med.purchaseDate) : formatToYMD(new Date()),
             isMultiDose: med.isMultiDose || false,
             packVolume: med.packVolume ? med.packVolume.toString() : '',
             volumeUnit: med.volumeUnit || 'ml',
@@ -656,7 +691,7 @@ const PharmacyInventory = () => {
                             <View style={[styles.formRow, isNarrow && { flexDirection: 'column', gap: 12 }]}>
                                 <View style={[styles.formGroup, isNarrow ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isTablet ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : { flex: 2 })]}>
                                     <Text style={styles.formLabel}>MEDICINE NAME *</Text>
-                                    {pendingInvoice ? (
+                                    {(!isEditing && pendingInvoice && extractedMedicines && extractedMedicines.length > 0 && invoiceStats.remaining > 0) ? (
                                         <DropdownSelect
                                             options={extractedMedicines.map(m => ({ label: m.medicineName, value: m.medicineName }))}
                                             value={newMedicine.name || ''}
@@ -1008,7 +1043,7 @@ const PharmacyInventory = () => {
                                 ) : (
                                     filteredMedicines.map((med) => {
                                         const isLow = med.stock < (med.minStockAlertLevel || 50);
-                                        const expiryStr = med.expiryDate ? new Date(med.expiryDate).toLocaleDateString() : 'N/A';
+                                        const expiryStr = med.expiryDate ? formatToDisplay(med.expiryDate) : 'N/A';
                                         return (
                                             <View key={med._id} style={styles.medCard}>
                                                 {/* Header: Title + Category + Status */}
@@ -1041,18 +1076,53 @@ const PharmacyInventory = () => {
                                                         <Text style={styles.medCardGridLabel}>Batch #</Text>
                                                         <Text style={styles.medCardGridVal}>#{med.batchNumber || '—'}</Text>
                                                     </View>
-                                                    <View style={styles.medCardGridItem}>
+                                                    <View style={[styles.medCardGridItem, med.isMultiDose && { width: '100%' }]}>
                                                         <Text style={styles.medCardGridLabel}>Available Stock</Text>
-                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                                                            <Text style={[styles.medCardGridVal, isLow ? styles.lowStockText : styles.goodStockText]}>
-                                                                {med.stock} {med.unit}
-                                                            </Text>
-                                                            {isLow && (
-                                                                <View style={styles.lowStockBadge}>
-                                                                    <Text style={styles.lowStockBadgeText}>Low</Text>
+                                                        {med.isMultiDose ? (
+                                                            <View style={{ marginTop: 2 }}>
+                                                                <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                                                                    <Text style={[styles.medCardGridVal, isLow ? styles.lowStockText : styles.goodStockText, { fontWeight: '700' }]}>
+                                                                        {med.stock} {med.unit || 'Vials'}
+                                                                    </Text>
+                                                                    <Text style={{ fontSize: 11.5, color: '#475569', fontWeight: 'normal' }}>
+                                                                        ({med.openUnitVolume || 0}/{med.packVolume} {med.volumeUnit} open)
+                                                                    </Text>
+                                                                    {isLow && (
+                                                                        <View style={styles.lowStockBadge}>
+                                                                            <Text style={styles.lowStockBadgeText}>Low</Text>
+                                                                        </View>
+                                                                    )}
                                                                 </View>
-                                                            )}
-                                                        </View>
+                                                                {Number(med.openUnitVolume) > 0 && (
+                                                                    <View style={styles.stockProgressBarBg}>
+                                                                        <View 
+                                                                            style={[
+                                                                                styles.stockProgressBarFill, 
+                                                                                { width: `${Math.min(100, Math.max(0, ((Number(med.openUnitVolume) / (Number(med.packVolume) || 1)) * 100)))}%` }
+                                                                            ]} 
+                                                                        />
+                                                                    </View>
+                                                                )}
+                                                            </View>
+                                                        ) : (
+                                                            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginTop: 2 }}>
+                                                                {['Strip', 'Capsules', 'Tablets'].includes(med.unit) ? (
+                                                                    <Text style={[styles.medCardGridVal, isLow ? styles.lowStockText : styles.goodStockText]}>
+                                                                        {Math.floor(med.stock / (Number(med.unitsPerStrip) || 1))} {med.unit}{' '}
+                                                                        <Text style={{ fontSize: 11, color: '#64748b', fontWeight: 'normal' }}>({med.stock} Units)</Text>
+                                                                    </Text>
+                                                                ) : (
+                                                                    <Text style={[styles.medCardGridVal, isLow ? styles.lowStockText : styles.goodStockText]}>
+                                                                        {med.stock} {med.unit}
+                                                                    </Text>
+                                                                )}
+                                                                {isLow && (
+                                                                    <View style={styles.lowStockBadge}>
+                                                                        <Text style={styles.lowStockBadgeText}>Low</Text>
+                                                                    </View>
+                                                                )}
+                                                            </View>
+                                                        )}
                                                     </View>
                                                     <View style={styles.medCardGridItem}>
                                                         <Text style={styles.medCardGridLabel}>Min Stock Alert</Text>
@@ -1123,12 +1193,12 @@ const PharmacyInventory = () => {
                         ) : (
                             /* Desktop / Tablet Horizontal Table View */
                             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                                <View style={{ minWidth: 1040 }}>
+                                <View style={{ minWidth: 1080 }}>
                                     <View style={styles.tableHeadRow}>
                                         <Text style={[styles.tableHead, { width: 100 }]}>Batch #</Text>
                                         <Text style={[styles.tableHead, { width: 180 }]}>Medicine Name</Text>
                                         <Text style={[styles.tableHead, { width: 120 }]}>Category</Text>
-                                        <Text style={[styles.tableHead, { width: 130 }]}>Stock</Text>
+                                        <Text style={[styles.tableHead, { width: 170 }]}>Stock</Text>
                                         <Text style={[styles.tableHead, { width: 100 }]}>Buying (₹)</Text>
                                         <Text style={[styles.tableHead, { width: 100 }]}>Selling (₹)</Text>
                                         <Text style={[styles.tableHead, { width: 150 }]}>Vendor</Text>
@@ -1137,23 +1207,55 @@ const PharmacyInventory = () => {
                                     </View>
                                     {filteredMedicines.map((med) => (
                                         <View key={med._id} style={styles.tableRow}>
-                                            <Text style={[styles.tableCell, { width: 100, color: '#64748b' }]}>#{med.batchNumber}</Text>
-                                            <Text style={[styles.tableCell, styles.medName, { width: 180 }]}>{med.name}</Text>
-                                            <View style={{ width: 120, padding: 12, justifyContent: 'center' }}>
-                                                <View style={styles.categoryTag}>
-                                                    <Text style={styles.categoryTagText}>{med.category}</Text>
-                                                </View>
-                                            </View>
-                                            <View style={{ width: 130, padding: 12, justifyContent: 'center' }}>
-                                                <Text style={med.stock < (med.minStockAlertLevel || 50) ? styles.lowStock : styles.goodStock}>
-                                                    {med.stock} {med.unit}
-                                                </Text>
-                                            </View>
+                                             <Text style={[styles.tableCell, { width: 100, color: '#64748b' }]}>#{med.batchNumber}</Text>
+                                             <Text style={[styles.tableCell, styles.medName, { width: 180 }]}>{med.name}</Text>
+                                             <View style={{ width: 120, padding: 12, justifyContent: 'center' }}>
+                                                 <View style={styles.categoryTag}>
+                                                     <Text style={styles.categoryTagText}>{med.category}</Text>
+                                                 </View>
+                                             </View>
+                                             <View style={{ width: 170, padding: 12, justifyContent: 'center' }}>
+                                                 {med.isMultiDose ? (
+                                                     <View style={{ flexDirection: 'column', gap: 4 }}>
+                                                         <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                                                             <Text style={[med.stock < (med.minStockAlertLevel || 50) ? styles.lowStock : styles.goodStock, { fontWeight: '700' }]}>
+                                                                 {med.stock} {med.unit || 'Vials'}
+                                                             </Text>
+                                                             <Text style={{ fontSize: 11, color: '#475569', fontWeight: 'normal' }}>
+                                                                 ({med.openUnitVolume || 0}/{med.packVolume} {med.volumeUnit} open)
+                                                             </Text>
+                                                         </View>
+                                                         {Number(med.openUnitVolume) > 0 && (
+                                                             <View style={styles.stockProgressBarBg}>
+                                                                 <View 
+                                                                     style={[
+                                                                         styles.stockProgressBarFill, 
+                                                                         { width: `${Math.min(100, Math.max(0, ((Number(med.openUnitVolume) / (Number(med.packVolume) || 1)) * 100)))}%` }
+                                                                     ]} 
+                                                                 />
+                                                             </View>
+                                                         )}
+                                                     </View>
+                                                 ) : (
+                                                     <View>
+                                                         {['Strip', 'Capsules', 'Tablets'].includes(med.unit) ? (
+                                                             <Text style={med.stock < (med.minStockAlertLevel || 50) ? styles.lowStock : styles.goodStock}>
+                                                                 {Math.floor(med.stock / (Number(med.unitsPerStrip) || 1))} {med.unit}{' '}
+                                                                 <Text style={{ fontSize: 11, color: '#64748b', fontWeight: 'normal' }}>({med.stock} Units)</Text>
+                                                             </Text>
+                                                         ) : (
+                                                             <Text style={med.stock < (med.minStockAlertLevel || 50) ? styles.lowStock : styles.goodStock}>
+                                                                 {med.stock} {med.unit}
+                                                             </Text>
+                                                         )}
+                                                     </View>
+                                                 )}
+                                             </View>
                                             <Text style={[styles.tableCell, { width: 100 }]}>₹{med.buyingPrice}</Text>
                                             <Text style={[styles.tableCell, { width: 100, fontWeight: 'bold' }]}>₹{med.sellingPrice}</Text>
                                             <Text style={[styles.tableCell, { width: 150, color: '#475569' }]} numberOfLines={1}>{med.vendor || 'N/A'}</Text>
                                             <Text style={[styles.tableCell, { width: 110 }]}>
-                                                {med.expiryDate ? new Date(med.expiryDate).toLocaleDateString() : 'N/A'}
+                                                {med.expiryDate ? formatToDisplay(med.expiryDate) : 'N/A'}
                                             </Text>
                                             <View style={{ width: 120, padding: 12, flexDirection: 'row', gap: 8, alignItems: 'center' }}>
                                                 <TouchableOpacity style={styles.actionBtn} onPress={() => handleViewDetails(med)}>
@@ -1178,43 +1280,177 @@ const PharmacyInventory = () => {
             )}
 
             {/* Medicine Details Modal */}
-            <Modal visible={showDetailsModal} transparent={true} animationType="slide">
+            <Modal visible={showDetailsModal} transparent={true} animationType="slide" onRequestClose={() => setShowDetailsModal(false)}>
                 <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
+                    <View style={[styles.modalContent, { maxWidth: 680, maxHeight: '90%' }]}>
                         <View style={styles.modalHeader}>
-                            <View>
-                                <Text style={styles.modalTitle}>💊 {selectedMedicine?.name}</Text>
+                            <View style={{ flex: 1, paddingRight: 8 }}>
+                                <Text style={styles.modalTitle} numberOfLines={1}>💊 {selectedMedicine?.name}</Text>
                                 <Text style={styles.modalSubtitle}>Comprehensive Inventory Details</Text>
                             </View>
-                            <TouchableOpacity onPress={() => setShowDetailsModal(false)}>
+                            <TouchableOpacity 
+                                onPress={() => setShowDetailsModal(false)}
+                                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                            >
                                 <Text style={styles.closeBtn}>×</Text>
                             </TouchableOpacity>
                         </View>
                         
-                        <ScrollView style={styles.modalBody}>
-                            {selectedMedicine && (
-                                <View style={styles.detailsBox}>
-                                    <Text style={styles.sectionTitle}>Inventory Status</Text>
-                                    <View style={styles.detailsGrid}>
-                                        <View>
-                                            <Text style={styles.detailsLabel}>Supplier</Text>
-                                            <Text style={styles.detailsValue}>{selectedMedicine.vendor || 'N/A'}</Text>
+                        <ScrollView 
+                            style={styles.modalBody}
+                            contentContainerStyle={{ paddingBottom: 16 }}
+                            showsVerticalScrollIndicator={true}
+                        >
+                            {selectedMedicine && (() => {
+                                const groupedMedicines = medicines.filter(med =>
+                                    (med.batchNumber && med.batchNumber === selectedMedicine.batchNumber &&
+                                        (med.vendor === selectedMedicine.vendor || med.vendorId === selectedMedicine.vendorId)) ||
+                                    (med._id === selectedMedicine._id)
+                                );
+                                const uniqueGrouped = Array.from(new Set(groupedMedicines.map(m => m._id)))
+                                    .map(id => groupedMedicines.find(m => m._id === id));
+                                let totalPurchaseQty = 0, totalFreeQty = 0, totalStockQty = 0, totalGrossPurchaseAmount = 0, totalDiscountAmount = 0, totalTaxableAmount = 0, totalCGST = 0, totalSGST = 0, totalGST = 0, totalFinalPurchaseAmount = 0, totalExpectedRevenue = 0;
+                                uniqueGrouped.forEach(med => {
+                                    const pQty = (med.purchaseQty !== undefined && med.purchaseQty !== null) ? Number(med.purchaseQty) : (Number(med.stock) || 0);
+                                    const fQty = Number(med.freeQty) || 0;
+                                    const stock = pQty + fQty;
+                                    const buyingPrice = Number(med.buyingPrice) || 0;
+                                    const sellingPrice = Number(med.sellingPrice) || 0;
+                                    const gross = pQty * buyingPrice;
+                                    let discountAmount = med.discountType === 'Flat Amount' ? Number(med.discountValue) || 0 : gross * ((Number(med.discountValue) || 0) / 100);
+                                    const taxable = Math.max(0, gross - discountAmount);
+                                    const cgstAmt = taxable * ((Number(med.cgstPercent) || 0) / 100);
+                                    const sgstAmt = taxable * ((Number(med.sgstPercent) || 0) / 100);
+                                    const gstAmt = cgstAmt + sgstAmt;
+                                    totalPurchaseQty += pQty; totalFreeQty += fQty; totalStockQty += stock; totalGrossPurchaseAmount += gross; totalDiscountAmount += discountAmount; totalTaxableAmount += taxable; totalCGST += cgstAmt; totalSGST += sgstAmt; totalGST += gstAmt; totalFinalPurchaseAmount += (taxable + gstAmt); totalExpectedRevenue += (stock * sellingPrice);
+                                });
+                                const expectedProfit = totalExpectedRevenue - totalFinalPurchaseAmount;
+
+                                return (
+                                    <View>
+                                        {/* Inventory Status Card */}
+                                        <View style={styles.detailsBox}>
+                                            <Text style={styles.sectionTitle}>Inventory Status</Text>
+                                            <View style={styles.detailsGrid}>
+                                                <View style={{ minWidth: '45%', flex: 1 }}>
+                                                    <Text style={styles.detailsLabel}>Supplier</Text>
+                                                    <Text style={styles.detailsValue}>{selectedMedicine.vendor || 'N/A'}</Text>
+                                                </View>
+                                                <View style={{ minWidth: '45%', flex: 1 }}>
+                                                    <Text style={styles.detailsLabel}>Batch</Text>
+                                                    <Text style={styles.detailsValue}>{selectedMedicine.batchNumber || 'N/A'}</Text>
+                                                </View>
+                                                <View style={{ minWidth: '45%', flex: 1 }}>
+                                                    <Text style={styles.detailsLabel}>Expiry</Text>
+                                                    <Text style={styles.detailsValue}>
+                                                        {selectedMedicine.expiryDate ? formatToDisplay(selectedMedicine.expiryDate) : 'N/A'}
+                                                    </Text>
+                                                </View>
+                                                <View style={{ minWidth: '45%', flex: 1 }}>
+                                                    <Text style={styles.detailsLabel}>Category</Text>
+                                                    <Text style={styles.detailsValue}>{selectedMedicine.category || 'General'}</Text>
+                                                </View>
+                                            </View>
                                         </View>
-                                        <View>
-                                            <Text style={styles.detailsLabel}>Batch</Text>
-                                            <Text style={styles.detailsValue}>{selectedMedicine.batchNumber || 'N/A'}</Text>
+
+                                        {/* Detailed Inventory Table */}
+                                        <View style={styles.detailsTableWrapper}>
+                                            <ScrollView horizontal showsHorizontalScrollIndicator={true} nestedScrollEnabled={true}>
+                                                <View style={{ minWidth: 570 }}>
+                                                    <View style={styles.detailsTableHeadRow}>
+                                                        <Text style={[styles.detailsTableHead, { width: 140 }]}>Medicine Name</Text>
+                                                        <Text style={[styles.detailsTableHead, { width: 80 }]}>Batch #</Text>
+                                                        <Text style={[styles.detailsTableHead, { width: 85 }]}>Stock Qty</Text>
+                                                        <Text style={[styles.detailsTableHead, { width: 95 }]}>Cost Price</Text>
+                                                        <Text style={[styles.detailsTableHead, { width: 85 }]}>Selling Price</Text>
+                                                        <Text style={[styles.detailsTableHead, { width: 85 }]}>Total Amount</Text>
+                                                    </View>
+                                                    {uniqueGrouped.map(med => {
+                                                        const pQty = (med.purchaseQty !== undefined && med.purchaseQty !== null) ? Number(med.purchaseQty) : (Number(med.stock) || 0);
+                                                        const buyingPrice = Number(med.buyingPrice) || 0;
+                                                        const gross = pQty * buyingPrice;
+                                                        let discountAmount = med.discountType === 'Flat Amount' ? Number(med.discountValue) || 0 : gross * ((Number(med.discountValue) || 0) / 100);
+                                                        const taxable = Math.max(0, gross - discountAmount);
+                                                        const cgstAmt = taxable * ((Number(med.cgstPercent) || 0) / 100);
+                                                        const sgstAmt = taxable * ((Number(med.sgstPercent) || 0) / 100);
+                                                        const totalFinalCost = taxable + cgstAmt + sgstAmt;
+                                                        const isSelected = med._id === selectedMedicine._id;
+
+                                                        return (
+                                                            <View 
+                                                                key={med._id} 
+                                                                style={[
+                                                                    styles.detailsTableRow,
+                                                                    isSelected && styles.detailsTableRowSelected
+                                                                ]}
+                                                            >
+                                                                <View style={{ width: 140, paddingRight: 6 }}>
+                                                                    <Text style={[styles.detailsTableCell, { fontWeight: '700', color: '#0f172a' }]}>
+                                                                        {med.name} {isSelected ? '(Selected)' : ''}
+                                                                    </Text>
+                                                                </View>
+                                                                <View style={{ width: 80, paddingRight: 4 }}>
+                                                                    <Text style={[styles.detailsTableCell, { color: '#475569' }]}>
+                                                                        {med.batchNumber || 'N/A'}
+                                                                    </Text>
+                                                                </View>
+                                                                <View style={{ width: 85, paddingRight: 4 }}>
+                                                                    <Text style={[
+                                                                        styles.detailsTableCell, 
+                                                                        { fontWeight: '700', color: med.stock < (med.minStockAlertLevel || 50) ? '#dc2626' : '#059669' }
+                                                                    ]}>
+                                                                        {med.stock} {med.unit || 'Tabs'}
+                                                                    </Text>
+                                                                </View>
+                                                                <View style={{ width: 95, paddingRight: 4 }}>
+                                                                    <Text style={[styles.detailsTableCell, { color: '#1e293b' }]}>
+                                                                        ₹{med.buyingPrice || 0}
+                                                                    </Text>
+                                                                    <Text style={{ fontSize: 9.5, color: '#64748b' }}>
+                                                                        (+{med.cgstPercent || 0}% CGST)
+                                                                    </Text>
+                                                                </View>
+                                                                <View style={{ width: 85, paddingRight: 4 }}>
+                                                                    <Text style={[styles.detailsTableCell, { fontWeight: '700', color: '#059669' }]}>
+                                                                        ₹{med.sellingPrice || 0}
+                                                                    </Text>
+                                                                </View>
+                                                                <View style={{ width: 85, paddingRight: 4 }}>
+                                                                    <Text style={[styles.detailsTableCell, { fontWeight: '700', color: '#0f172a' }]}>
+                                                                        ₹{totalFinalCost.toFixed(2)}
+                                                                    </Text>
+                                                                </View>
+                                                            </View>
+                                                        );
+                                                    })}
+                                                </View>
+                                            </ScrollView>
                                         </View>
-                                        <View>
-                                            <Text style={styles.detailsLabel}>Expiry</Text>
-                                            <Text style={styles.detailsValue}>{selectedMedicine.expiryDate ? new Date(selectedMedicine.expiryDate).toLocaleDateString() : 'N/A'}</Text>
-                                        </View>
-                                        <View>
-                                            <Text style={styles.detailsLabel}>Category</Text>
-                                            <Text style={styles.detailsValue}>{selectedMedicine.category}</Text>
+
+                                        {/* Financial Summary */}
+                                        <View style={styles.financialSummaryCard}>
+                                            <View style={styles.financialSummaryGrid}>
+                                                <View style={styles.financialMetricItem}>
+                                                    <Text style={[styles.financialMetricLabel, styles.financialMetricLabelEmerald]}>Stock</Text>
+                                                    <Text style={[styles.financialMetricValue, styles.financialMetricValueEmerald]}>{totalStockQty}</Text>
+                                                </View>
+                                                <View style={styles.financialMetricItem}>
+                                                    <Text style={styles.financialMetricLabel}>Final Cost</Text>
+                                                    <Text style={styles.financialMetricValue}>₹{totalFinalPurchaseAmount.toFixed(2)}</Text>
+                                                </View>
+                                                <View style={styles.financialMetricItem}>
+                                                    <Text style={styles.financialMetricLabel}>Revenue</Text>
+                                                    <Text style={styles.financialMetricValue}>₹{totalExpectedRevenue.toFixed(2)}</Text>
+                                                </View>
+                                                <View style={styles.financialMetricItem}>
+                                                    <Text style={[styles.financialMetricLabel, styles.financialMetricLabelEmerald]}>Profit</Text>
+                                                    <Text style={[styles.financialMetricValue, styles.financialMetricValueEmerald]}>₹{expectedProfit.toFixed(2)}</Text>
+                                                </View>
+                                            </View>
                                         </View>
                                     </View>
-                                </View>
-                            )}
+                                );
+                            })()}
                         </ScrollView>
                     </View>
                 </View>
@@ -1315,6 +1551,7 @@ const PharmacyInventory = () => {
                             <View style={styles.formGroup}>
                                 <Text style={styles.formLabel}>Select Medicine *</Text>
                                 <DropdownSelect
+                                    insideModal={true}
                                     options={medicines.map(m => ({ label: `${m.name} (Stock: ${m.stock})`, value: m._id }))}
                                     value={consumptionForm.medicineId}
                                     onChange={(val) => setConsumptionForm({...consumptionForm, medicineId: val})}
@@ -1333,6 +1570,7 @@ const PharmacyInventory = () => {
                             <View style={styles.formGroup}>
                                 <Text style={styles.formLabel}>Reason</Text>
                                 <DropdownSelect
+                                    insideModal={true}
                                     options={REASON_OPTIONS}
                                     value={consumptionForm.reason}
                                     onChange={(val) => setConsumptionForm({...consumptionForm, reason: val})}
@@ -2012,7 +2250,7 @@ const styles = StyleSheet.create({
         borderColor: '#e2e8f0',
         borderRadius: 12,
         padding: 15,
-        marginBottom: 20,
+        marginBottom: 16,
     },
     detailsGrid: {
         flexDirection: 'row',
@@ -2023,10 +2261,100 @@ const styles = StyleSheet.create({
         fontSize: 11,
         color: '#64748b',
         textTransform: 'uppercase',
+        fontWeight: '700',
     },
     detailsValue: {
-        fontSize: 15,
+        fontSize: 14,
+        fontWeight: '700',
         color: '#0f172a',
+        marginTop: 2,
+    },
+    stockProgressBarBg: {
+        width: '100%',
+        height: 6,
+        backgroundColor: '#e2e8f0',
+        borderRadius: 3,
+        overflow: 'hidden',
+        marginTop: 4,
+    },
+    stockProgressBarFill: {
+        height: '100%',
+        backgroundColor: '#3b82f6',
+        borderRadius: 3,
+    },
+    detailsTableWrapper: {
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        borderRadius: 8,
+        overflow: 'hidden',
+        marginBottom: 16,
+        backgroundColor: '#ffffff',
+    },
+    detailsTableHeadRow: {
+        flexDirection: 'row',
+        backgroundColor: '#f1f5f9',
+        borderBottomWidth: 1,
+        borderBottomColor: '#cbd5e1',
+        paddingVertical: 10,
+        paddingHorizontal: 8,
+    },
+    detailsTableHead: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#475569',
+        textTransform: 'uppercase',
+    },
+    detailsTableRow: {
+        flexDirection: 'row',
+        borderBottomWidth: 1,
+        borderBottomColor: '#f1f5f9',
+        paddingVertical: 10,
+        paddingHorizontal: 8,
+        alignItems: 'center',
+    },
+    detailsTableRowSelected: {
+        backgroundColor: '#fef9c3',
+    },
+    detailsTableCell: {
+        fontSize: 12,
+        color: '#1e293b',
+    },
+    financialSummaryCard: {
+        backgroundColor: '#ecfdf5',
+        borderWidth: 1,
+        borderColor: '#a7f3d0',
+        borderRadius: 10,
+        padding: 14,
+        marginBottom: 10,
+    },
+    financialSummaryGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        justifyContent: 'space-between',
+        gap: 10,
+    },
+    financialMetricItem: {
+        width: '47%',
+        alignItems: 'center',
+        paddingVertical: 4,
+    },
+    financialMetricLabel: {
+        fontSize: 11,
+        fontWeight: '700',
+        textTransform: 'uppercase',
+        color: '#64748b',
+    },
+    financialMetricLabelEmerald: {
+        color: '#065f46',
+    },
+    financialMetricValue: {
+        fontSize: 18,
+        fontWeight: '900',
+        color: '#0f172a',
+        marginTop: 2,
+    },
+    financialMetricValueEmerald: {
+        color: '#064e3b',
     },
 
     /* Medicine Name Autocomplete */
@@ -2061,6 +2389,96 @@ const styles = StyleSheet.create({
         fontSize: 11,
         color: '#64748b',
         marginTop: 1,
+    },
+
+    /* Inline Form Card & Controls (Web 1:1 Parity) */
+    pharmaFormCard: {
+        backgroundColor: '#f8fafc',
+        padding: 20,
+        borderRadius: 12,
+        marginTop: 16,
+        marginBottom: 20,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.03,
+        shadowRadius: 6,
+        elevation: 1,
+    },
+    pharmaFormTitle: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: '#1e293b',
+        marginBottom: 16,
+    },
+    multiDoseBanner: {
+        backgroundColor: '#f0f9ff',
+        borderWidth: 1,
+        borderColor: '#bae6fd',
+        borderRadius: 8,
+        padding: 14,
+        marginBottom: 16,
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    multiDoseBannerActive: {
+        backgroundColor: '#e0f2fe',
+        borderColor: '#7dd3fc',
+    },
+    multiDoseText: {
+        fontSize: 13.5,
+        fontWeight: '600',
+        color: '#0369a1',
+        flex: 1,
+    },
+    btnCancelEdit: {
+        backgroundColor: '#f1f5f9',
+        paddingVertical: 12,
+        paddingHorizontal: 22,
+        borderRadius: 8,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+    },
+    btnCancelEditText: {
+        color: '#475569',
+        fontWeight: '700',
+        fontSize: 13.5,
+    },
+    btnSavePharma: {
+        backgroundColor: '#059669',
+        paddingVertical: 12,
+        paddingHorizontal: 24,
+        borderRadius: 8,
+        alignItems: 'center',
+        justifyContent: 'center',
+        shadowColor: '#059669',
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.25,
+        shadowRadius: 6,
+        elevation: 2,
+    },
+    btnSavePharmaText: {
+        color: '#ffffff',
+        fontWeight: '700',
+        fontSize: 14,
+    },
+    btnClearForm: {
+        backgroundColor: '#f1f5f9',
+        paddingVertical: 12,
+        paddingHorizontal: 22,
+        borderRadius: 8,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+    },
+    btnClearFormText: {
+        color: '#64748b',
+        fontWeight: '700',
+        fontSize: 13.5,
     },
 });
 

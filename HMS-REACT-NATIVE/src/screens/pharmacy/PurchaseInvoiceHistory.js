@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { 
-    View, Text, TextInput, TouchableOpacity, ScrollView, 
-    StyleSheet, ActivityIndicator, Alert, Dimensions, Modal, Linking, useWindowDimensions 
+import {
+    View, Text, TextInput, TouchableOpacity, ScrollView,
+    StyleSheet, ActivityIndicator, Alert, Dimensions, Modal, Linking, useWindowDimensions,
+    RefreshControl
 } from 'react-native';
 import DropdownSelect from '../../components/common/DropdownSelect';
+import { formatToDisplay } from '../../components/common/DatePickerInput';
 import { pharmacyAPI, baseURL } from '../../utils/api';
-import { useAuth } from '../../store/hooks'; 
+import { useAuth } from '../../store/hooks';
 import { useNavigation } from '@react-navigation/native';
 
 const PurchaseInvoiceHistory = () => {
@@ -14,11 +16,13 @@ const PurchaseInvoiceHistory = () => {
     const isMobile = width < 600;
     const [invoices, setInvoices] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [sortOrder, setSortOrder] = useState('newest'); // 'newest' or 'oldest'
-    
-    const { user } = useAuth(); 
+
+    const { user } = useAuth();
     const navigation = useNavigation();
+    const isAdmin = ['admin', 'hospitaladmin', 'superadmin', 'centraladmin'].includes(user?.role);
 
     const [showModal, setShowModal] = useState(false);
     const [selectedInvoice, setSelectedInvoice] = useState(null);
@@ -27,8 +31,9 @@ const PurchaseInvoiceHistory = () => {
         fetchInvoices();
     }, []);
 
-    const fetchInvoices = async () => {
-        setLoading(true);
+    const fetchInvoices = async (isPull = false) => {
+        if (isPull) setRefreshing(true);
+        else setLoading(true);
         try {
             const res = await pharmacyAPI.getPurchaseInvoices();
             if (res && (res.success || Array.isArray(res))) {
@@ -42,6 +47,7 @@ const PurchaseInvoiceHistory = () => {
             setInvoices([]);
         } finally {
             setLoading(false);
+            setRefreshing(false);
         }
     };
 
@@ -115,7 +121,13 @@ const PurchaseInvoiceHistory = () => {
     });
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+        <ScrollView
+            style={styles.container}
+            contentContainerStyle={styles.contentContainer}
+            refreshControl={
+                <RefreshControl refreshing={refreshing} onRefresh={() => fetchInvoices(true)} colors={['#0ea5e9']} />
+            }
+        >
             <View style={[styles.header, { flexDirection: isDesktop ? 'row' : 'column', alignItems: isDesktop ? 'center' : 'stretch' }]}>
                 <View>
                     <Text style={styles.headerTitle}>Purchase Invoice History</Text>
@@ -124,15 +136,15 @@ const PurchaseInvoiceHistory = () => {
                 <View style={[styles.headerActions, isMobile && { flexDirection: 'column', width: '100%' }]}>
                     <View style={[styles.searchBox, isMobile && { width: '100%' }]}>
                         <Text style={styles.searchIcon}>🔍</Text>
-                        <TextInput 
+                        <TextInput
                             style={styles.searchInput}
-                            placeholder="Search invoice or vendor..." 
+                            placeholder="Search invoice or vendor..."
                             value={searchTerm}
                             onChangeText={setSearchTerm}
                         />
                     </View>
                     <View style={[{ width: 150 }, isMobile && { width: '100%' }]}>
-                        <DropdownSelect 
+                        <DropdownSelect
                             options={[
                                 { label: 'Latest First', value: 'newest' },
                                 { label: 'Oldest First', value: 'oldest' }
@@ -142,6 +154,13 @@ const PurchaseInvoiceHistory = () => {
                             placeholder="Sort By"
                         />
                     </View>
+                    <TouchableOpacity
+                        style={[styles.btnContinueImport, isMobile && { width: '100%' }]}
+                        onPress={() => navigation.navigate('PharmacyInventory')}
+                        activeOpacity={0.7}
+                    >
+                        <Text style={styles.btnContinueImportText}>← Back to Inventory</Text>
+                    </TouchableOpacity>
                 </View>
             </View>
 
@@ -158,7 +177,7 @@ const PurchaseInvoiceHistory = () => {
                             <Text style={[styles.tableHead, { width: 100 }]}>Status</Text>
                             <Text style={[styles.tableHead, { width: 130, textAlign: 'right' }]}>Actions</Text>
                         </View>
-                        
+
                         {loading ? (
                             <View style={styles.emptyState}>
                                 <ActivityIndicator size="large" color="#0ea5e9" />
@@ -175,7 +194,7 @@ const PurchaseInvoiceHistory = () => {
                                 <View key={inv._id} style={styles.tableRow}>
                                     <View style={[styles.tableCell, { width: 150 }]}>
                                         <Text style={styles.invoiceNumber}>{inv.invoiceNumber || 'N/A'}</Text>
-                                        <Text style={styles.invoiceDate}>{inv.invoiceDate ? new Date(inv.invoiceDate).toLocaleDateString() : 'No Date'}</Text>
+                                        <Text style={styles.invoiceDate}>{inv.invoiceDate ? formatToDisplay(inv.invoiceDate) : 'No Date'}</Text>
                                     </View>
                                     <View style={[styles.tableCell, { width: 180, flexDirection: 'row', alignItems: 'center' }]}>
                                         <View style={styles.vendorAvatar}>
@@ -195,7 +214,7 @@ const PurchaseInvoiceHistory = () => {
                                         </View>
                                     </View>
                                     <View style={[styles.tableCell, { width: 120 }]}>
-                                        <Text style={styles.uploadDate}>{inv.uploadDate ? new Date(inv.uploadDate).toLocaleDateString() : 'N/A'}</Text>
+                                        <Text style={styles.uploadDate}>{inv.uploadDate ? new Date(inv.uploadDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short' }) : 'N/A'}</Text>
                                         <Text style={styles.uploadTime}>{inv.uploadTime || 'N/A'}</Text>
                                     </View>
                                     <View style={[styles.tableCell, { width: 120 }]}>
@@ -225,8 +244,8 @@ const PurchaseInvoiceHistory = () => {
                                             </TouchableOpacity>
                                         )}
                                         {inv.uploadedPDF?.generatedName && (
-                                            <TouchableOpacity 
-                                                style={styles.actionBtn} 
+                                            <TouchableOpacity
+                                                style={styles.actionBtn}
                                                 onPress={() => {
                                                     const pdfUrl = `${(baseURL || '').replace(/\/$/, '')}/uploads/invoices/${inv.uploadedPDF.generatedName}`;
                                                     Linking.openURL(pdfUrl).catch(() => Alert.alert('Error', 'Unable to open invoice PDF'));
@@ -236,7 +255,7 @@ const PurchaseInvoiceHistory = () => {
                                                 <Text>⬇️</Text>
                                             </TouchableOpacity>
                                         )}
-                                        {user?.role === 'admin' && (
+                                        {isAdmin && (
                                             <TouchableOpacity style={[styles.actionBtn, styles.actionBtnDanger]} onPress={() => handleDelete(inv._id)}>
                                                 <Text>🗑️</Text>
                                             </TouchableOpacity>
@@ -272,7 +291,7 @@ const PurchaseInvoiceHistory = () => {
                                     <Text style={styles.closeBtn}>×</Text>
                                 </TouchableOpacity>
                                 <Text style={[styles.modalSmallText, { marginTop: 10 }]}><Text style={{ fontWeight: 'bold' }}>Invoice No:</Text> {selectedInvoice?.invoiceNumber || 'N/A'}</Text>
-                                <Text style={styles.modalSmallText}><Text style={{ fontWeight: 'bold' }}>Date:</Text> {selectedInvoice?.invoiceDate ? new Date(selectedInvoice.invoiceDate).toLocaleDateString() : 'N/A'}</Text>
+                                <Text style={styles.modalSmallText}><Text style={{ fontWeight: 'bold' }}>Date:</Text> {selectedInvoice?.invoiceDate ? formatToDisplay(selectedInvoice.invoiceDate) : 'N/A'}</Text>
                                 <View style={[styles.statusBadge, { marginTop: 5 }, selectedInvoice?.status === 'Completed' ? styles.statusCompleted : styles.statusPending]}>
                                     <Text style={[styles.statusBadgeText, selectedInvoice?.status === 'Completed' ? styles.statusTextCompleted : styles.statusTextPending]}>{selectedInvoice?.status}</Text>
                                 </View>
@@ -311,11 +330,11 @@ const PurchaseInvoiceHistory = () => {
                                                     <Text style={[styles.tableCell, { width: 200, fontWeight: 'bold' }]}>{med.name || med.medicineName}</Text>
                                                     <Text style={[styles.tableCell, { width: 100 }]}>{med.batchNumber || med.batch || 'N/A'}</Text>
                                                     <Text style={[styles.tableCell, { width: 80 }]}>{qty}</Text>
-                                                    <Text style={[styles.tableCell, { width: 100 }]}>₹{price.toFixed(2)}</Text>
-                                                    <Text style={[styles.tableCell, { width: 100 }]}>₹{baseAmt.toFixed(2)}</Text>
-                                                    <Text style={[styles.tableCell, { width: 100 }]}>₹{discount.toFixed(2)}</Text>
+                                                    <Text style={[styles.tableCell, { width: 100 }]}>₹{price.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+                                                    <Text style={[styles.tableCell, { width: 100 }]}>₹{baseAmt.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+                                                    <Text style={[styles.tableCell, { width: 100 }]}>₹{discount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
                                                     <Text style={[styles.tableCell, { width: 80 }]}>{totalGstPercent}%</Text>
-                                                    <Text style={[styles.tableCell, { width: 100, fontWeight: 'bold' }]}>₹{netAmount.toFixed(2)}</Text>
+                                                    <Text style={[styles.tableCell, { width: 100, fontWeight: 'bold' }]}>₹{netAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
                                                 </View>
                                             );
                                         })
@@ -325,7 +344,18 @@ const PurchaseInvoiceHistory = () => {
                         </ScrollView>
 
                         <View style={styles.modalFooter}>
-                            <View style={{ flexDirection: 'row', gap: 10 }}>
+                            <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
+                                {selectedInvoice?.uploadedPDF?.generatedName && (
+                                    <TouchableOpacity
+                                        style={styles.btnDownloadPdf}
+                                        onPress={() => {
+                                            const pdfUrl = `${(baseURL || '').replace(/\/$/, '')}/uploads/invoices/${selectedInvoice.uploadedPDF.generatedName}`;
+                                            Linking.openURL(pdfUrl).catch(() => Alert.alert('Error', 'Unable to open invoice PDF'));
+                                        }}
+                                    >
+                                        <Text style={styles.btnDownloadPdfText}>⬇️ Download PDF</Text>
+                                    </TouchableOpacity>
+                                )}
                                 {selectedInvoice?.status === 'Pending' && (
                                     <TouchableOpacity style={styles.btnConfirmImport} onPress={() => { setShowModal(false); handleProcessInvoice(selectedInvoice._id); }}>
                                         <Text style={styles.btnConfirmImportText}>Confirm Import</Text>
@@ -582,7 +612,7 @@ const styles = StyleSheet.create({
     actionBtnDanger: {
         borderColor: '#fca5a5',
     },
-    
+
     /* Modal Styles */
     modalOverlay: {
         flex: 1,
@@ -662,7 +692,37 @@ const styles = StyleSheet.create({
         fontSize: 28,
         fontWeight: 'bold', // 800
         color: '#0f172a',
-    }
+    },
+    btnContinueImport: {
+        backgroundColor: '#f1f5f9',
+        borderWidth: 1,
+        borderColor: '#cbd5e1',
+        paddingHorizontal: 16,
+        height: 42,
+        borderRadius: 8,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    btnContinueImportText: {
+        color: '#334155',
+        fontWeight: '700',
+        fontSize: 13,
+    },
+    btnDownloadPdf: {
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        backgroundColor: '#ffffff',
+        borderWidth: 1.5,
+        borderColor: '#10b981',
+        borderRadius: 8,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    btnDownloadPdfText: {
+        color: '#10b981',
+        fontWeight: 'bold',
+        fontSize: 13,
+    },
 });
 
 export default PurchaseInvoiceHistory;

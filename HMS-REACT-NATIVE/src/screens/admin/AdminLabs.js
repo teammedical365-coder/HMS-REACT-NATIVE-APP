@@ -44,7 +44,7 @@ const AdminLabs = () => {
             setLoadingData(true);
             const res = await adminEntitiesAPI.getLabs();
             if (res.success) setLabs(res.labs);
-        } catch (err) { setError('Error fetching labs'); } 
+        } catch (err) { setError('Error fetching labs'); }
         finally { setLoadingData(false); }
     };
 
@@ -68,7 +68,7 @@ const AdminLabs = () => {
                 const res = await adminEntitiesAPI.createLab(payload);
                 if (res.success) { setSuccess('Lab created'); setShowForm(false); fetchLabs(); }
             }
-        } catch (err) { setError(err.response?.data?.message || 'Error saving lab'); } 
+        } catch (err) { setError(err.response?.data?.message || 'Error saving lab'); }
         finally { setLoading(false); }
     };
 
@@ -117,8 +117,20 @@ const AdminLabs = () => {
                 <Text style={styles.listSub}>{item.email} | {item.phone}</Text>
             </View>
             <View style={styles.listActions}>
-                <TouchableOpacity onPress={() => handleEdit(item)} style={styles.editBtn}><Text style={styles.actionText}>Edit</Text></TouchableOpacity>
-                <TouchableOpacity onPress={() => handleDelete(item._id)} style={styles.deleteBtn}><Text style={styles.actionText}>Del</Text></TouchableOpacity>
+                <TouchableOpacity
+                    onPress={() => handleEdit(item)}
+                    style={styles.editBtn}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                    <Text style={styles.actionText}>Edit</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    onPress={() => handleDelete(item._id)}
+                    style={styles.deleteBtn}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                    <Text style={styles.actionText}>Del</Text>
+                </TouchableOpacity>
             </View>
         </View>
     );
@@ -127,7 +139,11 @@ const AdminLabs = () => {
         <View style={styles.container}>
             <View style={styles.header}>
                 <View><Text style={styles.title}>Manage Labs</Text></View>
-                <TouchableOpacity style={styles.primaryBtn} onPress={() => { setEditingLab(null); setFormData({ name: '', email: '', phone: '', address: '', password: '', services: '', description: '', facilities: '', availability: initialAvailability }); setShowForm(true); }}>
+                <TouchableOpacity
+                    style={styles.primaryBtn}
+                    onPress={() => { setEditingLab(null); setFormData({ name: '', email: '', phone: '', address: '', password: '', services: '', description: '', facilities: '', availability: initialAvailability }); setShowForm(true); }}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
                     <Text style={styles.btnText}>+ Add</Text>
                 </TouchableOpacity>
             </View>
@@ -140,7 +156,7 @@ const AdminLabs = () => {
                     <View style={styles.modalContent}>
                         <View style={styles.modalHeader}>
                             <Text style={styles.modalTitle}>{editingLab ? 'Edit Lab' : 'Add Lab'}</Text>
-                            <TouchableOpacity onPress={() => setShowForm(false)}><Text style={styles.closeText}>×</Text></TouchableOpacity>
+                            <TouchableOpacity onPress={() => setShowForm(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}><Text style={styles.closeText}>×</Text></TouchableOpacity>
                         </View>
                         <FlatList
                             data={['form']}
@@ -158,12 +174,12 @@ const AdminLabs = () => {
                                     <TextInput style={styles.input} value={formData.address} onChangeText={(v) => handleChange('address', v)} />
                                     <Text style={styles.label}>{editingLab ? 'New Password (Optional)' : 'Password *'}</Text>
                                     <TextInput style={styles.input} value={formData.password} onChangeText={(v) => handleChange('password', v)} secureTextEntry />
-                                    
+
                                     <Text style={styles.label}>Services (one per line)</Text>
                                     <TextInput style={[styles.input, {height: 80}]} multiline value={formData.services} onChangeText={(v) => handleChange('services', v)} placeholder="Blood Test\nUrine Test" />
                                     <Text style={styles.label}>Facilities (one per line)</Text>
                                     <TextInput style={[styles.input, {height: 80}]} multiline value={formData.facilities} onChangeText={(v) => handleChange('facilities', v)} />
-                                    
+
                                     <Text style={styles.label}>Availability</Text>
                                     <FlatList
                                         data={days}
@@ -171,7 +187,7 @@ const AdminLabs = () => {
                                         renderItem={renderDayForm}
                                         scrollEnabled={false}
                                     />
-                                    
+
                                     <TouchableOpacity style={[styles.submitBtn, {marginTop: 20}]} onPress={handleSubmit} disabled={loading}>
                                         {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>Save</Text>}
                                     </TouchableOpacity>
@@ -203,7 +219,7 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#f8fafc', padding: 16 },
     header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
     title: { fontSize: 22, fontWeight: 'bold' },
-    primaryBtn: { backgroundColor: '#3b82f6', padding: 8, borderRadius: 8 },
+    primaryBtn: { backgroundColor: '#3b82f6', minHeight: 44, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
     btnText: { color: '#fff', fontWeight: '600' },
     errorText: { color: '#ef4444', marginBottom: 12 },
     successText: { color: '#22c55e', marginBottom: 12 },
@@ -230,9 +246,9 @@ const styles = StyleSheet.create({
     listInfo: { flex: 1 },
     listName: { fontSize: 16, fontWeight: '600' },
     listSub: { fontSize: 13, color: '#64748b' },
-    listActions: { flexDirection: 'row' },
-    editBtn: { backgroundColor: '#e0f2fe', padding: 6, borderRadius: 6, marginRight: 8 },
-    deleteBtn: { backgroundColor: '#fee2e2', padding: 6, borderRadius: 6 },
+    listActions: { flexDirection: 'row', alignItems: 'center' },
+    editBtn: { backgroundColor: '#e0f2fe', minWidth: 44, minHeight: 44, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, marginRight: 8, justifyContent: 'center', alignItems: 'center' },
+    deleteBtn: { backgroundColor: '#fee2e2', minWidth: 44, minHeight: 44, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
     actionText: { fontWeight: '600', fontSize: 13 }
 });
 
