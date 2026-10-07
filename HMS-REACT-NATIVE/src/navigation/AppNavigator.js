@@ -233,6 +233,8 @@ const AppNavigator = () => {
                 return <Stack.Screen name="Cashier" component={CashierApp} />;
             case 'lab':
             case 'pathologist':
+            case 'lab_technician':
+            case 'labtechnician':
                 return <Stack.Screen name="Lab" component={LabApp} />;
             case 'pharmacy':
             case 'pharmacist':

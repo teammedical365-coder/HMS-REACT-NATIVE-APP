@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity, Modal, Alert, Acti
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import { adminEntitiesAPI } from '../../utils/api';
+import TimePickerInput from '../../components/common/TimePickerInput';
 
 const AdminLabs = () => {
     const navigation = useNavigation();
@@ -102,9 +103,23 @@ const AdminLabs = () => {
             </View>
             {formData.availability[day].available && (
                 <View style={styles.timeInputs}>
-                    <TextInput style={styles.timeInput} value={formData.availability[day].startTime} onChangeText={(v) => handleAvailability(day, 'startTime', v)} placeholder="09:00" />
-                    <Text> to </Text>
-                    <TextInput style={styles.timeInput} value={formData.availability[day].endTime} onChangeText={(v) => handleAvailability(day, 'endTime', v)} placeholder="17:00" />
+                    <View style={styles.timePickerWrap}>
+                        <TimePickerInput
+                            value={formData.availability[day].startTime}
+                            onChange={(v) => handleAvailability(day, 'startTime', v)}
+                            placeholder="09:00"
+                            title={`Select ${day.charAt(0).toUpperCase() + day.slice(1)} Opening Time`}
+                        />
+                    </View>
+                    <Text style={styles.timeToText}> to </Text>
+                    <View style={styles.timePickerWrap}>
+                        <TimePickerInput
+                            value={formData.availability[day].endTime}
+                            onChange={(v) => handleAvailability(day, 'endTime', v)}
+                            placeholder="17:00"
+                            title={`Select ${day.charAt(0).toUpperCase() + day.slice(1)} Closing Time`}
+                        />
+                    </View>
                 </View>
             )}
         </View>
@@ -234,8 +249,9 @@ const styles = StyleSheet.create({
     dayRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderColor: '#f1f5f9' },
     dayToggle: { flexDirection: 'row', alignItems: 'center', width: 120 },
     dayText: { marginLeft: 8, fontSize: 14 },
-    timeInputs: { flexDirection: 'row', alignItems: 'center' },
-    timeInput: { borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 6, padding: 6, width: 60, textAlign: 'center' },
+    timeInputs: { flexDirection: 'row', alignItems: 'center', flex: 1, justifyContent: 'flex-end' },
+    timePickerWrap: { width: 95 },
+    timeToText: { marginHorizontal: 6, color: '#64748b', fontSize: 13, fontWeight: '600' },
     submitBtn: { backgroundColor: '#3b82f6', padding: 14, borderRadius: 8, alignItems: 'center' },
     submitBtnText: { color: '#fff', fontWeight: 'bold' },
     cancelBtn: { padding: 14, alignItems: 'center' },

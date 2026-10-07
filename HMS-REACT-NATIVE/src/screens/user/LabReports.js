@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import {
     View, Text, StyleSheet, ScrollView, TouchableOpacity,
-    ActivityIndicator, TextInput, Linking
+    ActivityIndicator, TextInput, Linking, Alert, Platform
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useDispatch, useSelector } from 'react-redux';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { useAuth } from '../../store/hooks';
 import { fetchMyLabReports } from '../../store/slices/labSlice';
 
@@ -21,9 +23,45 @@ const LabReports = () => {
         dispatch(fetchMyLabReports());
     }, [dispatch]);
 
-    const handleDownload = (url) => {
+    const handleDownload = async (url, fileName) => {
         if (!url) return;
-        Linking.openURL(url);
+
+        if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof document !== 'undefined') {
+            try {
+                const response = await fetch(url);
+                const blob = await response.blob();
+                const blobUrl = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = blobUrl;
+                link.download = fileName || 'lab-report.pdf';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                window.URL.revokeObjectURL(blobUrl);
+            } catch (error) {
+                console.error("Web download failed, falling back to window.open:", error);
+                window.open(url, '_blank');
+            }
+        } else {
+            try {
+                const rawName = fileName || url.split('/').pop()?.split('?')[0] || `lab_report_${Date.now()}.pdf`;
+                const sanitizedName = rawName.toLowerCase().endsWith('.pdf') ? rawName : `${rawName}.pdf`;
+                const targetUri = `${FileSystem.documentDirectory || FileSystem.cacheDirectory}${sanitizedName}`;
+
+                const downloadResult = await FileSystem.downloadAsync(url, targetUri);
+                if (downloadResult && downloadResult.uri) {
+                    const isShareAvailable = await Sharing.isAvailableAsync();
+                    if (isShareAvailable) {
+                        await Sharing.shareAsync(downloadResult.uri);
+                    } else {
+                        Alert.alert("Download Complete", `Report saved to: ${downloadResult.uri}`);
+                    }
+                }
+            } catch (nativeErr) {
+                console.error("Native download failed, falling back to Linking:", nativeErr);
+                Linking.openURL(url).catch(() => Alert.alert("Error", "Cannot download file"));
+            }
+        }
     };
 
     const filteredReports = (reports || []).filter(report => {
@@ -53,7 +91,12 @@ const LabReports = () => {
 
             {/* Header */}
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => navigation.navigate('Dashboard')} style={styles.backLink}>
+                <TouchableOpacity
+                    onPress={() => navigation.navigate('Dashboard')}
+                    style={styles.backLink}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                    activeOpacity={0.7}
+                >
                     <Text style={styles.backLinkText}>← Back to Dashboard</Text>
                 </TouchableOpacity>
 
@@ -141,7 +184,7 @@ const LabReports = () => {
                                 {report.testStatus === 'DONE' && report.reportFile?.url ? (
                                     <TouchableOpacity
                                         style={styles.btnPrimary}
-                                        onPress={() => handleDownload(report.reportFile?.url)}
+                                        onPress={() => handleDownload(report.reportFile?.url, report.reportFile?.name)}
                                     >
                                         <Text style={styles.btnPrimaryText}>Download PDF</Text>
                                     </TouchableOpacity>
@@ -195,7 +238,12 @@ const styles = StyleSheet.create({
         paddingTop: 20,
     },
     backLink: {
-        marginBottom: 30,
+        marginBottom: 20,
+        paddingVertical: 10,
+        paddingHorizontal: 8,
+        alignSelf: 'flex-start',
+        minHeight: 48,
+        justifyContent: 'center',
     },
     backLinkText: {
         color: '#64748B',

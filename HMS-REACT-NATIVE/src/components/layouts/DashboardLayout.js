@@ -178,6 +178,7 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
             return [
                 { label: 'Lab Dashboard', path: 'LabDashboard', icon: <Feather name="activity" size={18} /> },
                 { label: 'Assigned Tests', path: 'AssignedTests', icon: <Feather name="file-text" size={18} /> },
+                { label: 'Past Records', path: 'CompletedReports', icon: <Feather name="archive" size={18} /> },
             ];
         }
 

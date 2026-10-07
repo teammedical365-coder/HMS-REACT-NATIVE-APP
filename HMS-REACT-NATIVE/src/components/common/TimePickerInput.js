@@ -79,7 +79,7 @@ const TimePickerInput = ({
     return (
         <View style={[styles.container, style]}>
             <TouchableOpacity
-                style={[styles.touchField, disabled && styles.touchFieldDisabled]}
+                style={[styles.touchField, disabled && styles.touchFieldDisabled, inputStyle]}
                 onPress={() => {
                     if (!disabled) {
                         setTempTime(value || '');

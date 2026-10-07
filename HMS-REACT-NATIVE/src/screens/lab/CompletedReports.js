@@ -237,7 +237,7 @@ const CompletedReports = () => {
                                     </View>
                                 )}
 
-                                <View style={[styles.cardActions, width < 380 && { flexDirection: 'column' }]}>
+                                <View style={[styles.cardActions, width < 480 && { flexDirection: 'column' }]}>
                                     <TouchableOpacity style={[styles.btnAction, styles.btnSecondary]} onPress={() => handleView(report.reportFile?.url)}>
                                         <Text style={styles.btnSecondaryText}>👁️ View</Text>
                                     </TouchableOpacity>
@@ -513,7 +513,9 @@ const styles = StyleSheet.create({
     },
     btnAction: {
         flex: 1,
-        paddingVertical: 12,
+        minHeight: 48,
+        paddingVertical: 14,
+        paddingHorizontal: 16,
         borderRadius: 12,
         alignItems: 'center',
         justifyContent: 'center',
