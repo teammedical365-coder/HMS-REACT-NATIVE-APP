@@ -380,8 +380,8 @@ const styles = StyleSheet.create({
     completedText: { fontSize: 13, fontWeight: '600', color: '#059669' },
 
     // Modal — keyboard-safe, bounded by screen edges
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 24 },
-    modalBox: { backgroundColor: '#ffffff', borderRadius: 18, padding: 24, width: '100%', maxWidth: 440, alignSelf: 'center' },
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.65)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 24 },
+    modalBox: { backgroundColor: '#ffffff', borderRadius: 18, padding: 24, width: '100%', maxWidth: 440, alignSelf: 'center', shadowColor: '#000000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.25, shadowRadius: 20, elevation: 24 },
     modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
     modalTitle: { fontSize: 17, fontWeight: '800', color: '#059669' },
     modalBodyText: { fontSize: 13, color: '#334155', marginBottom: 12 },

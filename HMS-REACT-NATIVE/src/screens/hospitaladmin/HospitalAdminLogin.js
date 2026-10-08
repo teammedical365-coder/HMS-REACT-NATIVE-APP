@@ -3,10 +3,12 @@ import { useNavigation } from '@react-navigation/native';
 import { useAppDispatch, useAuth } from '../../store/hooks';
 import { sendOtp, verifyOtp, resendOtp, forceLogin, clearError, resetOtpFlow } from '../../store/slices/authSlice';
 import NeuralAuthPortal from '../../components/auth/NeuralAuthPortal';
+import { useBranding } from '../../context/BrandingContext';
 
 const HospitalAdminLogin = () => {
     const navigation = useNavigation();
     const dispatch = useAppDispatch();
+    const { branding } = useBranding();
     const { loading, error, isAuthenticated, user, otpStep, preAuthToken, otpEmail, activeSession, otpSuccessMsg } = useAuth();
 
     useEffect(() => {
@@ -59,6 +61,7 @@ const HospitalAdminLogin = () => {
             idType="email-address"
             passkeyLabel="Password"
             passkeyPlaceholder="••••••••"
+            branding={branding}
             onLoginSubmit={handleLoginSubmit}
             onVerifyOtp={handleVerifyOtp}
             onResendOtp={handleResendOtp}

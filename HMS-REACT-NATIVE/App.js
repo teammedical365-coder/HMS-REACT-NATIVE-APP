@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
-import { View, Platform } from 'react-native';
+import { View, Platform, StatusBar } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { Provider as ReduxProvider } from 'react-redux';
 
 // --- STORES & CONTEXTS ---
@@ -91,10 +91,15 @@ export default function App() {
 
   return (
     <View style={{ flex: 1, width: '100%', height: '100%' }}>
+        <StatusBar 
+            barStyle="dark-content" 
+            backgroundColor="#ffffff" 
+            animated={true} 
+        />
         <ReduxProvider store={store}>
           <BrandingProvider>
             <AuthProvider>
-              <SafeAreaProvider>
+              <SafeAreaProvider initialMetrics={initialWindowMetrics}>
                 <NavigationContainer>
                     <AppNavigator />
                 </NavigationContainer>

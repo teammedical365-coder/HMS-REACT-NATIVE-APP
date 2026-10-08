@@ -938,7 +938,9 @@ const PharmacyInventory = () => {
                                     <Text style={styles.formLabel}>EXPIRY DATE *</Text>
                                     <DatePickerInput
                                         value={newMedicine.expiryDate}
-                                        onChange={(d) => setNewMedicine({ ...newMedicine, expiryDate: d })}
+                                        selectedDate={newMedicine.expiryDate}
+                                        onChange={(d) => setNewMedicine(prev => ({ ...prev, expiryDate: d }))}
+                                        onDateChange={(d) => setNewMedicine(prev => ({ ...prev, expiryDate: d }))}
                                         placeholder="Expiry Date"
                                     />
                                 </View>

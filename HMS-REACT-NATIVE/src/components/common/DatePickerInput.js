@@ -6,7 +6,8 @@ import {
     TouchableOpacity,
     Modal,
     Platform,
-    Pressable
+    Pressable,
+    useWindowDimensions
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 
@@ -19,6 +20,9 @@ const WEEK_DAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
  */
 export const parseSafeDate = (val) => {
     if (!val) return null;
+    if (val instanceof Date) {
+        return isNaN(val.getTime()) ? null : val;
+    }
     if (typeof val === 'string') {
         const str = val.trim();
         // Match DD-Mon-YYYY (e.g. 11-Oct-2028, 11-OCT-2028, 11 Oct 2028)
@@ -62,7 +66,7 @@ export const formatToYMD = (val) => {
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
+    return `${y}-${m}-${day}`;
 };
 
 /**
@@ -86,8 +90,11 @@ export const formatToDisplay = (val) => {
  * - API/Storage format: YYYY-MM-DD
  */
 const DatePickerInput = ({
-    value = '',
-    onChange = () => {},
+    value,
+    selectedDate,
+    date,
+    onChange,
+    onDateChange,
     placeholder = 'DD-Mon-YYYY',
     min,
     max,
@@ -103,29 +110,59 @@ const DatePickerInput = ({
     insideModal = false,
     allowClear = true,
 }) => {
+    const { width: windowWidth } = useWindowDimensions();
+    const isVeryNarrow = windowWidth < 300;
+    const isNarrow = windowWidth < 340;
+
+    const backdropPadding = isVeryNarrow ? 6 : (isNarrow ? 10 : 16);
+    const cardWidth = Math.min(windowWidth - (backdropPadding * 2), 340);
+    const cardPaddingH = isVeryNarrow ? 8 : (isNarrow ? 10 : 16);
+    const availableGridWidth = cardWidth - (cardPaddingH * 2);
+    const cellWidth = Math.floor(availableGridWidth / 7);
+    const cellHeight = Math.max(cellWidth, 34);
+
     const minVal = min || minimumDate;
     const maxVal = max || maximumDate;
 
-    // Native Platform State & Effects (must be called unconditionally at top level)
+    // Resolve effective input value across supported props
+    const propVal = value !== undefined && value !== null && value !== '' 
+        ? value 
+        : (selectedDate !== undefined && selectedDate !== null && selectedDate !== '' 
+            ? selectedDate 
+            : (date !== undefined && date !== null && date !== '' ? date : ''));
+
+    const [internalVal, setInternalVal] = useState(propVal);
     const [isOpen, setIsOpen] = useState(false);
-    const parsedCurrent = parseSafeDate(value);
+
+    // Active value prioritizes internalVal when user interacted, or propVal when provided
+    const activeValue = (internalVal !== undefined && internalVal !== null) ? internalVal : (propVal || '');
+    const parsedCurrent = parseSafeDate(activeValue);
     const [currentMonth, setCurrentMonth] = useState(() => parsedCurrent || new Date());
     const [viewMode, setViewMode] = useState('days'); // 'days' | 'months' | 'years'
     const [yearPage, setYearPage] = useState(() => (parsedCurrent || new Date()).getFullYear());
 
     useEffect(() => {
-        if (value) {
-            const parsed = parseSafeDate(value);
-            if (parsed) {
-                setCurrentMonth(parsed);
-                setYearPage(parsed.getFullYear());
+        if (propVal !== undefined && propVal !== null) {
+            setInternalVal(propVal);
+            if (propVal) {
+                const parsed = parseSafeDate(propVal);
+                if (parsed) {
+                    setCurrentMonth(parsed);
+                    setYearPage(parsed.getFullYear());
+                }
             }
         }
-    }, [value]);
+    }, [propVal]);
+
+    const triggerChange = (newVal) => {
+        setInternalVal(newVal);
+        if (typeof onChange === 'function') onChange(newVal);
+        if (typeof onDateChange === 'function') onDateChange(newVal);
+    };
 
     // Web Platform: Native HTML5 date input
     if (Platform.OS === 'web') {
-        const rawYMD = formatToYMD(parseSafeDate(value));
+        const rawYMD = formatToYMD(parseSafeDate(activeValue));
         const minYMD = minVal ? formatToYMD(parseSafeDate(minVal)) : undefined;
         const maxYMD = maxVal ? formatToYMD(parseSafeDate(maxVal)) : undefined;
 
@@ -158,7 +195,7 @@ const DatePickerInput = ({
                         max={maxYMD}
                         disabled={disabled}
                         onChange={(e) => {
-                            onChange(e.target.value);
+                            triggerChange(e.target.value);
                         }}
                         onClick={(e) => {
                             try {
@@ -194,7 +231,7 @@ const DatePickerInput = ({
         );
     }
 
-    const displayDate = formatToDisplay(value);
+    const displayDate = formatToDisplay(activeValue);
 
     const daysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
     const firstDayOfMonth = (year, month) => new Date(year, month, 1).getDay();
@@ -220,19 +257,19 @@ const DatePickerInput = ({
         if (!day) return;
         const selectedDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
         const ymd = formatToYMD(selectedDate);
-        onChange(ymd);
+        triggerChange(ymd);
         setIsOpen(false);
     };
 
     const handleClear = () => {
-        onChange('');
+        triggerChange('');
         setIsOpen(false);
     };
 
     const handleToday = () => {
         const today = new Date();
         const ymd = formatToYMD(today);
-        onChange(ymd);
+        triggerChange(ymd);
         setCurrentMonth(today);
         setIsOpen(false);
     };
@@ -271,7 +308,7 @@ const DatePickerInput = ({
                 ]}
                 onPress={() => {
                     if (!disabled) {
-                        const parsed = parseSafeDate(value) || new Date();
+                        const parsed = parseSafeDate(activeValue) || new Date();
                         setCurrentMonth(parsed);
                         setYearPage(parsed.getFullYear());
                         setViewMode('days');
@@ -310,12 +347,23 @@ const DatePickerInput = ({
                 onRequestClose={() => setIsOpen(false)}
                 statusBarTranslucent={true}
             >
-                <Pressable style={styles.modalBackdrop} onPress={() => setIsOpen(false)}>
-                    <Pressable style={styles.calendarCard} onPress={(e) => e.stopPropagation()}>
+                <Pressable style={[styles.modalBackdrop, { paddingHorizontal: backdropPadding }]} onPress={() => setIsOpen(false)}>
+                    <Pressable
+                        style={[
+                            styles.calendarCard,
+                            {
+                                width: cardWidth,
+                                maxWidth: cardWidth,
+                                paddingHorizontal: cardPaddingH,
+                                paddingVertical: isVeryNarrow ? 12 : 16,
+                            }
+                        ]}
+                        onPress={(e) => e.stopPropagation()}
+                    >
                         {/* Header Bar */}
                         <View style={styles.calendarHeader}>
                             <TouchableOpacity
-                                style={styles.navArrow}
+                                style={[styles.navArrow, { width: Math.min(cellWidth, 36), height: Math.min(cellWidth, 36) }]}
                                 onPress={() => {
                                     if (viewMode === 'days') {
                                         setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
@@ -327,36 +375,44 @@ const DatePickerInput = ({
                                 }}
                                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                             >
-                                <Feather name="chevron-left" size={20} color="#334155" />
+                                <Feather name="chevron-left" size={isVeryNarrow ? 18 : 20} color="#334155" />
                             </TouchableOpacity>
 
-                            <View style={styles.headerTitleContainer}>
+                            <View style={[styles.headerTitleContainer, { gap: isVeryNarrow ? 4 : 6 }]}>
                                 <TouchableOpacity
-                                    style={[styles.headerTab, viewMode === 'months' && styles.headerTabActive]}
+                                    style={[
+                                        styles.headerTab,
+                                        { paddingHorizontal: isVeryNarrow ? 8 : (isNarrow ? 10 : 12), paddingVertical: isVeryNarrow ? 4 : 6 },
+                                        viewMode === 'months' && styles.headerTabActive
+                                    ]}
                                     onPress={() => setViewMode(viewMode === 'months' ? 'days' : 'months')}
                                     hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
                                 >
-                                    <Text style={[styles.headerTitleText, viewMode === 'months' && styles.headerTitleTextActive]}>
+                                    <Text style={[styles.headerTitleText, { fontSize: isVeryNarrow ? 12.5 : (isNarrow ? 13 : 14) }, viewMode === 'months' && styles.headerTitleTextActive]}>
                                         {MONTH_NAMES[currentMonth.getMonth()]}
                                     </Text>
                                 </TouchableOpacity>
 
                                 <TouchableOpacity
-                                    style={[styles.headerTab, viewMode === 'years' && styles.headerTabActive]}
+                                    style={[
+                                        styles.headerTab,
+                                        { paddingHorizontal: isVeryNarrow ? 8 : (isNarrow ? 10 : 12), paddingVertical: isVeryNarrow ? 4 : 6 },
+                                        viewMode === 'years' && styles.headerTabActive
+                                    ]}
                                     onPress={() => {
                                         setYearPage(currentMonth.getFullYear());
                                         setViewMode(viewMode === 'years' ? 'days' : 'years');
                                     }}
                                     hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
                                 >
-                                    <Text style={[styles.headerTitleText, viewMode === 'years' && styles.headerTitleTextActive]}>
+                                    <Text style={[styles.headerTitleText, { fontSize: isVeryNarrow ? 12.5 : (isNarrow ? 13 : 14) }, viewMode === 'years' && styles.headerTitleTextActive]}>
                                         {currentMonth.getFullYear()}
                                     </Text>
                                 </TouchableOpacity>
                             </View>
 
                             <TouchableOpacity
-                                style={styles.navArrow}
+                                style={[styles.navArrow, { width: Math.min(cellWidth, 36), height: Math.min(cellWidth, 36) }]}
                                 onPress={() => {
                                     if (viewMode === 'days') {
                                         setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
@@ -368,23 +424,23 @@ const DatePickerInput = ({
                                 }}
                                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                             >
-                                <Feather name="chevron-right" size={20} color="#334155" />
+                                <Feather name="chevron-right" size={isVeryNarrow ? 18 : 20} color="#334155" />
                             </TouchableOpacity>
                         </View>
 
                         {/* Days View */}
                         {viewMode === 'days' && (
-                            <View>
-                                <View style={styles.weekDaysRow}>
+                            <View style={{ width: availableGridWidth, alignSelf: 'center' }}>
+                                <View style={[styles.weekDaysRow, { width: availableGridWidth, justifyContent: 'space-between' }]}>
                                     {WEEK_DAYS.map((wd) => (
-                                        <Text key={wd} style={styles.weekDayText}>{wd}</Text>
+                                        <Text key={wd} style={[styles.weekDayText, { width: cellWidth, fontSize: isVeryNarrow ? 10 : 11 }]}>{wd}</Text>
                                     ))}
                                 </View>
 
-                                <View style={styles.daysGrid}>
+                                <View style={[styles.daysGrid, { width: availableGridWidth, justifyContent: 'space-between' }]}>
                                     {daysArray.map((day, idx) => {
                                         if (day === null) {
-                                            return <View key={`blank-${idx}`} style={styles.dayCellPlaceholder} />;
+                                            return <View key={`blank-${idx}`} style={[styles.dayCellPlaceholder, { width: cellWidth, height: cellHeight }]} />;
                                         }
 
                                         const y = currentMonth.getFullYear();
@@ -399,6 +455,7 @@ const DatePickerInput = ({
                                                 key={`day-${day}`}
                                                 style={[
                                                     styles.dayCell,
+                                                    { width: cellWidth, height: cellHeight },
                                                     isSelected && styles.dayCellSelected,
                                                     isToday && !isSelected && styles.dayCellToday,
                                                     isOutOfRange && styles.dayCellDisabled
@@ -406,11 +463,12 @@ const DatePickerInput = ({
                                                 onPress={() => !isOutOfRange && handleSelectDay(day)}
                                                 disabled={isOutOfRange}
                                                 activeOpacity={0.7}
-                                                hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                                                hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
                                             >
                                                 <Text
                                                     style={[
                                                         styles.dayText,
+                                                        { fontSize: isVeryNarrow ? 11.5 : (isNarrow ? 12 : 13) },
                                                         isSelected && styles.dayTextSelected,
                                                         isToday && !isSelected && styles.dayTextToday,
                                                         isOutOfRange && styles.dayTextDisabled
@@ -427,7 +485,7 @@ const DatePickerInput = ({
 
                         {/* Months Selector View */}
                         {viewMode === 'months' && (
-                            <View style={styles.monthsGrid}>
+                            <View style={[styles.monthsGrid, { width: availableGridWidth, alignSelf: 'center' }]}>
                                 {MONTH_NAMES.map((mName, mIdx) => {
                                     const isSelectedMonth = currentMonth.getMonth() === mIdx;
                                     return (
@@ -450,7 +508,7 @@ const DatePickerInput = ({
 
                         {/* Years Selector View */}
                         {viewMode === 'years' && (
-                            <View style={styles.yearsGrid}>
+                            <View style={[styles.yearsGrid, { width: availableGridWidth, alignSelf: 'center' }]}>
                                 {Array.from({ length: 12 }).map((_, i) => {
                                     const yVal = yearPage - 4 + i;
                                     const isSelectedYear = currentMonth.getFullYear() === yVal;
@@ -474,14 +532,14 @@ const DatePickerInput = ({
 
                         {/* Footer Controls */}
                         <View style={styles.calendarFooter}>
-                            <TouchableOpacity style={styles.footerActionBtn} onPress={handleClear} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                                <Text style={styles.footerActionClear}>Clear</Text>
+                            <TouchableOpacity style={[styles.footerActionBtn, { paddingHorizontal: isVeryNarrow ? 8 : (isNarrow ? 10 : 14) }]} onPress={handleClear} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                                <Text style={[styles.footerActionClear, { fontSize: isVeryNarrow ? 11.5 : 12.5 }]}>Clear</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity style={styles.footerActionBtn} onPress={handleToday} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                                <Text style={styles.footerActionToday}>Today</Text>
+                            <TouchableOpacity style={[styles.footerActionBtn, { paddingHorizontal: isVeryNarrow ? 8 : (isNarrow ? 10 : 14) }]} onPress={handleToday} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                                <Text style={[styles.footerActionToday, { fontSize: isVeryNarrow ? 11.5 : 12.5 }]}>Today</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity style={styles.footerActionDone} onPress={() => setIsOpen(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                                <Text style={styles.footerActionDoneText}>Cancel</Text>
+                            <TouchableOpacity style={[styles.footerActionDone, { paddingHorizontal: isVeryNarrow ? 8 : (isNarrow ? 10 : 14) }]} onPress={() => setIsOpen(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                                <Text style={[styles.footerActionDoneText, { fontSize: isVeryNarrow ? 11.5 : 12.5 }]}>Cancel</Text>
                             </TouchableOpacity>
                         </View>
                     </Pressable>

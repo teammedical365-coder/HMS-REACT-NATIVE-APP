@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, Pressable, ScrollView, Image, Dimensions, Platform, useWindowDimensions, Animated } from 'react-native';
+import { View, Text, TouchableOpacity, Pressable, ScrollView, Image, Dimensions, Platform, useWindowDimensions, Animated, StatusBar } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSelector, useDispatch } from 'react-redux';
 import { logout } from '../../store/slices/authSlice';
@@ -86,6 +86,8 @@ const HaSidebarAiCard = () => {
 
 const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
     const insets = useSafeAreaInsets();
+    // Exactly one effective safe-top inset applied through SafeArea architecture.
+    // Prevents insets.top and StatusBar.currentHeight from creating double top spacing.
     const topInset = Platform.OS === 'web' ? 0 : Math.max(0, insets?.top || 0);
     const { user } = useSelector(state => state.auth);
     const dispatch = useDispatch();
@@ -410,6 +412,8 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
 
 const TopBar = ({ toggleSidebar, sidebarOpen, isMobile }) => {
     const insets = useSafeAreaInsets();
+    // Exactly one effective safe-top inset applied through SafeArea architecture.
+    // Prevents insets.top and StatusBar.currentHeight from creating double top spacing.
     const topInset = Platform.OS === 'web' ? 0 : Math.max(0, insets?.top || 0);
     const { user } = useSelector(state => state.auth);
     const dispatch = useDispatch();

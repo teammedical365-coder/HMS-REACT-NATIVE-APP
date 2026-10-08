@@ -7,6 +7,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather, FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
 import Svg, { Path } from 'react-native-svg';
+import { useBranding } from '../../context/BrandingContext';
 
 const isSafeLogo = (u) => Boolean(u && typeof u === 'string' && u.trim() && !u.includes('gemini.google.com'));
 
@@ -166,7 +167,28 @@ const NeuralAuthPortal = ({
     };
 
     const primarySession = Array.isArray(activeSession) ? activeSession[0] : typeof activeSession === 'object' ? activeSession : null;
-    const logoSrc = isSafeLogo(branding?.logoUrl) ? { uri: branding.logoUrl } : require('../../../assets/medical365-logo.png');
+
+    let contextBranding = null;
+    let isResolvingBranding = false;
+    try {
+        const brandingCtx = useBranding();
+        contextBranding = brandingCtx?.branding;
+        isResolvingBranding = Boolean(brandingCtx && (!brandingCtx.isHydrated || brandingCtx.loading) && !contextBranding);
+    } catch (e) { }
+
+    const effectiveBranding = branding || contextBranding;
+    const hasHospitalLogo = isSafeLogo(effectiveBranding?.logoUrl);
+    const hospitalName = effectiveBranding?.hospitalName || effectiveBranding?.appName || '';
+
+    // White-label branding priority:
+    // 1. If hospital logo is known -> immediately display hospital logo
+    // 2. If branding is resolving (AsyncStorage cold start hydration or inflight) -> show placeholder, do NOT flash Medical365
+    // 3. Fallback only if genuinely unbranded after hydration completes
+    const logoSrc = hasHospitalLogo 
+        ? { uri: effectiveBranding.logoUrl } 
+        : (isResolvingBranding 
+            ? null 
+            : require('../../../assets/medical365-logo.png'));
 
     return (
         <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -183,15 +205,34 @@ const NeuralAuthPortal = ({
                 bounces={false}
                 keyboardShouldPersistTaps="handled"
             >
-                <View style={[styles.mainWrapper, isDesktop && styles.mainWrapperDesktop, isTablet && styles.mainWrapperTablet]}>
-                    
-                    {/* ─── LEFT SECTION: BRAND + HERO + FEATURES + ECG ─── */}
-                    {!isMobile && (
-                        <View style={[styles.leftPane, isTablet && { width: 310 }]}>
-                            {/* Brand Logo */}
-                            <View style={styles.brandRow}>
-                                <Image source={logoSrc} style={styles.brandLogo} resizeMode="contain" />
-                            </View>
+                <View style={styles.centerSection}>
+                    <View style={[
+                        styles.mainWrapper, 
+                        isDesktop && styles.mainWrapperDesktop, 
+                        isTablet && styles.mainWrapperTablet,
+                        isMobile && { paddingHorizontal: windowWidth < 360 ? 14 : 20 }
+                    ]}>
+                        
+                        {/* ─── LEFT SECTION: BRAND + HERO + FEATURES + ECG ─── */}
+                        {!isMobile && (
+                            <View style={[styles.leftPane, isTablet && { width: 310 }]}>
+                                {/* Brand Logo */}
+                                <View style={styles.brandRow}>
+                                    {logoSrc ? (
+                                        <Image source={logoSrc} style={styles.brandLogo} resizeMode="contain" />
+                                    ) : (
+                                        <View style={styles.mobileBrandPlaceholder}>
+                                            <View style={styles.mobileBrandSkeletonIcon}>
+                                                <Feather name="activity" size={20} color="#0d9488" />
+                                            </View>
+                                            {hospitalName ? (
+                                                <Text style={styles.mobileBrandTitleText}>{hospitalName}</Text>
+                                            ) : (
+                                                <View style={styles.mobileBrandSkeletonBar} />
+                                            )}
+                                        </View>
+                                    )}
+                                </View>
 
                             {/* Headline */}
                             <View style={styles.heroTextContainer}>
@@ -289,7 +330,20 @@ const NeuralAuthPortal = ({
                         {isMobile && (
                             <>
                                 <View style={styles.mobileBrandHeader}>
-                                    <Image source={logoSrc} style={styles.mobileBrandLogo} resizeMode="contain" />
+                                    {logoSrc ? (
+                                        <Image source={logoSrc} style={styles.mobileBrandLogo} resizeMode="contain" />
+                                    ) : (
+                                        <View style={styles.mobileBrandPlaceholder}>
+                                            <View style={styles.mobileBrandSkeletonIcon}>
+                                                <Feather name="activity" size={20} color="#0d9488" />
+                                            </View>
+                                            {hospitalName ? (
+                                                <Text style={styles.mobileBrandTitleText}>{hospitalName}</Text>
+                                            ) : (
+                                                <View style={styles.mobileBrandSkeletonBar} />
+                                            )}
+                                        </View>
+                                    )}
                                 </View>
                                 {!__DISABLE_LOGIN_VISUALS__ && (
                                     <View style={styles.mobileDoctorStage}>
@@ -307,7 +361,10 @@ const NeuralAuthPortal = ({
                             </>
                         )}
 
-                        <View style={styles.glassCard}>
+                        <View style={[
+                            styles.glassCard,
+                            isMobile && { padding: windowWidth < 360 ? 18 : 22, borderRadius: 22 }
+                        ]}>
                             {/* Card Header Title */}
                             <View style={styles.cardHeader}>
                                 <Text style={styles.portalTitle}>{title}</Text>
@@ -597,8 +654,9 @@ const NeuralAuthPortal = ({
                         </View>
                     </View>
                 </View>
+            </View>
 
-                {/* Footer */}
+            {/* Footer */}
                 <View style={styles.footerRow}>
                     <Text style={styles.footerText}>© 2026 Medical365. All rights reserved.</Text>
                     <View style={styles.securePill}>
@@ -618,7 +676,14 @@ const styles = StyleSheet.create({
     scrollContent: { 
         flexGrow: 1, 
         justifyContent: 'space-between',
-        paddingVertical: 20
+        paddingVertical: 14,
+    },
+    centerSection: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        width: '100%',
+        paddingVertical: 8,
     },
     mainWrapper: { 
         width: '100%', 
@@ -795,11 +860,41 @@ const styles = StyleSheet.create({
     },
     mobileBrandHeader: {
         alignItems: 'center',
-        marginBottom: 8
+        marginTop: 10,
+        marginBottom: 16,
     },
     mobileBrandLogo: {
-        height: 42,
-        width: 190
+        height: 48,
+        width: 210,
+        maxWidth: '92%',
+    },
+    mobileBrandPlaceholder: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: 48,
+        paddingVertical: 4,
+    },
+    mobileBrandSkeletonIcon: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: '#e0f2fe',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 6,
+    },
+    mobileBrandTitleText: {
+        fontSize: 18,
+        fontWeight: '800',
+        color: '#0f172a',
+        letterSpacing: -0.3,
+        textAlign: 'center',
+    },
+    mobileBrandSkeletonBar: {
+        width: 140,
+        height: 16,
+        borderRadius: 8,
+        backgroundColor: '#e2e8f0',
     },
     mobileDoctorStage: {
         alignItems: 'center',

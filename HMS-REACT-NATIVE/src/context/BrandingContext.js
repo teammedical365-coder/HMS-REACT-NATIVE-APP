@@ -10,6 +10,7 @@ const BrandingContext = createContext();
 
 export const BrandingProvider = ({ children }) => {
   const [branding, setBranding] = useState(null);
+  const [isHydrated, setIsHydrated] = useState(false);
   const [loading, setLoading] = useState(false);
   const lastLoadedIdRef = useRef(null);
   const inFlightRef = useRef(null);
@@ -60,21 +61,55 @@ export const BrandingProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
     const initBranding = async () => {
-      const injectedTenantId = process.env.EXPO_PUBLIC_TENANT_ID;
-      if (injectedTenantId) {
-        await loadBranding(injectedTenantId);
-      } else {
-        const savedId = await AsyncStorage.getItem(STORAGE_KEYS.HOSPITAL_BRANDING_ID);
-        if (savedId) {
-          await loadBranding(savedId);
+      try {
+        // 1. Immediately hydrate cached branding from AsyncStorage (0ms local read)
+        const cachedRaw = await AsyncStorage.getItem(STORAGE_KEYS.HOSPITAL_BRANDING);
+        if (cachedRaw) {
+          try {
+            const cachedData = JSON.parse(cachedRaw);
+            if (cachedData && (cachedData.logoUrl || cachedData.hospitalName)) {
+              if (isMounted) {
+                setBranding(cachedData);
+                brandingRef.current = cachedData;
+              }
+            }
+          } catch (e) { }
         }
+
+        // 2. Identify target tenant (injected env, cached ID, or hardcoded tenant / app slug)
+        const injectedTenantId = process.env.EXPO_PUBLIC_TENANT_ID;
+        const savedId = await AsyncStorage.getItem(STORAGE_KEYS.HOSPITAL_BRANDING_ID);
+        const targetId = injectedTenantId || savedId;
+
+        if (targetId) {
+          await loadBranding(targetId);
+        } else {
+          // If no hospital ID stored, check fallback tenant slug (e.g. sharma-clinic)
+          try {
+            const tenantModule = await import('../tenant.js').catch(() => null);
+            const slug = tenantModule?.HARDCODED_TENANT?.slug || 'sharma-clinic';
+            if (slug) {
+              const res = await axios.get(`${API_BASE_URL}/api/public/branding?slug=${encodeURIComponent(slug)}`);
+              if (res.data && res.data.hospitalId) {
+                await loadBranding(res.data.hospitalId);
+              }
+            }
+          } catch (e) { }
+        }
+      } catch (err) {
+        console.warn('[BrandingContext] initBranding error:', err);
+      } finally {
+        if (isMounted) setIsHydrated(true);
       }
     };
     initBranding();
+    return () => { isMounted = false; };
   }, [loadBranding]);
 
   const resetBranding = useCallback(async () => {
+    // Preserves tenant branding context unless explicitly purged
     lastLoadedIdRef.current = null;
     inFlightRef.current = null;
     await AsyncStorage.multiRemove([
@@ -89,11 +124,12 @@ export const BrandingProvider = ({ children }) => {
 
   const contextValue = React.useMemo(() => ({
     branding,
+    isHydrated,
     loading,
     loadBranding,
     resetBranding,
     getTheme,
-  }), [branding, loading, loadBranding, resetBranding]);
+  }), [branding, isHydrated, loading, loadBranding, resetBranding]);
 
   return (
     <BrandingContext.Provider value={contextValue}>

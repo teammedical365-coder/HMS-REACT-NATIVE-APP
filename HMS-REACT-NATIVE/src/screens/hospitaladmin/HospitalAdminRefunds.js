@@ -585,8 +585,8 @@ const styles = StyleSheet.create({
     emptyTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a', marginTop: 8 },
     emptySub: { fontSize: 12, color: '#64748b', marginTop: 4, textAlign: 'center' },
 
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 },
-    modalContent: { backgroundColor: '#fff', borderRadius: 12, padding: 16, width: '100%', maxWidth: 540, maxHeight: '90%' },
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.65)', justifyContent: 'center', alignItems: 'center', padding: 16 },
+    modalContent: { backgroundColor: '#ffffff', borderRadius: 16, padding: 18, width: '100%', maxWidth: 540, maxHeight: '90%', shadowColor: '#000000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.25, shadowRadius: 20, elevation: 24 },
     modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderColor: '#e2e8f0', paddingBottom: 12, marginBottom: 14 },
     modalHeaderTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
     modalPatientCard: { backgroundColor: '#f8fafc', padding: 12, borderRadius: 8, marginBottom: 12 },

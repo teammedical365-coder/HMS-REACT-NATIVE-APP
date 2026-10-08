@@ -121,10 +121,9 @@ const AppNavigator = () => {
             if (hospitalId && !['centraladmin', 'superadmin'].includes(role)) {
                 loadBranding(hospitalId);
             }
-        } else if (!isAuthenticated) {
-            resetBranding();
         }
-    }, [isAuthenticated, user]);
+        // White-label requirement: preserve hospital branding across user sessions/logout
+    }, [isAuthenticated, user, loadBranding]);
 
 
     const isWeb = Platform.OS === 'web' && typeof window !== 'undefined';
