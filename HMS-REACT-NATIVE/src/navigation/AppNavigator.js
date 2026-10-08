@@ -22,6 +22,7 @@ import {
 import DashboardScreen from '../screens/DashboardScreen';
 import DashboardLayout from '../components/layouts/DashboardLayout';
 import { useBranding } from '../context/BrandingContext';
+import { connectAuthenticatedSocket, disconnectSocket } from '../utils/socket';
 
 const Stack = createNativeStackNavigator();
 
@@ -87,6 +88,17 @@ const defaultDoctorUser = {
     subscriptionPlan: "pro"
 };
 
+const defaultOTUser = {
+    _id: "6758493021abcdef12345680",
+    name: "Dr. Marcus Vance",
+    email: "ot@metropolisgeneral.org",
+    role: "otmanager",
+    hospitalId: "6758493021abcdef12345679",
+    hospitalName: "Metropolis General Hospital",
+    permissions: ["ot_manage", "ot_schedule", "surgery_manage"],
+    subscriptionPlan: "pro"
+};
+
 const FallbackStack = () => (
     <DashboardLayout>
         <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
@@ -119,6 +131,7 @@ const AppNavigator = () => {
 
     // Check if role is explicitly targeted in URL / hash
     const forcedRoleInUrl = isWeb ? (
+        (window.location.hash.toLowerCase().includes('ot') || window.location.search.toLowerCase().includes('ot') || window.location.pathname.toLowerCase().includes('ot')) ? 'otmanager' :
         (window.location.hash.toLowerCase().includes('doctor') || window.location.search.toLowerCase().includes('doctor') || window.location.pathname.toLowerCase().includes('doctor') || window.location.pathname.includes('AIAssistant') || window.location.pathname.includes('IPDCommandCenter')) ? 'doctor' :
         (window.location.hash.toLowerCase().includes('lab') || window.location.search.toLowerCase().includes('lab') || window.location.pathname.toLowerCase().includes('lab')) ? 'lab' :
         (window.location.hash.toLowerCase().includes('pharmacy') || window.location.search.toLowerCase().includes('pharmacy') || window.location.pathname.toLowerCase().includes('pharmacy')) ? 'pharmacy' :
@@ -129,34 +142,53 @@ const AppNavigator = () => {
 
     const isLoggedOut = !forcedRoleInUrl && isWeb && (localStorage.getItem('isLoggedOut') === 'true' || sessionStorage.getItem('isLoggedOut') === 'true');
 
-    const isDoctorDev = !isLoggedOut && isWeb && (
+    const isOTDev = !isLoggedOut && isWeb && (
+        forcedRoleInUrl === 'otmanager' ||
+        localStorage.getItem('role') === 'otmanager' ||
+        localStorage.getItem('role') === 'ot' ||
+        localStorage.getItem('role') === 'otstaff'
+    );
+    const isDoctorDev = !isLoggedOut && !isOTDev && isWeb && (
         forcedRoleInUrl === 'doctor' ||
         localStorage.getItem('role') === 'doctor' ||
         localStorage.getItem('role') === 'clinicdoctor'
     );
-    const isLabDev = !isLoggedOut && !isDoctorDev && isWeb && (
+    const isLabDev = !isLoggedOut && !isOTDev && !isDoctorDev && isWeb && (
         forcedRoleInUrl === 'lab' ||
         localStorage.getItem('role') === 'lab' ||
         localStorage.getItem('role') === 'pathologist' ||
         localStorage.getItem('role') === 'labtechnician'
     );
-    const isPharmacyDev = !isLoggedOut && !isDoctorDev && !isLabDev && isWeb && (
+    const isPharmacyDev = !isLoggedOut && !isOTDev && !isDoctorDev && !isLabDev && isWeb && (
         forcedRoleInUrl === 'pharmacy' ||
         localStorage.getItem('role') === 'pharmacy' ||
         localStorage.getItem('role') === 'pharmacist'
     );
-    const isReceptionDev = !isLoggedOut && !isDoctorDev && !isLabDev && !isPharmacyDev && isWeb && (
+    const isReceptionDev = !isLoggedOut && !isOTDev && !isDoctorDev && !isLabDev && !isPharmacyDev && isWeb && (
         forcedRoleInUrl === 'reception' ||
         localStorage.getItem('role') === 'reception' ||
         localStorage.getItem('role') === 'receptionist'
     );
-    const isHospitalAdminDev = !isLoggedOut && !isDoctorDev && !isLabDev && !isPharmacyDev && !isReceptionDev && isWeb && (
+    const isHospitalAdminDev = !isLoggedOut && !isOTDev && !isDoctorDev && !isLabDev && !isPharmacyDev && !isReceptionDev && isWeb && (
         forcedRoleInUrl === 'hospitaladmin' ||
         localStorage.getItem('role') === 'hospitaladmin'
     );
 
     React.useEffect(() => {
-        if (isDoctorDev && !isAuthenticated) {
+        if (isOTDev && !isAuthenticated) {
+            if (isWeb) {
+                localStorage.removeItem('isLoggedOut');
+                sessionStorage.removeItem('isLoggedOut');
+                localStorage.setItem('role', 'otmanager');
+                try {
+                    localStorage.setItem('user', JSON.stringify(defaultOTUser));
+                } catch(e) {}
+            }
+            dispatch(setCredentials({
+                user: defaultOTUser,
+                token: "mock_jwt_token_for_ot_parity"
+            }));
+        } else if (isDoctorDev && !isAuthenticated) {
             if (isWeb) {
                 localStorage.removeItem('isLoggedOut');
                 sessionStorage.removeItem('isLoggedOut');
@@ -190,20 +222,32 @@ const AppNavigator = () => {
                 token: "mock_jwt_token_for_hospital_admin_parity"
             }));
         }
-    }, [isDoctorDev, isLabDev, isPharmacyDev, isReceptionDev, isHospitalAdminDev, isAuthenticated, dispatch]);
+    }, [isOTDev, isDoctorDev, isLabDev, isPharmacyDev, isReceptionDev, isHospitalAdminDev, isAuthenticated, dispatch]);
 
     const activeUser = user || (
-        isDoctorDev ? defaultDoctorUser : (
-            isLabDev ? defaultLabUser : (
-                isPharmacyDev ? defaultPharmacyUser : (
-                    isReceptionDev ? defaultReceptionUser : (
-                        isHospitalAdminDev ? defaultHospitalAdminUser : null
+        isOTDev ? defaultOTUser : (
+            isDoctorDev ? defaultDoctorUser : (
+                isLabDev ? defaultLabUser : (
+                    isPharmacyDev ? defaultPharmacyUser : (
+                        isReceptionDev ? defaultReceptionUser : (
+                            isHospitalAdminDev ? defaultHospitalAdminUser : null
+                        )
                     )
                 )
             )
         )
     );
-    const isEffectiveAuth = isAuthenticated || isDoctorDev || isLabDev || isPharmacyDev || isReceptionDev || isHospitalAdminDev;
+    const isEffectiveAuth = isAuthenticated || isOTDev || isDoctorDev || isLabDev || isPharmacyDev || isReceptionDev || isHospitalAdminDev;
+
+    // Centralized authoritative socket connection lifecycle
+    React.useEffect(() => {
+        const authedUser = activeUser || user;
+        if (isEffectiveAuth && authedUser) {
+            connectAuthenticatedSocket(authedUser);
+        } else if (!isEffectiveAuth) {
+            disconnectSocket();
+        }
+    }, [isEffectiveAuth, activeUser, user]);
 
     const renderRoleStack = () => {
         const currentUserObj = activeUser || user;

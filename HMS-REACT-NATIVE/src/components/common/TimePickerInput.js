@@ -31,7 +31,8 @@ const TimePickerInput = ({
                         width: '100%',
                         maxWidth: '100%',
                         minWidth: 0,
-                        height: '42px',
+                        height: '44px',
+                        minHeight: '44px',
                         padding: '8px 14px',
                         borderRadius: '10px',
                         border: '1.5px solid #cbd5e1',
@@ -110,7 +111,7 @@ const TimePickerInput = ({
                     <TouchableOpacity style={styles.modalCard} activeOpacity={1} onPress={(e) => e.stopPropagation?.()}>
                         <View style={styles.modalHeader}>
                             <Text style={styles.modalTitle}>{title}</Text>
-                            <TouchableOpacity onPress={() => setModalVisible(false)}>
+                            <TouchableOpacity onPress={() => setModalVisible(false)} hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}>
                                 <Text style={styles.closeBtn}>✕</Text>
                             </TouchableOpacity>
                         </View>
@@ -154,7 +155,8 @@ const styles = StyleSheet.create({
     touchField: {
         flexDirection: 'row',
         alignItems: 'center',
-        height: 42,
+        height: 44,
+        minHeight: 44,
         paddingHorizontal: 14,
         borderRadius: 10,
         borderWidth: 1.5,
@@ -235,8 +237,12 @@ const styles = StyleSheet.create({
         gap: 10,
     },
     cancelBtn: {
-        paddingVertical: 9,
-        paddingHorizontal: 14,
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        minHeight: 44,
+        minWidth: 70,
+        justifyContent: 'center',
+        alignItems: 'center',
         borderRadius: 10,
         backgroundColor: '#f1f5f9',
     },
@@ -246,8 +252,12 @@ const styles = StyleSheet.create({
         color: '#64748b',
     },
     applyBtn: {
-        paddingVertical: 9,
-        paddingHorizontal: 16,
+        paddingVertical: 10,
+        paddingHorizontal: 18,
+        minHeight: 44,
+        minWidth: 90,
+        justifyContent: 'center',
+        alignItems: 'center',
         borderRadius: 10,
         backgroundColor: '#2563eb',
     },

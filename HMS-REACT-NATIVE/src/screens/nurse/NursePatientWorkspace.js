@@ -113,7 +113,16 @@ const NursePatientWorkspace = () => {
     const [handoverForm, setHandoverForm] = useState(HANDOVER_INIT);
 
     // Modal states
-    const [marModal, setMarModal] = useState({ open: false, record: null, action: '', reason: '' });
+    const [marModal, setMarModal] = useState({
+        open: false,
+        record: null,
+        action: 'GIVE',
+        actualDoseValue: '',
+        actualDoseUnit: 'mg',
+        reason: '',
+        notes: '',
+        errorMsg: ''
+    });
     const [taskModal, setTaskModal] = useState({ open: false, task: null, action: '', notes: '' });
     const [deviceRemoveModal, setDeviceRemoveModal] = useState({ open: false, type: '', id: '', reason: '', notes: '' });
     const [newTaskModalOpen, setNewTaskModalOpen] = useState(false);
@@ -650,42 +659,72 @@ const NursePatientWorkspace = () => {
     };
 
     // 11. MAR Actions
+    const openMARModal = (record, initialAction = 'GIVE') => {
+        const order = typeof record?.orderId === 'object' ? record.orderId : {};
+        const prescribedVal = order?.dosageValue !== undefined
+            ? String(order.dosageValue)
+            : (record?.actualDoseValue ? String(record.actualDoseValue) : (record?.dosageValue ? String(record.dosageValue) : ''));
+        const prescribedUnit = order?.dosageUnit || record?.actualDoseUnit || record?.dosageUnit || 'mg';
+
+        setMarModal({
+            open: true,
+            record,
+            action: initialAction,
+            actualDoseValue: prescribedVal,
+            actualDoseUnit: prescribedUnit,
+            reason: '',
+            notes: '',
+            errorMsg: ''
+        });
+    };
+
     const handleMARAction = async () => {
-        const { record, action, reason } = marModal;
+        const { record, action, reason, actualDoseValue, actualDoseUnit, notes } = marModal;
         if (!record) return;
-        if (['HELD', 'REFUSED', 'MISSED'].includes(action) && (!reason || !reason.trim())) {
-            showToast(`A reason is required when medication is marked as ${action}`, 'error');
+
+        const isMandatoryReason = ['HOLD', 'HELD', 'REFUSE', 'REFUSED', 'MISS', 'MISSED'].includes(action);
+        if (isMandatoryReason && (!reason || !reason.trim())) {
+            setMarModal(p => ({
+                ...p,
+                errorMsg: `A specific reason is mandatory for ${action.includes('HOLD') ? 'Holding' : action.includes('REFUSE') ? 'Refusal' : 'Missed'} medication.`
+            }));
             return;
         }
+
+        let finalStatus = 'ADMINISTERED';
+        if (action === 'HOLD' || action === 'HELD') finalStatus = 'HELD';
+        if (action === 'REFUSE' || action === 'REFUSED') finalStatus = 'REFUSED';
+        if (action === 'MISS' || action === 'MISSED') finalStatus = 'MISSED';
+
+        const order = typeof record.orderId === 'object' ? record.orderId : {};
+        const payload = {
+            status: finalStatus,
+            actualDoseValue: finalStatus === 'ADMINISTERED'
+                ? (actualDoseValue && actualDoseValue.trim() !== '' ? Number(actualDoseValue) : (order?.dosageValue !== undefined ? Number(order.dosageValue) : undefined))
+                : undefined,
+            actualDoseUnit: finalStatus === 'ADMINISTERED' ? (actualDoseUnit?.trim() || order?.dosageUnit || undefined) : undefined,
+            notes: (notes || '').trim(),
+            reason: (reason || '').trim(),
+        };
+
         try {
             setSubmitting(true);
-            await ipdClinicalAPI.updateMARRecord(record._id, {
-                status: action,
-                reason: reason.trim(),
-            });
-            setMarModal({ open: false, record: null, action: '', reason: '' });
-            showToast(`Medication marked as ${action}`);
+            await ipdClinicalAPI.updateMARRecord(record._id, payload);
+            setMarModal({ open: false, record: null, action: 'GIVE', actualDoseValue: '', actualDoseUnit: 'mg', reason: '', notes: '', errorMsg: '' });
+            showToast(`Medication record updated to ${finalStatus}`);
             fetchMAR();
             fetchTimeline();
         } catch (err) {
-            showToast(err.response?.data?.message || 'Error updating MAR', 'error');
+            const msg = err.response?.data?.message || err.message || 'Error updating MAR';
+            setMarModal(p => ({ ...p, errorMsg: msg }));
+            showToast(msg, 'error');
         } finally {
             setSubmitting(false);
         }
     };
 
     const handleAdministerDirect = async (record) => {
-        try {
-            setSubmitting(true);
-            await ipdClinicalAPI.updateMARRecord(record._id, { status: 'ADMINISTERED' });
-            showToast('Medication administered successfully');
-            fetchMAR();
-            fetchTimeline();
-        } catch (err) {
-            showToast(err.response?.data?.message || 'Error administering medication', 'error');
-        } finally {
-            setSubmitting(false);
-        }
+        openMARModal(record, 'GIVE');
     };
 
     // 12. Acknowledge Order
@@ -817,8 +856,12 @@ const NursePatientWorkspace = () => {
                         <Text style={styles.fieldLabel}>Care Nurse</Text>
                         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                             <Text style={styles.fieldValue}>{assignedNurseNames.length > 0 ? assignedNurseNames.join(', ') : 'Unassigned'}</Text>
-                            <TouchableOpacity onPress={() => setAssignModalOpen(true)} style={{ marginLeft: 6 }}>
-                                <Text style={{ color: '#0d9488', fontWeight: '700', fontSize: 12 }}>+ Assign</Text>
+                            <TouchableOpacity
+                                onPress={() => setAssignModalOpen(true)}
+                                style={{ marginLeft: 6, minHeight: 44, paddingHorizontal: 8, justifyContent: 'center' }}
+                                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                            >
+                                <Text style={{ color: '#0d9488', fontWeight: '700', fontSize: 13 }}>+ Assign</Text>
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -979,11 +1022,12 @@ const NursePatientWorkspace = () => {
         <View style={styles.tabContentWrap}>
             <View style={styles.filterBarRow}>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-                    {['ALL', 'DUE', 'ADMINISTERED', 'HELD', 'REFUSED'].map(f => (
+                    {['ALL', 'DUE', 'ADMINISTERED', 'HELD', 'REFUSED', 'MISSED'].map(f => (
                         <TouchableOpacity
                             key={f}
                             style={[styles.filterChip, marFilter === f && styles.filterChipActive]}
                             onPress={() => setMarFilter(f)}
+                            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
                         >
                             <Text style={[styles.filterChipText, marFilter === f && styles.filterChipTextActive]}>{f}</Text>
                         </TouchableOpacity>
@@ -994,36 +1038,89 @@ const NursePatientWorkspace = () => {
             {filteredMAR.length === 0 ? (
                 <View style={styles.emptyCard}><Text style={styles.emptyText}>No MAR records match this status.</Text></View>
             ) : (
-                filteredMAR.map((rec, i) => (
-                    <View key={rec._id || i} style={styles.itemCard}>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                            <View style={{ flex: 1 }}>
-                                <Text style={styles.itemCardTitle}>{typeof rec.orderId === 'object' ? rec.orderId?.medicineName : 'Scheduled Med'}</Text>
-                                <Text style={styles.itemCardSub}>Dose: {rec.dosage || 'Standard'} • Route: {rec.route || 'Oral'} • Scheduled: {rec.scheduledTime ? new Date(rec.scheduledTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Today'}</Text>
-                                {rec.reason ? <Text style={styles.itemCardNotes}>Reason: {rec.reason}</Text> : null}
+                filteredMAR.map((rec, i) => {
+                    const order = typeof rec.orderId === 'object' ? rec.orderId : {};
+                    const medName = order?.medicineName || rec.medicineName || 'Scheduled Med';
+                    const doseDisplay = rec.actualDoseValue
+                        ? `${rec.actualDoseValue} ${rec.actualDoseUnit || ''}`.trim()
+                        : (order?.dosageValue ? `${order.dosageValue} ${order.dosageUnit || ''}`.trim() : (rec.dosage || 'Standard'));
+                    const routeDisplay = rec.route || order?.route || 'Oral';
+                    const timeDisplay = rec.scheduledTime ? new Date(rec.scheduledTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Today';
+
+                    return (
+                        <View key={rec._id || i} style={styles.itemCard}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                <View style={{ flex: 1, paddingRight: 8 }}>
+                                    <Text style={styles.itemCardTitle}>{medName}</Text>
+                                    <Text style={styles.itemCardSub}>
+                                        Dose: {doseDisplay} • Route: {routeDisplay} • Scheduled: {timeDisplay}
+                                    </Text>
+                                    {rec.notes ? <Text style={styles.itemCardNotes}>Notes: {rec.notes}</Text> : null}
+                                    {rec.reason ? <Text style={styles.itemCardNotes}>Reason: {rec.reason}</Text> : null}
+                                </View>
+                                <View style={[styles.statusPill, {
+                                    backgroundColor: rec.status === 'ADMINISTERED'
+                                        ? '#dcfce7'
+                                        : rec.status === 'HELD'
+                                        ? '#fef3c7'
+                                        : rec.status === 'REFUSED'
+                                        ? '#fee2e2'
+                                        : rec.status === 'MISSED'
+                                        ? '#f1f5f9'
+                                        : '#e0f2fe'
+                                }]}>
+                                    <Text style={[styles.statusPillText, {
+                                        color: rec.status === 'ADMINISTERED'
+                                            ? '#15803d'
+                                            : rec.status === 'HELD'
+                                            ? '#b45309'
+                                            : rec.status === 'REFUSED'
+                                            ? '#b91c1c'
+                                            : rec.status === 'MISSED'
+                                            ? '#475569'
+                                            : '#0369a1'
+                                    }]}>{rec.status || 'DUE'}</Text>
+                                </View>
                             </View>
-                            <View style={[styles.statusPill, { backgroundColor: rec.status === 'ADMINISTERED' ? '#dcfce7' : rec.status === 'HELD' ? '#fef3c7' : '#fee2e2' }]}>
-                                <Text style={[styles.statusPillText, { color: rec.status === 'ADMINISTERED' ? '#15803d' : rec.status === 'HELD' ? '#b45309' : '#b91c1c' }]}>{rec.status || 'DUE'}</Text>
-                            </View>
+                            {rec.status !== 'ADMINISTERED' && (
+                                <View style={styles.itemCardActions}>
+                                    <TouchableOpacity
+                                        style={styles.btnSmSuccess}
+                                        onPress={() => openMARModal(rec, 'GIVE')}
+                                        hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+                                    >
+                                        <Feather name="check" size={13} color="#ffffff" style={{ marginRight: 4 }} />
+                                        <Text style={styles.btnSmSuccessText}>Administer</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={styles.btnSmWarning}
+                                        onPress={() => openMARModal(rec, 'HOLD')}
+                                        hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+                                    >
+                                        <Feather name="pause" size={13} color="#ffffff" style={{ marginRight: 4 }} />
+                                        <Text style={styles.btnSmWarningText}>Hold</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={styles.btnSmDanger}
+                                        onPress={() => openMARModal(rec, 'REFUSE')}
+                                        hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+                                    >
+                                        <Feather name="x" size={13} color="#ffffff" style={{ marginRight: 4 }} />
+                                        <Text style={styles.btnSmDangerText}>Refuse</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={styles.btnSmMissed}
+                                        onPress={() => openMARModal(rec, 'MISS')}
+                                        hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+                                    >
+                                        <Feather name="alert-triangle" size={13} color="#ffffff" style={{ marginRight: 4 }} />
+                                        <Text style={styles.btnSmMissedText}>Missed</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            )}
                         </View>
-                        {rec.status !== 'ADMINISTERED' && (
-                            <View style={styles.itemCardActions}>
-                                <TouchableOpacity style={styles.btnSmSuccess} onPress={() => handleAdministerDirect(rec)}>
-                                    <Feather name="check" size={13} color="#ffffff" style={{ marginRight: 4 }} />
-                                    <Text style={styles.btnSmSuccessText}>Administer</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity style={styles.btnSmWarning} onPress={() => setMarModal({ open: true, record: rec, action: 'HELD', reason: '' })}>
-                                    <Feather name="pause" size={13} color="#ffffff" style={{ marginRight: 4 }} />
-                                    <Text style={styles.btnSmWarningText}>Hold</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity style={styles.btnSmDanger} onPress={() => setMarModal({ open: true, record: rec, action: 'REFUSED', reason: '' })}>
-                                    <Feather name="x" size={13} color="#ffffff" style={{ marginRight: 4 }} />
-                                    <Text style={styles.btnSmDangerText}>Refuse</Text>
-                                </TouchableOpacity>
-                            </View>
-                        )}
-                    </View>
-                ))
+                    );
+                })
             )}
         </View>
     );
@@ -1577,7 +1674,13 @@ const NursePatientWorkspace = () => {
                         <View style={styles.modalCard}>
                             <View style={styles.modalHeader}>
                                 <Text style={styles.modalTitle}>Assign Care Nurse</Text>
-                                <TouchableOpacity onPress={() => setAssignModalOpen(false)}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                                <TouchableOpacity
+                                    style={styles.modalCloseBtn}
+                                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                                    onPress={() => setAssignModalOpen(false)}
+                                >
+                                    <Feather name="x" size={18} color="#64748b" />
+                                </TouchableOpacity>
                             </View>
                             <ScrollView style={{ padding: 18, maxHeight: 360 }} keyboardShouldPersistTaps="handled">
                                 <Text style={styles.inputLabel}>Select Staff Nurse</Text>
@@ -1610,7 +1713,13 @@ const NursePatientWorkspace = () => {
                         <View style={styles.modalCard}>
                             <View style={styles.modalHeader}>
                                 <Text style={styles.modalTitle}>Sign Off Nursing Clearance</Text>
-                                <TouchableOpacity onPress={() => setClearanceModalOpen(false)}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                                <TouchableOpacity
+                                    style={styles.modalCloseBtn}
+                                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                                    onPress={() => setClearanceModalOpen(false)}
+                                >
+                                    <Feather name="x" size={18} color="#64748b" />
+                                </TouchableOpacity>
                             </View>
                             <View style={{ padding: 18 }}>
                                 <Text style={styles.inputLabel}>Final Nursing Clearance Notes</Text>
@@ -1625,22 +1734,230 @@ const NursePatientWorkspace = () => {
                 </View>
             </Modal>
 
-            {/* 3. MAR Reason Modal (Hold/Refuse) */}
-            <Modal visible={marModal.open} transparent animationType="fade" onRequestClose={() => setMarModal({ open: false, record: null, action: '', reason: '' })}>
+            {/* 3. MAR Clinical Administration Modal */}
+            <Modal visible={marModal.open} transparent animationType="fade" onRequestClose={() => setMarModal({ open: false, record: null, action: 'GIVE', actualDoseValue: '', actualDoseUnit: 'mg', reason: '', notes: '', errorMsg: '' })}>
                 <View style={styles.modalOverlay}>
                     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardAvoidWrap}>
-                        <View style={styles.modalCard}>
+                        <View style={[styles.modalCard, { maxHeight: '92%' }]}>
                             <View style={styles.modalHeader}>
-                                <Text style={styles.modalTitle}>{marModal.action === 'HELD' ? 'Hold Medication' : 'Refuse Medication'}</Text>
-                                <TouchableOpacity onPress={() => setMarModal({ open: false, record: null, action: '', reason: '' })}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                                <View style={{ flex: 1, paddingRight: 8 }}>
+                                    <View style={styles.mamBadge}>
+                                        <Text style={styles.mamBadgeText}>CLINICAL MEDICATION ADMINISTRATION</Text>
+                                    </View>
+                                    <Text style={styles.modalTitle}>Administer Medication</Text>
+                                </View>
+                                <TouchableOpacity
+                                    style={styles.modalCloseBtn}
+                                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                                    onPress={() => setMarModal({ open: false, record: null, action: 'GIVE', actualDoseValue: '', actualDoseUnit: 'mg', reason: '', notes: '', errorMsg: '' })}
+                                >
+                                    <Feather name="x" size={18} color="#64748b" />
+                                </TouchableOpacity>
                             </View>
-                            <View style={{ padding: 18 }}>
-                                <Text style={styles.inputLabel}>Reason Required *</Text>
-                                <TextInput style={[styles.input, { height: 70 }]} multiline placeholder={`Why is this medication being ${marModal.action === 'HELD' ? 'held' : 'refused'}?`} value={marModal.reason} onChangeText={t => setMarModal(p => ({ ...p, reason: t }))} />
-                            </View>
+
+                            <ScrollView style={{ padding: 18 }} keyboardShouldPersistTaps="handled">
+                                {marModal.record && (() => {
+                                    const rec = marModal.record;
+                                    const order = typeof rec.orderId === 'object' ? rec.orderId : {};
+                                    const medicineName = order.medicineName || rec.medicineName || 'Medication';
+                                    const prescribedDose = `${order.dosageValue || rec.dosageValue || ''} ${order.dosageUnit || rec.dosageUnit || ''}`.trim() || rec.dosage || 'Standard Dose';
+                                    const route = order.route || rec.route || 'Oral';
+                                    const frequency = order.frequency || rec.frequency || 'OD';
+                                    const orderedDoctor = order.doctorId?.name ? `Dr. ${order.doctorId.name}` : (order.doctorId ? String(order.doctorId) : (doctorName !== 'Not Assigned' ? `Dr. ${doctorName}` : 'Attending Doctor'));
+                                    const scheduledTimeStr = rec.scheduledTime ? new Date(rec.scheduledTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Today';
+                                    const currentTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                                    return (
+                                        <View>
+                                            {/* Patient summary bar */}
+                                            <View style={styles.mamPatientBar}>
+                                                <Text style={styles.mamPatientName}>{patientName}</Text>
+                                                <Text style={styles.mamPatientMeta}>{patient.gender || '—'} • {patient.age ? `${patient.age}y` : ''} • {admission?.ward || 'Ward'} (Bed {admission?.bedNumber || '—'})</Text>
+                                            </View>
+
+                                            {/* Prescription Order Card (Read Only) */}
+                                            <View style={styles.rxPrescriptionCard}>
+                                                <View style={styles.rxOrderHeader}>
+                                                    <Text style={styles.rxOrderHeaderTitle}>DOCTOR'S PRESCRIBED ORDER</Text>
+                                                    <View style={styles.rxReadOnlyBadge}>
+                                                        <Feather name="shield" size={11} color="#64748b" />
+                                                        <Text style={styles.rxReadOnlyBadgeText}>Read Only</Text>
+                                                    </View>
+                                                </View>
+                                                <Text style={styles.rxMedName}>{medicineName}</Text>
+                                                <View style={styles.rxPillRow}>
+                                                    <View style={[styles.rxPill, { backgroundColor: '#e0f2fe' }]}>
+                                                        <Text style={[styles.rxPillText, { color: '#0369a1' }]}>{prescribedDose}</Text>
+                                                    </View>
+                                                    <View style={[styles.rxPill, { backgroundColor: '#f1f5f9' }]}>
+                                                        <Text style={[styles.rxPillText, { color: '#475569' }]}>{route}</Text>
+                                                    </View>
+                                                    <View style={[styles.rxPill, { backgroundColor: '#fef3c7' }]}>
+                                                        <Text style={[styles.rxPillText, { color: '#b45309' }]}>{frequency}</Text>
+                                                    </View>
+                                                </View>
+                                                <Text style={styles.rxMetaText}>Ordered by: <Text style={{ fontWeight: '700', color: '#1e293b' }}>{orderedDoctor}</Text></Text>
+                                                {order.instructions ? <Text style={styles.rxMetaText}>Instructions: <Text style={{ fontStyle: 'italic' }}>{order.instructions}</Text></Text> : null}
+                                            </View>
+
+                                            {/* Administration Timing */}
+                                            <View style={styles.mamTimingRow}>
+                                                <View style={styles.mamTimingBox}>
+                                                    <Text style={styles.mamTimingLbl}>Scheduled</Text>
+                                                    <Text style={styles.mamTimingVal}>{scheduledTimeStr}</Text>
+                                                </View>
+                                                <View style={[styles.mamTimingBox, { borderColor: '#0d9488', backgroundColor: '#f0fdfa' }]}>
+                                                    <Text style={[styles.mamTimingLbl, { color: '#0d9488' }]}>Current Time</Text>
+                                                    <Text style={[styles.mamTimingVal, { color: '#0d9488' }]}>{currentTimeStr}</Text>
+                                                </View>
+                                            </View>
+
+                                            {/* Action Selector */}
+                                            <View style={styles.marActionTabs}>
+                                                <TouchableOpacity
+                                                    style={[styles.marTabBtn, marModal.action === 'GIVE' && styles.marTabBtnGive]}
+                                                    onPress={() => setMarModal(p => ({ ...p, action: 'GIVE', errorMsg: '' }))}
+                                                >
+                                                    <Feather name="check" size={13} color={marModal.action === 'GIVE' ? '#ffffff' : '#10b981'} />
+                                                    <Text style={[styles.marTabBtnText, marModal.action === 'GIVE' && styles.marTabBtnTextActive]}>Give</Text>
+                                                </TouchableOpacity>
+
+                                                <TouchableOpacity
+                                                    style={[styles.marTabBtn, (marModal.action === 'HOLD' || marModal.action === 'HELD') && styles.marTabBtnHold]}
+                                                    onPress={() => setMarModal(p => ({ ...p, action: 'HOLD', errorMsg: '' }))}
+                                                >
+                                                    <Feather name="pause" size={13} color={(marModal.action === 'HOLD' || marModal.action === 'HELD') ? '#ffffff' : '#f59e0b'} />
+                                                    <Text style={[styles.marTabBtnText, (marModal.action === 'HOLD' || marModal.action === 'HELD') && styles.marTabBtnTextActive]}>Hold</Text>
+                                                </TouchableOpacity>
+
+                                                <TouchableOpacity
+                                                    style={[styles.marTabBtn, (marModal.action === 'REFUSE' || marModal.action === 'REFUSED') && styles.marTabBtnRefuse]}
+                                                    onPress={() => setMarModal(p => ({ ...p, action: 'REFUSE', errorMsg: '' }))}
+                                                >
+                                                    <Feather name="x" size={13} color={(marModal.action === 'REFUSE' || marModal.action === 'REFUSED') ? '#ffffff' : '#ef4444'} />
+                                                    <Text style={[styles.marTabBtnText, (marModal.action === 'REFUSE' || marModal.action === 'REFUSED') && styles.marTabBtnTextActive]}>Refuse</Text>
+                                                </TouchableOpacity>
+
+                                                <TouchableOpacity
+                                                    style={[styles.marTabBtn, (marModal.action === 'MISS' || marModal.action === 'MISSED') && styles.marTabBtnMiss]}
+                                                    onPress={() => setMarModal(p => ({ ...p, action: 'MISS', errorMsg: '' }))}
+                                                >
+                                                    <Feather name="alert-triangle" size={13} color={(marModal.action === 'MISS' || marModal.action === 'MISSED') ? '#ffffff' : '#64748b'} />
+                                                    <Text style={[styles.marTabBtnText, (marModal.action === 'MISS' || marModal.action === 'MISSED') && styles.marTabBtnTextActive]}>Missed</Text>
+                                                </TouchableOpacity>
+                                            </View>
+
+                                            {/* Action-Specific Inputs */}
+                                            {marModal.action === 'GIVE' ? (
+                                                <View style={{ marginTop: 14 }}>
+                                                    <Text style={styles.inputLabel}>Administered Dose Adjustment</Text>
+                                                    <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+                                                        <View style={{ flex: 2 }}>
+                                                            <TextInput
+                                                                style={styles.input}
+                                                                placeholder="Dose value (e.g. 500)"
+                                                                keyboardType="numeric"
+                                                                value={marModal.actualDoseValue}
+                                                                onChangeText={t => setMarModal(p => ({ ...p, actualDoseValue: t }))}
+                                                            />
+                                                        </View>
+                                                        <View style={{ flex: 1 }}>
+                                                            <TextInput
+                                                                style={styles.input}
+                                                                placeholder="Unit (mg, ml)"
+                                                                value={marModal.actualDoseUnit}
+                                                                onChangeText={t => setMarModal(p => ({ ...p, actualDoseUnit: t }))}
+                                                            />
+                                                        </View>
+                                                    </View>
+
+                                                    <Text style={[styles.inputLabel, { marginTop: 12 }]}>Clinical Administration Notes (Optional)</Text>
+                                                    <TextInput
+                                                        style={[styles.input, { height: 60 }]}
+                                                        multiline
+                                                        placeholder="e.g. Tolerated well, IV site clean and patent, taken with water"
+                                                        value={marModal.notes}
+                                                        onChangeText={t => setMarModal(p => ({ ...p, notes: t }))}
+                                                    />
+                                                </View>
+                                            ) : (
+                                                <View style={{ marginTop: 14 }}>
+                                                    <Text style={[styles.inputLabel, { color: '#dc2626' }]}>
+                                                        Mandatory Reason for {marModal.action.includes('HOLD') ? 'Holding' : marModal.action.includes('REFUSE') ? 'Refusal' : 'Missed'} Dose *
+                                                    </Text>
+                                                    <TextInput
+                                                        style={[styles.input, { height: 70, borderColor: '#fca5a5' }]}
+                                                        multiline
+                                                        placeholder={
+                                                            marModal.action.includes('HOLD')
+                                                                ? 'e.g. Patient scheduled for OT / NPO, BP systolic < 90 mmHg, doctor advised pause'
+                                                                : marModal.action.includes('REFUSE')
+                                                                ? 'e.g. Patient refused injection stating nausea, doctor notified'
+                                                                : 'e.g. Patient away in radiology department during round'
+                                                        }
+                                                        value={marModal.reason}
+                                                        onChangeText={t => setMarModal(p => ({ ...p, reason: t }))}
+                                                    />
+
+                                                    <Text style={[styles.inputLabel, { marginTop: 12 }]}>Additional Nursing Observations (Optional)</Text>
+                                                    <TextInput
+                                                        style={[styles.input, { height: 50 }]}
+                                                        multiline
+                                                        placeholder="e.g. Doctor notified via intercom at bedside round"
+                                                        value={marModal.notes}
+                                                        onChangeText={t => setMarModal(p => ({ ...p, notes: t }))}
+                                                    />
+                                                </View>
+                                            )}
+
+                                            {/* Error Message */}
+                                            {marModal.errorMsg ? (
+                                                <View style={styles.mamErrorBanner}>
+                                                    <Feather name="alert-circle" size={14} color="#b91c1c" />
+                                                    <Text style={styles.mamErrorText}>{marModal.errorMsg}</Text>
+                                                </View>
+                                            ) : null}
+                                        </View>
+                                    );
+                                })()}
+                            </ScrollView>
+
+                            {/* Modal Footer */}
                             <View style={styles.modalFooter}>
-                                <TouchableOpacity style={styles.footerCancelBtn} onPress={() => setMarModal({ open: false, record: null, action: '', reason: '' })}><Text style={styles.footerCancelBtnText}>Cancel</Text></TouchableOpacity>
-                                <TouchableOpacity style={styles.footerSubmitBtn} onPress={handleMARAction}><Text style={styles.footerSubmitBtnText}>Confirm {marModal.action}</Text></TouchableOpacity>
+                                <TouchableOpacity
+                                    style={styles.footerCancelBtn}
+                                    onPress={() => setMarModal({ open: false, record: null, action: 'GIVE', actualDoseValue: '', actualDoseUnit: 'mg', reason: '', notes: '', errorMsg: '' })}
+                                    disabled={submitting}
+                                >
+                                    <Text style={styles.footerCancelBtnText}>Cancel</Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    style={[
+                                        styles.footerSubmitBtn,
+                                        marModal.action === 'GIVE'
+                                            ? { backgroundColor: '#10b981' }
+                                            : (marModal.action === 'HOLD' || marModal.action === 'HELD')
+                                            ? { backgroundColor: '#f59e0b' }
+                                            : (marModal.action === 'REFUSE' || marModal.action === 'REFUSED')
+                                            ? { backgroundColor: '#ef4444' }
+                                            : { backgroundColor: '#64748b' }
+                                    ]}
+                                    onPress={handleMARAction}
+                                    disabled={submitting}
+                                >
+                                    <Text style={styles.footerSubmitBtnText}>
+                                        {submitting
+                                            ? 'Recording...'
+                                            : marModal.action === 'GIVE'
+                                            ? 'Confirm Administered'
+                                            : (marModal.action === 'HOLD' || marModal.action === 'HELD')
+                                            ? 'Hold Medication Dose'
+                                            : (marModal.action === 'REFUSE' || marModal.action === 'REFUSED')
+                                            ? 'Record Patient Refused'
+                                            : 'Record Missed Dose'}
+                                    </Text>
+                                </TouchableOpacity>
                             </View>
                         </View>
                     </KeyboardAvoidingView>
@@ -1654,7 +1971,13 @@ const NursePatientWorkspace = () => {
                         <View style={styles.modalCard}>
                             <View style={styles.modalHeader}>
                                 <Text style={styles.modalTitle}>{taskModal.action === 'COMPLETED' ? 'Complete Task' : 'Skip Task'}</Text>
-                                <TouchableOpacity onPress={() => setTaskModal({ open: false, task: null, action: '', notes: '' })}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                                <TouchableOpacity
+                                    style={styles.modalCloseBtn}
+                                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                                    onPress={() => setTaskModal({ open: false, task: null, action: '', notes: '' })}
+                                >
+                                    <Feather name="x" size={18} color="#64748b" />
+                                </TouchableOpacity>
                             </View>
                             <View style={{ padding: 18 }}>
                                 <Text style={styles.inputLabel}>Completion Notes</Text>
@@ -1676,7 +1999,13 @@ const NursePatientWorkspace = () => {
                         <View style={styles.modalCard}>
                             <View style={styles.modalHeader}>
                                 <Text style={styles.modalTitle}>Schedule Clinical Task</Text>
-                                <TouchableOpacity onPress={() => setNewTaskModalOpen(false)}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                                <TouchableOpacity
+                                    style={styles.modalCloseBtn}
+                                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                                    onPress={() => setNewTaskModalOpen(false)}
+                                >
+                                    <Feather name="x" size={18} color="#64748b" />
+                                </TouchableOpacity>
                             </View>
                             <View style={{ padding: 18 }}>
                                 <Text style={styles.inputLabel}>Task Title *</Text>
@@ -1700,7 +2029,13 @@ const NursePatientWorkspace = () => {
                         <View style={styles.modalCard}>
                             <View style={styles.modalHeader}>
                                 <Text style={styles.modalTitle}>Insert Line / Cannula</Text>
-                                <TouchableOpacity onPress={() => setNewLineModalOpen(false)}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                                <TouchableOpacity
+                                    style={styles.modalCloseBtn}
+                                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                                    onPress={() => setNewLineModalOpen(false)}
+                                >
+                                    <Feather name="x" size={18} color="#64748b" />
+                                </TouchableOpacity>
                             </View>
                             <View style={{ padding: 18 }}>
                                 <Text style={styles.inputLabel}>Anatomical Site *</Text>
@@ -1724,7 +2059,13 @@ const NursePatientWorkspace = () => {
                         <View style={styles.modalCard}>
                             <View style={styles.modalHeader}>
                                 <Text style={styles.modalTitle}>Insert Catheter</Text>
-                                <TouchableOpacity onPress={() => setNewCathModalOpen(false)}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                                <TouchableOpacity
+                                    style={styles.modalCloseBtn}
+                                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                                    onPress={() => setNewCathModalOpen(false)}
+                                >
+                                    <Feather name="x" size={18} color="#64748b" />
+                                </TouchableOpacity>
                             </View>
                             <View style={{ padding: 18 }}>
                                 <Text style={styles.inputLabel}>Site / Route</Text>
@@ -1748,7 +2089,13 @@ const NursePatientWorkspace = () => {
                         <View style={styles.modalCard}>
                             <View style={styles.modalHeader}>
                                 <Text style={styles.modalTitle}>Remove {deviceRemoveModal.type === 'LINE' ? 'Line' : 'Catheter'}</Text>
-                                <TouchableOpacity onPress={() => setDeviceRemoveModal({ open: false, type: '', id: '', reason: '', notes: '' })}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                                <TouchableOpacity
+                                    style={styles.modalCloseBtn}
+                                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                                    onPress={() => setDeviceRemoveModal({ open: false, type: '', id: '', reason: '', notes: '' })}
+                                >
+                                    <Feather name="x" size={18} color="#64748b" />
+                                </TouchableOpacity>
                             </View>
                             <View style={{ padding: 18 }}>
                                 <Text style={styles.inputLabel}>Reason for Removal</Text>
@@ -1772,7 +2119,13 @@ const NursePatientWorkspace = () => {
                         <View style={styles.modalCard}>
                             <View style={styles.modalHeader}>
                                 <Text style={styles.modalTitle}>Request Clarification</Text>
-                                <TouchableOpacity onPress={() => setClarificationModal({ open: false, order: null, issueType: 'DOSAGE_CONFIRMATION', question: '' })}><Feather name="x" size={18} color="#64748b" /></TouchableOpacity>
+                                <TouchableOpacity
+                                    style={styles.modalCloseBtn}
+                                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                                    onPress={() => setClarificationModal({ open: false, order: null, issueType: 'DOSAGE_CONFIRMATION', question: '' })}
+                                >
+                                    <Feather name="x" size={18} color="#64748b" />
+                                </TouchableOpacity>
                             </View>
                             <View style={{ padding: 18 }}>
                                 <Text style={styles.itemCardTitle}>{clarificationModal.order?.medicineName || 'Clinical Order'}</Text>
@@ -1858,9 +2211,11 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         backgroundColor: 'rgba(255, 255, 255, 0.18)',
         borderRadius: 20,
-        paddingVertical: 6,
-        paddingHorizontal: 12,
+        minHeight: 44,
+        paddingVertical: 8,
+        paddingHorizontal: 14,
         gap: 6,
+        justifyContent: 'center',
     },
     backBtnText: {
         color: '#ffffff',
@@ -1899,8 +2254,11 @@ const styles = StyleSheet.create({
     },
     refreshBtn: {
         backgroundColor: 'rgba(255, 255, 255, 0.18)',
-        padding: 10,
+        minWidth: 44,
+        minHeight: 44,
         borderRadius: 10,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
 
     // Tab Navigation
@@ -2212,7 +2570,9 @@ const styles = StyleSheet.create({
         backgroundColor: '#0d9488',
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 6,
+        justifyContent: 'center',
+        minHeight: 38,
+        paddingVertical: 8,
         paddingHorizontal: 12,
         borderRadius: 7,
     },
@@ -2225,7 +2585,9 @@ const styles = StyleSheet.create({
         backgroundColor: '#10b981',
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 5,
+        justifyContent: 'center',
+        minHeight: 38,
+        paddingVertical: 8,
         paddingHorizontal: 10,
         borderRadius: 6,
     },
@@ -2238,7 +2600,9 @@ const styles = StyleSheet.create({
         backgroundColor: '#f59e0b',
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 5,
+        justifyContent: 'center',
+        minHeight: 38,
+        paddingVertical: 8,
         paddingHorizontal: 10,
         borderRadius: 6,
     },
@@ -2251,7 +2615,9 @@ const styles = StyleSheet.create({
         backgroundColor: '#ef4444',
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 5,
+        justifyContent: 'center',
+        minHeight: 38,
+        paddingVertical: 8,
         paddingHorizontal: 10,
         borderRadius: 6,
     },
@@ -2265,13 +2631,30 @@ const styles = StyleSheet.create({
         borderColor: '#cbd5e1',
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 5,
+        justifyContent: 'center',
+        minHeight: 38,
+        paddingVertical: 8,
         paddingHorizontal: 10,
         borderRadius: 6,
         backgroundColor: '#ffffff',
     },
     btnSmOutlineText: {
         color: '#475569',
+        fontSize: 11.5,
+        fontWeight: '700',
+    },
+    btnSmMissed: {
+        backgroundColor: '#64748b',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: 38,
+        paddingVertical: 8,
+        paddingHorizontal: 10,
+        borderRadius: 6,
+    },
+    btnSmMissedText: {
+        color: '#ffffff',
         fontSize: 11.5,
         fontWeight: '700',
     },
@@ -2471,10 +2854,13 @@ const styles = StyleSheet.create({
         gap: 10,
     },
     footerCancelBtn: {
+        minHeight: 44,
         paddingVertical: 8,
-        paddingHorizontal: 14,
+        paddingHorizontal: 16,
         borderRadius: 7,
         backgroundColor: '#e2e8f0',
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     footerCancelBtnText: {
         fontSize: 12.5,
@@ -2482,15 +2868,198 @@ const styles = StyleSheet.create({
         color: '#334155',
     },
     footerSubmitBtn: {
+        minHeight: 44,
         paddingVertical: 8,
-        paddingHorizontal: 16,
+        paddingHorizontal: 18,
         borderRadius: 7,
         backgroundColor: '#0d9488',
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     footerSubmitBtnText: {
         fontSize: 12.5,
         fontWeight: '800',
         color: '#ffffff',
+    },
+    modalCloseBtn: {
+        minWidth: 44,
+        minHeight: 44,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    mamBadge: {
+        alignSelf: 'flex-start',
+        backgroundColor: '#f0fdf4',
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 4,
+        marginBottom: 4,
+    },
+    mamBadgeText: {
+        color: '#16a34a',
+        fontSize: 10,
+        fontWeight: '800',
+        letterSpacing: 0.5,
+    },
+    mamPatientBar: {
+        backgroundColor: '#f8fafc',
+        padding: 10,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        marginBottom: 12,
+    },
+    mamPatientName: {
+        fontSize: 14,
+        fontWeight: '800',
+        color: '#0f172a',
+    },
+    mamPatientMeta: {
+        fontSize: 11.5,
+        color: '#64748b',
+        marginTop: 2,
+    },
+    rxPrescriptionCard: {
+        backgroundColor: '#f8fafc',
+        padding: 12,
+        borderRadius: 8,
+        borderLeftWidth: 4,
+        borderLeftColor: '#0d9488',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        marginBottom: 12,
+    },
+    rxOrderHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 6,
+    },
+    rxOrderHeaderTitle: {
+        fontSize: 10,
+        fontWeight: '800',
+        color: '#0d9488',
+        letterSpacing: 0.5,
+    },
+    rxReadOnlyBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 3,
+    },
+    rxReadOnlyBadgeText: {
+        fontSize: 10,
+        color: '#64748b',
+        fontWeight: '600',
+    },
+    rxMedName: {
+        fontSize: 15,
+        fontWeight: '800',
+        color: '#0f172a',
+        marginBottom: 6,
+    },
+    rxPillRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 6,
+        marginBottom: 8,
+    },
+    rxPill: {
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 4,
+    },
+    rxPillText: {
+        fontSize: 11,
+        fontWeight: '700',
+    },
+    rxMetaText: {
+        fontSize: 11,
+        color: '#64748b',
+        marginTop: 2,
+    },
+    mamTimingRow: {
+        flexDirection: 'row',
+        gap: 10,
+        marginBottom: 12,
+    },
+    mamTimingBox: {
+        flex: 1,
+        padding: 8,
+        borderRadius: 6,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        backgroundColor: '#ffffff',
+    },
+    mamTimingLbl: {
+        fontSize: 10,
+        color: '#64748b',
+        fontWeight: '600',
+    },
+    mamTimingVal: {
+        fontSize: 12.5,
+        fontWeight: '800',
+        color: '#1e293b',
+        marginTop: 2,
+    },
+    marActionTabs: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 6,
+        marginTop: 4,
+    },
+    marTabBtn: {
+        flex: 1,
+        minWidth: '45%',
+        minHeight: 40,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 8,
+        paddingHorizontal: 8,
+        borderRadius: 6,
+        borderWidth: 1,
+        borderColor: '#cbd5e1',
+        backgroundColor: '#ffffff',
+        gap: 5,
+    },
+    marTabBtnGive: {
+        backgroundColor: '#10b981',
+        borderColor: '#10b981',
+    },
+    marTabBtnHold: {
+        backgroundColor: '#f59e0b',
+        borderColor: '#f59e0b',
+    },
+    marTabBtnRefuse: {
+        backgroundColor: '#ef4444',
+        borderColor: '#ef4444',
+    },
+    marTabBtnMiss: {
+        backgroundColor: '#64748b',
+        borderColor: '#64748b',
+    },
+    marTabBtnText: {
+        fontSize: 11.5,
+        fontWeight: '700',
+        color: '#475569',
+    },
+    marTabBtnTextActive: {
+        color: '#ffffff',
+    },
+    mamErrorBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#fee2e2',
+        padding: 8,
+        borderRadius: 6,
+        marginTop: 10,
+        gap: 6,
+    },
+    mamErrorText: {
+        fontSize: 11.5,
+        color: '#b91c1c',
+        fontWeight: '600',
+        flex: 1,
     },
 });
 

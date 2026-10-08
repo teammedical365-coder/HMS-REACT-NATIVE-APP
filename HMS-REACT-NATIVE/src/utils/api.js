@@ -1335,6 +1335,8 @@ export const ipdNursingAPI = {
     (await apiClient.get('/api/ipd-nursing/staff/nurses')).data,
   getAdmissionAlerts: async (admissionId) =>
     (await apiClient.get(`/api/ipd-nursing/admissions/${admissionId}/alerts`)).data,
+  getHospitalAlerts: async () =>
+    (await apiClient.get('/api/ipd-nursing/alerts')).data,
   assignNurse: async (admissionId, data) =>
     (await apiClient.post(`/api/ipd-nursing/admissions/${admissionId}/assign-nurse`, data)).data,
   getInvestigations: async (admissionId) =>

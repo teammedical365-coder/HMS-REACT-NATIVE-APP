@@ -1,18 +1,19 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, ActivityIndicator, Alert, useWindowDimensions, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, ActivityIndicator, Alert, FlatList, Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Feather } from '@expo/vector-icons';
 import { otAPI, doctorAPI } from '../../utils/api';
 import socket from '../../utils/socket';
 import OTHeader from './OTHeader';
-import { 
-    getStatusStyle, 
-    SurgeryDetailsModal, 
-    ScheduleSurgeryModal 
+import {
+    getStatusStyle,
+    SurgeryDetailsModal,
+    ScheduleSurgeryModal
 } from '../../components/ot/OTModals';
+import { useOTResponsive } from './otResponsive';
 
 const OTPlannedSurgeries = () => {
-    const { width } = useWindowDimensions();
-    const isTablet = width > 768;
+    const { isSmallPhone, isPhone, isTablet, pagePadding, cardPadding, gap } = useOTResponsive();
     const [plannedSurgeries, setPlannedSurgeries] = useState([]);
     const [doctorsList, setDoctorsList] = useState([]);
     const [otRoomsList, setOtRoomsList] = useState([]);
@@ -52,20 +53,37 @@ const OTPlannedSurgeries = () => {
         }
     }, []);
 
+    const [userHospitalId, setUserHospitalId] = useState('');
+
+    useEffect(() => {
+        const loadUser = async () => {
+            try {
+                const userStr = await AsyncStorage.getItem('user');
+                if (userStr) {
+                    const u = JSON.parse(userStr);
+                    const hid = u.hospitalId || (u.hospital?._id || u.hospital) || '';
+                    setUserHospitalId(hid);
+                }
+            } catch (err) {
+                console.error('OT planned user load error:', err);
+            }
+        };
+        loadUser();
+    }, []);
+
     useEffect(() => {
         fetchPlannedData();
 
+        if (!socket) return;
         const handleUpdate = () => fetchPlannedData();
-        if (socket) {
-            socket.on('ot_update', handleUpdate);
-            socket.on('ot_surgery_scheduled', handleUpdate);
-        }
+        socket.on('ot_update', handleUpdate);
+        socket.on('ot_surgery_scheduled', handleUpdate);
+        socket.on('surgery_plan_created', handleUpdate);
 
         return () => {
-            if (socket) {
-                socket.off('ot_update', handleUpdate);
-                socket.off('ot_surgery_scheduled', handleUpdate);
-            }
+            socket.off('ot_update', handleUpdate);
+            socket.off('ot_surgery_scheduled', handleUpdate);
+            socket.off('surgery_plan_created', handleUpdate);
         };
     }, [fetchPlannedData]);
 
@@ -82,6 +100,7 @@ const OTPlannedSurgeries = () => {
                         try {
                             const res = await otAPI.cancelSurgery(planId);
                             if (res.success) {
+                                Alert.alert('Success', 'Surgery plan cancelled successfully');
                                 fetchPlannedData();
                             }
                         } catch (err) {
@@ -128,44 +147,174 @@ const OTPlannedSurgeries = () => {
         { id: 'UPCOMING', label: 'Upcoming' }
     ];
 
-    return (
-        <View style={styles.container}>
-            <OTHeader
-                title="Planned Surgeries"
-                subtitle="Review consultation surgery plans and schedule OT suites."
-                lastUpdated={lastUpdated}
-                loading={loading}
-                onRefresh={fetchPlannedData}
-                searchQuery={searchQuery}
-                onSearchChange={setSearchQuery}
-                badgeCounts={{ planned: plannedSurgeries.length }}
-            />
+    const renderPlanCard = ({ item: plan }) => {
+        const surgeonName = (plan.surgeonId?.name || plan.doctorId?.name || 'Doctor').replace(/^Dr\.?\s*/i, '');
+        const referringDoctor = plan.referringDoctorId?.name ? (plan.referringDoctorId?.name).replace(/^Dr\.?\s*/i, '') : null;
+        const assistants = plan.assistantSurgeonIds || [];
 
-            <ScrollView contentContainerStyle={styles.scrollContent}>
-                {/* Filter Bar */}
-                <View style={styles.filterBar}>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
-                        {filters.map(f => (
-                            <TouchableOpacity
-                                key={f.id}
-                                onPress={() => setActiveFilter(f.id)}
-                                style={[styles.filterBtn, activeFilter === f.id && styles.filterBtnActive]}
-                            >
-                                <Text style={[styles.filterBtnText, activeFilter === f.id && styles.filterBtnTextActive]}>
-                                    {f.label}
-                                </Text>
-                            </TouchableOpacity>
-                        ))}
-                    </ScrollView>
-                    <View style={styles.resultsCount}>
-                        <Text style={styles.resultsCountText}>
-                            Showing <Text style={styles.boldText}>{filteredSurgeries.length}</Text> plans
+        return (
+            <View key={plan._id} style={[styles.card, { width: isTablet ? '48.5%' : '100%', padding: cardPadding }]}>
+                <View>
+                    {/* Top Line */}
+                    <View style={styles.cardHeaderRow}>
+                        <View style={styles.cardHeaderLeft}>
+                            <View style={styles.planIdBadge}>
+                                <Text style={styles.planIdText}>{plan.planId || 'PLAN'}</Text>
+                            </View>
+                            <Text style={styles.createdDateText}>
+                                Created: {new Date(plan.createdAt).toLocaleDateString()}
+                            </Text>
+                        </View>
+                        <View style={[styles.admissionBadge, plan.admissionRequired ? styles.admissionBadgeReq : styles.admissionBadgeNo]}>
+                            <Text style={[styles.admissionBadgeText, plan.admissionRequired ? styles.admissionBadgeTextReq : styles.admissionBadgeTextNo]}>
+                                {plan.admissionRequired ? '🏥 Admission Req' : 'Day Care'}
+                            </Text>
+                        </View>
+                    </View>
+
+                    {/* Procedure Title */}
+                    <Text style={styles.surgeryTitle}>{plan.surgery}</Text>
+
+                    {/* Patient Info */}
+                    <View style={styles.patientInfoBox}>
+                        <Text style={styles.patientName}>👤 {plan.patientId?.name || 'Patient'}</Text>
+                        <Text style={styles.patientSubInfo}>
+                            MRN: <Text style={styles.boldText}>{plan.patientId?.mrn || plan.patientId?.patientId || '-'}</Text>
+                            {plan.patientId?.phone ? ` • 📞 ${plan.patientId.phone}` : ''}
                         </Text>
                     </View>
+
+                    {/* Clinical Info Grid */}
+                    <View style={styles.clinicalGrid}>
+                        <View style={[styles.clinicalItem, isSmallPhone ? { width: '100%' } : { width: '46%' }]}>
+                            <Text style={styles.clinicalLabel}>OPERATING SURGEON</Text>
+                            <Text style={styles.clinicalValue}>Dr. {surgeonName}</Text>
+                        </View>
+                        <View style={[styles.clinicalItem, isSmallPhone ? { width: '100%' } : { width: '46%' }]}>
+                            <Text style={styles.clinicalLabel}>PREFERRED DATE</Text>
+                            <Text style={styles.clinicalValue}>
+                                {plan.preferredDate ? new Date(plan.preferredDate).toLocaleDateString() : 'Flexible'}
+                            </Text>
+                        </View>
+                        {Boolean(referringDoctor) && referringDoctor !== surgeonName && (
+                            <View style={[styles.clinicalItem, isSmallPhone ? { width: '100%' } : { width: '46%' }]}>
+                                <Text style={styles.clinicalLabel}>REFERRING DOCTOR</Text>
+                                <Text style={styles.clinicalValueSub}>Dr. {referringDoctor}</Text>
+                            </View>
+                        )}
+                        {plan.diagnosis ? (
+                            <View style={[styles.clinicalItem, isSmallPhone ? { width: '100%' } : { width: '46%' }]}>
+                                <Text style={styles.clinicalLabel}>DIAGNOSIS</Text>
+                                <Text style={styles.clinicalValueSub}>{plan.diagnosis}</Text>
+                            </View>
+                        ) : null}
+                    </View>
+
+                    {assistants.length > 0 && (
+                        <Text style={styles.assistantsText}>
+                            <Text style={styles.assistantsLabel}>Assistants: </Text>
+                            {assistants.map(a => `Dr. ${(a.name || 'Doctor').replace(/^Dr\.?\s*/i, '')}`).join(', ')}
+                        </Text>
+                    )}
+
+                    {plan.notes ? (
+                        <View style={styles.notesBox}>
+                            <Text style={styles.notesText}>"{plan.notes}"</Text>
+                        </View>
+                    ) : null}
                 </View>
 
-                {/* Planned Surgeries Cards */}
-                {filteredSurgeries.length === 0 ? (
+                {/* Action Buttons */}
+                <View style={[styles.actionRow, isPhone && { flexDirection: 'column-reverse', alignItems: 'stretch', gap: 10 }]}>
+                    <TouchableOpacity
+                        onPress={() => handleCancelPlan(plan._id)}
+                        style={[styles.cancelBtn, isPhone && { width: '100%', alignItems: 'center' }]}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        activeOpacity={0.7}
+                    >
+                        <Text style={styles.cancelBtnText}>Cancel Plan</Text>
+                    </TouchableOpacity>
+
+                    <View style={[styles.actionRight, isPhone && { width: '100%' }]}>
+                        <TouchableOpacity
+                            style={[styles.viewPlanBtn, isPhone && { flex: 1, alignItems: 'center' }]}
+                            onPress={() => {
+                                setSelectedSurgery(plan);
+                                setShowDetailsModal(true);
+                            }}
+                            activeOpacity={0.7}
+                        >
+                            <Text style={styles.viewPlanBtnText}>View Plan</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.scheduleBtn, isPhone && { flex: 1.4, alignItems: 'center' }]}
+                            onPress={() => {
+                                setActivePlanToSchedule(plan);
+                                setShowScheduleModal(true);
+                            }}
+                            activeOpacity={0.7}
+                        >
+                            <Feather name="calendar" size={14} color="white" style={styles.scheduleIcon} />
+                            <Text style={styles.scheduleBtnText}>Schedule OT</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </View>
+        );
+    };
+
+    return (
+        <View style={styles.container}>
+            <FlatList
+                key={isTablet ? 'tablet-grid' : 'phone-list'}
+                data={filteredSurgeries}
+                renderItem={renderPlanCard}
+                keyExtractor={item => item._id}
+                numColumns={isTablet ? 2 : 1}
+                columnWrapperStyle={isTablet ? styles.columnWrapper : undefined}
+                contentContainerStyle={[styles.scrollContent, { padding: pagePadding }]}
+                initialNumToRender={6}
+                maxToRenderPerBatch={8}
+                windowSize={5}
+                removeClippedSubviews={Platform.OS !== 'web'}
+                ListHeaderComponent={
+                    <>
+                        <OTHeader
+                            title="Planned Surgeries"
+                            subtitle="Review consultation surgery plans and schedule OT suites."
+                            lastUpdated={lastUpdated}
+                            loading={loading}
+                            onRefresh={fetchPlannedData}
+                            searchQuery={searchQuery}
+                            onSearchChange={setSearchQuery}
+                            badgeCounts={{ planned: plannedSurgeries.length }}
+                        />
+
+                        {/* Filter Bar */}
+                        <View style={[styles.filterBar, { paddingHorizontal: isSmallPhone ? 12 : 16 }]}>
+                            <View style={[styles.filterScroll, isPhone && styles.filterWrap]}>
+                                {filters.map(f => (
+                                    <TouchableOpacity
+                                        key={f.id}
+                                        onPress={() => setActiveFilter(f.id)}
+                                        style={[styles.filterBtn, activeFilter === f.id && styles.filterBtnActive]}
+                                        activeOpacity={0.7}
+                                    >
+                                        <Text style={[styles.filterBtnText, activeFilter === f.id && styles.filterBtnTextActive]}>
+                                            {f.label}
+                                        </Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                            <View style={styles.resultsCount}>
+                                <Text style={styles.resultsCountText}>
+                                    Showing <Text style={styles.boldText}>{filteredSurgeries.length}</Text> plans
+                                </Text>
+                            </View>
+                        </View>
+                    </>
+                }
+                ListEmptyComponent={
                     <View style={styles.emptyState}>
                         <Feather name="clock" size={48} color="#cbd5e1" style={styles.emptyIcon} />
                         <Text style={styles.emptyTitle}>No Planned Surgeries Found</Text>
@@ -173,119 +322,8 @@ const OTPlannedSurgeries = () => {
                             {searchQuery ? 'No planned surgeries matched your search query.' : 'There are currently no doctor-created surgery plans waiting for OT scheduling.'}
                         </Text>
                     </View>
-                ) : (
-                    <View style={[styles.grid, { flexDirection: isTablet ? 'row' : 'column' }]}>
-                        {filteredSurgeries.map(plan => {
-                            const surgeonName = (plan.surgeonId?.name || plan.doctorId?.name || 'Doctor').replace(/^Dr\.?\s*/i, '');
-                            const referringDoctor = plan.referringDoctorId?.name ? (plan.referringDoctorId?.name).replace(/^Dr\.?\s*/i, '') : null;
-                            const assistants = plan.assistantSurgeonIds || [];
-
-                            return (
-                                <View key={plan._id} style={[styles.card, { width: isTablet ? '48%' : '100%' }]}>
-                                    <View>
-                                        {/* Top Line */}
-                                        <View style={styles.cardHeaderRow}>
-                                            <View style={styles.cardHeaderLeft}>
-                                                <View style={styles.planIdBadge}>
-                                                    <Text style={styles.planIdText}>{plan.planId || 'PLAN'}</Text>
-                                                </View>
-                                                <Text style={styles.createdDateText}>
-                                                    Created: {new Date(plan.createdAt).toLocaleDateString()}
-                                                </Text>
-                                            </View>
-                                            <View style={[styles.admissionBadge, plan.admissionRequired ? styles.admissionBadgeReq : styles.admissionBadgeNo]}>
-                                                <Text style={[styles.admissionBadgeText, plan.admissionRequired ? styles.admissionBadgeTextReq : styles.admissionBadgeTextNo]}>
-                                                    {plan.admissionRequired ? '🏥 Admission Req' : 'Day Care'}
-                                                </Text>
-                                            </View>
-                                        </View>
-
-                                        {/* Procedure Title */}
-                                        <Text style={styles.surgeryTitle}>{plan.surgery}</Text>
-
-                                        {/* Patient Info */}
-                                        <View style={styles.patientInfoBox}>
-                                            <Text style={styles.patientName}>👤 {plan.patientId?.name || 'Patient'}</Text>
-                                            <Text style={styles.patientSubInfo}>
-                                                MRN: <Text style={styles.boldText}>{plan.patientId?.mrn || plan.patientId?.patientId || '-'}</Text>
-                                                {plan.patientId?.phone ? ` • 📞 ${plan.patientId.phone}` : ''}
-                                            </Text>
-                                        </View>
-
-                                        {/* Clinical Info Grid */}
-                                        <View style={styles.clinicalGrid}>
-                                            <View style={styles.clinicalItem}>
-                                                <Text style={styles.clinicalLabel}>OPERATING SURGEON</Text>
-                                                <Text style={styles.clinicalValue}>Dr. {surgeonName}</Text>
-                                            </View>
-                                            <View style={styles.clinicalItem}>
-                                                <Text style={styles.clinicalLabel}>PREFERRED DATE</Text>
-                                                <Text style={styles.clinicalValue}>
-                                                    {plan.preferredDate ? new Date(plan.preferredDate).toLocaleDateString() : 'Flexible'}
-                                                </Text>
-                                            </View>
-                                            {referringDoctor && referringDoctor !== surgeonName && (
-                                                <View style={styles.clinicalItem}>
-                                                    <Text style={styles.clinicalLabel}>REFERRING DOCTOR</Text>
-                                                    <Text style={styles.clinicalValueSub}>Dr. {referringDoctor}</Text>
-                                                </View>
-                                            )}
-                                            {plan.diagnosis ? (
-                                                <View style={styles.clinicalItem}>
-                                                    <Text style={styles.clinicalLabel}>DIAGNOSIS</Text>
-                                                    <Text style={styles.clinicalValueSub}>{plan.diagnosis}</Text>
-                                                </View>
-                                            ) : null}
-                                        </View>
-
-                                        {assistants.length > 0 && (
-                                            <Text style={styles.assistantsText}>
-                                                <Text style={styles.assistantsLabel}>Assistants: </Text>
-                                                {assistants.map(a => `Dr. ${(a.name || 'Doctor').replace(/^Dr\.?\s*/i, '')}`).join(', ')}
-                                            </Text>
-                                        )}
-
-                                        {plan.notes ? (
-                                            <View style={styles.notesBox}>
-                                                <Text style={styles.notesText}>"{plan.notes}"</Text>
-                                            </View>
-                                        ) : null}
-                                    </View>
-
-                                    {/* Action Buttons */}
-                                    <View style={styles.actionRow}>
-                                        <TouchableOpacity onPress={() => handleCancelPlan(plan._id)} style={styles.cancelBtn}>
-                                            <Text style={styles.cancelBtnText}>Cancel Plan</Text>
-                                        </TouchableOpacity>
-
-                                        <View style={styles.actionRight}>
-                                            <TouchableOpacity 
-                                                style={styles.viewPlanBtn}
-                                                onPress={() => {
-                                                    setSelectedSurgery(plan);
-                                                    setShowDetailsModal(true);
-                                                }}
-                                            >
-                                                <Text style={styles.viewPlanBtnText}>View Plan</Text>
-                                            </TouchableOpacity>
-                                            <TouchableOpacity 
-                                                style={styles.scheduleBtn}
-                                                onPress={() => {
-                                                    setActivePlanToSchedule(plan);
-                                                    setShowScheduleModal(true);
-                                                }}
-                                            >
-                                                <Feather name="calendar" size={14} color="white" style={styles.scheduleIcon} />
-                                                <Text style={styles.scheduleBtnText}>Schedule OT</Text>
-                                            </TouchableOpacity>
-                                        </View>
-                                    </View>
-                                </View>
-                            );
-                        })}
-                    </View>
-                )}
-            </ScrollView>
+                }
+            />
 
             <SurgeryDetailsModal
                 open={showDetailsModal}
@@ -299,7 +337,7 @@ const OTPlannedSurgeries = () => {
                     setTimeout(() => {
                         setActivePlanToSchedule(plan);
                         setShowScheduleModal(true);
-                    }, 500); // small delay to prevent modal stacking issues on native
+                    }, 500);
                 }}
             />
 
@@ -327,8 +365,16 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: '#f8fafc',
     },
+    columnWrapper: {
+        justifyContent: 'space-between',
+        gap: 14,
+    },
     scrollContent: {
+        width: '100%',
+        maxWidth: 1440,
+        alignSelf: 'center',
         padding: 16,
+        paddingBottom: 40,
     },
     filterBar: {
         backgroundColor: '#ffffff',
@@ -342,12 +388,17 @@ const styles = StyleSheet.create({
     },
     filterScroll: {
         flexDirection: 'row',
+        alignItems: 'center',
         gap: 8,
-        paddingBottom: 4,
+    },
+    filterWrap: {
+        flexWrap: 'wrap',
     },
     filterBtn: {
         paddingVertical: 8,
-        paddingHorizontal: 16,
+        paddingHorizontal: 14,
+        minHeight: 44,
+        justifyContent: 'center',
         borderRadius: 8,
         backgroundColor: '#f1f5f9',
     },
@@ -417,12 +468,16 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: 6,
         marginBottom: 12,
     },
     cardHeaderLeft: {
         flexDirection: 'row',
         alignItems: 'center',
+        flexWrap: 'wrap',
         gap: 8,
+        flexShrink: 1,
     },
     planIdBadge: {
         backgroundColor: '#f5f3ff',
@@ -551,6 +606,8 @@ const styles = StyleSheet.create({
     cancelBtn: {
         paddingVertical: 8,
         paddingHorizontal: 12,
+        minHeight: 44,
+        justifyContent: 'center',
         backgroundColor: '#ffffff',
         borderWidth: 1,
         borderColor: '#fca5a5',
@@ -568,6 +625,8 @@ const styles = StyleSheet.create({
     viewPlanBtn: {
         paddingVertical: 8,
         paddingHorizontal: 14,
+        minHeight: 44,
+        justifyContent: 'center',
         backgroundColor: '#f1f5f9',
         borderWidth: 1,
         borderColor: '#cbd5e1',
@@ -581,6 +640,8 @@ const styles = StyleSheet.create({
     scheduleBtn: {
         flexDirection: 'row',
         alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: 44,
         paddingVertical: 8,
         paddingHorizontal: 16,
         backgroundColor: '#7c3aed',

@@ -17,6 +17,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 import { admissionAPI, ipdClinicalAPI, ipdNursingAPI } from '../../utils/api';
+import socket from '../../utils/socket';
 
 // ── Ward badge styling ──
 const getWardBadgeStyle = (ward) => {
@@ -78,6 +79,7 @@ const NurseDashboard = () => {
 
     const [userName, setUserName] = useState('Nurse');
     const [userId, setUserId] = useState('');
+    const [userHospitalId, setUserHospitalId] = useState('');
     const [admissions, setAdmissions] = useState([]);
     const [operationsMetrics, setOperationsMetrics] = useState(null);
     const [hospitalNurses, setHospitalNurses] = useState([]);
@@ -87,6 +89,7 @@ const NurseDashboard = () => {
     const [workloadFilter, setWorkloadFilter] = useState('ALL');
     const [vitalsMap, setVitalsMap] = useState({});
     const [alertsMap, setAlertsMap] = useState({});
+    const [patientCardsMap, setPatientCardsMap] = useState({});
 
     // Assignment Modal state
     const [assignModal, setAssignModal] = useState({ open: false, admission: null, nurseId: '', shift: 'Morning', notes: '' });
@@ -107,6 +110,7 @@ const NurseDashboard = () => {
                     const u = JSON.parse(userStr);
                     setUserName(u.name || 'Nurse');
                     setUserId(u._id || u.userId || '');
+                    setUserHospitalId(u.hospitalId || (u.hospital?._id || u.hospital) || '');
                 }
             } catch (err) {
                 console.error(err);
@@ -115,51 +119,57 @@ const NurseDashboard = () => {
         loadUser();
     }, []);
 
-    // ── Fetch Dashboard Data ──
-    const fetchDashboardData = useCallback(async () => {
-        setLoading(true);
+    // ── Fetch Dashboard Data (Unified Summary, 0 N+1 API Storm) ──
+    const fetchDashboardData = useCallback(async (isSilent = false) => {
+        if (!isSilent) setLoading(true);
         try {
-            const [admissionsRes, metricsRes, nursesRes, summaryRes] = await Promise.all([
+            const [admissionsRes, metricsRes, nursesRes, summaryRes, hospitalAlertsRes] = await Promise.all([
                 admissionAPI.getActiveAdmissions().catch(() => ({ admissions: [] })),
                 ipdNursingAPI.getOperationsMetrics().catch(() => ({ metrics: null })),
                 ipdNursingAPI.getHospitalNurses().catch(() => ({ nurses: [] })),
-                ipdNursingAPI.getDashboardSummary().catch(() => null)
+                ipdNursingAPI.getDashboardSummary().catch(() => null),
+                ipdNursingAPI.getHospitalAlerts().catch(() => ({ alerts: [] }))
             ]);
 
             const list = admissionsRes.admissions || admissionsRes.data || [];
             setAdmissions(list);
 
-            if (metricsRes.metrics || metricsRes.data) {
+            if (metricsRes?.metrics || metricsRes?.data) {
                 setOperationsMetrics(metricsRes.metrics || metricsRes.data);
+            } else if (summaryRes?.summary) {
+                setOperationsMetrics({
+                    medsDueCount: summaryRes.summary.medicinesDue || 0,
+                    overdueTasksCount: summaryRes.summary.tasksPending || 0,
+                    dischargePendingCount: 0
+                });
             }
-            if (nursesRes.nurses || nursesRes.data) {
+
+            if (nursesRes?.nurses || nursesRes?.data) {
                 setHospitalNurses(nursesRes.nurses || nursesRes.data);
             }
 
-            // Batched vitals and alerts
-            const batch = list.slice(0, 30);
-            const vitalsPromises = batch.map(adm =>
-                ipdClinicalAPI.getLatestVitals(adm._id)
-                    .then(r => ({ id: adm._id, vitals: r.vitals }))
-                    .catch(() => ({ id: adm._id, vitals: null }))
-            );
-            const alertsPromises = batch.map(adm =>
-                ipdNursingAPI.getAdmissionAlerts(adm._id)
-                    .then(r => ({ id: adm._id, alerts: r.alerts || [] }))
-                    .catch(() => ({ id: adm._id, alerts: [] }))
-            );
-
-            const [vitalsResults, alertsResults] = await Promise.all([
-                Promise.all(vitalsPromises),
-                Promise.all(alertsPromises)
-            ]);
-
+            // Map patient clinical cards & vitals directly from unified dashboard summary (0 N+1 calls)
+            const summaryPatients = summaryRes?.patients || [];
+            const summaryCards = {};
             const vMap = {};
-            vitalsResults.forEach(v => { vMap[v.id] = v.vitals; });
+            summaryPatients.forEach(p => {
+                const key = String(p.admissionId);
+                summaryCards[key] = p;
+                if (p.latestVitals) {
+                    vMap[key] = p.latestVitals;
+                }
+            });
+            setPatientCardsMap(summaryCards);
             setVitalsMap(vMap);
 
+            // Map alerts from hospital-wide alerts endpoint in a single call
+            const alertsList = hospitalAlertsRes?.alerts || [];
             const aMap = {};
-            alertsResults.forEach(a => { aMap[a.id] = a.alerts; });
+            alertsList.forEach(a => {
+                const key = String(a.admissionId);
+                if (!aMap[key]) aMap[key] = [];
+                aMap[key].push(a);
+            });
             setAlertsMap(aMap);
         } catch (err) {
             console.error('Nurse Dashboard — Error fetching data:', err);
@@ -172,6 +182,46 @@ const NurseDashboard = () => {
     useEffect(() => {
         fetchDashboardData();
     }, [fetchDashboardData]);
+
+    // ── Socket.IO Real-time Sync (H-2 Parity with Web) ──
+    useEffect(() => {
+        if (!socket) return;
+        if (userHospitalId) {
+            if (!socket.connected) {
+                socket.connect();
+            }
+            socket.emit('joinHospitalRoom', userHospitalId);
+        }
+
+        let debounceTimer = null;
+        const handleLiveUpdate = () => {
+            if (debounceTimer) clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                fetchDashboardData(true);
+            }, 400);
+        };
+
+        const events = [
+            'inpatient_order_created',
+            'inpatient_order_updated',
+            'mar_administered',
+            'mar_scheduled',
+            'vitals_recorded',
+            'nursing_task_created',
+            'nursing_task_updated',
+            'admission_created',
+            'patient_discharged',
+            'nurse_assigned',
+            'ipd_update'
+        ];
+
+        events.forEach(evt => socket.on(evt, handleLiveUpdate));
+
+        return () => {
+            if (debounceTimer) clearTimeout(debounceTimer);
+            events.forEach(evt => socket.off(evt, handleLiveUpdate));
+        };
+    }, [userHospitalId, fetchDashboardData]);
 
     // ── Handle Nurse Assignment ──
     const handleAssignSubmit = async () => {
@@ -382,7 +432,11 @@ const NurseDashboard = () => {
                         onChangeText={setSearchText}
                     />
                     {searchText.length > 0 && (
-                        <TouchableOpacity onPress={() => setSearchText('')}>
+                        <TouchableOpacity
+                            style={styles.searchClearBtn}
+                            onPress={() => setSearchText('')}
+                            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                        >
                             <Feather name="x" size={16} color="#94a3b8" />
                         </TouchableOpacity>
                     )}
@@ -438,6 +492,12 @@ const NurseDashboard = () => {
                         const alerts = alertsMap[adm._id] || [];
                         const days = daysSince(adm.admissionDate);
                         const wardStyle = getWardBadgeStyle(adm.ward);
+
+                        // Clinical highlights from unified dashboard summary (M-1)
+                        const pCard = patientCardsMap[String(adm._id)];
+                        const medDue = pCard?.medicineDue;
+                        const nextMed = pCard?.nextMedicine;
+                        const ivFluid = pCard?.ivFluid;
 
                         // Active Assigned Nurse
                         const activeAssignments = (adm.assignedNurses || []).filter(n => n.status === 'ACTIVE');
@@ -501,6 +561,7 @@ const NurseDashboard = () => {
                                             <TouchableOpacity
                                                 style={styles.assignLinkBtn}
                                                 onPress={() => setAssignModal({ open: true, admission: adm, nurseId: '', shift: 'Morning', notes: '' })}
+                                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                                             >
                                                 <Text style={styles.assignLinkBtnText}>+ Assign Nurse</Text>
                                             </TouchableOpacity>
@@ -541,6 +602,63 @@ const NurseDashboard = () => {
                                             ))}
                                         </View>
                                     )}
+
+                                    {/* Clinical Highlights: Medicine Due, Next Med, IV Drip (M-1) */}
+                                    {(medDue || nextMed || ivFluid) && (
+                                        <View style={styles.clinicalHighlightsCard}>
+                                            {/* Medicine Due Now / Overdue */}
+                                            {medDue && (
+                                                <View style={[styles.clinicalRow, medDue.isOverdue ? styles.clinicalRowOverdue : styles.clinicalRowDue]}>
+                                                    <View style={styles.clinicalRowHeader}>
+                                                        <View style={[styles.statusDot, { backgroundColor: medDue.isOverdue ? '#ef4444' : '#f59e0b' }]} />
+                                                        <Text style={styles.clinicalRowLabel}>Medicine Due:</Text>
+                                                        {medDue.isOverdue && (
+                                                            <View style={styles.overdueBadge}>
+                                                                <Text style={styles.overdueBadgeText}>OVERDUE</Text>
+                                                            </View>
+                                                        )}
+                                                    </View>
+                                                    <Text style={styles.clinicalRowValue} numberOfLines={2}>
+                                                        <Text style={{ fontWeight: '700' }}>{medDue.name}</Text>
+                                                        {medDue.dose ? ` (${medDue.dose})` : ''}
+                                                        {medDue.timeStr ? ` — ${medDue.timeStr}` : ''}
+                                                    </Text>
+                                                </View>
+                                            )}
+
+                                            {/* Next Medicine */}
+                                            {nextMed && (
+                                                <View style={styles.clinicalRow}>
+                                                    <View style={styles.clinicalRowHeader}>
+                                                        <View style={[styles.statusDot, { backgroundColor: '#3b82f6' }]} />
+                                                        <Text style={styles.clinicalRowLabel}>Next Med:</Text>
+                                                    </View>
+                                                    <Text style={styles.clinicalRowValue} numberOfLines={2}>
+                                                        <Text style={{ fontWeight: '700' }}>{nextMed.name}</Text>
+                                                        {nextMed.dose ? ` (${nextMed.dose})` : ''}
+                                                        {nextMed.timeStr ? ` — ${nextMed.timeStr}` : ''}
+                                                    </Text>
+                                                </View>
+                                            )}
+
+                                            {/* IV Fluid / Drip Running */}
+                                            {ivFluid && (
+                                                <View style={[styles.clinicalRow, styles.clinicalRowIV]}>
+                                                    <View style={styles.clinicalRowHeader}>
+                                                        <Feather name="droplet" size={12} color="#0284c7" style={{ marginRight: 4 }} />
+                                                        <Text style={styles.clinicalRowLabel}>IV Drip:</Text>
+                                                        <View style={styles.runningBadge}>
+                                                            <Text style={styles.runningBadgeText}>RUNNING</Text>
+                                                        </View>
+                                                    </View>
+                                                    <Text style={styles.clinicalRowValue} numberOfLines={2}>
+                                                        <Text style={{ fontWeight: '700' }}>{ivFluid.name}</Text>
+                                                        {ivFluid.rate ? ` (${ivFluid.rate})` : ''}
+                                                    </Text>
+                                                </View>
+                                            )}
+                                        </View>
+                                    )}
                                 </View>
 
                                 {/* Foot Actions */}
@@ -548,6 +666,7 @@ const NurseDashboard = () => {
                                     <TouchableOpacity
                                         style={styles.changeNurseBtn}
                                         onPress={() => setAssignModal({ open: true, admission: adm, nurseId: '', shift: 'Morning', notes: '' })}
+                                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                                     >
                                         <Feather name="user-check" size={13} color="#475569" style={{ marginRight: 4 }} />
                                         <Text style={styles.changeNurseBtnText}>
@@ -579,7 +698,11 @@ const NurseDashboard = () => {
                             <View style={styles.modalContent}>
                                 <View style={styles.modalHeader}>
                                     <Text style={styles.modalTitle}>Assign Primary Care Nurse</Text>
-                                    <TouchableOpacity onPress={() => setAssignModal({ open: false, admission: null, nurseId: '', shift: 'Morning', notes: '' })}>
+                                    <TouchableOpacity
+                                        style={styles.modalCloseBtn}
+                                        onPress={() => setAssignModal({ open: false, admission: null, nurseId: '', shift: 'Morning', notes: '' })}
+                                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                                    >
                                         <Feather name="x" size={20} color="#64748b" />
                                     </TouchableOpacity>
                                 </View>
@@ -738,24 +861,39 @@ const styles = StyleSheet.create({
     nurseRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     nurseNameBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ecfdf5', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, maxWidth: 200 },
     nurseNameText: { fontSize: 11, fontWeight: '700', color: '#047857' },
-    assignLinkBtn: { backgroundColor: '#eff6ff', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 },
-    assignLinkBtnText: { color: '#2563eb', fontSize: 11, fontWeight: '700' },
+    assignLinkBtn: { backgroundColor: '#eff6ff', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 6, minHeight: 44, justifyContent: 'center', alignItems: 'center' },
+    assignLinkBtnText: { color: '#2563eb', fontSize: 12, fontWeight: '700' },
     vitalsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
     vitalPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4 },
     vitalPillText: { fontSize: 11, fontWeight: '800' },
     alertsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
     alertPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4 },
     alertPillText: { fontSize: 10, fontWeight: '800' },
+    clinicalHighlightsCard: { backgroundColor: '#f8fafc', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', padding: 10, gap: 8, marginTop: 4 },
+    clinicalRow: { gap: 3 },
+    clinicalRowHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    statusDot: { width: 7, height: 7, borderRadius: 4 },
+    clinicalRowLabel: { fontSize: 11, fontWeight: '700', color: '#475569' },
+    clinicalRowValue: { fontSize: 12, color: '#1e293b', marginLeft: 13 },
+    clinicalRowDue: { borderLeftWidth: 3, borderLeftColor: '#f59e0b', paddingLeft: 6 },
+    clinicalRowOverdue: { borderLeftWidth: 3, borderLeftColor: '#ef4444', paddingLeft: 6 },
+    clinicalRowIV: { borderLeftWidth: 3, borderLeftColor: '#0284c7', paddingLeft: 6 },
+    overdueBadge: { backgroundColor: '#fee2e2', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 },
+    overdueBadgeText: { color: '#b91c1c', fontSize: 9, fontWeight: '800' },
+    runningBadge: { backgroundColor: '#e0f2fe', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 },
+    runningBadgeText: { color: '#0284c7', fontSize: 9, fontWeight: '800' },
     cardFoot: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, borderTopWidth: 1, borderTopColor: '#f1f5f9', backgroundColor: '#f8fafc', borderBottomLeftRadius: 12, borderBottomRightRadius: 12 },
-    changeNurseBtn: { flexDirection: 'row', alignItems: 'center', paddingVertical: 4 },
+    changeNurseBtn: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 10, minHeight: 44, justifyContent: 'center' },
     changeNurseBtnText: { color: '#475569', fontSize: 12, fontWeight: '700' },
     openWorkspaceBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#2563eb', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, gap: 4 },
     openWorkspaceBtnText: { color: '#ffffff', fontSize: 12, fontWeight: '700' },
+    searchClearBtn: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 },
     keyboardAvoidWrap: { width: '100%', maxWidth: 480, alignItems: 'center' },
     modalContent: { width: '100%', maxWidth: 480, maxHeight: '85%', backgroundColor: '#ffffff', borderRadius: 12, overflow: 'hidden' },
     modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
     modalTitle: { fontSize: 16, fontWeight: '800', color: '#0f172a' },
+    modalCloseBtn: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
     modalField: { marginBottom: 14 },
     modalLabel: { fontSize: 12, fontWeight: '700', color: '#475569', marginBottom: 6 },
     modalStaticVal: { fontSize: 14, fontWeight: '700', color: '#0f172a' },

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-    View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, ActivityIndicator, useWindowDimensions
+    View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, ActivityIndicator
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 import { otAPI, doctorAPI, bedAPI } from '../../utils/api';
@@ -15,12 +16,14 @@ import {
     ScheduleSurgeryModal,
     WorkflowBedModal
 } from '../../components/ot/OTModals';
+import { useOTResponsive } from './otResponsive';
 
 const OTDashboard = () => {
     const navigation = useNavigation();
-    const { width } = useWindowDimensions();
-    const isMobile = width < 768;
-    const isSmallMobile = width <= 430;
+    const { width, isSmallPhone, isPhone, isTablet, isLargeTablet, pagePadding, cardPadding, gap } = useOTResponsive();
+    const isMobile = !isTablet;
+    const isSmallMobile = isSmallPhone;
+    const kpiCardWidth = isSmallPhone ? '100%' : isPhone ? '48%' : isLargeTablet ? '23%' : '31%';
 
     // Data states
     const [stats, setStats] = useState({
@@ -86,23 +89,47 @@ const OTDashboard = () => {
         }
     }, []);
 
+    const [userHospitalId, setUserHospitalId] = useState('');
+
+    useEffect(() => {
+        const loadUser = async () => {
+            try {
+                const userStr = await AsyncStorage.getItem('user');
+                if (userStr) {
+                    const u = JSON.parse(userStr);
+                    const hid = u.hospitalId || (u.hospital?._id || u.hospital) || '';
+                    setUserHospitalId(hid);
+                }
+            } catch (err) {
+                console.error('OT user load error:', err);
+            }
+        };
+        loadUser();
+    }, []);
+
     useEffect(() => {
         fetchDashboardData();
 
+        if (!socket) return;
         const handleOtUpdate = () => fetchDashboardData();
         socket.on('ot_update', handleOtUpdate);
         socket.on('ot_surgery_scheduled', handleOtUpdate);
+        socket.on('surgery_plan_created', handleOtUpdate);
 
         return () => {
             socket.off('ot_update', handleOtUpdate);
             socket.off('ot_surgery_scheduled', handleOtUpdate);
+            socket.off('surgery_plan_created', handleOtUpdate);
         };
     }, [fetchDashboardData]);
 
     const handleWorkflowTransition = async (surgeryId, nextStatus) => {
         try {
             const res = await otAPI.updateSurgeryWorkflow(surgeryId, { status: nextStatus });
-            if (res.success) fetchDashboardData();
+            if (res.success) {
+                Alert.alert('Success', 'Workflow transition updated');
+                fetchDashboardData();
+            }
         } catch (err) {
             Alert.alert('Error', err.response?.data?.message || 'Workflow transition failed');
         }
@@ -132,7 +159,7 @@ const OTDashboard = () => {
     const previewPlanned = plannedSurgeries.filter(matchesSearch).slice(0, 4);
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+        <ScrollView style={styles.container} contentContainerStyle={[styles.contentContainer, { padding: pagePadding }]}>
             {/* Header & Tabs */}
             <OTHeader
                 title="Operation Theatre Command Center"
@@ -156,18 +183,19 @@ const OTDashboard = () => {
             {/* ========================================================= */}
             {/* 1. KPI SUMMARY SECTION (7 CARDS)                          */}
             {/* ========================================================= */}
-            <View style={styles.kpiGrid}>
+            <View style={[styles.kpiGrid, { gap }]}>
                 {/* 1. Today's Surgeries */}
                 <TouchableOpacity
                     onPress={() => navigation.navigate('OTSchedulePage')}
-                    style={[styles.kpiCard, { borderColor: '#e2e8f0' }]}
+                    style={[styles.kpiCard, { borderColor: '#e2e8f0', width: kpiCardWidth, minWidth: 0, padding: cardPadding }]}
+                    activeOpacity={0.7}
                 >
                     <View style={[styles.kpiIndicator, { backgroundColor: '#3b82f6' }]} />
                     <View style={styles.kpiHeader}>
-                        <Text style={styles.kpiTitle}>TODAY'S SURGERIES</Text>
+                        <Text style={[styles.kpiTitle, isSmallPhone && { fontSize: 11 }]}>TODAY'S SURGERIES</Text>
                         <Feather name="calendar" size={18} color="#3b82f6" />
                     </View>
-                    <Text style={[styles.kpiValue, { color: '#0f172a' }]}>{stats.todaySurgeries}</Text>
+                    <Text style={[styles.kpiValue, { color: '#0f172a' }, isSmallPhone && { fontSize: 24 }]}>{stats.todaySurgeries}</Text>
                     <View style={styles.kpiAction}>
                         <Text style={[styles.kpiActionText, { color: '#3b82f6' }]}>View Schedule</Text>
                         <Feather name="arrow-right" size={12} color="#3b82f6" />
@@ -177,14 +205,15 @@ const OTDashboard = () => {
                 {/* 2. In OT */}
                 <TouchableOpacity
                     onPress={() => navigation.navigate('OTInProgressPage')}
-                    style={[styles.kpiCard, { borderColor: '#fee2e2' }]}
+                    style={[styles.kpiCard, { borderColor: '#fee2e2', width: kpiCardWidth, minWidth: 0, padding: cardPadding }]}
+                    activeOpacity={0.7}
                 >
                     <View style={[styles.kpiIndicator, { backgroundColor: '#ef4444' }]} />
                     <View style={styles.kpiHeader}>
-                        <Text style={styles.kpiTitle}>IN OT</Text>
+                        <Text style={[styles.kpiTitle, isSmallPhone && { fontSize: 11 }]}>IN OT</Text>
                         <Feather name="activity" size={18} color="#ef4444" />
                     </View>
-                    <Text style={[styles.kpiValue, { color: '#dc2626' }]}>{roomSummary.inOt}</Text>
+                    <Text style={[styles.kpiValue, { color: '#dc2626' }, isSmallPhone && { fontSize: 24 }]}>{roomSummary.inOt}</Text>
                     <View style={styles.kpiAction}>
                         <Text style={[styles.kpiActionText, { color: '#dc2626' }]}>Live In-OT Feed</Text>
                         <Feather name="arrow-right" size={12} color="#dc2626" />
@@ -194,14 +223,15 @@ const OTDashboard = () => {
                 {/* 3. Available OT Rooms */}
                 <TouchableOpacity
                     onPress={() => navigation.navigate('OTRoomsPage')}
-                    style={[styles.kpiCard, { borderColor: '#dcfce7' }]}
+                    style={[styles.kpiCard, { borderColor: '#dcfce7', width: kpiCardWidth, minWidth: 0, padding: cardPadding }]}
+                    activeOpacity={0.7}
                 >
                     <View style={[styles.kpiIndicator, { backgroundColor: '#22c55e' }]} />
                     <View style={styles.kpiHeader}>
-                        <Text style={styles.kpiTitle}>AVAILABLE OT</Text>
+                        <Text style={[styles.kpiTitle, isSmallPhone && { fontSize: 11 }]}>AVAILABLE OT</Text>
                         <Feather name="box" size={18} color="#22c55e" />
                     </View>
-                    <Text style={[styles.kpiValue, { color: '#16a34a' }]}>{roomSummary.available}</Text>
+                    <Text style={[styles.kpiValue, { color: '#16a34a' }, isSmallPhone && { fontSize: 24 }]}>{roomSummary.available}</Text>
                     <View style={styles.kpiAction}>
                         <Text style={[styles.kpiActionText, { color: '#16a34a' }]}>View Rooms</Text>
                         <Feather name="arrow-right" size={12} color="#16a34a" />
@@ -211,14 +241,15 @@ const OTDashboard = () => {
                 {/* 4. Occupied OT Rooms */}
                 <TouchableOpacity
                     onPress={() => navigation.navigate('OTRoomsPage')}
-                    style={[styles.kpiCard, { borderColor: '#fed7aa' }]}
+                    style={[styles.kpiCard, { borderColor: '#fed7aa', width: kpiCardWidth, minWidth: 0, padding: cardPadding }]}
+                    activeOpacity={0.7}
                 >
                     <View style={[styles.kpiIndicator, { backgroundColor: '#f97316' }]} />
                     <View style={styles.kpiHeader}>
-                        <Text style={styles.kpiTitle}>OCCUPIED OT</Text>
+                        <Text style={[styles.kpiTitle, isSmallPhone && { fontSize: 11 }]}>OCCUPIED OT</Text>
                         <Feather name="box" size={18} color="#f97316" />
                     </View>
-                    <Text style={[styles.kpiValue, { color: '#ea580c' }]}>{roomSummary.inOt + roomSummary.scheduled}</Text>
+                    <Text style={[styles.kpiValue, { color: '#ea580c' }, isSmallPhone && { fontSize: 24 }]}>{roomSummary.inOt + roomSummary.scheduled}</Text>
                     <View style={styles.kpiAction}>
                         <Text style={[styles.kpiActionText, { color: '#ea580c' }]}>Room Board</Text>
                         <Feather name="arrow-right" size={12} color="#ea580c" />
@@ -228,14 +259,15 @@ const OTDashboard = () => {
                 {/* 5. Pre-Op Patients */}
                 <TouchableOpacity
                     onPress={() => navigation.navigate('OTPreOpPage')}
-                    style={[styles.kpiCard, { borderColor: '#fef08a' }]}
+                    style={[styles.kpiCard, { borderColor: '#fef08a', width: kpiCardWidth, minWidth: 0, padding: cardPadding }]}
+                    activeOpacity={0.7}
                 >
                     <View style={[styles.kpiIndicator, { backgroundColor: '#eab308' }]} />
                     <View style={styles.kpiHeader}>
-                        <Text style={styles.kpiTitle}>PRE-OP PATIENTS</Text>
+                        <Text style={[styles.kpiTitle, isSmallPhone && { fontSize: 11 }]}>PRE-OP PATIENTS</Text>
                         <Feather name="users" size={18} color="#eab308" />
                     </View>
-                    <Text style={[styles.kpiValue, { color: '#ca8a04' }]}>{preOpCount}</Text>
+                    <Text style={[styles.kpiValue, { color: '#ca8a04' }, isSmallPhone && { fontSize: 24 }]}>{preOpCount}</Text>
                     <View style={styles.kpiAction}>
                         <Text style={[styles.kpiActionText, { color: '#ca8a04' }]}>View Pre-Op</Text>
                         <Feather name="arrow-right" size={12} color="#ca8a04" />
@@ -245,14 +277,15 @@ const OTDashboard = () => {
                 {/* 6. Completed Today */}
                 <TouchableOpacity
                     onPress={() => navigation.navigate('OTCompletedPage')}
-                    style={[styles.kpiCard, { borderColor: '#c7d2fe' }]}
+                    style={[styles.kpiCard, { borderColor: '#c7d2fe', width: kpiCardWidth, minWidth: 0, padding: cardPadding }]}
+                    activeOpacity={0.7}
                 >
                     <View style={[styles.kpiIndicator, { backgroundColor: '#6366f1' }]} />
                     <View style={styles.kpiHeader}>
-                        <Text style={styles.kpiTitle}>COMPLETED TODAY</Text>
+                        <Text style={[styles.kpiTitle, isSmallPhone && { fontSize: 11 }]}>COMPLETED TODAY</Text>
                         <Feather name="check-circle" size={18} color="#6366f1" />
                     </View>
-                    <Text style={[styles.kpiValue, { color: '#4f46e5' }]}>{completedCount}</Text>
+                    <Text style={[styles.kpiValue, { color: '#4f46e5' }, isSmallPhone && { fontSize: 24 }]}>{completedCount}</Text>
                     <View style={styles.kpiAction}>
                         <Text style={[styles.kpiActionText, { color: '#4f46e5' }]}>View History</Text>
                         <Feather name="arrow-right" size={12} color="#4f46e5" />
@@ -262,14 +295,15 @@ const OTDashboard = () => {
                 {/* 7. Planned Surgeries */}
                 <TouchableOpacity
                     onPress={() => navigation.navigate('OTPlannedSurgeries')}
-                    style={[styles.kpiCard, { borderColor: '#e9d5ff' }]}
+                    style={[styles.kpiCard, { borderColor: '#e9d5ff', width: kpiCardWidth, minWidth: 0, padding: cardPadding }]}
+                    activeOpacity={0.7}
                 >
                     <View style={[styles.kpiIndicator, { backgroundColor: '#a855f7' }]} />
                     <View style={styles.kpiHeader}>
-                        <Text style={styles.kpiTitle}>PLANNED SURGERIES</Text>
+                        <Text style={[styles.kpiTitle, isSmallPhone && { fontSize: 11 }]}>PLANNED SURGERIES</Text>
                         <Feather name="clock" size={18} color="#a855f7" />
                     </View>
-                    <Text style={[styles.kpiValue, { color: '#7e22ce' }]}>{stats.plannedPatients}</Text>
+                    <Text style={[styles.kpiValue, { color: '#7e22ce' }, isSmallPhone && { fontSize: 24 }]}>{stats.plannedPatients}</Text>
                     <View style={styles.kpiAction}>
                         <Text style={[styles.kpiActionText, { color: '#7e22ce' }]}>Schedule Now</Text>
                         <Feather name="arrow-right" size={12} color="#7e22ce" />
@@ -282,10 +316,13 @@ const OTDashboard = () => {
             {/* ========================================================= */}
             {alerts.length > 0 && (
                 <View style={styles.alertCenterContainer}>
-                    <View style={styles.alertCenterHeader}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                            <Feather name="alert-triangle" size={18} color="#dc2626" />
-                            <Text style={styles.alertCenterTitle}>
+                    <View style={[styles.alertCenterHeader, isPhone && styles.alertCenterHeaderPhone]}>
+                        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, flexShrink: 1, minWidth: 0, width: '100%' }}>
+                            <Feather name="alert-triangle" size={18} color="#dc2626" style={{ marginTop: 2 }} />
+                            <Text
+                                style={styles.alertCenterTitle}
+                                numberOfLines={2}
+                            >
                                 Attention Required ({alerts.length} Actionable Alert{alerts.length > 1 ? 's' : ''})
                             </Text>
                         </View>
@@ -294,8 +331,20 @@ const OTDashboard = () => {
 
                     <View style={styles.alertGrid}>
                         {alerts.map((alert, idx) => (
-                            <View key={idx} style={styles.alertItem}>
-                                <View style={{ flex: 1, paddingRight: 10 }}>
+                            <View
+                                key={idx}
+                                style={[
+                                    styles.alertItem,
+                                    {
+                                        width: isPhone ? '100%' : '48%',
+                                        minWidth: 0,
+                                        flexDirection: isSmallPhone ? 'column' : 'row',
+                                        alignItems: isSmallPhone ? 'stretch' : 'center',
+                                        gap: 10,
+                                    }
+                                ]}
+                            >
+                                <View style={{ flex: 1, paddingRight: isSmallPhone ? 0 : 10 }}>
                                     <Text style={styles.alertItemTitle}>
                                         {alert.surgery?.surgery || 'Scheduled Procedure'}
                                     </Text>
@@ -311,7 +360,8 @@ const OTDashboard = () => {
                                         setSelectedSurgery(alert.surgery);
                                         setShowDetailsModal(true);
                                     }}
-                                    style={styles.alertBtnView}
+                                    style={[styles.alertBtnView, isSmallPhone && { alignSelf: 'flex-start' }]}
+                                    activeOpacity={0.7}
                                 >
                                     <Text style={styles.alertBtnViewText}>View Details</Text>
                                 </TouchableOpacity>
@@ -324,17 +374,18 @@ const OTDashboard = () => {
             {/* ========================================================= */}
             {/* 3. TODAY'S OPERATIONS (TWO-COLUMN PREVIEW)                 */}
             {/* ========================================================= */}
-            <View style={styles.previewColumnsContainer}>
+            <View style={[styles.previewColumnsContainer, { gap }]}>
                 {/* Left Column: Today's OT Schedule Preview */}
-                <View style={styles.previewColumn}>
-                    <View style={styles.previewHeader}>
-                        <View>
-                            <Text style={styles.previewTitle}>📅 Today's OT Schedule</Text>
+                <View style={[styles.previewColumn, { width: isTablet ? '48%' : '100%', minWidth: 0, padding: cardPadding }]}>
+                    <View style={[styles.previewHeader, isPhone && styles.previewHeaderPhone]}>
+                        <View style={{ flex: isPhone ? undefined : 1, minWidth: 0, width: isPhone ? '100%' : undefined }}>
+                            <Text style={styles.previewTitle} numberOfLines={2}>📅 Today's OT Schedule</Text>
                             <Text style={styles.previewSubtitle}>Showing {previewSchedule.length} of {todaySchedule.length} surgeries scheduled today</Text>
                         </View>
                         <TouchableOpacity
                             onPress={() => navigation.navigate('OTSchedulePage')}
-                            style={styles.previewLink}
+                            style={[styles.previewLink, isPhone && styles.previewLinkPhone]}
+                            activeOpacity={0.7}
                         >
                             <Text style={styles.previewLinkText}>View Full Schedule</Text>
                             <Feather name="arrow-right" size={14} color="#2563eb" />
@@ -355,8 +406,14 @@ const OTDashboard = () => {
                                 const assistants = s.assistantSurgeonIds || [];
 
                                 return (
-                                    <View key={s._id} style={styles.previewItem}>
-                                        <View style={{ flex: 1, paddingRight: 10 }}>
+                                    <View
+                                        key={s._id}
+                                        style={[
+                                            styles.previewItem,
+                                            isSmallPhone && { flexDirection: 'column', alignItems: 'stretch' }
+                                        ]}
+                                    >
+                                        <View style={{ flex: 1, paddingRight: isSmallPhone ? 0 : 10 }}>
                                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                                 <Text style={styles.previewItemTitle}>{s.surgery}</Text>
                                                 <View style={[styles.statusBadge, { backgroundColor: stInfo.bg, borderColor: stInfo.border }]}>
@@ -384,7 +441,8 @@ const OTDashboard = () => {
                                                 setSelectedSurgery(s);
                                                 setShowDetailsModal(true);
                                             }}
-                                            style={styles.btnViewDetails}
+                                            style={[styles.btnViewDetails, isSmallPhone && { alignSelf: 'flex-start' }]}
+                                            activeOpacity={0.7}
                                         >
                                             <Text style={styles.btnViewDetailsText}>View</Text>
                                         </TouchableOpacity>
@@ -396,15 +454,16 @@ const OTDashboard = () => {
                 </View>
 
                 {/* Right Column: Live OT Room Status Preview */}
-                <View style={styles.previewColumn}>
-                    <View style={styles.previewHeader}>
-                        <View>
-                            <Text style={styles.previewTitle}>🏥 Live OT Room Status</Text>
+                <View style={[styles.previewColumn, { width: isTablet ? '48%' : '100%', minWidth: 0, padding: cardPadding }]}>
+                    <View style={[styles.previewHeader, isPhone && styles.previewHeaderPhone]}>
+                        <View style={{ flex: isPhone ? undefined : 1, minWidth: 0, width: isPhone ? '100%' : undefined }}>
+                            <Text style={styles.previewTitle} numberOfLines={2}>🏥 Live OT Room Status</Text>
                             <Text style={styles.previewSubtitle}>Showing {previewRooms.length} of {rooms.length} OT suites</Text>
                         </View>
                         <TouchableOpacity
                             onPress={() => navigation.navigate('OTRoomsPage')}
-                            style={styles.previewLink}
+                            style={[styles.previewLink, isPhone && styles.previewLinkPhone]}
+                            activeOpacity={0.7}
                         >
                             <Text style={styles.previewLinkText}>View All OT Rooms</Text>
                             <Feather name="arrow-right" size={14} color="#2563eb" />
@@ -417,7 +476,7 @@ const OTDashboard = () => {
                             <Text style={styles.emptyStateText}>No OT Rooms registered in this hospital.</Text>
                         </View>
                     ) : (
-                        <View style={styles.roomGrid}>
+                        <View style={[styles.roomGrid, { gap }]}>
                             {previewRooms.map(r => {
                                 const isOccupied = r.status === 'In OT' || r.status === 'IN_OT';
                                 const isAvailable = r.status === 'Available' || r.status === 'AVAILABLE';
@@ -428,12 +487,14 @@ const OTDashboard = () => {
                                         style={[
                                             styles.roomCard,
                                             {
+                                                width: isSmallPhone ? '100%' : '48%',
+                                                minWidth: 0,
                                                 backgroundColor: isOccupied ? '#fef2f2' : (isAvailable ? '#f0fdf4' : '#eff6ff'),
                                                 borderColor: isOccupied ? '#fecaca' : (isAvailable ? '#bbf7d0' : '#bfdbfe')
                                             }
                                         ]}
                                     >
-                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
                                             <Text style={styles.roomName}>🚪 {r.name}</Text>
                                             <View style={[
                                                 styles.roomStatusBadge,
@@ -452,7 +513,7 @@ const OTDashboard = () => {
                                             <View>
                                                 <Text style={styles.roomInfoText}><Text style={{ fontWeight: 'bold' }}>Procedure:</Text> {r.currentSurgery.procedure}</Text>
                                                 <Text style={styles.roomInfoText}><Text style={{ fontWeight: 'bold' }}>Surgeon:</Text> Dr. {(r.currentSurgery.surgeon || '').replace(/^Dr\.?\s*/i, '')}</Text>
-                                                {r.currentSurgery.elapsedTime && (
+                                                {Boolean(r.currentSurgery.elapsedTime) && (
                                                     <Text style={styles.roomElapsedText}>
                                                         ⏱️ Elapsed: {r.currentSurgery.elapsedTime}
                                                     </Text>
@@ -478,17 +539,18 @@ const OTDashboard = () => {
             {/* ========================================================= */}
             {/* 4. PLANNED SURGERIES PREVIEW (AWAITING OT SCHEDULING)      */}
             {/* ========================================================= */}
-            <View style={styles.plannedSection}>
-                <View style={styles.previewHeader}>
-                    <View>
-                        <Text style={styles.previewTitle}>📋 Planned Surgeries (Awaiting OT Scheduling)</Text>
+            <View style={[styles.plannedSection, { padding: cardPadding }]}>
+                <View style={[styles.previewHeader, isPhone && styles.previewHeaderPhone]}>
+                    <View style={{ flex: isPhone ? undefined : 1, minWidth: 0, width: isPhone ? '100%' : undefined }}>
+                        <Text style={styles.previewTitle} numberOfLines={2}>📋 Planned Surgeries (Awaiting OT Scheduling)</Text>
                         <Text style={styles.previewSubtitle}>Showing {previewPlanned.length} of {plannedSurgeries.length} doctor-created surgery plans</Text>
                     </View>
                     <TouchableOpacity
                         onPress={() => navigation.navigate('OTPlannedSurgeries')}
-                        style={[styles.previewLink, { backgroundColor: '#f5f3ff' }]}
+                        style={[styles.previewLink, { backgroundColor: '#f5f3ff' }, isPhone && styles.previewLinkPhone]}
+                        activeOpacity={0.7}
                     >
-                        <Text style={[styles.previewLinkText, { color: '#7c3aed' }]}>View All Planned Surgeries</Text>
+                        <Text style={[styles.previewLinkText, { color: '#7c3aed' }]}>View All Planned</Text>
                         <Feather name="arrow-right" size={14} color="#7c3aed" />
                     </TouchableOpacity>
                 </View>
@@ -499,16 +561,16 @@ const OTDashboard = () => {
                         <Text style={styles.emptyStateText}>No surgery plans awaiting OT scheduling. All planned procedures are booked.</Text>
                     </View>
                 ) : (
-                    <View style={styles.plannedGrid}>
+                    <View style={[styles.plannedGrid, { gap }]}>
                         {previewPlanned.map(plan => {
                             const surgeonName = (plan.surgeonId?.name || plan.doctorId?.name || 'Doctor').replace(/^Dr\.?\s*/i, '');
 
                             return (
-                                <View key={plan._id} style={styles.plannedCard}>
+                                <View key={plan._id} style={[styles.plannedCard, { width: isTablet ? '48%' : '100%', minWidth: 0, padding: cardPadding }]}>
                                     <View>
-                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
                                             <Text style={styles.plannedTitle}>{plan.surgery}</Text>
-                                            {plan.planId && (
+                                            {Boolean(plan.planId) && (
                                                 <View style={styles.plannedIdBadge}>
                                                     <Text style={styles.plannedIdText}>{plan.planId}</Text>
                                                 </View>
@@ -528,7 +590,8 @@ const OTDashboard = () => {
                                                 setSelectedSurgery(plan);
                                                 setShowDetailsModal(true);
                                             }}
-                                            style={styles.btnPlannedView}
+                                            style={[styles.btnPlannedView, isPhone && { flex: 1 }]}
+                                            activeOpacity={0.7}
                                         >
                                             <Text style={styles.btnPlannedViewText}>View Plan</Text>
                                         </TouchableOpacity>
@@ -537,7 +600,8 @@ const OTDashboard = () => {
                                                 setActivePlanToSchedule(plan);
                                                 setShowScheduleModal(true);
                                             }}
-                                            style={styles.btnPlannedSchedule}
+                                            style={[styles.btnPlannedSchedule, isPhone && { flex: 1.4 }]}
+                                            activeOpacity={0.7}
                                         >
                                             <Feather name="calendar" size={14} color="#fff" />
                                             <Text style={styles.btnPlannedScheduleText}>Schedule OT</Text>
@@ -602,8 +666,9 @@ const styles = StyleSheet.create({
         backgroundColor: '#f8fafc',
     },
     contentContainer: {
+        width: '100%',
         maxWidth: 1440,
-        marginHorizontal: 'auto',
+        alignSelf: 'center',
         padding: 16,
         paddingBottom: 40,
     },
@@ -614,8 +679,6 @@ const styles = StyleSheet.create({
         marginBottom: 24,
     },
     kpiCard: {
-        flex: 1,
-        minWidth: 180,
         backgroundColor: '#fff',
         padding: 20,
         borderRadius: 14,
@@ -684,10 +747,18 @@ const styles = StyleSheet.create({
         flexWrap: 'wrap',
         gap: 10,
     },
+    alertCenterHeaderPhone: {
+        flexDirection: 'column',
+        alignItems: 'flex-start',
+        gap: 8,
+    },
     alertCenterTitle: {
         fontWeight: '800',
         color: '#991b1b',
         fontSize: 15,
+        lineHeight: 20,
+        flexShrink: 1,
+        minWidth: 0,
     },
     alertCenterSubtitle: {
         fontSize: 12,
@@ -702,15 +773,12 @@ const styles = StyleSheet.create({
         gap: 12,
     },
     alertItem: {
-        flex: 1,
-        minWidth: 320,
         backgroundColor: '#fff',
         borderColor: '#fee2e2',
         borderWidth: 1,
         borderRadius: 10,
         paddingVertical: 12,
         paddingHorizontal: 16,
-        flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
     },
@@ -733,6 +801,8 @@ const styles = StyleSheet.create({
     alertBtnView: {
         paddingVertical: 6,
         paddingHorizontal: 12,
+        minHeight: 44,
+        justifyContent: 'center',
         backgroundColor: '#fee2e2',
         borderColor: '#fca5a5',
         borderWidth: 1,
@@ -746,12 +816,9 @@ const styles = StyleSheet.create({
     previewColumnsContainer: {
         flexDirection: 'row',
         flexWrap: 'wrap',
-        gap: 20,
         marginBottom: 24,
     },
     previewColumn: {
-        flex: 1,
-        minWidth: 460,
         backgroundColor: '#fff',
         borderRadius: 14,
         borderColor: '#e2e8f0',
@@ -775,6 +842,15 @@ const styles = StyleSheet.create({
         flexWrap: 'wrap',
         gap: 10,
     },
+    previewHeaderPhone: {
+        flexDirection: 'column',
+        alignItems: 'flex-start',
+        gap: 12,
+    },
+    previewLinkPhone: {
+        alignSelf: 'flex-start',
+        marginTop: 4,
+    },
     previewTitle: {
         fontSize: 18,
         fontWeight: '800',
@@ -787,6 +863,8 @@ const styles = StyleSheet.create({
     previewLink: {
         flexDirection: 'row',
         alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: 44,
         gap: 4,
         backgroundColor: '#eff6ff',
         paddingVertical: 6,
@@ -852,6 +930,8 @@ const styles = StyleSheet.create({
     btnViewDetails: {
         paddingVertical: 6,
         paddingHorizontal: 12,
+        minHeight: 44,
+        justifyContent: 'center',
         backgroundColor: '#fff',
         borderColor: '#cbd5e1',
         borderWidth: 1,
@@ -868,8 +948,6 @@ const styles = StyleSheet.create({
         gap: 12,
     },
     roomCard: {
-        flex: 1,
-        minWidth: 140,
         borderRadius: 10,
         borderWidth: 1,
         padding: 14,
@@ -923,8 +1001,6 @@ const styles = StyleSheet.create({
         gap: 14,
     },
     plannedCard: {
-        flex: 1,
-        minWidth: 320,
         backgroundColor: '#faf5ff',
         borderColor: '#e9d5ff',
         borderWidth: 1,
@@ -971,6 +1047,8 @@ const styles = StyleSheet.create({
     btnPlannedView: {
         paddingVertical: 6,
         paddingHorizontal: 12,
+        minHeight: 44,
+        justifyContent: 'center',
         backgroundColor: '#fff',
         borderColor: '#d8b4fe',
         borderWidth: 1,
@@ -984,6 +1062,8 @@ const styles = StyleSheet.create({
     btnPlannedSchedule: {
         flexDirection: 'row',
         alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: 44,
         gap: 4,
         paddingVertical: 6,
         paddingHorizontal: 14,

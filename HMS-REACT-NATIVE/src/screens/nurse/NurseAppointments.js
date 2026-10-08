@@ -17,6 +17,7 @@ import { useNavigation } from '@react-navigation/native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { doctorAPI } from '../../utils/api';
+import DatePickerInput, { formatToDisplay } from '../../components/common/DatePickerInput';
 
 const NurseAppointments = () => {
     const navigation = useNavigation();
@@ -287,7 +288,7 @@ const NurseAppointments = () => {
     const selectedDocObj = doctorsList.find(d => d.id === selectedDoctorFilter);
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+        <ScrollView style={styles.container} contentContainerStyle={[styles.contentContainer, width < 380 && { padding: 12 }]}>
             {/* ── Toast Notification ── */}
             {toast && (
                 <View style={[styles.toastBox, toast.type === 'error' ? styles.toastError : styles.toastSuccess]}>
@@ -300,16 +301,16 @@ const NurseAppointments = () => {
                 </View>
             )}
 
-            {/* ── Top Header Banner ── */}
+            {/* ── Top Header Banner (M-3 Responsive Fit at 320px) ── */}
             <LinearGradient
                 colors={['#0f172a', '#1e293b']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
-                style={styles.headerCard}
+                style={[styles.headerCard, width < 380 && { padding: 12 }]}
             >
-                <View style={styles.headerLeft}>
+                <View style={[styles.headerLeft, width < 480 && { width: '100%', minWidth: 0 }]}>
                     <View style={styles.titleRow}>
-                        <Text style={styles.headerTitle}>Appointments & Clinical Consultations</Text>
+                        <Text style={[styles.headerTitle, width < 380 && { fontSize: 18 }]}>Appointments & Clinical Consultations</Text>
                         <View style={styles.roleBadge}>
                             <Text style={styles.roleBadgeText}>NURSE</Text>
                         </View>
@@ -319,10 +320,11 @@ const NurseAppointments = () => {
                     </Text>
                 </View>
                 <TouchableOpacity
-                    style={styles.refreshBtn}
+                    style={[styles.refreshBtn, width < 480 && { alignSelf: 'flex-start', minHeight: 44 }]}
                     onPress={() => fetchAppointments(true)}
                     disabled={refreshing}
                     activeOpacity={0.8}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
                     <Animated.View style={{ transform: [{ rotate: refreshing ? spinInterpolate : '0deg' }] }}>
                         <Feather name="refresh-cw" size={15} color="#ffffff" />
@@ -380,9 +382,14 @@ const NurseAppointments = () => {
 
             {/* ── Filter Toolbar ── */}
             <View style={styles.toolbar}>
-                {/* Date Navigation Box */}
+                {/* Date Navigation Box (L-1 Touch Targets >= 44dp & M-2 Formatted Display) */}
                 <View style={styles.dateNavBox}>
-                    <TouchableOpacity onPress={handlePrevDay} style={styles.dateNavArrow} activeOpacity={0.7}>
+                    <TouchableOpacity
+                        onPress={handlePrevDay}
+                        style={styles.dateNavArrow}
+                        activeOpacity={0.7}
+                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                    >
                         <Feather name="chevron-left" size={16} color="#64748b" />
                     </TouchableOpacity>
 
@@ -390,16 +397,27 @@ const NurseAppointments = () => {
                         style={styles.dateCenterBtn}
                         onPress={() => setDateModalOpen(true)}
                         activeOpacity={0.8}
+                        hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
                     >
                         <Feather name="calendar" size={15} color="#64748b" style={{ marginRight: 6 }} />
-                        <Text style={styles.dateTextMain}>{selectedDate}</Text>
+                        <Text style={styles.dateTextMain}>{formatToDisplay(selectedDate) || selectedDate}</Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity onPress={handleNextDay} style={styles.dateNavArrow} activeOpacity={0.7}>
+                    <TouchableOpacity
+                        onPress={handleNextDay}
+                        style={styles.dateNavArrow}
+                        activeOpacity={0.7}
+                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                    >
                         <Feather name="chevron-right" size={16} color="#64748b" />
                     </TouchableOpacity>
 
-                    <TouchableOpacity onPress={handleSetToday} style={styles.todayBtn} activeOpacity={0.8}>
+                    <TouchableOpacity
+                        onPress={handleSetToday}
+                        style={styles.todayBtn}
+                        activeOpacity={0.8}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
                         <Text style={styles.todayBtnText}>Today</Text>
                     </TouchableOpacity>
                 </View>
@@ -415,7 +433,11 @@ const NurseAppointments = () => {
                         onChangeText={setSearchQuery}
                     />
                     {searchQuery.length > 0 && (
-                        <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.searchClear}>
+                        <TouchableOpacity
+                            onPress={() => setSearchQuery('')}
+                            style={styles.searchClear}
+                            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                        >
                             <Feather name="x" size={14} color="#94a3b8" />
                         </TouchableOpacity>
                     )}
@@ -632,27 +654,33 @@ const NurseAppointments = () => {
                         <View style={styles.filterModalCard} onStartShouldSetResponder={() => true}>
                             <View style={styles.filterModalHeader}>
                                 <Text style={styles.filterModalTitle}>Select Appointment Date</Text>
-                                <TouchableOpacity onPress={() => setDateModalOpen(false)}>
+                                <TouchableOpacity
+                                    style={styles.closeBtn}
+                                    onPress={() => setDateModalOpen(false)}
+                                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                                >
                                     <Feather name="x" size={20} color="#64748b" />
                                 </TouchableOpacity>
                             </View>
-                            <Text style={[styles.formLabel, { marginBottom: 8 }]}>Date (YYYY-MM-DD)</Text>
-                            <TextInput
-                                style={[styles.formInput, { marginBottom: 14 }]}
+                            <DatePickerInput
+                                label="Appointment Date"
                                 value={selectedDate}
-                                placeholder="YYYY-MM-DD"
-                                placeholderTextColor="#94a3b8"
-                                onChangeText={setSelectedDate}
+                                onChange={(val) => {
+                                    if (val) setSelectedDate(val);
+                                }}
+                                placeholder="DD-Mon-YYYY"
+                                insideModal={true}
+                                style={{ marginBottom: 16 }}
                             />
                             <View style={{ flexDirection: 'row', gap: 10 }}>
                                 <TouchableOpacity
-                                    style={[styles.footerSubmitBtn, { flex: 1, alignItems: 'center' }]}
+                                    style={[styles.footerSubmitBtn, { flex: 1, alignItems: 'center', minHeight: 44, justifyContent: 'center' }]}
                                     onPress={() => setDateModalOpen(false)}
                                 >
                                     <Text style={styles.footerSubmitBtnText}>Apply Date</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity
-                                    style={[styles.footerCancelBtn, { flex: 1, alignItems: 'center' }]}
+                                    style={[styles.footerCancelBtn, { flex: 1, alignItems: 'center', minHeight: 44, justifyContent: 'center' }]}
                                     onPress={() => { handleSetToday(); setDateModalOpen(false); }}
                                 >
                                     <Text style={styles.footerCancelBtnText}>Today</Text>
@@ -678,7 +706,11 @@ const NurseAppointments = () => {
                     <View style={styles.filterModalCard} onStartShouldSetResponder={() => true}>
                         <View style={styles.filterModalHeader}>
                             <Text style={styles.filterModalTitle}>Filter by Doctor</Text>
-                            <TouchableOpacity onPress={() => setDoctorModalOpen(false)}>
+                            <TouchableOpacity
+                                style={styles.closeBtn}
+                                onPress={() => setDoctorModalOpen(false)}
+                                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                            >
                                 <Feather name="x" size={20} color="#64748b" />
                             </TouchableOpacity>
                         </View>
@@ -733,6 +765,7 @@ const NurseAppointments = () => {
                             <TouchableOpacity
                                 style={styles.closeBtn}
                                 onPress={() => setVitalsModal({ open: false, appt: null })}
+                                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                             >
                                 <Feather name="x" size={18} color="#64748b" />
                             </TouchableOpacity>
@@ -948,11 +981,13 @@ const styles = StyleSheet.create({
     },
     headerLeft: {
         flex: 1,
-        minWidth: 260,
+        minWidth: 0,
+        width: '100%',
     },
     titleRow: {
         flexDirection: 'row',
         alignItems: 'center',
+        flexWrap: 'wrap',
         gap: 12,
     },
     headerTitle: {
@@ -1070,12 +1105,17 @@ const styles = StyleSheet.create({
         gap: 4,
     },
     dateNavArrow: {
-        padding: 4,
+        padding: 6,
+        minWidth: 44,
+        minHeight: 44,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     dateCenterBtn: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 6,
+        paddingHorizontal: 8,
+        minHeight: 44,
     },
     dateTextMain: {
         fontSize: 13,
@@ -1084,10 +1124,13 @@ const styles = StyleSheet.create({
     },
     todayBtn: {
         backgroundColor: '#e2e8f0',
-        paddingVertical: 4,
-        paddingHorizontal: 8,
+        paddingVertical: 8,
+        paddingHorizontal: 12,
         borderRadius: 6,
         marginLeft: 4,
+        minHeight: 44,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     todayBtnText: {
         fontSize: 11.5,
@@ -1114,7 +1157,17 @@ const styles = StyleSheet.create({
         padding: 0,
     },
     searchClear: {
-        padding: 2,
+        padding: 6,
+        minWidth: 44,
+        minHeight: 44,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    closeBtn: {
+        minWidth: 44,
+        minHeight: 44,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     tabGroup: {
         flexDirection: 'row',

@@ -242,7 +242,15 @@ export const DoctorApp = () => (
         <Stack.Screen name="DoctorPatientProfile" component={withLayout(UnifiedPatientProfile)} />
         <Stack.Screen name="PatientBillingProfile" component={withLayout(PatientBillingProfile)} />
         <Stack.Screen name="OTDashboard" component={withLayout(OTDashboard)} />
+        <Stack.Screen name="OTPlannedSurgeries" component={withLayout(OTPlannedSurgeries)} />
         <Stack.Screen name="OTSchedulePage" component={withLayout(OTSchedulePage)} />
+        <Stack.Screen name="OTRoomsPage" component={withLayout(OTRoomsPage)} />
+        <Stack.Screen name="OTPreOpPage" component={withLayout(OTPreOpPage)} />
+        <Stack.Screen name="OTInProgressPage" component={withLayout(OTInProgressPage)} />
+        <Stack.Screen name="OTPostOpPage" component={withLayout(OTPostOpPage)} />
+        <Stack.Screen name="OTCompletedPage" component={withLayout(OTCompletedPage)} />
+        <Stack.Screen name="OTSurgeonsPage" component={withLayout(OTSurgeonsPage)} />
+        <Stack.Screen name="OTReportsPage" component={withLayout(OTReportsPage)} />
     </Stack.Navigator>
 );
 

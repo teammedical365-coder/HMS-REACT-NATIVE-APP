@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, useWindowDimensions, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { Feather } from '@expo/vector-icons';
 import { otAPI } from '../../utils/api';
 import socket from '../../utils/socket';
 import OTHeader from './OTHeader';
 import { SurgeryDetailsModal, WorkflowBedModal } from '../../components/ot/OTModals';
+import useOTResponsive from './otResponsive';
 
 const getStatusStyle = (status) => {
     switch(status) {
@@ -24,7 +26,17 @@ const getStatusStyle = (status) => {
 
 const OTPostOpPage = () => {
     const navigation = useNavigation();
-    const { width } = useWindowDimensions();
+    const {
+        width,
+        isSmallPhone,
+        isPhone,
+        isTablet,
+        isLargeTablet,
+        pagePadding,
+        cardPadding,
+        gap,
+    } = useOTResponsive();
+
     const [postOpSurgeries, setPostOpSurgeries] = useState([]);
     const [loading, setLoading] = useState(true);
     const [lastUpdated, setLastUpdated] = useState(null);
@@ -54,17 +66,16 @@ const OTPostOpPage = () => {
     useEffect(() => {
         fetchPostOpData();
 
+        if (!socket) return;
         const handleUpdate = () => fetchPostOpData();
-        if (socket) {
-            socket.on('ot_update', handleUpdate);
-            socket.on('ot_surgery_scheduled', handleUpdate);
-        }
+        socket.on('ot_update', handleUpdate);
+        socket.on('ot_surgery_scheduled', handleUpdate);
+        socket.on('surgery_plan_created', handleUpdate);
 
         return () => {
-            if (socket) {
-                socket.off('ot_update', handleUpdate);
-                socket.off('ot_surgery_scheduled', handleUpdate);
-            }
+            socket.off('ot_update', handleUpdate);
+            socket.off('ot_surgery_scheduled', handleUpdate);
+            socket.off('surgery_plan_created', handleUpdate);
         };
     }, [fetchPostOpData]);
 
@@ -84,13 +95,16 @@ const OTPostOpPage = () => {
             msg,
             [
                 { text: "Cancel", style: "cancel" },
-                { 
-                    text: "Confirm", 
+                {
+                    text: "Confirm",
                     style: "default",
                     onPress: async () => {
                         try {
                             const res = await otAPI.updateSurgeryWorkflow(surgeryId, { status: nextStatus });
-                            if (res.success) fetchPostOpData();
+                            if (res.success) {
+                                Alert.alert("Success", nextStatus === 'POST_OP' ? "Patient moved to Post-Op recovery" : "Patient discharged and completed");
+                                fetchPostOpData();
+                            }
                         } catch (err) {
                             Alert.alert("Error", err.message || 'Workflow transition failed');
                         }
@@ -99,8 +113,6 @@ const OTPostOpPage = () => {
             ]
         );
     };
-
-
 
     const filteredSurgeries = postOpSurgeries.filter(s => {
         if (!searchQuery) return true;
@@ -113,10 +125,10 @@ const OTPostOpPage = () => {
         return pName.includes(q) || pMrn.includes(q) || proc.includes(q) || sName.includes(q) || rName.includes(q);
     });
 
-    const isLargeScreen = width > 768;
+    const cardWidth = isLargeTablet ? '31.5%' : isTablet ? '48.5%' : '100%';
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+        <ScrollView style={styles.container} contentContainerStyle={[styles.contentContainer, { padding: pagePadding }]}>
             <OTHeader
                 title="Post-Operative Patients & Recovery"
                 subtitle="Patients in PACU / recovery unit, vitals monitoring, recovery stabilization, and ward bed transfer."
@@ -136,16 +148,22 @@ const OTPostOpPage = () => {
                     <Text style={styles.emptyText}>When surgeries complete, patients transition to PACU/Post-Op recovery and appear here.</Text>
                 </View>
             ) : (
-                <View style={[styles.grid, !isLargeScreen && { flexDirection: 'column' }]}>
+                <View style={[styles.grid, { gap }]}>
                     {filteredSurgeries.map(s => {
                         const stInfo = getStatusStyle(s.status);
                         const surgeonName = (s.surgeonId?.name || 'Surgeon').replace(/^Dr\.?\s*/i, '');
 
                         return (
-                            <View key={s._id} style={styles.card}>
+                            <View
+                                key={s._id}
+                                style={[
+                                    styles.card,
+                                    { width: cardWidth, padding: cardPadding }
+                                ]}
+                            >
                                 <View style={styles.cardHeader}>
                                     <View style={styles.pacuBadge}>
-                                        <Text style={styles.pacuBadgeText}>🏥 PACU / Recovery Unit</Text>
+                                        <Text style={styles.pacuBadgeText} numberOfLines={1}>🏥 PACU / Recovery Unit</Text>
                                     </View>
                                     <View style={[styles.statusBadge, { backgroundColor: stInfo.bg, borderColor: stInfo.border }]}>
                                         <Text style={[styles.statusBadgeText, { color: stInfo.color }]}>{stInfo.label}</Text>
@@ -162,15 +180,15 @@ const OTPostOpPage = () => {
                                 <View style={styles.infoGrid}>
                                     <View style={styles.infoCol}>
                                         <Text style={styles.infoLabel}>SURGEON</Text>
-                                        <Text style={styles.infoValue}>Dr. {surgeonName}</Text>
+                                        <Text style={styles.infoValue} numberOfLines={2}>Dr. {surgeonName}</Text>
                                     </View>
                                     <View style={styles.infoCol}>
                                         <Text style={styles.infoLabel}>OT ROOM</Text>
-                                        <Text style={styles.infoValue}>{s.otRoomId?.name || 'OT Suite'}</Text>
+                                        <Text style={styles.infoValue} numberOfLines={2}>{s.otRoomId?.name || 'OT Suite'}</Text>
                                     </View>
                                 </View>
 
-                                {s.actualEndTime && (
+                                {Boolean(s.actualEndTime) && (
                                     <View style={styles.completedTimeBox}>
                                         <Text style={styles.completedTimeText}>
                                             ⏱️ Completed at: <Text style={{fontWeight: 'bold'}}>{new Date(s.actualEndTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
@@ -178,35 +196,65 @@ const OTPostOpPage = () => {
                                     </View>
                                 )}
 
-                                <View style={styles.cardActions}>
-                                    <TouchableOpacity 
-                                        style={styles.viewBtn}
-                                        onPress={() => {
-                                            setSelectedSurgery(s);
-                                            setShowDetailsModal(true);
-                                        }}
-                                    >
-                                        <Text style={styles.viewBtnText}>View Details</Text>
-                                    </TouchableOpacity>
-
+                                {/* Action Buttons */}
+                                <View style={styles.cardActionsContainer}>
                                     {s.status === 'SURGERY_COMPLETED' ? (
-                                        <TouchableOpacity onPress={() => handleWorkflowTransition(s._id, 'POST_OP')} style={styles.moveToPostOpBtn}>
-                                            <Text style={styles.moveToPostOpBtnText}>Move to Post-Op →</Text>
-                                        </TouchableOpacity>
-                                    ) : (
-                                        <View style={{ flexDirection: 'row', gap: 6 }}>
-                                            <TouchableOpacity 
-                                                onPress={() => setBedModal({
-                                                    open: true,
-                                                    actionType: 'TRANSFER',
-                                                    patientId: s.patientId?._id || s.patientId,
-                                                    surgeryId: s._id
-                                                })} 
-                                                style={styles.transferBedBtn}
+                                        <View style={[styles.actionRow, isSmallPhone && styles.actionRowSmallPhone]}>
+                                            <TouchableOpacity
+                                                style={[styles.viewBtn, isSmallPhone ? styles.btnFullWidth : { flex: 1 }]}
+                                                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                                onPress={() => {
+                                                    setSelectedSurgery(s);
+                                                    setShowDetailsModal(true);
+                                                }}
                                             >
-                                                <Text style={styles.transferBedBtnText}>Transfer Bed</Text>
+                                                <Feather name="eye" size={14} color="#334155" style={{ marginRight: 4 }} />
+                                                <Text style={styles.viewBtnText}>Details</Text>
                                             </TouchableOpacity>
-                                            <TouchableOpacity onPress={() => handleWorkflowTransition(s._id, 'COMPLETED')} style={styles.dischargeBtn}>
+
+                                            <TouchableOpacity
+                                                onPress={() => handleWorkflowTransition(s._id, 'POST_OP')}
+                                                style={[styles.moveToPostOpBtn, isSmallPhone ? styles.btnFullWidth : { flex: 1.5 }]}
+                                                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                            >
+                                                <Text style={styles.moveToPostOpBtnText}>Move to Post-Op →</Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                    ) : (
+                                        /* In Post-Op: Discharge primary + Transfer & Details secondary */
+                                        <View style={styles.multiActionCol}>
+                                            <View style={styles.actionRow}>
+                                                <TouchableOpacity
+                                                    style={[styles.viewBtn, { flex: 1 }]}
+                                                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                                    onPress={() => {
+                                                        setSelectedSurgery(s);
+                                                        setShowDetailsModal(true);
+                                                    }}
+                                                >
+                                                    <Feather name="eye" size={14} color="#334155" style={{ marginRight: 4 }} />
+                                                    <Text style={styles.viewBtnText}>Details</Text>
+                                                </TouchableOpacity>
+
+                                                <TouchableOpacity
+                                                    onPress={() => setBedModal({
+                                                        open: true,
+                                                        actionType: 'TRANSFER',
+                                                        patientId: s.patientId?._id || s.patientId,
+                                                        surgeryId: s._id
+                                                    })}
+                                                    style={[styles.transferBedBtn, { flex: 1.2 }]}
+                                                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                                >
+                                                    <Text style={styles.transferBedBtnText}>Transfer Bed</Text>
+                                                </TouchableOpacity>
+                                            </View>
+
+                                            <TouchableOpacity
+                                                onPress={() => handleWorkflowTransition(s._id, 'COMPLETED')}
+                                                style={styles.dischargeBtn}
+                                                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                            >
                                                 <Text style={styles.dischargeBtnText}>✓ Discharge / Finish</Text>
                                             </TouchableOpacity>
                                         </View>
@@ -241,13 +289,13 @@ const OTPostOpPage = () => {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#f8fafc' },
-    contentContainer: { padding: 16 },
+    contentContainer: { width: '100%', maxWidth: 1440, alignSelf: 'center', padding: 16, paddingBottom: 40 },
     emptyState: { backgroundColor: '#fff', borderRadius: 14, borderWidth: 1, borderColor: '#e2e8f0', padding: 60, alignItems: 'center' },
     emptyTitle: { marginVertical: 6, color: '#1e293b', fontSize: 18, fontWeight: '700' },
     emptyText: { color: '#94a3b8', fontSize: 14, textAlign: 'center' },
-    grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
-    card: { flex: 1, minWidth: 350, backgroundColor: '#fff', borderRadius: 14, borderWidth: 1.5, borderColor: '#a5f3fc', padding: 20, elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.03, shadowRadius: 5 },
-    cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+    grid: { flexDirection: 'row', flexWrap: 'wrap' },
+    card: { backgroundColor: '#fff', borderRadius: 14, borderWidth: 1.5, borderColor: '#a5f3fc', elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.03, shadowRadius: 5 },
+    cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
     pacuBadge: { backgroundColor: '#ecfeff', paddingVertical: 3, paddingHorizontal: 8, borderRadius: 6 },
     pacuBadgeText: { fontSize: 12, fontWeight: '800', color: '#0e7490' },
     statusBadge: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12, borderWidth: 1 },
@@ -262,14 +310,18 @@ const styles = StyleSheet.create({
     infoValue: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
     completedTimeBox: { backgroundColor: '#ecfeff', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, marginBottom: 12 },
     completedTimeText: { fontSize: 12, color: '#0e7490' },
-    cardActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
-    viewBtn: { paddingVertical: 7, paddingHorizontal: 14, backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 6 },
+    cardActionsContainer: { paddingTop: 14, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
+    multiActionCol: { flexDirection: 'column', gap: 8 },
+    actionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
+    actionRowSmallPhone: { flexDirection: 'column-reverse', alignItems: 'stretch' },
+    btnFullWidth: { width: '100%', flex: undefined },
+    viewBtn: { flexDirection: 'row', paddingVertical: 8, paddingHorizontal: 12, minHeight: 44, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8 },
     viewBtnText: { fontSize: 13, fontWeight: '700', color: '#334155' },
-    moveToPostOpBtn: { paddingVertical: 7, paddingHorizontal: 16, backgroundColor: '#0891b2', borderRadius: 6 },
+    moveToPostOpBtn: { paddingVertical: 8, paddingHorizontal: 14, minHeight: 44, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0891b2', borderRadius: 8 },
     moveToPostOpBtnText: { fontSize: 13, fontWeight: '700', color: '#fff' },
-    transferBedBtn: { paddingVertical: 7, paddingHorizontal: 12, backgroundColor: '#eff6ff', borderWidth: 1, borderColor: '#bfdbfe', borderRadius: 6 },
+    transferBedBtn: { paddingVertical: 8, paddingHorizontal: 10, minHeight: 44, justifyContent: 'center', alignItems: 'center', backgroundColor: '#eff6ff', borderWidth: 1, borderColor: '#bfdbfe', borderRadius: 8 },
     transferBedBtnText: { fontSize: 12, fontWeight: '700', color: '#1d4ed8' },
-    dischargeBtn: { paddingVertical: 7, paddingHorizontal: 16, backgroundColor: '#16a34a', borderRadius: 6 },
+    dischargeBtn: { width: '100%', paddingVertical: 10, minHeight: 44, justifyContent: 'center', alignItems: 'center', backgroundColor: '#16a34a', borderRadius: 8 },
     dischargeBtnText: { fontSize: 13, fontWeight: '700', color: '#fff' }
 });
 

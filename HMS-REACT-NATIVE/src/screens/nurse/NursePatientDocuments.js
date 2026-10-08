@@ -685,7 +685,12 @@ const NursePatientDocuments = () => {
                                 Search patients, view and upload clinical diagnostic reports, print standard legal consents, and archive signed documents.
                             </Text>
                         </View>
-                        <TouchableOpacity style={styles.refreshIconBtn} onPress={onRefresh} activeOpacity={0.8}>
+                        <TouchableOpacity
+                            style={styles.refreshIconBtn}
+                            onPress={onRefresh}
+                            activeOpacity={0.8}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
                             <Feather name="refresh-cw" size={16} color="#ffffff" />
                         </TouchableOpacity>
                     </View>
@@ -783,6 +788,7 @@ const NursePatientDocuments = () => {
                                 style={styles.actionBtnPrimary}
                                 onPress={() => setUploadReportOpen(true)}
                                 activeOpacity={0.8}
+                                hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
                             >
                                 <Feather name="upload-cloud" size={14} color="#ffffff" />
                                 <Text style={styles.actionBtnPrimaryText}>Attach Report</Text>
@@ -833,6 +839,7 @@ const NursePatientDocuments = () => {
                                                     style={styles.viewDocBtn}
                                                     onPress={() => handleOpenDocument(fileUrl)}
                                                     activeOpacity={0.8}
+                                                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                                                 >
                                                     <Feather name="external-link" size={13} color="#0284c7" />
                                                     <Text style={styles.viewDocBtnText}>View</Text>
@@ -862,6 +869,7 @@ const NursePatientDocuments = () => {
                                     style={styles.actionBtnEmerald}
                                     onPress={() => setUploadConsentOpen(true)}
                                     activeOpacity={0.8}
+                                    hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
                                 >
                                     <Feather name="upload" size={14} color="#ffffff" />
                                     <Text style={styles.actionBtnPrimaryText}>Upload Signed</Text>
@@ -984,6 +992,7 @@ const NursePatientDocuments = () => {
                                                         style={styles.viewDocBtn}
                                                         onPress={() => handleOpenDocument(fileUrl)}
                                                         activeOpacity={0.8}
+                                                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                                                     >
                                                         <Feather name="external-link" size={13} color="#0284c7" />
                                                         <Text style={styles.viewDocBtnText}>View</Text>
@@ -1309,8 +1318,8 @@ const styles = StyleSheet.create({
     sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
     sectionTitle: { fontSize: 15, fontWeight: '800', color: '#0f172a' },
     sectionSub: { fontSize: 11, color: '#64748b', marginTop: 2 },
-    actionBtnPrimary: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#0284c7', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 6 },
-    actionBtnEmerald: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#059669', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 6 },
+    actionBtnPrimary: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#0284c7', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 6, minHeight: 38 },
+    actionBtnEmerald: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#059669', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 6, minHeight: 38 },
     actionBtnPrimaryText: { color: '#ffffff', fontSize: 12, fontWeight: '700' },
     loaderBox: { padding: 24, alignItems: 'center', justifyContent: 'center' },
     loaderText: { fontSize: 12, color: '#64748b', marginTop: 6 },
@@ -1325,7 +1334,7 @@ const styles = StyleSheet.create({
     categoryBadgeText: { fontSize: 10, fontWeight: '700', color: '#475569' },
     itemMeta: { fontSize: 11, color: '#64748b', marginTop: 2 },
     itemNotes: { fontSize: 11, color: '#0284c7', marginTop: 4, fontStyle: 'italic' },
-    viewDocBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f0f9ff', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: '#bae6fd' },
+    viewDocBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, backgroundColor: '#f0f9ff', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: '#bae6fd', minHeight: 34 },
     viewDocBtnText: { fontSize: 11, fontWeight: '700', color: '#0284c7' },
     consentTemplateCard: { backgroundColor: '#ffffff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', padding: 16 },
     templateCardHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 },

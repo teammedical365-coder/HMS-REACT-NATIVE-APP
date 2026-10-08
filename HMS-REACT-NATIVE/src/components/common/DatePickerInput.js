@@ -114,7 +114,7 @@ const DatePickerInput = ({
 
         return (
             <View style={[styles.container, style]}>
-                {label && (
+                {Boolean(label) && (
                     <Text style={styles.fieldLabel}>
                         {label} {required && <Text style={{ color: '#ef4444' }}>*</Text>}
                     </Text>
@@ -172,7 +172,7 @@ const DatePickerInput = ({
                         }}
                     />
                 </div>
-                {error && <Text style={styles.errorText}>{error}</Text>}
+                {Boolean(error) && <Text style={styles.errorText}>{error}</Text>}
             </View>
         );
     }
@@ -256,7 +256,7 @@ const DatePickerInput = ({
 
     return (
         <View style={[styles.container, style]}>
-            {label && (
+            {Boolean(label) && (
                 <Text style={styles.fieldLabel}>
                     {label} {required && <Text style={{ color: '#ef4444' }}>*</Text>}
                 </Text>
@@ -292,7 +292,7 @@ const DatePickerInput = ({
                             e.stopPropagation();
                             handleClear();
                         }}
-                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                        hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
                         style={styles.clearBtn}
                     >
                         <Feather name="x" size={14} color="#94a3b8" />
@@ -300,7 +300,7 @@ const DatePickerInput = ({
                 ) : null}
             </TouchableOpacity>
 
-            {error && <Text style={styles.errorText}>{error}</Text>}
+            {Boolean(error) && <Text style={styles.errorText}>{error}</Text>}
 
             {/* Native Calendar Modal */}
             <Modal
@@ -334,6 +334,7 @@ const DatePickerInput = ({
                                 <TouchableOpacity
                                     style={[styles.headerTab, viewMode === 'months' && styles.headerTabActive]}
                                     onPress={() => setViewMode(viewMode === 'months' ? 'days' : 'months')}
+                                    hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
                                 >
                                     <Text style={[styles.headerTitleText, viewMode === 'months' && styles.headerTitleTextActive]}>
                                         {MONTH_NAMES[currentMonth.getMonth()]}
@@ -346,6 +347,7 @@ const DatePickerInput = ({
                                         setYearPage(currentMonth.getFullYear());
                                         setViewMode(viewMode === 'years' ? 'days' : 'years');
                                     }}
+                                    hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
                                 >
                                     <Text style={[styles.headerTitleText, viewMode === 'years' && styles.headerTitleTextActive]}>
                                         {currentMonth.getFullYear()}
@@ -404,6 +406,7 @@ const DatePickerInput = ({
                                                 onPress={() => !isOutOfRange && handleSelectDay(day)}
                                                 disabled={isOutOfRange}
                                                 activeOpacity={0.7}
+                                                hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
                                             >
                                                 <Text
                                                     style={[
@@ -471,13 +474,13 @@ const DatePickerInput = ({
 
                         {/* Footer Controls */}
                         <View style={styles.calendarFooter}>
-                            <TouchableOpacity style={styles.footerActionBtn} onPress={handleClear}>
+                            <TouchableOpacity style={styles.footerActionBtn} onPress={handleClear} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                                 <Text style={styles.footerActionClear}>Clear</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity style={styles.footerActionBtn} onPress={handleToday}>
+                            <TouchableOpacity style={styles.footerActionBtn} onPress={handleToday} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                                 <Text style={styles.footerActionToday}>Today</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity style={styles.footerActionDone} onPress={() => setIsOpen(false)}>
+                            <TouchableOpacity style={styles.footerActionDone} onPress={() => setIsOpen(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                                 <Text style={styles.footerActionDoneText}>Cancel</Text>
                             </TouchableOpacity>
                         </View>
@@ -578,8 +581,10 @@ const styles = StyleSheet.create({
         gap: 6,
     },
     headerTab: {
-        paddingVertical: 4,
-        paddingHorizontal: 10,
+        paddingVertical: 6,
+        paddingHorizontal: 12,
+        minHeight: 32,
+        justifyContent: 'center',
         borderRadius: 6,
         backgroundColor: '#f1f5f9',
     },
@@ -712,8 +717,10 @@ const styles = StyleSheet.create({
         borderTopColor: '#f1f5f9',
     },
     footerActionBtn: {
-        paddingVertical: 6,
-        paddingHorizontal: 12,
+        paddingVertical: 8,
+        paddingHorizontal: 14,
+        minHeight: 36,
+        justifyContent: 'center',
         borderRadius: 6,
     },
     footerActionClear: {
@@ -727,8 +734,10 @@ const styles = StyleSheet.create({
         color: '#0284c7',
     },
     footerActionDone: {
-        paddingVertical: 6,
-        paddingHorizontal: 12,
+        paddingVertical: 8,
+        paddingHorizontal: 14,
+        minHeight: 36,
+        justifyContent: 'center',
         borderRadius: 6,
         backgroundColor: '#f1f5f9',
     },

@@ -1,14 +1,24 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, useWindowDimensions, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { otAPI } from '../../utils/api';
 import socket from '../../utils/socket';
 import OTHeader from './OTHeader';
 import { getStatusStyle, SurgeryDetailsModal } from '../../components/ot/OTModals';
+import useOTResponsive from './otResponsive';
 
 const OTPreOpPage = () => {
-    const { width } = useWindowDimensions();
-    const isTablet = width > 768;
+    const {
+        width,
+        isSmallPhone,
+        isPhone,
+        isTablet,
+        isLargeTablet,
+        pagePadding,
+        cardPadding,
+        gap,
+    } = useOTResponsive();
+
     const [preOpSurgeries, setPreOpSurgeries] = useState([]);
     const [loading, setLoading] = useState(true);
     const [lastUpdated, setLastUpdated] = useState(null);
@@ -38,24 +48,26 @@ const OTPreOpPage = () => {
     useEffect(() => {
         fetchPreOpData();
 
+        if (!socket) return;
         const handleUpdate = () => fetchPreOpData();
-        if (socket) {
-            socket.on('ot_update', handleUpdate);
-            socket.on('ot_surgery_scheduled', handleUpdate);
-        }
+        socket.on('ot_update', handleUpdate);
+        socket.on('ot_surgery_scheduled', handleUpdate);
+        socket.on('surgery_plan_created', handleUpdate);
 
         return () => {
-            if (socket) {
-                socket.off('ot_update', handleUpdate);
-                socket.off('ot_surgery_scheduled', handleUpdate);
-            }
+            socket.off('ot_update', handleUpdate);
+            socket.off('ot_surgery_scheduled', handleUpdate);
+            socket.off('surgery_plan_created', handleUpdate);
         };
     }, [fetchPreOpData]);
 
     const handleWorkflowTransition = async (surgeryId, nextStatus) => {
         try {
             const res = await otAPI.updateSurgeryWorkflow(surgeryId, { status: nextStatus });
-            if (res.success) fetchPreOpData();
+            if (res.success) {
+                Alert.alert('Success', nextStatus === 'READY_FOR_OT' ? 'Patient marked ready for OT' : 'Patient transferred to OT');
+                fetchPreOpData();
+            }
         } catch (err) {
             Alert.alert('Error', err.response?.data?.message || 'Workflow transition failed');
         }
@@ -72,8 +84,10 @@ const OTPreOpPage = () => {
         return pName.includes(q) || pMrn.includes(q) || proc.includes(q) || sName.includes(q) || rName.includes(q);
     });
 
+    const cardWidth = isLargeTablet ? '31.5%' : isTablet ? '48.5%' : '100%';
+
     return (
-        <View style={styles.container}>
+        <ScrollView style={styles.container} contentContainerStyle={[styles.scrollContent, { padding: pagePadding }]}>
             <OTHeader
                 title="Pre-Operative Patients"
                 subtitle="Patients currently admitted and preparing for surgery (fasting, pre-medication, clinical clearance)."
@@ -84,8 +98,6 @@ const OTPreOpPage = () => {
                 onSearchChange={setSearchQuery}
                 badgeCounts={{ preOp: preOpSurgeries.length }}
             />
-
-            <ScrollView contentContainerStyle={styles.scrollContent}>
                 {/* Pre-Op Patients List */}
                 {filteredSurgeries.length === 0 ? (
                     <View style={styles.emptyState}>
@@ -96,12 +108,11 @@ const OTPreOpPage = () => {
                         </Text>
                     </View>
                 ) : (
-                    <View style={[styles.grid, { flexDirection: isTablet ? 'row' : 'column' }]}>
+                    <View style={[styles.grid, { gap }]}>
                         {filteredSurgeries.map(s => {
                             const stInfo = getStatusStyle(s.status);
                             const surgeonName = (s.surgeonId?.name || 'Surgeon').replace(/^Dr\.?\s*/i, '');
                             const assistants = s.assistantSurgeonIds || [];
-
                             const isReadyForOT = s.status === 'READY_FOR_OT';
 
                             return (
@@ -109,20 +120,20 @@ const OTPreOpPage = () => {
                                     key={s._id}
                                     style={[
                                         styles.card,
-                                        { width: isTablet ? '48%' : '100%' },
+                                        { width: cardWidth, padding: cardPadding },
                                         isReadyForOT ? styles.cardReady : styles.cardPreOp
                                     ]}
                                 >
                                     <View>
                                         <View style={styles.cardHeaderRow}>
                                             <View style={styles.roomBadge}>
-                                                <Text style={styles.roomBadgeText}>
+                                                <Text style={styles.roomBadgeText} numberOfLines={1}>
                                                     🚪 {s.otRoomId?.name || 'OT Suite'}
                                                 </Text>
                                             </View>
 
                                             <View style={[
-                                                styles.statusBadge, 
+                                                styles.statusBadge,
                                                 { backgroundColor: stInfo.bg, borderColor: stInfo.border }
                                             ]}>
                                                 <Text style={[styles.statusBadgeText, { color: stInfo.color }]}>
@@ -143,10 +154,10 @@ const OTPreOpPage = () => {
                                             </Text>
                                         </View>
 
-                                        <View style={styles.clinicalGrid}>
+                                        <View style={[styles.clinicalGrid, isSmallPhone && { flexDirection: 'column' }]}>
                                             <View style={styles.clinicalItem}>
                                                 <Text style={styles.clinicalLabel}>SURGEON</Text>
-                                                <Text style={styles.clinicalValue}>Dr. {surgeonName}</Text>
+                                                <Text style={styles.clinicalValue} numberOfLines={2}>Dr. {surgeonName}</Text>
                                             </View>
                                             <View style={styles.clinicalItem}>
                                                 <Text style={styles.clinicalLabel}>SCHEDULED TIME</Text>
@@ -164,21 +175,24 @@ const OTPreOpPage = () => {
                                     </View>
 
                                     {/* Bottom Actions */}
-                                    <View style={styles.actionRow}>
+                                    <View style={[styles.actionRow, isSmallPhone && styles.actionRowSmallPhone]}>
                                         <TouchableOpacity
                                             onPress={() => {
                                                 setSelectedSurgery(s);
                                                 setShowDetailsModal(true);
                                             }}
-                                            style={styles.viewBtn}
+                                            style={[styles.viewBtn, isSmallPhone ? styles.viewBtnSmallPhone : { flex: 1 }]}
+                                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                                         >
-                                            <Text style={styles.viewBtnText}>View Details</Text>
+                                            <Feather name="eye" size={14} color="#334155" style={{ marginRight: 4 }} />
+                                            <Text style={styles.viewBtnText}>Details</Text>
                                         </TouchableOpacity>
 
                                         {s.status === 'PRE_OP' && (
                                             <TouchableOpacity
                                                 onPress={() => handleWorkflowTransition(s._id, 'READY_FOR_OT')}
-                                                style={[styles.workflowBtn, { backgroundColor: '#7c3aed' }]}
+                                                style={[styles.workflowBtn, { backgroundColor: '#7c3aed' }, isSmallPhone ? styles.workflowBtnSmallPhone : { flex: 1.5 }]}
+                                                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                                             >
                                                 <Text style={styles.workflowBtnText}>Mark Ready for OT →</Text>
                                             </TouchableOpacity>
@@ -187,7 +201,8 @@ const OTPreOpPage = () => {
                                         {s.status === 'READY_FOR_OT' && (
                                             <TouchableOpacity
                                                 onPress={() => handleWorkflowTransition(s._id, 'IN_OT')}
-                                                style={[styles.workflowBtn, { backgroundColor: '#dc2626' }]}
+                                                style={[styles.workflowBtn, { backgroundColor: '#dc2626' }, isSmallPhone ? styles.workflowBtnSmallPhone : { flex: 1.5 }]}
+                                                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                                             >
                                                 <Text style={styles.workflowBtnText}>🔴 Transfer to OT →</Text>
                                             </TouchableOpacity>
@@ -198,7 +213,6 @@ const OTPreOpPage = () => {
                         })}
                     </View>
                 )}
-            </ScrollView>
 
             {/* Modals */}
             <SurgeryDetailsModal
@@ -209,7 +223,7 @@ const OTPreOpPage = () => {
                     setSelectedSurgery(null);
                 }}
             />
-        </View>
+        </ScrollView>
     );
 };
 
@@ -219,7 +233,11 @@ const styles = StyleSheet.create({
         backgroundColor: '#f8fafc',
     },
     scrollContent: {
+        width: '100%',
+        maxWidth: 1440,
+        alignSelf: 'center',
         padding: 16,
+        paddingBottom: 40,
     },
     emptyState: {
         backgroundColor: '#ffffff',
@@ -270,6 +288,8 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: 6,
         marginBottom: 12,
     },
     roomBadge: {
@@ -365,6 +385,9 @@ const styles = StyleSheet.create({
     viewBtn: {
         paddingVertical: 7,
         paddingHorizontal: 14,
+        minHeight: 44,
+        justifyContent: 'center',
+        alignItems: 'center',
         backgroundColor: '#f1f5f9',
         borderWidth: 1,
         borderColor: '#cbd5e1',
@@ -378,12 +401,26 @@ const styles = StyleSheet.create({
     workflowBtn: {
         paddingVertical: 7,
         paddingHorizontal: 16,
+        minHeight: 44,
+        justifyContent: 'center',
+        alignItems: 'center',
         borderRadius: 6,
     },
     workflowBtnText: {
         color: 'white',
         fontSize: 13,
         fontWeight: 'bold',
+    },
+    actionRowSmallPhone: {
+        flexDirection: 'column-reverse',
+        alignItems: 'stretch',
+        gap: 8,
+    },
+    viewBtnSmallPhone: {
+        width: '100%',
+    },
+    workflowBtnSmallPhone: {
+        width: '100%',
     },
 });
 

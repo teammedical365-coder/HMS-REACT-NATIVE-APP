@@ -359,7 +359,7 @@ const NurseOPDQueue = () => {
     const selectedDocObj = doctorsList.find(d => d.id === selectedDoctorFilter);
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+        <ScrollView style={styles.container} contentContainerStyle={[styles.contentContainer, width < 380 && { padding: 12 }]}>
             {/* ── Toast Notification ── */}
             {toast && (
                 <View style={[styles.toastBox, toast.type === 'error' ? styles.toastError : styles.toastSuccess]}>
@@ -372,16 +372,16 @@ const NurseOPDQueue = () => {
                 </View>
             )}
 
-            {/* ── Top Header Banner ── */}
+            {/* ── Top Header Banner (M-3 Responsive Fit at 320px) ── */}
             <LinearGradient
                 colors={['#0f172a', '#1e293b']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
-                style={styles.headerCard}
+                style={[styles.headerCard, width < 380 && { padding: 12 }]}
             >
-                <View style={styles.headerLeft}>
+                <View style={[styles.headerLeft, width < 480 && { width: '100%', minWidth: 0 }]}>
                     <View style={styles.titleRow}>
-                        <Text style={styles.headerTitle}>OPD Patient Queue</Text>
+                        <Text style={[styles.headerTitle, width < 380 && { fontSize: 18 }]}>OPD Patient Queue</Text>
                         <View style={styles.roleBadge}>
                             <Text style={styles.roleBadgeText}>NURSE</Text>
                         </View>
@@ -391,10 +391,11 @@ const NurseOPDQueue = () => {
                     </Text>
                 </View>
                 <TouchableOpacity
-                    style={styles.refreshBtn}
+                    style={[styles.refreshBtn, width < 480 && { alignSelf: 'flex-start', minHeight: 44 }]}
                     onPress={() => fetchQueue(true)}
                     disabled={refreshing}
                     activeOpacity={0.8}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
                     <Animated.View style={{ transform: [{ rotate: refreshing ? spinInterpolate : '0deg' }] }}>
                         <Feather name="refresh-cw" size={15} color="#ffffff" />
@@ -463,7 +464,11 @@ const NurseOPDQueue = () => {
                         onChangeText={setSearchQuery}
                     />
                     {searchQuery.length > 0 && (
-                        <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.searchClear}>
+                        <TouchableOpacity
+                            onPress={() => setSearchQuery('')}
+                            style={styles.searchClear}
+                            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                        >
                             <Feather name="x" size={14} color="#94a3b8" />
                         </TouchableOpacity>
                     )}
@@ -709,7 +714,11 @@ const NurseOPDQueue = () => {
                     <View style={styles.filterModalCard} onStartShouldSetResponder={() => true}>
                         <View style={styles.filterModalHeader}>
                             <Text style={styles.filterModalTitle}>Filter by Attending Doctor</Text>
-                            <TouchableOpacity onPress={() => setDoctorModalOpen(false)}>
+                            <TouchableOpacity
+                                style={styles.closeBtn}
+                                onPress={() => setDoctorModalOpen(false)}
+                                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                            >
                                 <Feather name="x" size={20} color="#64748b" />
                             </TouchableOpacity>
                         </View>
@@ -764,6 +773,7 @@ const NurseOPDQueue = () => {
                             <TouchableOpacity
                                 style={styles.closeBtn}
                                 onPress={() => setVitalsModal({ open: false, appt: null })}
+                                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                             >
                                 <Feather name="x" size={18} color="#64748b" />
                             </TouchableOpacity>
@@ -1056,11 +1066,13 @@ const styles = StyleSheet.create({
     },
     headerLeft: {
         flex: 1,
-        minWidth: 260,
+        minWidth: 0,
+        width: '100%',
     },
     titleRow: {
         flexDirection: 'row',
         alignItems: 'center',
+        flexWrap: 'wrap',
         gap: 12,
     },
     headerTitle: {
@@ -1190,7 +1202,17 @@ const styles = StyleSheet.create({
         padding: 0,
     },
     searchClear: {
-        padding: 2,
+        padding: 6,
+        minWidth: 44,
+        minHeight: 44,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    closeBtn: {
+        minWidth: 44,
+        minHeight: 44,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     tabGroup: {
         flexDirection: 'row',

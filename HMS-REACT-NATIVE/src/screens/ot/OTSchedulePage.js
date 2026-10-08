@@ -1,21 +1,31 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert, useWindowDimensions, Platform, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert, Platform, ActivityIndicator } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { otAPI, doctorAPI, bedAPI } from '../../utils/api';
 import socket from '../../utils/socket';
 import OTHeader from './OTHeader';
-import { 
-    getStatusStyle, 
-    getElapsedTime, 
-    checkIfDelayed, 
-    SurgeryDetailsModal, 
-    ScheduleSurgeryModal, 
-    WorkflowBedModal 
+import {
+    getStatusStyle,
+    getElapsedTime,
+    checkIfDelayed,
+    SurgeryDetailsModal,
+    ScheduleSurgeryModal,
+    WorkflowBedModal
 } from '../../components/ot/OTModals';
+import DatePickerInput from '../../components/common/DatePickerInput';
+import useOTResponsive from './otResponsive';
 
 const OTSchedulePage = () => {
-    const { width } = useWindowDimensions();
-    const isTablet = width > 768;
+    const {
+        width,
+        isSmallPhone,
+        isPhone,
+        isTablet,
+        isLargeTablet,
+        pagePadding,
+        cardPadding,
+        gap,
+    } = useOTResponsive();
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
     const [schedule, setSchedule] = useState([]);
     const [doctorsList, setDoctorsList] = useState([]);
@@ -60,17 +70,16 @@ const OTSchedulePage = () => {
     useEffect(() => {
         fetchScheduleData();
 
+        if (!socket) return;
         const handleUpdate = () => fetchScheduleData();
-        if (socket) {
-            socket.on('ot_update', handleUpdate);
-            socket.on('ot_surgery_scheduled', handleUpdate);
-        }
+        socket.on('ot_update', handleUpdate);
+        socket.on('ot_surgery_scheduled', handleUpdate);
+        socket.on('surgery_plan_created', handleUpdate);
 
         return () => {
-            if (socket) {
-                socket.off('ot_update', handleUpdate);
-                socket.off('ot_surgery_scheduled', handleUpdate);
-            }
+            socket.off('ot_update', handleUpdate);
+            socket.off('ot_surgery_scheduled', handleUpdate);
+            socket.off('surgery_plan_created', handleUpdate);
         };
     }, [fetchScheduleData]);
 
@@ -83,7 +92,10 @@ const OTSchedulePage = () => {
     const handleWorkflowTransition = async (surgeryId, nextStatus) => {
         try {
             const res = await otAPI.updateSurgeryWorkflow(surgeryId, { status: nextStatus });
-            if (res.success) fetchScheduleData();
+            if (res.success) {
+                Alert.alert('Success', 'Workflow status updated');
+                fetchScheduleData();
+            }
         } catch (err) {
             Alert.alert('Workflow Error', err.response?.data?.message || 'Workflow update failed');
         }
@@ -95,13 +107,16 @@ const OTSchedulePage = () => {
             'Are you sure you want to cancel this scheduled surgery?',
             [
                 { text: 'No', style: 'cancel' },
-                { 
-                    text: 'Yes, Cancel', 
+                {
+                    text: 'Yes, Cancel',
                     style: 'destructive',
                     onPress: async () => {
                         try {
                             const res = await otAPI.cancelSurgery(surgeryId);
-                            if (res.success) fetchScheduleData();
+                            if (res.success) {
+                                Alert.alert('Success', 'Surgery cancelled successfully');
+                                fetchScheduleData();
+                            }
                         } catch (err) {
                             Alert.alert('Error', err.response?.data?.message || 'Cancel failed');
                         }
@@ -142,8 +157,62 @@ const OTSchedulePage = () => {
         { id: 'COMPLETED', label: 'Completed' }
     ];
 
+    const renderProgressionButton = (s, isMobile = false) => {
+        let btnColor = null;
+        let btnText = null;
+        let onPress = null;
+
+        if (s.status === 'SCHEDULED') {
+            btnColor = '#2563eb';
+            btnText = s.admissionRequired ? '🏥 Admit Patient' : 'Start Pre-Op →';
+            onPress = () => {
+                if (s.admissionRequired) {
+                    setBedModal({ open: true, actionType: 'ADMIT', patientId: s.patientId?._id, surgeryId: s._id });
+                } else {
+                    handleWorkflowTransition(s._id, 'PRE_OP');
+                }
+            };
+        } else if (s.status === 'ADMITTED') {
+            btnColor = '#d97706';
+            btnText = 'Start Pre-Op →';
+            onPress = () => handleWorkflowTransition(s._id, 'PRE_OP');
+        } else if (s.status === 'PRE_OP') {
+            btnColor = '#7c3aed';
+            btnText = 'Mark Ready for OT →';
+            onPress = () => handleWorkflowTransition(s._id, 'READY_FOR_OT');
+        } else if (s.status === 'READY_FOR_OT') {
+            btnColor = '#dc2626';
+            btnText = '🔴 Enter OT →';
+            onPress = () => handleWorkflowTransition(s._id, 'IN_OT');
+        } else if (s.status === 'IN_OT') {
+            btnColor = '#0d9488';
+            btnText = '✓ Complete Surgery';
+            onPress = () => handleWorkflowTransition(s._id, 'SURGERY_COMPLETED');
+        } else if (s.status === 'SURGERY_COMPLETED') {
+            btnColor = '#0891b2';
+            btnText = 'Move to Post-Op →';
+            onPress = () => handleWorkflowTransition(s._id, 'POST_OP');
+        } else if (s.status === 'POST_OP') {
+            btnColor = '#16a34a';
+            btnText = '✓ Discharge / Finish';
+            onPress = () => handleWorkflowTransition(s._id, 'COMPLETED');
+        }
+
+        if (!btnText) return null;
+
+        return (
+            <TouchableOpacity
+                style={[styles.progressBtn, { backgroundColor: btnColor }, isMobile && styles.progressBtnMobile]}
+                onPress={onPress}
+                activeOpacity={0.8}
+            >
+                <Text style={styles.progressBtnText}>{btnText}</Text>
+            </TouchableOpacity>
+        );
+    };
+
     return (
-        <View style={styles.container}>
+        <ScrollView style={styles.container} contentContainerStyle={[styles.scrollContent, { padding: pagePadding }]}>
             <OTHeader
                 title="OT Schedule & Daily Planning"
                 subtitle="Complete daily surgery roster, room allocation, surgeon teams, and real-time tracking."
@@ -154,33 +223,46 @@ const OTSchedulePage = () => {
                 onSearchChange={setSearchQuery}
                 badgeCounts={{ today: schedule.length }}
             />
-
-            <ScrollView contentContainerStyle={styles.scrollContent}>
                 {/* Date Navigator Bar & Filter Pills */}
-                <View style={[styles.navBar, { flexDirection: isTablet ? 'row' : 'column', alignItems: isTablet ? 'center' : 'flex-start' }]}>
-                    {/* Date Controls */}
-                    <View style={styles.dateControls}>
-                        <TouchableOpacity onPress={() => handleDateShift(-1)} style={styles.navBtn}>
-                            <Feather name="chevron-left" size={16} color="#334155" />
-                            <Text style={styles.navBtnText}>Prev</Text>
-                        </TouchableOpacity>
+                <View style={[styles.navBar, { flexDirection: isTablet ? 'row' : 'column', alignItems: isTablet ? 'center' : 'stretch', gap: 14 }]}>
+                    {/* Date Navigation */}
+                    <View style={[styles.dateControls, isPhone && styles.dateControlsPhone]}>
+                        <View style={styles.dateNavRow}>
+                            <TouchableOpacity onPress={() => handleDateShift(-1)} style={styles.navBtn} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                                <Feather name="chevron-left" size={16} color="#334155" />
+                                <Text style={styles.navBtnText}>Prev</Text>
+                            </TouchableOpacity>
 
-                        <View style={styles.dateDisplay}>
-                            <Text style={styles.dateDisplayText}>{selectedDate}</Text>
+                            <View style={styles.dateInputContainer}>
+                                <DatePickerInput
+                                    value={selectedDate}
+                                    onChange={d => setSelectedDate(d)}
+                                />
+                            </View>
+
+                            <TouchableOpacity onPress={() => handleDateShift(1)} style={styles.navBtn} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                                <Text style={styles.navBtnText}>Next</Text>
+                                <Feather name="chevron-right" size={16} color="#334155" />
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                onPress={() => setSelectedDate(new Date().toISOString().split('T')[0])}
+                                style={[
+                                    styles.todayBtn,
+                                    selectedDate === new Date().toISOString().split('T')[0] && styles.todayBtnActive
+                                ]}
+                                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                            >
+                                <Text style={[
+                                    styles.todayBtnText,
+                                    selectedDate === new Date().toISOString().split('T')[0] && styles.todayBtnTextActive
+                                ]}>Today</Text>
+                            </TouchableOpacity>
                         </View>
-
-                        <TouchableOpacity onPress={() => setSelectedDate(new Date().toISOString().split('T')[0])} style={styles.todayBtn}>
-                            <Text style={styles.todayBtnText}>Today</Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity onPress={() => handleDateShift(1)} style={styles.navBtn}>
-                            <Text style={styles.navBtnText}>Next</Text>
-                            <Feather name="chevron-right" size={16} color="#334155" />
-                        </TouchableOpacity>
                     </View>
 
-                    {/* Filter Pills */}
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
+                    {/* Status Filter Pills */}
+                    <View style={[styles.filterScroll, isPhone && styles.filterWrap]}>
                         {filters.map(f => (
                             <TouchableOpacity
                                 key={f.id}
@@ -192,7 +274,7 @@ const OTSchedulePage = () => {
                                 </Text>
                             </TouchableOpacity>
                         ))}
-                    </ScrollView>
+                    </View>
                 </View>
 
                 {/* Schedule Table / List */}
@@ -204,9 +286,10 @@ const OTSchedulePage = () => {
                             Selected Date: <Text style={styles.boldText}>{new Date(selectedDate).toDateString()}</Text>
                         </Text>
                     </View>
-                ) : (
-                    <ScrollView horizontal={!isTablet} showsHorizontalScrollIndicator={true} style={styles.horizontalScroll}>
-                        <View style={[styles.listContainer, { minWidth: isTablet ? '100%' : 800 }]}>
+                ) : isTablet ? (
+                    /* Tablet & Desktop: Multi-column Card Layout */
+                    <ScrollView horizontal={!isLargeTablet} showsHorizontalScrollIndicator={true} style={styles.horizontalScroll}>
+                        <View style={[styles.listContainer, { minWidth: isLargeTablet ? '100%' : 750 }]}>
                             {filteredSchedule.map(s => {
                                 const stInfo = getStatusStyle(s.status);
                                 const isDelayed = checkIfDelayed(s);
@@ -218,7 +301,6 @@ const OTSchedulePage = () => {
 
                                 return (
                                     <View key={s._id} style={[styles.scheduleCard, isDelayed && styles.scheduleCardDelayed]}>
-                                        
                                         {/* Column 1: Time & OT Room */}
                                         <View style={styles.col1}>
                                             <Text style={styles.timeText}>⏰ {s.startTime || '--:--'}</Text>
@@ -257,7 +339,7 @@ const OTSchedulePage = () => {
                                         <View style={styles.col3}>
                                             <Text style={styles.billingLabel}>BILLING STATUS</Text>
                                             <View style={[
-                                                styles.paymentBadge, 
+                                                styles.paymentBadge,
                                                 s.paymentStatus === 'PAID' ? styles.paymentBadgePaid : (s.paymentStatus === 'PARTIALLY PAID' ? styles.paymentBadgePartial : styles.paymentBadgeUnpaid)
                                             ]}>
                                                 <Text style={[
@@ -282,8 +364,9 @@ const OTSchedulePage = () => {
                                         {/* Column 4: Actions & Step Progression */}
                                         <View style={styles.col4}>
                                             <View style={styles.actionRow}>
-                                                <TouchableOpacity 
+                                                <TouchableOpacity
                                                     style={styles.viewBtn}
+                                                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                                                     onPress={() => {
                                                         setSelectedSurgery(s);
                                                         setShowDetailsModal(true);
@@ -291,91 +374,143 @@ const OTSchedulePage = () => {
                                                 >
                                                     <Text style={styles.viewBtnText}>View</Text>
                                                 </TouchableOpacity>
-                                                <TouchableOpacity 
+                                                <TouchableOpacity
                                                     style={styles.cancelBtn}
+                                                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                                                     onPress={() => handleCancelSurgery(s._id)}
                                                 >
                                                     <Text style={styles.cancelBtnText}>Cancel</Text>
                                                 </TouchableOpacity>
                                             </View>
 
-                                            {/* Next Step Progression Action */}
-                                            {s.status === 'SCHEDULED' && (
-                                                <TouchableOpacity 
-                                                    style={[styles.progressBtn, { backgroundColor: '#2563eb' }]}
-                                                    onPress={() => {
-                                                        if (s.admissionRequired) {
-                                                            setBedModal({ open: true, actionType: 'ADMIT', patientId: s.patientId?._id, surgeryId: s._id });
-                                                        } else {
-                                                            handleWorkflowTransition(s._id, 'PRE_OP');
-                                                        }
-                                                    }}
-                                                >
-                                                    <Text style={styles.progressBtnText}>{s.admissionRequired ? '🏥 Admit Patient' : 'Start Pre-Op →'}</Text>
-                                                </TouchableOpacity>
-                                            )}
-
-                                            {s.status === 'ADMITTED' && (
-                                                <TouchableOpacity 
-                                                    style={[styles.progressBtn, { backgroundColor: '#d97706' }]}
-                                                    onPress={() => handleWorkflowTransition(s._id, 'PRE_OP')}
-                                                >
-                                                    <Text style={styles.progressBtnText}>Start Pre-Op →</Text>
-                                                </TouchableOpacity>
-                                            )}
-
-                                            {s.status === 'PRE_OP' && (
-                                                <TouchableOpacity 
-                                                    style={[styles.progressBtn, { backgroundColor: '#7c3aed' }]}
-                                                    onPress={() => handleWorkflowTransition(s._id, 'READY_FOR_OT')}
-                                                >
-                                                    <Text style={styles.progressBtnText}>Mark Ready for OT →</Text>
-                                                </TouchableOpacity>
-                                            )}
-
-                                            {s.status === 'READY_FOR_OT' && (
-                                                <TouchableOpacity 
-                                                    style={[styles.progressBtn, { backgroundColor: '#dc2626' }]}
-                                                    onPress={() => handleWorkflowTransition(s._id, 'IN_OT')}
-                                                >
-                                                    <Text style={styles.progressBtnText}>🔴 Enter OT →</Text>
-                                                </TouchableOpacity>
-                                            )}
-
-                                            {s.status === 'IN_OT' && (
-                                                <TouchableOpacity 
-                                                    style={[styles.progressBtn, { backgroundColor: '#0d9488' }]}
-                                                    onPress={() => handleWorkflowTransition(s._id, 'SURGERY_COMPLETED')}
-                                                >
-                                                    <Text style={styles.progressBtnText}>✓ Complete Surgery</Text>
-                                                </TouchableOpacity>
-                                            )}
-
-                                            {s.status === 'SURGERY_COMPLETED' && (
-                                                <TouchableOpacity 
-                                                    style={[styles.progressBtn, { backgroundColor: '#0891b2' }]}
-                                                    onPress={() => handleWorkflowTransition(s._id, 'POST_OP')}
-                                                >
-                                                    <Text style={styles.progressBtnText}>Move to Post-Op →</Text>
-                                                </TouchableOpacity>
-                                            )}
-
-                                            {s.status === 'POST_OP' && (
-                                                <TouchableOpacity 
-                                                    style={[styles.progressBtn, { backgroundColor: '#16a34a' }]}
-                                                    onPress={() => handleWorkflowTransition(s._id, 'COMPLETED')}
-                                                >
-                                                    <Text style={styles.progressBtnText}>✓ Discharge / Finish</Text>
-                                                </TouchableOpacity>
-                                            )}
+                                            {renderProgressionButton(s, false)}
                                         </View>
                                     </View>
                                 );
                             })}
                         </View>
                     </ScrollView>
+                ) : (
+                    /* Phone & Compact Devices: Adaptive Vertical Clinical Cards (No horizontal scroll!) */
+                    <View style={styles.mobileListContainer}>
+                        {filteredSchedule.map(s => {
+                            const stInfo = getStatusStyle(s.status);
+                            const isDelayed = checkIfDelayed(s);
+                            const surgeonName = (s.surgeonId?.name || 'Surgeon').replace(/^Dr\.?\s*/i, '');
+                            const assistants = s.assistantSurgeonIds || [];
+                            const cost = Number(s.surgeryCost) || 0;
+                            const paid = Number(s.paidAmount) || 0;
+                            const remaining = Math.max(0, cost - paid);
+
+                            return (
+                                <View
+                                    key={s._id}
+                                    style={[
+                                        styles.mobileCard,
+                                        { padding: cardPadding },
+                                        isDelayed && styles.scheduleCardDelayed
+                                    ]}
+                                >
+                                    {/* Top Row: Time/Room & Status Badges */}
+                                    <View style={styles.mobileCardHeader}>
+                                        <View style={styles.mobileTimeRoomGroup}>
+                                            <View style={styles.mobileTimePill}>
+                                                <Text style={styles.mobileTimeText}>⏰ {s.startTime || '--:--'} - {s.endTime || '--:--'}</Text>
+                                            </View>
+                                            <View style={styles.mobileRoomPill}>
+                                                <Text style={styles.mobileRoomText} numberOfLines={2}>🚪 {s.otRoomId?.name || 'Unassigned'}</Text>
+                                            </View>
+                                        </View>
+                                        <View style={styles.mobileStatusGroup}>
+                                            <View style={[styles.statusBadge, { backgroundColor: stInfo.bg, borderColor: stInfo.border }]}>
+                                                <Text style={[styles.statusBadgeText, { color: stInfo.color }]}>{stInfo.label}</Text>
+                                            </View>
+                                            {isDelayed && (
+                                                <View style={styles.delayedBadge}>
+                                                    <Text style={styles.delayedBadgeText}>🚨 DELAYED</Text>
+                                                </View>
+                                            )}
+                                        </View>
+                                    </View>
+
+                                    {/* Procedure Name */}
+                                    <Text style={styles.mobileProcedureTitle} numberOfLines={3}>{s.surgery}</Text>
+
+                                    {/* Patient Info */}
+                                    <View style={styles.mobilePatientBox}>
+                                        <Text style={styles.mobilePatientName}>
+                                            👤 <Text style={styles.boldText}>{s.patientId?.name || 'Patient'}</Text>
+                                        </Text>
+                                        <Text style={styles.mobilePatientSub}>
+                                            MRN: <Text style={styles.boldText}>{s.patientId?.mrn || s.patientId?.patientId || '-'}</Text>
+                                            {s.patientId?.phone ? ` • 📞 ${s.patientId.phone}` : ''}
+                                        </Text>
+                                    </View>
+
+                                    {/* Surgeon & Billing Line */}
+                                    <View style={styles.mobileSurgeonRow}>
+                                        <Text style={styles.mobileSurgeonText} numberOfLines={2}>
+                                            👨‍⚕️ <Text style={styles.boldText}>Dr. {surgeonName}</Text>
+                                            {assistants.length > 0 ? ` (+${assistants.length} asst)` : ''}
+                                        </Text>
+                                        <View style={[
+                                            styles.paymentBadge,
+                                            s.paymentStatus === 'PAID' ? styles.paymentBadgePaid : (s.paymentStatus === 'PARTIALLY PAID' ? styles.paymentBadgePartial : styles.paymentBadgeUnpaid)
+                                        ]}>
+                                            <Text style={[
+                                                styles.paymentBadgeText,
+                                                s.paymentStatus === 'PAID' ? styles.paymentTextPaid : (s.paymentStatus === 'PARTIALLY PAID' ? styles.paymentTextPartial : styles.paymentTextUnpaid)
+                                            ]}>
+                                                {s.paymentStatus || 'UNPAID'}
+                                            </Text>
+                                        </View>
+                                    </View>
+
+                                    {/* Financial Breakdown if cost set */}
+                                    {cost > 0 && (
+                                        <View style={styles.mobileBillingStrip}>
+                                            <Text style={styles.mobileBillingFee}>Fee: <Text style={styles.boldText}>₹{cost.toLocaleString()}</Text></Text>
+                                            {remaining > 0 ? (
+                                                <Text style={styles.mobileBillingDue}>Due: ₹{remaining.toLocaleString()}</Text>
+                                            ) : (
+                                                <Text style={styles.mobileBillingPaid}>Paid Full</Text>
+                                            )}
+                                        </View>
+                                    )}
+
+                                    {/* Actions */}
+                                    <View style={styles.mobileActionsContainer}>
+                                        <View style={styles.mobileSecondaryActionRow}>
+                                            <TouchableOpacity
+                                                style={styles.mobileViewBtn}
+                                                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                                onPress={() => {
+                                                    setSelectedSurgery(s);
+                                                    setShowDetailsModal(true);
+                                                }}
+                                            >
+                                                <Feather name="eye" size={14} color="#334155" style={{ marginRight: 4 }} />
+                                                <Text style={styles.mobileViewBtnText}>Details</Text>
+                                            </TouchableOpacity>
+
+                                            <TouchableOpacity
+                                                style={styles.mobileCancelBtn}
+                                                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                                onPress={() => handleCancelSurgery(s._id)}
+                                            >
+                                                <Feather name="x-circle" size={14} color="#dc2626" style={{ marginRight: 4 }} />
+                                                <Text style={styles.mobileCancelBtnText}>Cancel</Text>
+                                            </TouchableOpacity>
+                                        </View>
+
+                                        {/* Primary Progression Button */}
+                                        {renderProgressionButton(s, true)}
+                                    </View>
+                                </View>
+                            );
+                        })}
+                    </View>
                 )}
-            </ScrollView>
 
             {/* Modals */}
             <SurgeryDetailsModal
@@ -407,7 +542,7 @@ const OTSchedulePage = () => {
                 onClose={() => setBedModal({ open: false, actionType: null, patientId: null, surgeryId: null })}
                 onSuccess={() => fetchScheduleData()}
             />
-        </View>
+        </ScrollView>
     );
 };
 
@@ -417,7 +552,11 @@ const styles = StyleSheet.create({
         backgroundColor: '#f8fafc',
     },
     scrollContent: {
+        width: '100%',
+        maxWidth: 1440,
+        alignSelf: 'center',
         padding: 16,
+        paddingBottom: 40,
     },
     navBar: {
         backgroundColor: '#ffffff',
@@ -435,6 +574,20 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         gap: 10,
     },
+    dateControlsPhone: {
+        width: '100%',
+    },
+    dateNavRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        width: '100%',
+        flexWrap: 'wrap',
+    },
+    dateInputContainer: {
+        flex: 1,
+        minWidth: 100,
+    },
     navBtn: {
         paddingVertical: 8,
         paddingHorizontal: 12,
@@ -444,6 +597,8 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         flexDirection: 'row',
         alignItems: 'center',
+        minHeight: 44,
+        justifyContent: 'center',
     },
     navBtnText: {
         fontSize: 13,
@@ -469,21 +624,36 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: '#bfdbfe',
         borderRadius: 8,
+        minHeight: 44,
+        justifyContent: 'center',
+    },
+    todayBtnActive: {
+        backgroundColor: '#2563eb',
+        borderColor: '#1d4ed8',
     },
     todayBtnText: {
         color: '#1d4ed8',
         fontWeight: 'bold',
         fontSize: 13,
     },
+    todayBtnTextActive: {
+        color: '#ffffff',
+    },
     filterScroll: {
         flexDirection: 'row',
+        alignItems: 'center',
         gap: 8,
+    },
+    filterWrap: {
+        flexWrap: 'wrap',
     },
     filterPill: {
         paddingVertical: 8,
         paddingHorizontal: 14,
         borderRadius: 8,
         backgroundColor: '#f1f5f9',
+        minHeight: 44,
+        justifyContent: 'center',
     },
     filterPillActive: {
         backgroundColor: '#2563eb',
@@ -549,22 +719,22 @@ const styles = StyleSheet.create({
         borderColor: '#fca5a5',
     },
     col1: {
-        width: 160,
+        width: 140,
         borderRightWidth: 1,
         borderColor: '#f1f5f9',
-        paddingRight: 14,
+        paddingRight: 12,
     },
     timeText: {
-        fontSize: 16,
+        fontSize: 15,
         fontWeight: '900',
         color: '#0f172a',
     },
     timeToText: {
-        fontSize: 13,
+        fontSize: 12,
         color: '#64748b',
     },
     roomBadge: {
-        marginTop: 8,
+        marginTop: 6,
         backgroundColor: '#f1f5f9',
         paddingVertical: 3,
         paddingHorizontal: 8,
@@ -572,12 +742,13 @@ const styles = StyleSheet.create({
         alignSelf: 'flex-start',
     },
     roomBadgeText: {
-        fontSize: 12,
+        fontSize: 11,
         fontWeight: 'bold',
         color: '#334155',
     },
     col2: {
         flex: 1,
+        paddingHorizontal: 6,
     },
     procedureRow: {
         flexDirection: 'row',
@@ -587,7 +758,7 @@ const styles = StyleSheet.create({
         marginBottom: 4,
     },
     procedureName: {
-        fontSize: 17,
+        fontSize: 16,
         fontWeight: '900',
         color: '#0f172a',
     },
@@ -623,11 +794,11 @@ const styles = StyleSheet.create({
         marginTop: 4,
     },
     col3: {
-        width: 180,
+        width: 160,
         borderLeftWidth: 1,
         borderRightWidth: 1,
         borderColor: '#f1f5f9',
-        paddingHorizontal: 14,
+        paddingHorizontal: 12,
         justifyContent: 'center',
     },
     billingLabel: {
@@ -669,7 +840,7 @@ const styles = StyleSheet.create({
         color: '#16a34a',
     },
     col4: {
-        width: 220,
+        width: 190,
         flexDirection: 'column',
         gap: 8,
         alignItems: 'flex-end',
@@ -681,6 +852,8 @@ const styles = StyleSheet.create({
     viewBtn: {
         paddingVertical: 6,
         paddingHorizontal: 12,
+        minHeight: 44,
+        justifyContent: 'center',
         backgroundColor: '#f1f5f9',
         borderWidth: 1,
         borderColor: '#cbd5e1',
@@ -694,6 +867,8 @@ const styles = StyleSheet.create({
     cancelBtn: {
         paddingVertical: 6,
         paddingHorizontal: 10,
+        minHeight: 44,
+        justifyContent: 'center',
         backgroundColor: '#ffffff',
         borderWidth: 1,
         borderColor: '#fca5a5',
@@ -707,6 +882,8 @@ const styles = StyleSheet.create({
     progressBtn: {
         paddingVertical: 8,
         paddingHorizontal: 14,
+        minHeight: 44,
+        justifyContent: 'center',
         borderRadius: 6,
         width: '100%',
         alignItems: 'center',
@@ -715,6 +892,179 @@ const styles = StyleSheet.create({
         color: 'white',
         fontSize: 12,
         fontWeight: 'bold',
+    },
+    // Mobile Adaptive Card Styles
+    mobileListContainer: {
+        flexDirection: 'column',
+        gap: 12,
+        width: '100%',
+    },
+    mobileCard: {
+        backgroundColor: '#ffffff',
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.04,
+        shadowRadius: 5,
+        elevation: 1,
+        gap: 10,
+    },
+    mobileCardHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: 8,
+    },
+    mobileTimeRoomGroup: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: 6,
+        flex: 1,
+    },
+    mobileTimePill: {
+        backgroundColor: '#f1f5f9',
+        paddingVertical: 4,
+        paddingHorizontal: 8,
+        borderRadius: 6,
+    },
+    mobileTimeText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#0f172a',
+    },
+    mobileRoomPill: {
+        backgroundColor: '#f8fafc',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        paddingVertical: 3,
+        paddingHorizontal: 8,
+        borderRadius: 6,
+        maxWidth: 160,
+    },
+    mobileRoomText: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#475569',
+    },
+    mobileStatusGroup: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: 6,
+    },
+    mobileProcedureTitle: {
+        fontSize: 16,
+        fontWeight: '800',
+        color: '#0f172a',
+    },
+    mobilePatientBox: {
+        backgroundColor: '#f8fafc',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        borderRadius: 8,
+        padding: 10,
+    },
+    mobilePatientName: {
+        fontSize: 13,
+        color: '#0f172a',
+    },
+    mobilePatientSub: {
+        fontSize: 12,
+        color: '#64748b',
+        marginTop: 2,
+    },
+    mobileSurgeonRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: 8,
+    },
+    mobileSurgeonText: {
+        fontSize: 13,
+        color: '#334155',
+        flex: 1,
+        minWidth: 0,
+        flexShrink: 1,
+    },
+    mobileBillingStrip: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        backgroundColor: '#f8fafc',
+        paddingVertical: 6,
+        paddingHorizontal: 10,
+        borderRadius: 6,
+    },
+    mobileBillingFee: {
+        fontSize: 12,
+        color: '#334155',
+    },
+    mobileBillingDue: {
+        fontSize: 12,
+        color: '#dc2626',
+        fontWeight: '700',
+    },
+    mobileBillingPaid: {
+        fontSize: 12,
+        color: '#16a34a',
+        fontWeight: '700',
+    },
+    mobileActionsContainer: {
+        paddingTop: 10,
+        borderTopWidth: 1,
+        borderTopColor: '#f1f5f9',
+        gap: 8,
+    },
+    mobileSecondaryActionRow: {
+        flexDirection: 'row',
+        gap: 8,
+    },
+    mobileViewBtn: {
+        flex: 1,
+        flexDirection: 'row',
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        minHeight: 44,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#f1f5f9',
+        borderWidth: 1,
+        borderColor: '#cbd5e1',
+        borderRadius: 8,
+    },
+    mobileViewBtnText: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#334155',
+    },
+    mobileCancelBtn: {
+        flex: 1,
+        flexDirection: 'row',
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        minHeight: 44,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#ffffff',
+        borderWidth: 1,
+        borderColor: '#fca5a5',
+        borderRadius: 8,
+    },
+    mobileCancelBtnText: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#dc2626',
+    },
+    progressBtnMobile: {
+        width: '100%',
+        minHeight: 44,
+        borderRadius: 8,
+        marginTop: 2,
     },
 });
 

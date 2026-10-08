@@ -1,18 +1,29 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, useWindowDimensions, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { otAPI } from '../../utils/api';
 import socket from '../../utils/socket';
 import OTHeader from './OTHeader';
 import { SurgeryDetailsModal } from '../../components/ot/OTModals';
+import useOTResponsive from './otResponsive';
 
 const OTRoomsPage = () => {
-    const { width } = useWindowDimensions();
-    const isTablet = width > 768;
+    const {
+        width,
+        isSmallPhone,
+        isPhone,
+        isTablet,
+        isLargeTablet,
+        pagePadding,
+        cardPadding,
+        gap,
+    } = useOTResponsive();
+
     const [rooms, setRooms] = useState([]);
     const [summary, setSummary] = useState({ available: 0, inOt: 0, delayed: 0, scheduled: 0, total: 0 });
     const [loading, setLoading] = useState(true);
     const [lastUpdated, setLastUpdated] = useState(null);
+    const [error, setError] = useState(null);
 
     // Filters & Search
     const [searchQuery, setSearchQuery] = useState('');
@@ -24,6 +35,7 @@ const OTRoomsPage = () => {
 
     const fetchRoomsData = useCallback(async () => {
         setLoading(true);
+        setError(null);
         try {
             const today = new Date().toISOString().split('T')[0];
             const res = await otAPI.getRoomStatus(today);
@@ -34,6 +46,7 @@ const OTRoomsPage = () => {
             setLastUpdated(new Date());
         } catch (err) {
             console.error('Fetch rooms error:', err);
+            setError(err.response?.data?.message || 'Unable to load OT rooms data. Please check connection and retry.');
         } finally {
             setLoading(false);
         }
@@ -42,17 +55,16 @@ const OTRoomsPage = () => {
     useEffect(() => {
         fetchRoomsData();
 
+        if (!socket) return;
         const handleUpdate = () => fetchRoomsData();
-        if (socket) {
-            socket.on('ot_update', handleUpdate);
-            socket.on('ot_surgery_scheduled', handleUpdate);
-        }
+        socket.on('ot_update', handleUpdate);
+        socket.on('ot_surgery_scheduled', handleUpdate);
+        socket.on('surgery_plan_created', handleUpdate);
 
         return () => {
-            if (socket) {
-                socket.off('ot_update', handleUpdate);
-                socket.off('ot_surgery_scheduled', handleUpdate);
-            }
+            socket.off('ot_update', handleUpdate);
+            socket.off('ot_surgery_scheduled', handleUpdate);
+            socket.off('surgery_plan_created', handleUpdate);
         };
     }, [fetchRoomsData]);
 
@@ -87,8 +99,11 @@ const OTRoomsPage = () => {
         { id: 'MAINTENANCE', label: 'Maintenance' }
     ];
 
+    const kpiCardWidth = isSmallPhone ? '100%' : isPhone ? '48%' : isLargeTablet ? '18.5%' : '31.5%';
+    const roomCardWidth = isLargeTablet ? '31.5%' : isTablet ? '48.5%' : '100%';
+
     return (
-        <View style={styles.container}>
+        <ScrollView style={styles.container} contentContainerStyle={[styles.scrollContent, { padding: pagePadding }]}>
             <OTHeader
                 title="OT Rooms & Live Suite Board"
                 subtitle="Live status, capacity, intraoperative monitoring, and real-time equipment allocation for all OT suites."
@@ -99,54 +114,52 @@ const OTRoomsPage = () => {
                 onSearchChange={setSearchQuery}
                 badgeCounts={{ roomsInUse: summary.inOt }}
             />
-
-            <ScrollView contentContainerStyle={styles.scrollContent}>
                 {/* Room Summary KPI Cards */}
-                <View style={styles.kpiGrid}>
-                    <View style={styles.kpiCard}>
+                <View style={[styles.kpiGrid, { gap }]}>
+                    <View style={[styles.kpiCard, { width: kpiCardWidth }]}>
                         <View>
                             <Text style={styles.kpiTitle}>Total Rooms</Text>
                             <Text style={styles.kpiValue}>{rooms.length}</Text>
                         </View>
-                        <Feather name="box" size={28} color="#64748b" />
+                        <Feather name="box" size={26} color="#64748b" />
                     </View>
 
-                    <View style={[styles.kpiCard, styles.kpiCardAvailable]}>
+                    <View style={[styles.kpiCard, styles.kpiCardAvailable, { width: kpiCardWidth }]}>
                         <View>
                             <Text style={[styles.kpiTitle, { color: '#166534' }]}>Available Now</Text>
                             <Text style={[styles.kpiValue, { color: '#15803d' }]}>{summary.available}</Text>
                         </View>
-                        <Feather name="check-circle" size={28} color="#16a34a" />
+                        <Feather name="check-circle" size={26} color="#16a34a" />
                     </View>
 
-                    <View style={[styles.kpiCard, styles.kpiCardInOT]}>
+                    <View style={[styles.kpiCard, styles.kpiCardInOT, { width: kpiCardWidth }]}>
                         <View>
                             <Text style={[styles.kpiTitle, { color: '#991b1b' }]}>In OT (Active)</Text>
                             <Text style={[styles.kpiValue, { color: '#b91c1c' }]}>{summary.inOt}</Text>
                         </View>
-                        <Feather name="activity" size={28} color="#ef4444" />
+                        <Feather name="activity" size={26} color="#ef4444" />
                     </View>
 
-                    <View style={[styles.kpiCard, styles.kpiCardScheduled]}>
+                    <View style={[styles.kpiCard, styles.kpiCardScheduled, { width: kpiCardWidth }]}>
                         <View>
                             <Text style={[styles.kpiTitle, { color: '#1e40af' }]}>Scheduled Next</Text>
                             <Text style={[styles.kpiValue, { color: '#2563eb' }]}>{summary.scheduled}</Text>
                         </View>
-                        <Feather name="clock" size={28} color="#3b82f6" />
+                        <Feather name="clock" size={26} color="#3b82f6" />
                     </View>
 
-                    <View style={[styles.kpiCard, styles.kpiCardDelayed]}>
+                    <View style={[styles.kpiCard, styles.kpiCardDelayed, { width: kpiCardWidth }]}>
                         <View>
                             <Text style={[styles.kpiTitle, { color: '#92400e' }]}>Delayed</Text>
                             <Text style={[styles.kpiValue, { color: '#b45309' }]}>{summary.delayed}</Text>
                         </View>
-                        <Feather name="alert-triangle" size={28} color="#f59e0b" />
+                        <Feather name="alert-triangle" size={26} color="#f59e0b" />
                     </View>
                 </View>
 
                 {/* Filter Tabs */}
                 <View style={styles.filterBar}>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
+                    <View style={[styles.filterScroll, isPhone && styles.filterWrap]}>
                         {filters.map(f => (
                             <TouchableOpacity
                                 key={f.id}
@@ -158,11 +171,25 @@ const OTRoomsPage = () => {
                                 </Text>
                             </TouchableOpacity>
                         ))}
-                    </ScrollView>
+                    </View>
                 </View>
 
                 {/* Room Grid */}
-                {filteredRooms.length === 0 ? (
+                {error ? (
+                    <View style={styles.errorState}>
+                        <Feather name="alert-circle" size={44} color="#ef4444" style={{ marginBottom: 12 }} />
+                        <Text style={styles.errorTitle}>Unable to Load Data</Text>
+                        <Text style={styles.errorText}>{error}</Text>
+                        <TouchableOpacity
+                            style={styles.retryBtn}
+                            onPress={fetchRoomsData}
+                            activeOpacity={0.7}
+                        >
+                            <Feather name="refresh-cw" size={16} color="#ffffff" style={{ marginRight: 8 }} />
+                            <Text style={styles.retryBtnText}>Retry</Text>
+                        </TouchableOpacity>
+                    </View>
+                ) : filteredRooms.length === 0 ? (
                     <View style={styles.emptyState}>
                         <Feather name="box" size={48} color="#cbd5e1" style={styles.emptyIcon} />
                         <Text style={styles.emptyTitle}>No OT Rooms Match Filter</Text>
@@ -171,7 +198,7 @@ const OTRoomsPage = () => {
                         </Text>
                     </View>
                 ) : (
-                    <View style={styles.roomGrid}>
+                    <View style={[styles.roomGrid, { gap }]}>
                         {filteredRooms.map(room => {
                             const isOccupied = room.status === 'In OT' || room.status === 'IN_OT';
                             const isAvailable = room.status === 'Available' || room.status === 'AVAILABLE';
@@ -183,7 +210,7 @@ const OTRoomsPage = () => {
                                     key={room._id}
                                     style={[
                                         styles.roomCard,
-                                        { width: isTablet ? '48%' : '100%' },
+                                        { width: roomCardWidth, padding: cardPadding },
                                         isOccupied && styles.roomCardOccupied,
                                         isAvailable && styles.roomCardAvailable,
                                         isDelayed && styles.roomCardDelayed,
@@ -194,9 +221,9 @@ const OTRoomsPage = () => {
                                         <View style={styles.roomCardHeader}>
                                             <View style={styles.roomHeaderLeft}>
                                                 <Text style={styles.roomIconText}>🚪</Text>
-                                                <View>
-                                                    <Text style={styles.roomNameText}>{room.name}</Text>
-                                                    <Text style={styles.roomTypeText}>{room.roomType || 'General OT Suite'}</Text>
+                                                <View style={{ flexShrink: 1 }}>
+                                                    <Text style={styles.roomNameText} numberOfLines={2}>{room.name}</Text>
+                                                    <Text style={styles.roomTypeText} numberOfLines={2}>{room.roomType || 'General OT Suite'}</Text>
                                                 </View>
                                             </View>
 
@@ -217,7 +244,7 @@ const OTRoomsPage = () => {
                                         {room.currentSurgery ? (
                                             <View style={styles.activeSurgeryBox}>
                                                 <View style={styles.activeSurgeryHeader}>
-                                                    <Text style={styles.activeSurgeryAlertText}>🔴 ACTIVE SURGERY IN PROGRESS</Text>
+                                                    <Text style={styles.activeSurgeryAlertText}>🔴 ACTIVE SURGERY</Text>
                                                     {room.currentSurgery.elapsedTime ? (
                                                         <View style={styles.elapsedTimeBadge}>
                                                             <Text style={styles.elapsedTimeText}>⏱️ {room.currentSurgery.elapsedTime}</Text>
@@ -233,7 +260,7 @@ const OTRoomsPage = () => {
                                                 <Text style={styles.activeSurgeonText}>
                                                     Surgeon: <Text style={styles.boldText}>Dr. {(room.currentSurgery.surgeon || 'Doctor').replace(/^Dr\.?\s*/i, '')}</Text>
                                                 </Text>
-                                                
+
                                                 {room.currentSurgery.startTime ? (
                                                     <Text style={styles.activeTimeText}>
                                                         Scheduled: {room.currentSurgery.startTime} - {room.currentSurgery.endTime}
@@ -265,25 +292,26 @@ const OTRoomsPage = () => {
                                     </View>
 
                                     {/* Bottom Actions */}
-                                    <View style={styles.roomActionsRow}>
-                                        {room.currentSurgery?.rawSurgery ? (
+                                    {room.currentSurgery?.rawSurgery ? (
+                                        <View style={styles.roomActionsRow}>
                                             <TouchableOpacity
+                                                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                                                 onPress={() => {
                                                     setSelectedSurgery(room.currentSurgery.rawSurgery);
                                                     setShowDetailsModal(true);
                                                 }}
-                                                style={styles.viewActionBtn}
+                                                style={[styles.viewActionBtn, isSmallPhone && { width: '100%' }]}
                                             >
+                                                <Feather name="eye" size={14} color="#334155" style={{ marginRight: 4 }} />
                                                 <Text style={styles.viewActionBtnText}>View Active Surgery</Text>
                                             </TouchableOpacity>
-                                        ) : null}
-                                    </View>
+                                        </View>
+                                    ) : null}
                                 </View>
                             );
                         })}
                     </View>
                 )}
-            </ScrollView>
 
             {/* Modals */}
             <SurgeryDetailsModal
@@ -294,7 +322,7 @@ const OTRoomsPage = () => {
                     setSelectedSurgery(null);
                 }}
             />
-        </View>
+        </ScrollView>
     );
 };
 
@@ -304,7 +332,11 @@ const styles = StyleSheet.create({
         backgroundColor: '#f8fafc',
     },
     scrollContent: {
+        width: '100%',
+        maxWidth: 1440,
+        alignSelf: 'center',
         padding: 16,
+        paddingBottom: 40,
     },
     kpiGrid: {
         flexDirection: 'row',
@@ -313,8 +345,6 @@ const styles = StyleSheet.create({
         marginBottom: 20,
     },
     kpiCard: {
-        flex: 1,
-        minWidth: 150,
         backgroundColor: '#ffffff',
         padding: 16,
         borderRadius: 12,
@@ -351,13 +381,19 @@ const styles = StyleSheet.create({
     },
     filterScroll: {
         flexDirection: 'row',
+        alignItems: 'center',
         gap: 8,
+    },
+    filterWrap: {
+        flexWrap: 'wrap',
     },
     filterBtn: {
         paddingVertical: 8,
-        paddingHorizontal: 16,
+        paddingHorizontal: 14,
         borderRadius: 8,
         backgroundColor: '#f1f5f9',
+        minHeight: 44,
+        justifyContent: 'center',
     },
     filterBtnActive: {
         backgroundColor: '#0f172a',
@@ -395,14 +431,12 @@ const styles = StyleSheet.create({
     roomGrid: {
         flexDirection: 'row',
         flexWrap: 'wrap',
-        gap: 18,
     },
     roomCard: {
         backgroundColor: '#ffffff',
         borderRadius: 14,
         borderWidth: 1.5,
         borderColor: '#cbd5e1',
-        padding: 20,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.03,
@@ -425,12 +459,16 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: 6,
         marginBottom: 14,
     },
     roomHeaderLeft: {
         flexDirection: 'row',
         alignItems: 'center',
+        flexWrap: 'wrap',
         gap: 8,
+        flexShrink: 1,
     },
     roomIconText: {
         fontSize: 22,
@@ -569,6 +607,9 @@ const styles = StyleSheet.create({
     viewActionBtn: {
         paddingVertical: 7,
         paddingHorizontal: 14,
+        minHeight: 44,
+        justifyContent: 'center',
+        alignItems: 'center',
         backgroundColor: '#f1f5f9',
         borderWidth: 1,
         borderColor: '#cbd5e1',
@@ -578,6 +619,43 @@ const styles = StyleSheet.create({
         fontSize: 12,
         fontWeight: 'bold',
         color: '#334155',
+    },
+    errorState: {
+        backgroundColor: '#fff',
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: '#fee2e2',
+        padding: 40,
+        alignItems: 'center',
+        marginVertical: 16,
+    },
+    errorTitle: {
+        fontSize: 18,
+        fontWeight: '700',
+        color: '#b91c1c',
+        marginBottom: 8,
+    },
+    errorText: {
+        fontSize: 14,
+        color: '#64748b',
+        textAlign: 'center',
+        marginBottom: 16,
+        maxWidth: 400,
+    },
+    retryBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#2563eb',
+        paddingVertical: 10,
+        paddingHorizontal: 20,
+        borderRadius: 8,
+        minHeight: 44,
+    },
+    retryBtnText: {
+        color: '#ffffff',
+        fontWeight: '700',
+        fontSize: 14,
     },
 });
 
