@@ -83,10 +83,11 @@ const CustomSelect = (props) => <DropdownSelect {...props} />;
 // 1. SURGERY VIEW DETAILS MODAL
 // ==========================================
 export const SurgeryDetailsModal = ({ open, surgery, onClose, onOpenScheduleModal }) => {
-    if (!open || !surgery) return null;
     const responsive = useOTResponsive();
     const { height, isSmallPhone, isPhone, modalMaxWidth, modalMaxHeight, isLandscapePhone } = responsive;
     const isMobile = isPhone;
+
+    if (!open || !surgery) return null;
 
     const s = surgery;
     const statusInfo = getStatusStyle(s.status);
@@ -288,7 +289,6 @@ export const ScheduleSurgeryModal = ({
     otRoomsList = [],
     onSuccess
 }) => {
-    if (!open || !activePlan) return null;
     const responsive = useOTResponsive();
     const { height, isSmallPhone, isPhone, modalMaxWidth, modalMaxHeight, isLandscapePhone } = responsive;
     const isMobile = isPhone;
@@ -297,25 +297,46 @@ export const ScheduleSurgeryModal = ({
     const [scheduling, setScheduling] = useState(false);
     const [scheduleError, setScheduleError] = useState('');
 
-    const initialSurgeonId = activePlan.surgeonId
-        ? (typeof activePlan.surgeonId === 'object' ? (activePlan.surgeonId._id || '') : activePlan.surgeonId)
-        : (activePlan.doctorId ? (typeof activePlan.doctorId === 'object' ? (activePlan.doctorId._id || '') : activePlan.doctorId) : '');
-
-    const initialAssistants = Array.isArray(activePlan.assistantSurgeonIds)
-        ? activePlan.assistantSurgeonIds.map(as => typeof as === 'object' ? as._id : as).filter(Boolean)
-        : [];
-
     const [form, setForm] = useState({
-        otRoomId: activePlan.otRoomId ? (typeof activePlan.otRoomId === 'object' ? activePlan.otRoomId._id : activePlan.otRoomId) : '',
-        surgeryDate: activePlan.preferredDate ? new Date(activePlan.preferredDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        otRoomId: '',
+        surgeryDate: new Date().toISOString().split('T')[0],
         startTime: '10:00',
         endTime: '12:00',
-        surgeonId: initialSurgeonId,
-        assistantSurgeonIds: initialAssistants,
-        surgeryCost: activePlan.surgeryCost ? String(activePlan.surgeryCost) : '',
-        priority: activePlan.priority || 'Normal',
-        notes: activePlan.notes || ''
+        surgeonId: '',
+        assistantSurgeonIds: [],
+        surgeryCost: '',
+        priority: 'Normal',
+        notes: ''
     });
+
+    useEffect(() => {
+        if (open && activePlan) {
+            const initialSurgeonId = activePlan.surgeonId
+                ? (typeof activePlan.surgeonId === 'object' ? (activePlan.surgeonId._id || '') : activePlan.surgeonId)
+                : (activePlan.doctorId ? (typeof activePlan.doctorId === 'object' ? (activePlan.doctorId._id || '') : activePlan.doctorId) : '');
+
+            const initialAssistants = Array.isArray(activePlan.assistantSurgeonIds)
+                ? activePlan.assistantSurgeonIds.map(as => typeof as === 'object' ? as._id : as).filter(Boolean)
+                : [];
+
+            setForm({
+                otRoomId: activePlan.otRoomId ? (typeof activePlan.otRoomId === 'object' ? activePlan.otRoomId._id : activePlan.otRoomId) : '',
+                surgeryDate: activePlan.preferredDate ? new Date(activePlan.preferredDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+                startTime: '10:00',
+                endTime: '12:00',
+                surgeonId: initialSurgeonId,
+                assistantSurgeonIds: initialAssistants,
+                surgeryCost: activePlan.surgeryCost ? String(activePlan.surgeryCost) : '',
+                priority: activePlan.priority || 'Normal',
+                notes: activePlan.notes || ''
+            });
+            setSelectedAssistantToAdd('');
+            setScheduleError('');
+            setScheduling(false);
+        }
+    }, [open, activePlan]);
+
+    if (!open || !activePlan) return null;
 
     const handleAddAssistant = () => {
         if (!selectedAssistantToAdd) return;
@@ -609,7 +630,6 @@ export const ScheduleSurgeryModal = ({
 // 3. WORKFLOW BED MODAL (ADMIT / TRANSFER)
 // ==========================================
 export const WorkflowBedModal = ({ open, actionType, patientId, surgeryId, onClose, onSuccess }) => {
-    if (!open) return null;
     const responsive = useOTResponsive();
     const { isSmallPhone, isPhone, modalMaxWidth, modalMaxHeight } = responsive;
     const isMobile = isPhone;
@@ -627,19 +647,23 @@ export const WorkflowBedModal = ({ open, actionType, patientId, surgeryId, onClo
     }, [open]);
 
     useEffect(() => {
-        const fetchBeds = async () => {
-            try {
-                const { bedAPI } = await import('../../utils/api');
-                const res = await bedAPI.getBeds({ status: 'AVAILABLE' });
-                if (res.success) setBeds(res.beds || []);
-            } catch (err) {
-                console.error(err);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchBeds();
-    }, []);
+        if (open) {
+            const fetchBeds = async () => {
+                try {
+                    const { bedAPI } = await import('../../utils/api');
+                    const res = await bedAPI.getBeds({ status: 'AVAILABLE' });
+                    if (res.success) setBeds(res.beds || []);
+                } catch (err) {
+                    console.error(err);
+                } finally {
+                    setLoading(false);
+                }
+            };
+            fetchBeds();
+        }
+    }, [open]);
+
+    if (!open) return null;
 
     const handleSubmit = async () => {
         if (submitting) return;

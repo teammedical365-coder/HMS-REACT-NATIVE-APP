@@ -106,6 +106,23 @@ const DatePickerInput = ({
     const minVal = min || minimumDate;
     const maxVal = max || maximumDate;
 
+    // Native Platform State & Effects (must be called unconditionally at top level)
+    const [isOpen, setIsOpen] = useState(false);
+    const parsedCurrent = parseSafeDate(value);
+    const [currentMonth, setCurrentMonth] = useState(() => parsedCurrent || new Date());
+    const [viewMode, setViewMode] = useState('days'); // 'days' | 'months' | 'years'
+    const [yearPage, setYearPage] = useState(() => (parsedCurrent || new Date()).getFullYear());
+
+    useEffect(() => {
+        if (value) {
+            const parsed = parseSafeDate(value);
+            if (parsed) {
+                setCurrentMonth(parsed);
+                setYearPage(parsed.getFullYear());
+            }
+        }
+    }, [value]);
+
     // Web Platform: Native HTML5 date input
     if (Platform.OS === 'web') {
         const rawYMD = formatToYMD(parseSafeDate(value));
@@ -176,23 +193,6 @@ const DatePickerInput = ({
             </View>
         );
     }
-
-    // Native Platform: Pure Native Touch Calendar Picker (Android & iOS)
-    const [isOpen, setIsOpen] = useState(false);
-    const parsedCurrent = parseSafeDate(value);
-    const [currentMonth, setCurrentMonth] = useState(() => parsedCurrent || new Date());
-    const [viewMode, setViewMode] = useState('days'); // 'days' | 'months' | 'years'
-    const [yearPage, setYearPage] = useState(() => (parsedCurrent || new Date()).getFullYear());
-
-    useEffect(() => {
-        if (value) {
-            const parsed = parseSafeDate(value);
-            if (parsed) {
-                setCurrentMonth(parsed);
-                setYearPage(parsed.getFullYear());
-            }
-        }
-    }, [value]);
 
     const displayDate = formatToDisplay(value);
 

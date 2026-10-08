@@ -17,6 +17,10 @@ const TimePickerInput = ({
     disabled = false,
     title = 'Select Time',
 }) => {
+    // Native Fallback State (must be called unconditionally at top level)
+    const [modalVisible, setModalVisible] = useState(false);
+    const [tempTime, setTempTime] = useState(value || '');
+
     if (Platform.OS === 'web') {
         return (
             <div style={{ position: 'relative', width: '100%', maxWidth: '100%', minWidth: 0, display: 'flex', alignItems: 'center', boxSizing: 'border-box', ...(typeof style === 'object' ? style : {}) }}>
@@ -60,10 +64,6 @@ const TimePickerInput = ({
             </div>
         );
     }
-
-    // Native Fallback
-    const [modalVisible, setModalVisible] = useState(false);
-    const [tempTime, setTempTime] = useState(value || '');
 
     const handleApply = () => {
         // Validate HH:mm

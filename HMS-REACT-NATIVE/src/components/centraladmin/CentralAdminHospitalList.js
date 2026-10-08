@@ -18,12 +18,11 @@ export default function CentralAdminHospitalList({
   showHospitalAdminForm,
   editHospital 
 }) {
+  const navigation = useNavigation();
   
   if (showHospitalForm || showHospitalAdminForm || editHospital) {
     return null; // Hidden when forms are open
   }
-
-  const navigation = useNavigation();
 
   const handleLoginAsHospital = async (hospital) => {
     try {
