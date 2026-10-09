@@ -1,1 +1,2 @@
-export const HARDCODED_TENANT = { tenantId: null, slug: null };
+// White-label tenant configuration
+export { HARDCODED_TENANT } from './src/tenant.js';

@@ -1968,7 +1968,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                             <Text style={{ fontSize: 13, color: '#ffffff' }}>{'👋'}</Text>
                             <Text style={styles.wBadgePillText}>RECEPTIONIST</Text>
                         </View>
-                        <Text style={[styles.wHeroTitle, isMobile && { fontSize: 22, lineHeight: 28 }]}>{'Good '}{timeOfDay.toLowerCase()},{' '}<Text style={styles.wNameHighlight}>{currentUser?.name || 'Aman Sharma'}</Text></Text>
+                        <Text style={[styles.wHeroTitle, isMobile && { fontSize: 22, lineHeight: 28 }]}>{'Good '}{timeOfDay.toLowerCase()},{' '}<Text style={styles.wNameHighlight}>{currentUser?.name || 'Receptionist'}</Text></Text>
                         <Text style={styles.wHeroSubtitle}>{"Here's your workspace. Pick any section to get started."}</Text>
                     </View>
 
@@ -3819,8 +3819,8 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
             const d = t.createdAt ? new Date(t.createdAt) : new Date();
             const dateStr = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
             const timeStr = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-            const hospitalName = hospitalContext?.name || 'Care Hospital & Medical Centre';
-            const hospitalAddress = hospitalContext?.address || 'Healthcare Way, Medical Enclave';
+            const hospitalName = hospitalContext?.name || hospitalContext?.hospitalName || 'Hospital & Medical Centre';
+            const hospitalAddress = hospitalContext?.address || 'Hospital Address';
 
             const html = `
                 <!DOCTYPE html>

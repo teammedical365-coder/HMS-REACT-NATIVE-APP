@@ -38,8 +38,21 @@ const PatientPortalLogin = () => {
                         (await AsyncStorage.getItem('tenant_id')) ||
                         (await AsyncStorage.getItem('tenant_slug')) ||
                         process.env.EXPO_PUBLIC_TENANT_ID ||
+                        process.env.EXPO_PUBLIC_TENANT_SLUG ||
+                        HARDCODED_TENANT?.tenantId ||
                         HARDCODED_TENANT?.slug ||
-                        'city-hospital';
+                        null;
+                }
+
+                if (!domain) {
+                    const fallbackName = process.env.EXPO_PUBLIC_HOSPITAL_NAME || HARDCODED_TENANT?.name || branding?.hospitalName || 'Hospital Portal';
+                    setHospital({
+                        id: null,
+                        name: fallbackName,
+                        logo: branding?.logoUrl || null
+                    });
+                    setLoading(false);
+                    return;
                 }
 
                 const res = await publicAPI.getTenantConfig(domain);
@@ -55,19 +68,23 @@ const PatientPortalLogin = () => {
                         loadBranding(tenantData.id);
                     }
                 } else {
-                    // Fallback to default hospital branding if tenant lookup returned empty
+                    // Fallback to configured build tenant branding if tenant lookup returned empty
+                    const defaultId = process.env.EXPO_PUBLIC_TENANT_ID || HARDCODED_TENANT?.tenantId || HARDCODED_TENANT?.slug || null;
+                    const defaultName = process.env.EXPO_PUBLIC_HOSPITAL_NAME || HARDCODED_TENANT?.name || branding?.hospitalName || 'Hospital Portal';
                     setHospital({
-                        id: HARDCODED_TENANT?.slug || "6758493021abcdef12345679",
-                        name: HARDCODED_TENANT?.name || "City Hospital",
-                        logo: null
+                        id: defaultId,
+                        name: defaultName,
+                        logo: branding?.logoUrl || null
                     });
                 }
             } catch (err) {
                 console.warn('Could not load hospital branding, applying fallback:', err?.message || err);
+                const defaultId = process.env.EXPO_PUBLIC_TENANT_ID || HARDCODED_TENANT?.tenantId || HARDCODED_TENANT?.slug || null;
+                const defaultName = process.env.EXPO_PUBLIC_HOSPITAL_NAME || HARDCODED_TENANT?.name || branding?.hospitalName || 'Hospital Portal';
                 setHospital({
-                    id: HARDCODED_TENANT?.slug || "6758493021abcdef12345679",
-                    name: HARDCODED_TENANT?.name || "City Hospital",
-                    logo: null
+                    id: defaultId,
+                    name: defaultName,
+                    logo: branding?.logoUrl || null
                 });
             } finally {
                 setLoading(false);
@@ -90,7 +107,8 @@ const PatientPortalLogin = () => {
             return;
         }
 
-        const hospitalId = hospital?.id || HARDCODED_TENANT?.slug || "6758493021abcdef12345679";
+        const defaultId = process.env.EXPO_PUBLIC_TENANT_ID || HARDCODED_TENANT?.tenantId || HARDCODED_TENANT?.slug;
+        const hospitalId = hospital?.id || defaultId;
 
         setIsSubmitting(true);
         try {

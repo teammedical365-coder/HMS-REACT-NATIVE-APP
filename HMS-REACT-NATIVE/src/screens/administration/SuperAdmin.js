@@ -376,11 +376,11 @@ const SuperAdmin = () => {
                         <View style={[styles.formRow, isMobile && { flexDirection: 'column', gap: 12 }]}>
                             <View style={[styles.formGroup, isMobile && { minWidth: '100%' }]}>
                                 <Text style={styles.staffLabel}>Full Name *</Text>
-                                <TextInput style={styles.staffInput} placeholder="e.g. Dr. Sharma" placeholderTextColor="#94a3b8" value={createForm.name} onChangeText={(t) => handleCreateFormChange('name', t)} />
+                                <TextInput style={styles.staffInput} placeholder="e.g. Dr. John Doe" placeholderTextColor="#94a3b8" value={createForm.name} onChangeText={(t) => handleCreateFormChange('name', t)} />
                             </View>
                             <View style={[styles.formGroup, isMobile && { minWidth: '100%' }]}>
                                 <Text style={styles.staffLabel}>Email Address *</Text>
-                                <TextInput style={styles.staffInput} placeholder="e.g. dr.sharma@hospital.com" placeholderTextColor="#94a3b8" value={createForm.email} onChangeText={(t) => handleCreateFormChange('email', t)} keyboardType="email-address" autoCapitalize="none" />
+                                <TextInput style={styles.staffInput} placeholder="e.g. doctor@hospital.com" placeholderTextColor="#94a3b8" value={createForm.email} onChangeText={(t) => handleCreateFormChange('email', t)} keyboardType="email-address" autoCapitalize="none" />
                             </View>
                         </View>
 

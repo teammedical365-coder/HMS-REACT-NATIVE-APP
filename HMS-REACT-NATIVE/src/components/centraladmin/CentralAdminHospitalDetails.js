@@ -369,7 +369,7 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
 
     const rawLogo = hospital?.brandingSchema?.logoUrl || hospital?.branding?.logoUrl;
     const logoUrl = isSafeLogo(rawLogo) ? rawLogo : null;
-    const hospitalName = hospital?.name || 'Apollo Hospital';
+    const hospitalName = hospital?.name || 'Hospital Details';
     const hospitalLocation = hospital?.city ? `${hospital.city}${hospital.state ? `, ${hospital.state}` : ''}` : (hospital?.address || 'Jaipur, Rajasthan');
     const hospitalPhone = hospital?.phone || '8795719836';
     const doctorCount = s?.doctorCount ?? s?.totalDoctors ?? s?.staffCounts?.doctor ?? 0;

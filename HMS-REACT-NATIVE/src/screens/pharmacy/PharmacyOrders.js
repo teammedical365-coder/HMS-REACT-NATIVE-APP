@@ -283,7 +283,7 @@ const PharmacyOrders = () => {
             }
         } catch (error) {
             console.warn("Failed to load hospital info. Using default layout.", error.message);
-            setHospitalInfo({ name: 'Aryan Hospital', address: 'Hospital Address', phone: '0000000000' });
+            setHospitalInfo({ name: '', address: 'Hospital Address', phone: '' });
         }
     };
 
@@ -739,7 +739,7 @@ const PharmacyOrders = () => {
 
     // ─── Receipt HTML builder — mirrors Web's jsPDF generateReceipt exactly ───
     const buildReceiptHTML = (order, invoiceData, hospital, appliedDiscount) => {
-        const hospitalName = hospital?.name || 'Aryan Hospital';
+        const hospitalName = hospital?.name || hospital?.appName || 'Pharmacy';
         const hospitalAddress = hospital?.address || 'Hospital Address';
         const hospitalPhone = hospital?.phone || '9000000000';
         const gstin = hospital?.gstin || '';
@@ -1141,9 +1141,9 @@ const PharmacyOrders = () => {
                                     <ScrollView style={{ flex: 1, padding: 20 }}>
                                         <View style={{ borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 12, padding: 16 }}>
                                             <View style={{ alignItems: 'center', borderBottomWidth: 2, borderBottomColor: '#0d9488', paddingBottom: 12 }}>
-                                                <Text style={{ fontSize: 20, fontWeight: '900', color: '#1e3a8a' }}>{hospitalInfo?.name?.toUpperCase() || 'ARYAN HOSPITAL'}</Text>
+                                                <Text style={{ fontSize: 20, fontWeight: '900', color: '#1e3a8a' }}>{hospitalInfo?.name?.toUpperCase() || 'HOSPITAL PHARMACY'}</Text>
                                                 <Text style={{ fontSize: 12, color: '#64748b', fontWeight: 'bold', marginTop: 4 }}>Pharmacy & Dispensary Section</Text>
-                                                <Text style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{hospitalInfo?.address || 'Mumbai, Maharashtra'} | Ph: {hospitalInfo?.phone || '9089089899'}</Text>
+                                                <Text style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{hospitalInfo?.address || 'Hospital Address'}{hospitalInfo?.phone ? ` | Ph: ${hospitalInfo.phone}` : ''}</Text>
                                             </View>
 
                                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginVertical: 12 }}>

@@ -628,7 +628,7 @@ const CentralAdminClinicDetails = ({ clinic, onBack, onDeleteSuccess }) => {
                         </View>
 
                         {/* Title */}
-                        <Text style={styles.heroTitle}>{clinicObj.name || 'Sharma Clinic'}</Text>
+                        <Text style={styles.heroTitle}>{clinicObj.name || 'Clinic Details'}</Text>
 
                         {/* Progress Underline Accent Bar */}
                         <View style={styles.heroAccentBar}>
@@ -911,7 +911,7 @@ const CentralAdminClinicDetails = ({ clinic, onBack, onDeleteSuccess }) => {
                                         <Text style={styles.inputLabel}>Full Name *</Text>
                                         <TextInput
                                             style={styles.textInput}
-                                            placeholder="e.g. Dr. Ramesh Sharma"
+                                            placeholder="e.g. Dr. Ramesh Kumar"
                                             value={managerForm.name}
                                             onChangeText={v => setManagerForm(prev => ({ ...prev, name: v }))}
                                         />

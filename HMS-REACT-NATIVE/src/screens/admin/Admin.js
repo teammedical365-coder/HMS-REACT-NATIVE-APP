@@ -650,8 +650,8 @@ const Admin = () => {
                             <View style={styles.formRow}>
                                 <View style={styles.formGroup}>
                                     <Text style={styles.staffLabel}>Full Name *</Text>
-                                    <StaffInput 
-                                        placeholder="e.g. Dr. Sharma" 
+                                    <StaffInput
+                                        placeholder="e.g. Dr. John Doe"
                                         value={createForm.name} 
                                         onChangeText={t => setCreateForm({ ...createForm, name: t })} 
                                     />

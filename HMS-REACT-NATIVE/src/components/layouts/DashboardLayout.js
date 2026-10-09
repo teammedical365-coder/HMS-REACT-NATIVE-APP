@@ -264,7 +264,7 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
                         <View style={styles.brandDot} />
                     ) : (
                         <Image
-                            source={(isCentralAdmin || user?.hospitalName?.includes('Metropolis') || !isSafeLogo(branding?.logoUrl) || branding?.hospitalName === 'City Hospital') ? require('../../assets/medical365-logo.png') : { uri: branding.logoUrl }}
+                            source={(isCentralAdmin || user?.hospitalName?.includes('Metropolis') || !isSafeLogo(branding?.logoUrl)) ? require('../../assets/medical365-logo.png') : { uri: branding.logoUrl }}
                             style={[styles.brandLogo, { maxWidth: isMobile ? 140 : 180 }]}
                             resizeMode="contain"
                         />

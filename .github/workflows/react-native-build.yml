@@ -150,6 +150,17 @@ jobs:
             fs.writeFileSync(appJsonPath, JSON.stringify(config, null, 2) + '\n');
             core.info(`Updated app.json: name=${hospitalName}, slug=${slug}, package=${applicationId}, icon=${config.expo.icon}`);
 
+            // Inject white-label tenant identity into src/tenant.js
+            const tenantJsPath = 'HMS-REACT-NATIVE/src/tenant.js';
+            const escapedName = hospitalName.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+            const tenantCode = `export const HARDCODED_TENANT = { tenantId: "${tenantId}", slug: "${slug}", name: "${escapedName}" };\n`;
+            fs.writeFileSync(tenantJsPath, tenantCode);
+            core.info(`Injected white-label tenant config to ${tenantJsPath}: ${tenantCode.trim()}`);
+
+            core.exportVariable('EXPO_PUBLIC_HOSPITAL_NAME', hospitalName);
+            core.exportVariable('EXPO_PUBLIC_TENANT_SLUG', slug);
+            core.exportVariable('APPLICATION_ID', applicationId);
+
       - name: Download & Process Logo
         env:
           LOGO_URL: ${{ github.event.inputs.logoUrl }}
@@ -370,6 +381,9 @@ jobs:
         working-directory: ./HMS-REACT-NATIVE
         env:
           EXPO_PUBLIC_TENANT_ID: ${{ github.event.inputs.tenantId }}
+          EXPO_PUBLIC_HOSPITAL_NAME: ${{ github.event.inputs.hospitalName }}
+          EXPO_PUBLIC_TENANT_SLUG: ${{ env.EXPO_PUBLIC_TENANT_SLUG }}
+          APPLICATION_ID: ${{ github.event.inputs.applicationId }}
           EXPO_PUBLIC_API_URL: https://hms-n6nk.onrender.com
           EXPO_PUBLIC_THEME_COLOR: ${{ github.event.inputs.themeColor }}
         run: |
@@ -378,6 +392,9 @@ jobs:
           npm ci
 
           printf 'EXPO_PUBLIC_TENANT_ID=%s\n' "$EXPO_PUBLIC_TENANT_ID" > .env.local
+          printf 'EXPO_PUBLIC_HOSPITAL_NAME=%s\n' "$EXPO_PUBLIC_HOSPITAL_NAME" >> .env.local
+          printf 'EXPO_PUBLIC_TENANT_SLUG=%s\n' "$EXPO_PUBLIC_TENANT_SLUG" >> .env.local
+          printf 'APPLICATION_ID=%s\n' "$APPLICATION_ID" >> .env.local
           printf 'EXPO_PUBLIC_API_URL=%s\n' "$EXPO_PUBLIC_API_URL" >> .env.local
           printf 'EXPO_PUBLIC_THEME_COLOR=%s\n' "$EXPO_PUBLIC_THEME_COLOR" >> .env.local
 

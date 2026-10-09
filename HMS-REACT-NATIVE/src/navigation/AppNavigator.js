@@ -39,7 +39,7 @@ const defaultHospitalAdminUser = {
 
 const defaultReceptionUser = {
     _id: "6758493021abcdef12345699",
-    name: "Aman Sharma",
+    name: "Staff Receptionist",
     email: "reception@metropolisgeneral.org",
     role: "receptionist",
     hospitalId: "6758493021abcdef12345679",

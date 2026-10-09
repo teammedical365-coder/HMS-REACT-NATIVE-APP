@@ -6,8 +6,15 @@ import { sendOtp, verifyOtp, resendOtp, forceLogin, clearError, resetOtpFlow } f
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { baseURL } from '../../utils/api';
 import { useBranding } from '../../context/BrandingContext';
+import { HARDCODED_TENANT } from '../../tenant';
 
 import NeuralAuthPortal from '../../components/auth/NeuralAuthPortal';
+
+// Synchronously resolve build-configured tenant
+const BUILD_TENANT_SLUG = process.env.EXPO_PUBLIC_TENANT_SLUG || HARDCODED_TENANT?.slug || null;
+const IS_FIXED_WHITE_LABEL_BUILD = Boolean(
+    BUILD_TENANT_SLUG && BUILD_TENANT_SLUG !== 'medical365'
+);
 
 const Login = () => {
     const navigation = useNavigation();
@@ -17,25 +24,17 @@ const Login = () => {
     const { loading, error, isAuthenticated, user, otpStep, preAuthToken, otpEmail, activeSession, otpSuccessMsg, tenant } = useAuth();
 
     const [formData, setFormData] = useState({ email: '', password: '', hospitalSlug: '' });
-    const [nativeSlug, setNativeSlug] = useState(null);
     const [localError, setLocalError] = useState(null);
     const searchParams = route.params || {};
-
-
 
     useEffect(() => {
         dispatch(clearError());
         dispatch(resetOtpFlow());
 
-        // Use hardcoded tenant
-        import('../../tenant.js').then((module) => {
-            if (module.HARDCODED_TENANT && module.HARDCODED_TENANT.slug) {
-                setNativeSlug(module.HARDCODED_TENANT.slug);
-                AsyncStorage.setItem('tenantSlug', module.HARDCODED_TENANT.slug);
-            }
-        }).catch(err => {
-            console.error('[Login] Could not load tenant.js', err);
-        });
+        // For white-label APK, ensure authoritative slug is recorded in storage
+        if (BUILD_TENANT_SLUG) {
+            AsyncStorage.setItem('tenantSlug', BUILD_TENANT_SLUG).catch(() => {});
+        }
     }, [dispatch]);
 
     useEffect(() => {
@@ -100,9 +99,15 @@ const Login = () => {
         setLocalError(null);
         if (!creds.id || !creds.password) return;
 
-        let slug = formData.hospitalSlug || searchParams.slug || searchParams.tenantId || await AsyncStorage.getItem('tenantSlug') || 'cityhospital';
-        if (nativeSlug) {
-            slug = nativeSlug;
+        let slug;
+        if (IS_FIXED_WHITE_LABEL_BUILD) {
+            // For a hospital-specific white-label APK, the build tenant is strictly authoritative.
+            // Stale AsyncStorage, deep-link query params, or form fields cannot redirect to another hospital.
+            slug = BUILD_TENANT_SLUG;
+        } else {
+            // Dynamic multi-tenant workflow: resolve from form input, route params, or stored session
+            const storedSlug = await AsyncStorage.getItem('tenantSlug').catch(() => null);
+            slug = formData.hospitalSlug || searchParams.slug || searchParams.tenantId || storedSlug || undefined;
         }
 
         try {
