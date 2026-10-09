@@ -9,6 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as DocumentPicker from 'expo-document-picker';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
 import { doctorAPI, reportAPI } from '../../utils/api';
+import DatePickerInput from '../../components/common/DatePickerInput';
 
 const avatarColors = ['#0ea5e9', '#8b5cf6', '#10b981', '#f59e0b', '#ec4899', '#06b6d4'];
 
@@ -922,34 +923,36 @@ const Patient = ({ route: propRoute } = {}) => {
                                 <Text style={styles.filterSectionTitle}>APPOINTMENT DATE RANGE</Text>
                                 <View style={styles.dateRangeRow}>
                                     <View style={styles.dateInputGroup}>
-                                        <Text style={styles.dateInputLabel}>From Date (YYYY-MM-DD)</Text>
-                                        <TextInput
-                                            style={styles.datePickerInput}
-                                            placeholder="YYYY-MM-DD"
-                                            placeholderTextColor="#94a3b8"
+                                        <Text style={styles.dateInputLabel}>From Date</Text>
+                                        <DatePickerInput
+                                            insideModal={true}
                                             value={fromDate}
-                                            onChangeText={text => {
-                                                if (text > todayIso) {
+                                            max={todayIso}
+                                            placeholder="From Date"
+                                            title="From Date"
+                                            onChange={text => {
+                                                if (text && text > todayIso) {
                                                     Alert.alert('Notice', 'Future dates cannot be selected');
                                                     return;
                                                 }
-                                                setFromDate(text);
+                                                setFromDate(text || '');
                                             }}
                                         />
                                     </View>
                                     <View style={styles.dateInputGroup}>
-                                        <Text style={styles.dateInputLabel}>To Date (YYYY-MM-DD)</Text>
-                                        <TextInput
-                                            style={styles.datePickerInput}
-                                            placeholder="YYYY-MM-DD"
-                                            placeholderTextColor="#94a3b8"
+                                        <Text style={styles.dateInputLabel}>To Date</Text>
+                                        <DatePickerInput
+                                            insideModal={true}
                                             value={toDate}
-                                            onChangeText={text => {
-                                                if (text > todayIso) {
+                                            max={todayIso}
+                                            placeholder="To Date"
+                                            title="To Date"
+                                            onChange={text => {
+                                                if (text && text > todayIso) {
                                                     Alert.alert('Notice', 'Future dates cannot be selected');
                                                     return;
                                                 }
-                                                setToDate(text);
+                                                setToDate(text || '');
                                             }}
                                         />
                                     </View>

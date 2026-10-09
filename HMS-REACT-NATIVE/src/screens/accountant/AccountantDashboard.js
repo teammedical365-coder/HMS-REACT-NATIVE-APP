@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert,
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import { financeAPI, billingAPI } from '../../utils/api';
+import DatePickerInput from '../../components/common/DatePickerInput';
 
 const AccountantDashboard = () => {
     const navigation = useNavigation();
@@ -145,21 +146,23 @@ const AccountantDashboard = () => {
 
                 {/* Custom Date Range Controls */}
                 <View style={styles.customDateRow}>
-                    <TextInput
-                        style={styles.dateInput}
-                        placeholder="YYYY-MM-DD"
-                        placeholderTextColor="#94a3b8"
-                        value={customStartDate}
-                        onChangeText={(val) => { setDatePreset('custom'); setCustomStartDate(val); }}
-                    />
+                    <View style={{ flex: 1, minWidth: 120 }}>
+                        <DatePickerInput
+                            placeholder="Start Date"
+                            title="Start Date"
+                            value={customStartDate}
+                            onChange={(val) => { setDatePreset('custom'); setCustomStartDate(val || ''); }}
+                        />
+                    </View>
                     <Text style={styles.dateToText}>to</Text>
-                    <TextInput
-                        style={styles.dateInput}
-                        placeholder="YYYY-MM-DD"
-                        placeholderTextColor="#94a3b8"
-                        value={customEndDate}
-                        onChangeText={(val) => { setDatePreset('custom'); setCustomEndDate(val); }}
-                    />
+                    <View style={{ flex: 1, minWidth: 120 }}>
+                        <DatePickerInput
+                            placeholder="End Date"
+                            title="End Date"
+                            value={customEndDate}
+                            onChange={(val) => { setDatePreset('custom'); setCustomEndDate(val || ''); }}
+                        />
+                    </View>
                     <TouchableOpacity 
                         style={styles.btnApplyCustom} 
                         onPress={() => fetchStats('custom', customStartDate, customEndDate)}

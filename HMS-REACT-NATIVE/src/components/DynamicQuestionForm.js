@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker'; // Optional native picker
+import DatePickerInput from './common/DatePickerInput';
 
 const DynamicQuestionForm = ({ categoryName, questions, intakeData, setIntakeData, readOnly = false }) => {
     const handleAnswer = (q, val) => {
@@ -38,13 +39,23 @@ const DynamicQuestionForm = ({ categoryName, questions, intakeData, setIntakeDat
                         <View key={idx} style={styles.fieldStyle}>
                             <Text style={styles.labelStyle}>{item.q}</Text>
 
-                            {(item.type === 'text' || item.type === 'number' || item.type === 'date') && (
+                            {(item.type === 'text' || item.type === 'number') && (
                                 <TextInput
                                     style={[styles.inputStyle, readOnly && styles.inputDisabled]}
                                     value={savedVal}
                                     onChangeText={(val) => handleAnswer(item.q, val)}
                                     editable={!readOnly}
                                     keyboardType={item.type === 'number' ? 'numeric' : 'default'}
+                                />
+                            )}
+
+                            {item.type === 'date' && (
+                                <DatePickerInput
+                                    value={savedVal}
+                                    onChange={(val) => handleAnswer(item.q, val)}
+                                    placeholder="Select Date"
+                                    disabled={readOnly}
+                                    title={item.q}
                                 />
                             )}
 
@@ -124,13 +135,25 @@ const DynamicQuestionForm = ({ categoryName, questions, intakeData, setIntakeDat
                                                     </TouchableOpacity>
 
                                                     {Boolean(opt !== 'None' && isChecked) && (
-                                                        <TextInput
-                                                            style={[styles.inputStyle, readOnly && styles.inputDisabled, { paddingVertical: 6, fontSize: 12, marginTop: 4 }]}
-                                                            value={dateVal}
-                                                            onChangeText={(val) => handleAnswer(`${item.q}_date_${opt}`, val)}
-                                                            placeholder={item.type === 'checkbox-text-group' ? 'Details...' : 'YYYY-MM-DD'}
-                                                            editable={!readOnly}
-                                                        />
+                                                        item.type === 'checkbox-text-group' ? (
+                                                            <TextInput
+                                                                style={[styles.inputStyle, readOnly && styles.inputDisabled, { paddingVertical: 6, fontSize: 12, marginTop: 4 }]}
+                                                                value={dateVal}
+                                                                onChangeText={(val) => handleAnswer(`${item.q}_date_${opt}`, val)}
+                                                                placeholder="Details..."
+                                                                editable={!readOnly}
+                                                            />
+                                                        ) : (
+                                                            <View style={{ marginTop: 4 }}>
+                                                                <DatePickerInput
+                                                                    value={dateVal}
+                                                                    onChange={(val) => handleAnswer(`${item.q}_date_${opt}`, val)}
+                                                                    placeholder="Select Date"
+                                                                    disabled={readOnly}
+                                                                    title={`${item.q} (${opt})`}
+                                                                />
+                                                            </View>
+                                                        )
                                                     )}
                                                 </View>
                                             );

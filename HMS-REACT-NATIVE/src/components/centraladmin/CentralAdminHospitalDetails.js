@@ -8,6 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path, Defs, LinearGradient as SvgLinearGradient, Stop, Circle, Rect, G } from 'react-native-svg';
 import { useNavigation } from '@react-navigation/native';
 import { hospitalAPI, rnBuildAPI } from '../../utils/api';
+import DatePickerInput from '../common/DatePickerInput';
 
 const isSafeLogo = (u) => Boolean(u && typeof u === 'string' && u.trim() && !u.includes('gemini.google.com'));
 
@@ -643,21 +644,23 @@ export default function CentralAdminHospitalDetails({ hospital, onBack }) {
 
                     {/* Date Picker Range Inputs */}
                     <View style={[styles.datePickerGroup, isMobile && { width: '100%', marginTop: 8 }]}>
-                        <TextInput
-                            style={styles.dateInput}
-                            placeholder="YYYY-MM-DD"
-                            value={customStartDate}
-                            onChangeText={setCustomStartDate}
-                            placeholderTextColor="#94a3b8"
-                        />
+                        <View style={{ flex: 1, minWidth: 120 }}>
+                            <DatePickerInput
+                                placeholder="From Date"
+                                title="From Date"
+                                value={customStartDate}
+                                onChange={setCustomStartDate}
+                            />
+                        </View>
                         <Text style={styles.dateSep}>to</Text>
-                        <TextInput
-                            style={styles.dateInput}
-                            placeholder="YYYY-MM-DD"
-                            value={customEndDate}
-                            onChangeText={setCustomEndDate}
-                            placeholderTextColor="#94a3b8"
-                        />
+                        <View style={{ flex: 1, minWidth: 120 }}>
+                            <DatePickerInput
+                                placeholder="To Date"
+                                title="To Date"
+                                value={customEndDate}
+                                onChange={setCustomEndDate}
+                            />
+                        </View>
                         <TouchableOpacity style={styles.applyBtn} onPress={handleApplyCustom}>
                             <Text style={styles.applyBtnText}>Apply Custom</Text>
                         </TouchableOpacity>

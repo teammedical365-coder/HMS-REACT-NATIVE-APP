@@ -15,6 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 import { billingAPI, hospitalAPI } from '../../utils/api';
+import DropdownSelect from '../../components/common/DropdownSelect';
 
 const DEFAULT_FACILITIES = [
     { name: 'General Ward Bed', pricePerDay: 1000 },
@@ -420,34 +421,23 @@ const CashierDashboard = () => {
                             <View style={styles.facilityCard}>
                                 <Text style={styles.facilityCardTitle}>Add Room / Facility Usage</Text>
                                 <View style={styles.facilityFormRow}>
-                                    <View style={{ flex: 2, position: 'relative' }}>
-                                        <TouchableOpacity
-                                            style={styles.facilitySelectBtn}
-                                            onPress={() => setFacilityDropdownOpen(!facilityDropdownOpen)}
-                                        >
-                                            <Text style={styles.facilitySelectBtnText} numberOfLines={1}>
-                                                {facilityForm.name ? `${facilityForm.name} (${formatCurrency(facilityForm.pricePerDay)}/day)` : '-- Select Facility --'}
-                                            </Text>
-                                            <Feather name={facilityDropdownOpen ? 'chevron-up' : 'chevron-down'} size={16} color="#64748b" />
-                                        </TouchableOpacity>
-
-                                        {facilityDropdownOpen && (
-                                            <View style={styles.facilityDropdownMenu}>
-                                                <ScrollView style={{ maxHeight: 180 }} nestedScrollEnabled>
-                                                    {hospitalFacilities.map((fac, idx) => (
-                                                        <TouchableOpacity
-                                                            key={idx}
-                                                            style={styles.facilityDropdownItem}
-                                                            onPress={() => handleSelectFacilityOption(fac)}
-                                                        >
-                                                            <Text style={styles.facilityDropdownItemText}>
-                                                                {fac.name} ({formatCurrency(fac.pricePerDay)}/day)
-                                                            </Text>
-                                                        </TouchableOpacity>
-                                                    ))}
-                                                </ScrollView>
-                                            </View>
-                                        )}
+                                    <View style={{ flex: 2 }}>
+                                        <DropdownSelect
+                                            options={hospitalFacilities.map(fac => ({
+                                                label: `${fac.name} (${formatCurrency(fac.pricePerDay)}/day)`,
+                                                value: fac.name
+                                            }))}
+                                            value={facilityForm.name}
+                                            onChange={(val) => {
+                                                const fac = hospitalFacilities.find(f => f.name === val);
+                                                if (fac) {
+                                                    handleSelectFacilityOption(fac);
+                                                } else {
+                                                    setFacilityForm(prev => ({ ...prev, name: val, pricePerDay: 0 }));
+                                                }
+                                            }}
+                                            placeholder="-- Select Facility --"
+                                        />
                                     </View>
 
                                     <View style={{ width: 80 }}>

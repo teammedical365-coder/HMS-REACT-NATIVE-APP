@@ -751,27 +751,33 @@ const NursePatientDocuments = () => {
                 </View>
 
                 {/* ── Tabs Selector ── */}
-                <View style={styles.tabsRow}>
-                    <TouchableOpacity
-                        style={[styles.tabBtn, activeTab === 'reports' && styles.tabBtnActive]}
-                        onPress={() => setActiveTab('reports')}
-                        activeOpacity={0.8}
+                <View style={styles.tabsRowContainer}>
+                    <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.tabsRowContent}
                     >
-                        <Feather name="file-text" size={15} color={activeTab === 'reports' ? '#0284c7' : '#64748b'} />
-                        <Text style={[styles.tabBtnText, activeTab === 'reports' && styles.tabBtnTextActive]}>
-                            Diagnostic & Lab Reports ({reportsList.length})
-                        </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={[styles.tabBtn, activeTab === 'consent' && styles.tabBtnActive]}
-                        onPress={() => setActiveTab('consent')}
-                        activeOpacity={0.8}
-                    >
-                        <Feather name="shield" size={15} color={activeTab === 'consent' ? '#0284c7' : '#64748b'} />
-                        <Text style={[styles.tabBtnText, activeTab === 'consent' && styles.tabBtnTextActive]}>
-                            Clinical Consents ({consentList.length})
-                        </Text>
-                    </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.tabBtn, activeTab === 'reports' && styles.tabBtnActive]}
+                            onPress={() => setActiveTab('reports')}
+                            activeOpacity={0.8}
+                        >
+                            <Feather name="file-text" size={15} color={activeTab === 'reports' ? '#0284c7' : '#64748b'} />
+                            <Text style={[styles.tabBtnText, activeTab === 'reports' && styles.tabBtnTextActive]}>
+                                Diagnostic & Lab Reports ({reportsList.length})
+                            </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.tabBtn, activeTab === 'consent' && styles.tabBtnActive]}
+                            onPress={() => setActiveTab('consent')}
+                            activeOpacity={0.8}
+                        >
+                            <Feather name="shield" size={15} color={activeTab === 'consent' ? '#0284c7' : '#64748b'} />
+                            <Text style={[styles.tabBtnText, activeTab === 'consent' && styles.tabBtnTextActive]}>
+                                Clinical Consents ({consentList.length})
+                            </Text>
+                        </TouchableOpacity>
+                    </ScrollView>
                 </View>
 
                 {/* ───────────────────────────────────────────────────────────── */}
@@ -780,7 +786,7 @@ const NursePatientDocuments = () => {
                 {activeTab === 'reports' && (
                     <View style={styles.tabContent}>
                         <View style={styles.sectionHeaderRow}>
-                            <View>
+                            <View style={{ flex: 1, minWidth: 160 }}>
                                 <Text style={styles.sectionTitle}>Archived Diagnostic Reports</Text>
                                 <Text style={styles.sectionSub}>All uploaded lab, imaging, and external documents</Text>
                             </View>
@@ -821,7 +827,7 @@ const NursePatientDocuments = () => {
                                             <View style={styles.itemIconWrap}>
                                                 <Feather name="file-text" size={18} color="#0284c7" />
                                             </View>
-                                            <View style={{ flex: 1 }}>
+                                            <View style={{ flex: 1, minWidth: 0 }}>
                                                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                                                     <Text style={styles.itemTitle} numberOfLines={1}>{fileName}</Text>
                                                     <View style={styles.categoryBadge}>
@@ -861,7 +867,7 @@ const NursePatientDocuments = () => {
                         {/* Section 1: Standard Consent Templates */}
                         <View style={styles.consentTemplateCard}>
                             <View style={styles.templateCardHead}>
-                                <View style={{ flex: 1 }}>
+                                <View style={{ flex: 1, minWidth: 160 }}>
                                     <Text style={styles.templateCardTitle}>Standard Clinical Consent Templates</Text>
                                     <Text style={styles.templateCardSub}>Generate and print prefilled legal medical consents</Text>
                                 </View>
@@ -942,7 +948,7 @@ const NursePatientDocuments = () => {
                         {/* Section 2: Signed Consent Archive */}
                         <View style={{ marginTop: 20 }}>
                             <View style={styles.sectionHeaderRow}>
-                                <View>
+                                <View style={{ flex: 1, minWidth: 160 }}>
                                     <Text style={styles.sectionTitle}>Signed Legal Consents Archive</Text>
                                     <Text style={styles.sectionSub}>Digitized signed consent documentation for this patient</Text>
                                 </View>
@@ -973,7 +979,7 @@ const NursePatientDocuments = () => {
                                                 <View style={[styles.itemIconWrap, { backgroundColor: '#f5f3ff' }]}>
                                                     <Feather name="shield" size={18} color="#7c3aed" />
                                                 </View>
-                                                <View style={{ flex: 1 }}>
+                                                <View style={{ flex: 1, minWidth: 0 }}>
                                                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                                                         <Text style={styles.itemTitle}>{cTitle}</Text>
                                                         <View style={[styles.categoryBadge, { backgroundColor: '#ecfdf5', borderColor: '#a7f3d0' }]}>
@@ -1295,63 +1301,64 @@ const styles = StyleSheet.create({
     headerTitle: { color: '#ffffff', fontSize: 20, fontWeight: '800' },
     headerSubtitle: { color: '#e0f2fe', fontSize: 12, marginTop: 4, lineHeight: 16 },
     refreshIconBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center' },
-    statsRow: { flexDirection: 'row', gap: 10, marginTop: 14 },
-    statChip: { flex: 1, backgroundColor: '#ffffff', borderRadius: 8, padding: 10, flexDirection: 'row', alignItems: 'center', gap: 8 },
-    statVal: { fontSize: 15, fontWeight: '800', color: '#0f172a' },
-    statLbl: { fontSize: 11, fontWeight: '600', color: '#64748b' },
-    patientBarCard: { margin: 16, marginBottom: 8, backgroundColor: '#ffffff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 },
-    patientBarLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, minWidth: 220 },
-    patientAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#0284c7', justifyContent: 'center', alignItems: 'center' },
-    avatarText: { color: '#ffffff', fontSize: 16, fontWeight: '800' },
-    patientName: { fontSize: 16, fontWeight: '800', color: '#0f172a' },
+    statsRow: { flexDirection: 'row', gap: 8, marginTop: 14 },
+    statChip: { flex: 1, minWidth: 0, backgroundColor: '#ffffff', borderRadius: 8, paddingVertical: 8, paddingHorizontal: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+    statVal: { fontSize: 14, fontWeight: '800', color: '#0f172a' },
+    statLbl: { fontSize: 10.5, fontWeight: '600', color: '#64748b' },
+    patientBarCard: { margin: 12, marginBottom: 8, backgroundColor: '#ffffff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 },
+    patientBarLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 160 },
+    patientAvatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#0284c7', justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
+    avatarText: { color: '#ffffff', fontSize: 15, fontWeight: '800' },
+    patientName: { fontSize: 15, fontWeight: '800', color: '#0f172a', flexShrink: 1 },
     inpatientBadge: { backgroundColor: '#eff6ff', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: '#bfdbfe' },
-    inpatientBadgeText: { fontSize: 11, fontWeight: '700', color: '#1d4ed8' },
-    patientMeta: { fontSize: 12, color: '#64748b', marginTop: 2 },
-    changePatientBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#f0f9ff', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#bae6fd' },
+    inpatientBadgeText: { fontSize: 10.5, fontWeight: '700', color: '#1d4ed8' },
+    patientMeta: { fontSize: 11.5, color: '#64748b', marginTop: 2, flexWrap: 'wrap' },
+    changePatientBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#f0f9ff', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#bae6fd', alignSelf: 'flex-start' },
     changePatientBtnText: { color: '#0284c7', fontSize: 12, fontWeight: '700' },
-    tabsRow: { flexDirection: 'row', paddingHorizontal: 16, gap: 10, marginTop: 8 },
-    tabBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, backgroundColor: '#ffffff', borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0' },
+    tabsRowContainer: { marginTop: 8 },
+    tabsRowContent: { paddingHorizontal: 12, gap: 8, flexDirection: 'row', alignItems: 'center' },
+    tabBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 10, paddingHorizontal: 14, backgroundColor: '#ffffff', borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0', minHeight: 42 },
     tabBtnActive: { borderColor: '#0284c7', backgroundColor: '#f0f9ff' },
-    tabBtnText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
+    tabBtnText: { fontSize: 12.5, fontWeight: '600', color: '#64748b' },
     tabBtnTextActive: { color: '#0284c7', fontWeight: '800' },
-    tabContent: { padding: 16 },
-    sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+    tabContent: { padding: 12 },
+    sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 12 },
     sectionTitle: { fontSize: 15, fontWeight: '800', color: '#0f172a' },
-    sectionSub: { fontSize: 11, color: '#64748b', marginTop: 2 },
-    actionBtnPrimary: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#0284c7', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 6, minHeight: 38 },
-    actionBtnEmerald: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#059669', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 6, minHeight: 38 },
+    sectionSub: { fontSize: 11, color: '#64748b', marginTop: 2, lineHeight: 15 },
+    actionBtnPrimary: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#0284c7', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, minHeight: 38, flexShrink: 0 },
+    actionBtnEmerald: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#059669', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, minHeight: 38, flexShrink: 0 },
     actionBtnPrimaryText: { color: '#ffffff', fontSize: 12, fontWeight: '700' },
     loaderBox: { padding: 24, alignItems: 'center', justifyContent: 'center' },
     loaderText: { fontSize: 12, color: '#64748b', marginTop: 6 },
-    emptyCard: { backgroundColor: '#ffffff', borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0', padding: 28, alignItems: 'center', justifyContent: 'center' },
+    emptyCard: { backgroundColor: '#ffffff', borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0', padding: 24, alignItems: 'center', justifyContent: 'center' },
     emptyTitle: { fontSize: 14, fontWeight: '700', color: '#334155', marginTop: 10 },
-    emptySub: { fontSize: 12, color: '#64748b', textAlign: 'center', marginTop: 4, maxWidth: 300 },
+    emptySub: { fontSize: 12, color: '#64748b', textAlign: 'center', marginTop: 4, maxWidth: 300, lineHeight: 16 },
     itemsList: { gap: 10 },
-    itemCard: { backgroundColor: '#ffffff', borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0', padding: 12, flexDirection: 'row', alignItems: 'center', gap: 12 },
-    itemIconWrap: { width: 36, height: 36, borderRadius: 8, backgroundColor: '#f0f9ff', justifyContent: 'center', alignItems: 'center' },
-    itemTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a', maxWidth: 220 },
+    itemCard: { backgroundColor: '#ffffff', borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0', padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10, width: '100%' },
+    itemIconWrap: { width: 36, height: 36, borderRadius: 8, backgroundColor: '#f0f9ff', justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
+    itemTitle: { fontSize: 13.5, fontWeight: '700', color: '#0f172a', flexShrink: 1 },
     categoryBadge: { backgroundColor: '#f1f5f9', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: '#e2e8f0' },
     categoryBadgeText: { fontSize: 10, fontWeight: '700', color: '#475569' },
-    itemMeta: { fontSize: 11, color: '#64748b', marginTop: 2 },
-    itemNotes: { fontSize: 11, color: '#0284c7', marginTop: 4, fontStyle: 'italic' },
-    viewDocBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, backgroundColor: '#f0f9ff', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: '#bae6fd', minHeight: 34 },
+    itemMeta: { fontSize: 11, color: '#64748b', marginTop: 2, lineHeight: 15 },
+    itemNotes: { fontSize: 11, color: '#0284c7', marginTop: 4, fontStyle: 'italic', lineHeight: 15 },
+    viewDocBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, backgroundColor: '#f0f9ff', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 6, borderWidth: 1, borderColor: '#bae6fd', minHeight: 36, flexShrink: 0 },
     viewDocBtnText: { fontSize: 11, fontWeight: '700', color: '#0284c7' },
-    consentTemplateCard: { backgroundColor: '#ffffff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', padding: 16 },
-    templateCardHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 },
+    consentTemplateCard: { backgroundColor: '#ffffff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', padding: 14 },
+    templateCardHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10, marginBottom: 14 },
     templateCardTitle: { fontSize: 15, fontWeight: '800', color: '#0f172a' },
-    templateCardSub: { fontSize: 11, color: '#64748b', marginTop: 2 },
+    templateCardSub: { fontSize: 11, color: '#64748b', marginTop: 2, lineHeight: 15 },
     templateChipsRow: { gap: 8, paddingVertical: 4 },
-    templateChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#e2e8f0' },
+    templateChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#e2e8f0', minHeight: 32, justifyContent: 'center' },
     templateChipActive: { backgroundColor: '#0284c7', borderColor: '#0284c7' },
     templateChipText: { fontSize: 11, fontWeight: '600', color: '#475569' },
     templateChipTextActive: { color: '#ffffff', fontWeight: '700' },
-    templatePreviewBox: { marginTop: 12, backgroundColor: '#f8fafc', borderRadius: 8, borderWidth: 1, borderColor: '#cbd5e1', padding: 14 },
+    templatePreviewBox: { marginTop: 12, backgroundColor: '#f8fafc', borderRadius: 8, borderWidth: 1, borderColor: '#cbd5e1', padding: 12 },
     tplPreviewTitle: { fontSize: 13, fontWeight: '800', color: '#0f172a', textTransform: 'uppercase' },
     tplPreviewDesc: { fontSize: 11, color: '#475569', marginTop: 4, lineHeight: 16 },
-    printActionsRow: { flexDirection: 'row', gap: 10, marginTop: 14, flexWrap: 'wrap' },
-    printBtnPrimary: { flex: 1, minWidth: 180, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#0284c7', paddingVertical: 10, borderRadius: 6 },
+    printActionsRow: { flexDirection: 'row', gap: 8, marginTop: 14, flexWrap: 'wrap' },
+    printBtnPrimary: { flex: 1, minWidth: 140, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#0284c7', paddingVertical: 10, paddingHorizontal: 12, borderRadius: 6, minHeight: 40 },
     printBtnPrimaryText: { color: '#ffffff', fontSize: 12, fontWeight: '700' },
-    printBtnOutline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 6, borderWidth: 1, borderColor: '#0284c7', backgroundColor: '#ffffff' },
+    printBtnOutline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 6, borderWidth: 1, borderColor: '#0284c7', backgroundColor: '#ffffff', minHeight: 40 },
     printBtnOutlineText: { color: '#0284c7', fontSize: 12, fontWeight: '700' },
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 },
     modalContent: { width: '100%', maxWidth: 460, backgroundColor: '#ffffff', borderRadius: 12, overflow: 'hidden' },

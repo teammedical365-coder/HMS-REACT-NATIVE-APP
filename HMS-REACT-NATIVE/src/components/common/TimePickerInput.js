@@ -1,12 +1,30 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, Platform, TextInput } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, Platform, ScrollView } from 'react-native';
+import { Picker } from '@react-native-picker/picker';
 import { Feather } from '@expo/vector-icons';
+
+const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
+
+const QUICK_PRESETS = [
+    { label: 'Now', getVal: () => {
+        const d = new Date();
+        return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    }},
+    { label: '09:00', getVal: () => '09:00' },
+    { label: '10:00', getVal: () => '10:00' },
+    { label: '11:00', getVal: () => '11:00' },
+    { label: '12:00', getVal: () => '12:00' },
+    { label: '14:00', getVal: () => '14:00' },
+    { label: '16:00', getVal: () => '16:00' },
+    { label: '18:00', getVal: () => '18:00' },
+];
 
 /**
  * Universal TimePickerInput
- * On Web: Renders a true HTML5 <input type="time"> with exact Web CSS styles,
- *         offering native time selection matching Web.
- * On Native: Renders a formatted time selector with clock icon and validation.
+ * On Web: Renders a true HTML5 <input type="time"> with exact Web CSS styles.
+ * On Native: Renders an interactive native time-picker dialog with operating-system
+ *            wheel/spinner Picker and quick presets. 0 typing required.
  */
 const TimePickerInput = ({
     value = '',
@@ -16,10 +34,39 @@ const TimePickerInput = ({
     inputStyle,
     disabled = false,
     title = 'Select Time',
+    insideModal = false,
 }) => {
-    // Native Fallback State (must be called unconditionally at top level)
+    const parseInitial = (val) => {
+        if (typeof val === 'string' && val.trim()) {
+            const match = val.trim().match(/^(\d{1,2}):(\d{2})/);
+            if (match) {
+                const h = Math.min(23, Math.max(0, parseInt(match[1], 10)));
+                const m = Math.min(59, Math.max(0, parseInt(match[2], 10)));
+                return {
+                    h: String(h).padStart(2, '0'),
+                    m: String(m).padStart(2, '0')
+                };
+            }
+        }
+        const now = new Date();
+        return {
+            h: String(now.getHours()).padStart(2, '0'),
+            m: '00'
+        };
+    };
+
     const [modalVisible, setModalVisible] = useState(false);
-    const [tempTime, setTempTime] = useState(value || '');
+    const initial = parseInitial(value);
+    const [selectedHour, setSelectedHour] = useState(initial.h);
+    const [selectedMinute, setSelectedMinute] = useState(initial.m);
+
+    useEffect(() => {
+        if (modalVisible) {
+            const parsed = parseInitial(value);
+            setSelectedHour(parsed.h);
+            setSelectedMinute(parsed.m);
+        }
+    }, [modalVisible, value]);
 
     if (Platform.OS === 'web') {
         return (
@@ -66,15 +113,14 @@ const TimePickerInput = ({
     }
 
     const handleApply = () => {
-        // Validate HH:mm
-        const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
-        if (tempTime && timeRegex.test(tempTime)) {
-            onChange(tempTime);
-            setModalVisible(false);
-        } else if (!tempTime) {
-            onChange('');
-            setModalVisible(false);
-        }
+        const timeStr = `${selectedHour}:${selectedMinute}`;
+        onChange(timeStr);
+        setModalVisible(false);
+    };
+
+    const handleClear = () => {
+        onChange('');
+        setModalVisible(false);
     };
 
     return (
@@ -83,7 +129,9 @@ const TimePickerInput = ({
                 style={[styles.touchField, disabled && styles.touchFieldDisabled, inputStyle]}
                 onPress={() => {
                     if (!disabled) {
-                        setTempTime(value || '');
+                        const parsed = parseInitial(value);
+                        setSelectedHour(parsed.h);
+                        setSelectedMinute(parsed.m);
                         setModalVisible(true);
                     }
                 }}
@@ -109,35 +157,101 @@ const TimePickerInput = ({
                     onPress={() => setModalVisible(false)}
                 >
                     <TouchableOpacity style={styles.modalCard} activeOpacity={1} onPress={(e) => e.stopPropagation?.()}>
+                        {/* Header */}
                         <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>{title}</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                <Feather name="clock" size={18} color="#2563eb" />
+                                <Text style={styles.modalTitle}>{title}</Text>
+                            </View>
                             <TouchableOpacity onPress={() => setModalVisible(false)} hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}>
                                 <Text style={styles.closeBtn}>✕</Text>
                             </TouchableOpacity>
                         </View>
-                        <View style={styles.modalBody}>
-                            <Text style={styles.inputLabel}>Enter Time (24h HH:mm)</Text>
-                            <TextInput
-                                style={styles.nativeInput}
-                                value={tempTime}
-                                onChangeText={setTempTime}
-                                placeholder="HH:mm (e.g. 14:30)"
-                                placeholderTextColor="#94a3b8"
-                                maxLength={5}
-                                keyboardType="numbers-and-punctuation"
-                            />
+
+                        {/* Digital Time Preview Banner */}
+                        <View style={styles.digitalDisplay}>
+                            <View style={styles.digitalUnit}>
+                                <Text style={styles.digitalText}>{selectedHour}</Text>
+                                <Text style={styles.digitalSub}>HOUR (24h)</Text>
+                            </View>
+                            <Text style={styles.digitalColon}>:</Text>
+                            <View style={styles.digitalUnit}>
+                                <Text style={styles.digitalText}>{selectedMinute}</Text>
+                                <Text style={styles.digitalSub}>MINUTE</Text>
+                            </View>
                         </View>
+
+                        {/* Quick Presets */}
+                        <View style={styles.presetSection}>
+                            <Text style={styles.presetSectionTitle}>QUICK PRESETS</Text>
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.presetRow}>
+                                {QUICK_PRESETS.map((p) => (
+                                    <TouchableOpacity
+                                        key={p.label}
+                                        style={styles.presetChip}
+                                        onPress={() => {
+                                            const val = p.getVal();
+                                            const [h, m] = val.split(':');
+                                            setSelectedHour(h);
+                                            setSelectedMinute(m);
+                                        }}
+                                    >
+                                        <Text style={styles.presetChipText}>{p.label}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </ScrollView>
+                        </View>
+
+                        {/* Interactive Picker Wheels */}
+                        <View style={styles.pickerSection}>
+                            <View style={styles.pickerColumn}>
+                                <Text style={styles.columnLabel}>Hour</Text>
+                                <View style={styles.pickerWrapper}>
+                                    <Picker
+                                        selectedValue={selectedHour}
+                                        onValueChange={(itemValue) => setSelectedHour(itemValue)}
+                                        style={styles.nativePicker}
+                                        itemStyle={styles.pickerItem}
+                                    >
+                                        {HOURS.map((h) => (
+                                            <Picker.Item key={h} label={h} value={h} />
+                                        ))}
+                                    </Picker>
+                                </View>
+                            </View>
+
+                            <View style={styles.pickerDivider}>
+                                <Text style={styles.pickerDividerColon}>:</Text>
+                            </View>
+
+                            <View style={styles.pickerColumn}>
+                                <Text style={styles.columnLabel}>Minute</Text>
+                                <View style={styles.pickerWrapper}>
+                                    <Picker
+                                        selectedValue={selectedMinute}
+                                        onValueChange={(itemValue) => setSelectedMinute(itemValue)}
+                                        style={styles.nativePicker}
+                                        itemStyle={styles.pickerItem}
+                                    >
+                                        {MINUTES.map((m) => (
+                                            <Picker.Item key={m} label={m} value={m} />
+                                        ))}
+                                    </Picker>
+                                </View>
+                            </View>
+                        </View>
+
+                        {/* Actions */}
                         <View style={styles.modalFooter}>
-                            <TouchableOpacity
-                                style={styles.cancelBtn}
-                                onPress={() => setModalVisible(false)}
-                            >
+                            {Boolean(value) && (
+                                <TouchableOpacity style={styles.clearBtn} onPress={handleClear}>
+                                    <Text style={styles.clearBtnText}>Clear</Text>
+                                </TouchableOpacity>
+                            )}
+                            <TouchableOpacity style={styles.cancelBtn} onPress={() => setModalVisible(false)}>
                                 <Text style={styles.cancelBtnText}>Cancel</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity
-                                style={styles.applyBtn}
-                                onPress={handleApply}
-                            >
+                            <TouchableOpacity style={styles.applyBtn} onPress={handleApply}>
                                 <Text style={styles.applyBtnText}>Set Time</Text>
                             </TouchableOpacity>
                         </View>
@@ -178,22 +292,22 @@ const styles = StyleSheet.create({
     },
     modalBackdrop: {
         flex: 1,
-        backgroundColor: 'rgba(15, 23, 42, 0.45)',
+        backgroundColor: 'rgba(15, 23, 42, 0.5)',
         justifyContent: 'center',
         alignItems: 'center',
         padding: 20,
     },
     modalCard: {
         width: '100%',
-        maxWidth: 340,
+        maxWidth: 360,
         backgroundColor: '#ffffff',
-        borderRadius: 18,
+        borderRadius: 20,
         padding: 20,
         shadowColor: '#0f172a',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.15,
-        shadowRadius: 20,
-        elevation: 8,
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.2,
+        shadowRadius: 24,
+        elevation: 10,
     },
     modalHeader: {
         flexDirection: 'row',
@@ -211,36 +325,141 @@ const styles = StyleSheet.create({
         color: '#64748b',
         fontWeight: '700',
     },
-    modalBody: {
-        marginBottom: 20,
+    digitalDisplay: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#f8fafc',
+        borderRadius: 14,
+        paddingVertical: 14,
+        paddingHorizontal: 20,
+        marginBottom: 14,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
     },
-    inputLabel: {
-        fontSize: 12,
+    digitalUnit: {
+        alignItems: 'center',
+        minWidth: 70,
+    },
+    digitalText: {
+        fontSize: 32,
+        fontWeight: '800',
+        color: '#1e293b',
+        fontVariant: ['tabular-nums'],
+    },
+    digitalSub: {
+        fontSize: 10,
         fontWeight: '700',
-        color: '#475569',
-        marginBottom: 8,
-        textTransform: 'uppercase',
+        color: '#64748b',
+        marginTop: 2,
     },
-    nativeInput: {
-        height: 42,
-        borderWidth: 1.5,
-        borderColor: '#cbd5e1',
-        borderRadius: 10,
-        paddingHorizontal: 12,
-        fontSize: 15,
+    digitalColon: {
+        fontSize: 30,
+        fontWeight: '800',
+        color: '#94a3b8',
+        marginHorizontal: 12,
+        marginBottom: 12,
+    },
+    presetSection: {
+        marginBottom: 14,
+    },
+    presetSectionTitle: {
+        fontSize: 10,
+        fontWeight: '800',
+        color: '#94a3b8',
+        letterSpacing: 0.5,
+        marginBottom: 6,
+    },
+    presetRow: {
+        flexDirection: 'row',
+        gap: 6,
+        paddingVertical: 2,
+    },
+    presetChip: {
+        backgroundColor: '#f1f5f9',
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+    },
+    presetChipText: {
+        fontSize: 12,
         fontWeight: '600',
+        color: '#334155',
+    },
+    pickerSection: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 20,
+        backgroundColor: '#f8fafc',
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+    },
+    pickerColumn: {
+        flex: 1,
+        alignItems: 'center',
+    },
+    columnLabel: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#64748b',
+        textTransform: 'uppercase',
+        marginBottom: 4,
+    },
+    pickerWrapper: {
+        width: '100%',
+        height: 120,
+        justifyContent: 'center',
+        overflow: 'hidden',
+    },
+    nativePicker: {
+        width: '100%',
+        height: 120,
+    },
+    pickerItem: {
+        fontSize: 18,
+        fontWeight: '700',
         color: '#0f172a',
+    },
+    pickerDivider: {
+        width: 20,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    pickerDividerColon: {
+        fontSize: 24,
+        fontWeight: '800',
+        color: '#64748b',
     },
     modalFooter: {
         flexDirection: 'row',
         justifyContent: 'flex-end',
+        alignItems: 'center',
         gap: 10,
+    },
+    clearBtn: {
+        paddingVertical: 10,
+        paddingHorizontal: 14,
+        minHeight: 44,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderRadius: 10,
+        marginRight: 'auto',
+    },
+    clearBtnText: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#ef4444',
     },
     cancelBtn: {
         paddingVertical: 10,
         paddingHorizontal: 16,
         minHeight: 44,
-        minWidth: 70,
         justifyContent: 'center',
         alignItems: 'center',
         borderRadius: 10,
@@ -255,7 +474,6 @@ const styles = StyleSheet.create({
         paddingVertical: 10,
         paddingHorizontal: 18,
         minHeight: 44,
-        minWidth: 90,
         justifyContent: 'center',
         alignItems: 'center',
         borderRadius: 10,

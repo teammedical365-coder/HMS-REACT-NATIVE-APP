@@ -21,6 +21,8 @@ import { useAuth } from '../../store/hooks';
 import DynamicQuestionForm from '../../components/DynamicQuestionForm';
 import AppointmentReports from '../../components/AppointmentReports';
 import DoctorIPDOrdersPanel from '../../components/ipd/DoctorIPDOrdersPanel';
+import DatePickerInput from '../../components/common/DatePickerInput';
+import TimePickerInput from '../../components/common/TimePickerInput';
 
 const doseOptions = [
     'OD – Once Daily',
@@ -2069,22 +2071,20 @@ const DoctorPatientDetails = () => {
                                 <View style={styles.formRow}>
                                     <View style={{ flex: 1 }}>
                                         <Text style={styles.fieldLabel}>Preferred Date *</Text>
-                                        <TextInput 
-                                            style={styles.input} 
-                                            placeholder="YYYY-MM-DD" 
-                                            placeholderTextColor="#94a3b8"
+                                        <DatePickerInput 
                                             value={surgeryPlanData.preferredDate} 
-                                            onChangeText={text => setSurgeryPlanData(prev => ({...prev, preferredDate: text}))} 
+                                            onChange={text => setSurgeryPlanData(prev => ({...prev, preferredDate: text}))} 
+                                            placeholder="Select Date"
+                                            title="Preferred Date"
                                         />
                                     </View>
                                     <View style={{ flex: 1 }}>
                                         <Text style={styles.fieldLabel}>Preferred Time *</Text>
-                                        <TextInput 
-                                            style={styles.input} 
-                                            placeholder="HH:MM (e.g. 09:30)" 
-                                            placeholderTextColor="#94a3b8"
+                                        <TimePickerInput 
                                             value={surgeryPlanData.preferredTime} 
-                                            onChangeText={text => setSurgeryPlanData(prev => ({...prev, preferredTime: text}))} 
+                                            onChange={text => setSurgeryPlanData(prev => ({...prev, preferredTime: text}))} 
+                                            placeholder="HH:mm"
+                                            title="Preferred Time"
                                         />
                                     </View>
                                 </View>
@@ -2117,12 +2117,12 @@ const DoctorPatientDetails = () => {
                                     ) : (
                                         <>
                                             <Text style={styles.fieldLabel}>Admission Date *</Text>
-                                            <TextInput 
-                                                style={styles.input} 
-                                                placeholder="YYYY-MM-DD" 
-                                                placeholderTextColor="#94a3b8"
+                                            <DatePickerInput 
                                                 value={surgeryPlanData.admissionDate} 
-                                                onChangeText={text => setSurgeryPlanData(prev => ({...prev, admissionDate: text}))} 
+                                                onChange={text => setSurgeryPlanData(prev => ({...prev, admissionDate: text}))} 
+                                                placeholder="Select Date"
+                                                title="Admission Date"
+                                                min={new Date().toISOString().split('T')[0]} 
                                             />
                                         </>
                                     )}

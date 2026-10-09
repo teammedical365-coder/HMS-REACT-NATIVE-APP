@@ -3512,12 +3512,14 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                             <View style={styles.fieldBlock}>
                                 <Text style={styles.fieldLabel}>Appointment Date *</Text>
                                 <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-                                    <TextInput 
-                                        style={[styles.formInput, { flex: 1 }]} 
-                                        placeholder="YYYY-MM-DD" 
-                                        value={intakeForm.visitDate} 
-                                        onChangeText={t => handleFormChange('visitDate', t)} 
-                                    />
+                                    <View style={{ flex: 1 }}>
+                                        <DatePickerInput 
+                                            value={intakeForm.visitDate} 
+                                            onChange={t => handleFormChange('visitDate', t)} 
+                                            placeholder="Select Date"
+                                            title="Appointment Date"
+                                        />
+                                    </View>
                                     <TouchableOpacity 
                                         style={[styles.miniPill, intakeForm.visitDate === todayStr && styles.miniPillActive]}
                                         onPress={() => handleFormChange('visitDate', todayStr)}
@@ -4640,18 +4642,24 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
 
                                     <Text style={styles.modalSectionLabel}>Discharge Date & Time:</Text>
                                     <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
-                                        <TextInput 
-                                            style={[styles.modalInput, { flex: 1 }]}
-                                            value={dischargeModal.dischargeDate}
-                                            onChangeText={t => setDischargeModal(p => ({ ...p, dischargeDate: t }))}
-                                            placeholder="YYYY-MM-DD"
-                                        />
-                                        <TextInput 
-                                            style={[styles.modalInput, { width: 100 }]}
-                                            value={dischargeModal.dischargeTime}
-                                            onChangeText={t => setDischargeModal(p => ({ ...p, dischargeTime: t }))}
-                                            placeholder="HH:MM"
-                                        />
+                                        <View style={{ flex: 1 }}>
+                                            <DatePickerInput 
+                                                insideModal={true}
+                                                value={dischargeModal.dischargeDate}
+                                                onChange={t => setDischargeModal(p => ({ ...p, dischargeDate: t }))}
+                                                placeholder="Select Date"
+                                                title="Discharge Date"
+                                            />
+                                        </View>
+                                        <View style={{ width: 130 }}>
+                                            <TimePickerInput 
+                                                insideModal={true}
+                                                value={dischargeModal.dischargeTime}
+                                                onChange={t => setDischargeModal(p => ({ ...p, dischargeTime: t }))}
+                                                placeholder="HH:mm"
+                                                title="Discharge Time"
+                                            />
+                                        </View>
                                     </View>
 
                                     <Text style={styles.modalSectionLabel}>Discharge Summary / Clinical Notes:</Text>

@@ -6,7 +6,8 @@ import { fetchAppointments, createAppointment } from '../../store/slices/appoint
 import { fetchServices, fetchDoctors, fetchBookedSlots } from '../../store/slices/publicDataSlice';
 import { useSelector } from 'react-redux';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Picker } from '@react-native-picker/picker'; // You might need to install @react-native-picker/picker if not already present, fallback to simple modal if needed
+import { Picker } from '@react-native-picker/picker';
+import DatePickerInput from '../../components/common/DatePickerInput';
 
 // Base available time slots
 const timeSlots = [
@@ -399,13 +400,13 @@ const Appointment = () => {
           </View>
           
           <View style={styles.formGroup}>
-            <Text style={styles.label}>Select Date (YYYY-MM-DD)</Text>
-            {/* Note: React Native TextInput for date is tricky, simplified to plain text for this migration, ideally use DateTimePicker */}
-            <TextInput 
-              style={styles.input}
+            <Text style={styles.label}>Select Date</Text>
+            <DatePickerInput 
               value={formData.appointmentDate}
-              onChangeText={(v) => handleInputChange('appointmentDate', v)}
-              placeholder="YYYY-MM-DD"
+              onChange={(v) => handleInputChange('appointmentDate', v)}
+              placeholder="Select Appointment Date"
+              title="Appointment Date"
+              min={new Date().toISOString().split('T')[0]}
             />
           </View>
 

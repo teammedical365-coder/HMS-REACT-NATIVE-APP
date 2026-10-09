@@ -917,7 +917,7 @@ const NursePatientWorkspace = () => {
     const renderOrders = () => (
         <View style={styles.tabContentWrap}>
             <View style={styles.filterBarRow}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipsScroll}>
                     {['ALL', 'MEDICATION', 'LAB', 'NURSING', 'DIET', 'VITALS'].map(f => (
                         <TouchableOpacity
                             key={f}
@@ -1021,7 +1021,7 @@ const NursePatientWorkspace = () => {
     const renderMAR = () => (
         <View style={styles.tabContentWrap}>
             <View style={styles.filterBarRow}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipsScroll}>
                     {['ALL', 'DUE', 'ADMINISTERED', 'HELD', 'REFUSED', 'MISSED'].map(f => (
                         <TouchableOpacity
                             key={f}
@@ -1049,8 +1049,8 @@ const NursePatientWorkspace = () => {
 
                     return (
                         <View key={rec._id || i} style={styles.itemCard}>
-                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                <View style={{ flex: 1, paddingRight: 8 }}>
+                            <View style={styles.itemCardHeaderRow}>
+                                <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
                                     <Text style={styles.itemCardTitle}>{medName}</Text>
                                     <Text style={styles.itemCardSub}>
                                         Dose: {doseDisplay} • Route: {routeDisplay} • Scheduled: {timeDisplay}
@@ -1083,38 +1083,42 @@ const NursePatientWorkspace = () => {
                                 </View>
                             </View>
                             {rec.status !== 'ADMINISTERED' && (
-                                <View style={styles.itemCardActions}>
+                                <View style={styles.marActionsGrid}>
                                     <TouchableOpacity
-                                        style={styles.btnSmSuccess}
+                                        style={[styles.marActionBtn, styles.btnSmSuccess]}
                                         onPress={() => openMARModal(rec, 'GIVE')}
                                         hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+                                        activeOpacity={0.8}
                                     >
-                                        <Feather name="check" size={13} color="#ffffff" style={{ marginRight: 4 }} />
-                                        <Text style={styles.btnSmSuccessText}>Administer</Text>
+                                        <Feather name="check" size={13} color="#ffffff" style={{ marginRight: 5 }} />
+                                        <Text style={styles.marActionBtnText}>Administer</Text>
                                     </TouchableOpacity>
                                     <TouchableOpacity
-                                        style={styles.btnSmWarning}
+                                        style={[styles.marActionBtn, styles.btnSmWarning]}
                                         onPress={() => openMARModal(rec, 'HOLD')}
                                         hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+                                        activeOpacity={0.8}
                                     >
-                                        <Feather name="pause" size={13} color="#ffffff" style={{ marginRight: 4 }} />
-                                        <Text style={styles.btnSmWarningText}>Hold</Text>
+                                        <Feather name="pause" size={13} color="#ffffff" style={{ marginRight: 5 }} />
+                                        <Text style={styles.marActionBtnText}>Hold</Text>
                                     </TouchableOpacity>
                                     <TouchableOpacity
-                                        style={styles.btnSmDanger}
+                                        style={[styles.marActionBtn, styles.btnSmDanger]}
                                         onPress={() => openMARModal(rec, 'REFUSE')}
                                         hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+                                        activeOpacity={0.8}
                                     >
-                                        <Feather name="x" size={13} color="#ffffff" style={{ marginRight: 4 }} />
-                                        <Text style={styles.btnSmDangerText}>Refuse</Text>
+                                        <Feather name="x" size={13} color="#ffffff" style={{ marginRight: 5 }} />
+                                        <Text style={styles.marActionBtnText}>Refuse</Text>
                                     </TouchableOpacity>
                                     <TouchableOpacity
-                                        style={styles.btnSmMissed}
+                                        style={[styles.marActionBtn, styles.btnSmMissed]}
                                         onPress={() => openMARModal(rec, 'MISS')}
                                         hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+                                        activeOpacity={0.8}
                                     >
-                                        <Feather name="alert-triangle" size={13} color="#ffffff" style={{ marginRight: 4 }} />
-                                        <Text style={styles.btnSmMissedText}>Missed</Text>
+                                        <Feather name="alert-triangle" size={13} color="#ffffff" style={{ marginRight: 5 }} />
+                                        <Text style={styles.marActionBtnText}>Missed</Text>
                                     </TouchableOpacity>
                                 </View>
                             )}
@@ -1189,7 +1193,7 @@ const NursePatientWorkspace = () => {
             </View>
 
             <View style={styles.filterBarRow}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipsScroll}>
                     {['ALL', 'PENDING', 'IN_PROGRESS', 'COMPLETED', 'SKIPPED'].map(f => (
                         <TouchableOpacity
                             key={f}
@@ -1621,7 +1625,7 @@ const NursePatientWorkspace = () => {
                 </View>
 
                 <View style={styles.patientBannerRow}>
-                    <View style={{ flex: 1 }}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
                         <Text style={styles.patientNameHeader}>{patientName}</Text>
                         <Text style={styles.patientSubHeader}>
                             MRN: {patientUid} • {patient.age ? `${patient.age}y` : ''} • {patient.gender || ''} • Attending: Dr. {doctorName}
@@ -2197,23 +2201,25 @@ const styles = StyleSheet.create({
 
     // Top Bar Banner
     topbarBanner: {
-        paddingVertical: 20,
-        paddingHorizontal: 24,
+        paddingVertical: 14,
+        paddingHorizontal: 14,
     },
     topbarTop: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 12,
+        flexWrap: 'wrap',
+        gap: 8,
+        marginBottom: 10,
     },
     backBtn: {
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: 'rgba(255, 255, 255, 0.18)',
         borderRadius: 20,
-        minHeight: 44,
-        paddingVertical: 8,
-        paddingHorizontal: 14,
+        minHeight: 40,
+        paddingVertical: 7,
+        paddingHorizontal: 12,
         gap: 6,
         justifyContent: 'center',
     },
@@ -2224,7 +2230,9 @@ const styles = StyleSheet.create({
     },
     topbarBadges: {
         flexDirection: 'row',
-        gap: 8,
+        flexWrap: 'wrap',
+        gap: 6,
+        flexShrink: 1,
     },
     badgePill: {
         backgroundColor: 'rgba(255, 255, 255, 0.18)',
@@ -2241,24 +2249,28 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
+        gap: 10,
     },
     patientNameHeader: {
-        fontSize: 22,
+        fontSize: 18,
         fontWeight: '800',
         color: '#ffffff',
+        flexShrink: 1,
     },
     patientSubHeader: {
-        fontSize: 13,
+        fontSize: 12,
         color: '#e0f2fe',
         marginTop: 3,
+        lineHeight: 16,
     },
     refreshBtn: {
         backgroundColor: 'rgba(255, 255, 255, 0.18)',
-        minWidth: 44,
-        minHeight: 44,
+        minWidth: 40,
+        minHeight: 40,
         borderRadius: 10,
         justifyContent: 'center',
         alignItems: 'center',
+        flexShrink: 0,
     },
 
     // Tab Navigation
@@ -2268,19 +2280,23 @@ const styles = StyleSheet.create({
         borderBottomColor: '#e2e8f0',
     },
     tabsScroll: {
-        paddingHorizontal: 16,
+        paddingHorizontal: 8,
         paddingVertical: 2,
+        gap: 4,
     },
     tabButton: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 12,
-        paddingHorizontal: 14,
-        borderBottomWidth: 2,
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        borderBottomWidth: 2.5,
         borderBottomColor: 'transparent',
+        minHeight: 42,
+        flexShrink: 0,
     },
     tabButtonActive: {
         borderBottomColor: '#0d9488',
+        backgroundColor: 'rgba(13, 148, 136, 0.05)',
     },
     tabButtonText: {
         fontSize: 12.5,
@@ -2292,7 +2308,7 @@ const styles = StyleSheet.create({
         fontWeight: '800',
     },
     mainTabContent: {
-        padding: 20,
+        padding: 12,
         maxWidth: 1440,
         alignSelf: 'center',
         width: '100%',
@@ -2449,14 +2465,27 @@ const styles = StyleSheet.create({
     filterBarRow: {
         marginBottom: 12,
     },
+    filterChipsScroll: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingHorizontal: 2,
+        paddingVertical: 2,
+    },
     filterChip: {
-        paddingVertical: 6,
-        paddingHorizontal: 12,
+        paddingVertical: 7,
+        paddingHorizontal: 13,
         backgroundColor: '#f1f5f9',
         borderRadius: 20,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        minHeight: 34,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     filterChipActive: {
         backgroundColor: '#0d9488',
+        borderColor: '#0d9488',
     },
     filterChipText: {
         fontSize: 11.5,
@@ -2473,26 +2502,60 @@ const styles = StyleSheet.create({
         borderRadius: 12,
         borderWidth: 1,
         borderColor: '#e2e8f0',
-        padding: 14,
+        padding: 12,
         marginBottom: 10,
+        width: '100%',
+    },
+    itemCardHeaderRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
     },
     itemCardTitle: {
         fontSize: 14,
         fontWeight: '700',
         color: '#0f172a',
+        flexShrink: 1,
     },
     itemCardSub: {
         fontSize: 12,
         color: '#64748b',
         marginTop: 2,
+        lineHeight: 17,
     },
     itemCardNotes: {
         fontSize: 11.5,
         color: '#475569',
         marginTop: 4,
+        lineHeight: 16,
+    },
+    marActionsGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+        marginTop: 12,
+        width: '100%',
+    },
+    marActionBtn: {
+        flexBasis: '48%',
+        flexGrow: 1,
+        minWidth: 115,
+        minHeight: 38,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 8,
+        paddingHorizontal: 8,
+        borderRadius: 7,
+    },
+    marActionBtnText: {
+        color: '#ffffff',
+        fontSize: 12,
+        fontWeight: '700',
     },
     itemCardActions: {
         flexDirection: 'row',
+        flexWrap: 'wrap',
         gap: 8,
         marginTop: 10,
         justifyContent: 'flex-end',
@@ -2514,6 +2577,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 8,
         borderRadius: 12,
         alignSelf: 'flex-start',
+        flexShrink: 0,
     },
     statusPillText: {
         fontSize: 10.5,

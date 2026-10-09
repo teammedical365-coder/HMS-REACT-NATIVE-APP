@@ -10,6 +10,7 @@ import { useCachedServices, useCachedDoctors } from '../../store/hooks';
 import { fetchServices, fetchDoctors } from '../../store/slices/publicDataSlice';
 import { Picker } from '@react-native-picker/picker';
 import api from '../../utils/api';
+import DatePickerInput from '../../components/common/DatePickerInput';
 
 const timeSlots = [
     '09:00', '09:30', '10:00', '10:30', '11:00', '11:30',
@@ -358,12 +359,14 @@ const Services = () => {
                             </View>
 
                             <View style={styles.formGroup}>
-                                <Text style={styles.label}>Date (YYYY-MM-DD) *</Text>
-                                <TextInput
-                                    style={styles.input}
+                                <Text style={styles.label}>Date *</Text>
+                                <DatePickerInput
+                                    insideModal={true}
                                     value={formData.appointmentDate}
-                                    onChangeText={handleDateChange}
-                                    placeholder="YYYY-MM-DD"
+                                    onChange={handleDateChange}
+                                    placeholder="Select Appointment Date"
+                                    title="Appointment Date"
+                                    min={new Date().toISOString().split('T')[0]}
                                 />
                             </View>
 

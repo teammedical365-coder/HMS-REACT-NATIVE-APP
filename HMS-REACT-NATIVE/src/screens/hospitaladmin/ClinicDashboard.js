@@ -11,82 +11,24 @@ import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
 import DatePickerInput from '../../components/common/DatePickerInput';
+import DropdownSelect from '../../components/common/DropdownSelect';
 
-const CustomSelectDropdown = ({ value, placeholder = 'Select...', options = [], onSelect, style }) => {
-    const [open, setOpen] = useState(false);
+const CustomSelectDropdown = ({ value, placeholder = 'Select...', options = [], onSelect, style, insideModal = false }) => {
+    const formattedOptions = (options || []).map(opt => {
+        if (typeof opt === 'string') return { label: opt, value: opt };
+        if (opt && typeof opt === 'object') return { label: opt.label || opt.name || String(opt.value), value: opt.value !== undefined ? opt.value : opt.name };
+        return { label: String(opt), value: String(opt) };
+    });
+
     return (
-        <View style={[{ position: 'relative', zIndex: open ? 9999 : 1 }, style]}>
-            <TouchableOpacity
-                onPress={() => setOpen(!open)}
-                style={{
-                    backgroundColor: '#fff',
-                    borderWidth: 1,
-                    borderColor: '#cbd5e1',
-                    borderRadius: 8,
-                    paddingHorizontal: 12,
-                    paddingVertical: 10,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    minHeight: 44,
-                }}
-            >
-                <Text style={{ fontSize: 14, color: value ? '#1e293b' : '#94a3b8' }}>
-                    {value || placeholder}
-                </Text>
-                <Text style={{ fontSize: 11, color: '#64748b' }}>▼</Text>
-            </TouchableOpacity>
-            {open && (
-                <View
-                    style={{
-                        position: 'absolute',
-                        top: '100%',
-                        left: 0,
-                        right: 0,
-                        backgroundColor: '#fff',
-                        borderWidth: 1,
-                        borderColor: '#cbd5e1',
-                        borderRadius: 8,
-                        marginTop: 4,
-                        maxHeight: 220,
-                        zIndex: 10000,
-                        elevation: 10,
-                        shadowColor: '#000',
-                        shadowOffset: { width: 0, height: 4 },
-                        shadowOpacity: 0.15,
-                        shadowRadius: 8,
-                        overflow: 'hidden',
-                    }}
-                >
-                    <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" style={{ maxHeight: 200 }}>
-                        {options.map((opt, i) => {
-                            const optLabel = typeof opt === 'object' ? opt.label : opt;
-                            const optVal = typeof opt === 'object' ? opt.value : opt;
-                            const isSelected = value === optVal;
-                            return (
-                                <TouchableOpacity
-                                    key={i}
-                                    onPress={() => {
-                                        onSelect(optVal);
-                                        setOpen(false);
-                                    }}
-                                    style={{
-                                        paddingHorizontal: 14,
-                                        paddingVertical: 10,
-                                        borderBottomWidth: i < options.length - 1 ? 1 : 0,
-                                        borderBottomColor: '#f1f5f9',
-                                        backgroundColor: isSelected ? '#eff6ff' : '#fff',
-                                    }}
-                                >
-                                    <Text style={{ fontSize: 13, color: isSelected ? '#2563eb' : '#334155', fontWeight: isSelected ? '700' : '400' }}>
-                                        {optLabel}
-                                    </Text>
-                                </TouchableOpacity>
-                            );
-                        })}
-                    </ScrollView>
-                </View>
-            )}
+        <View style={[{ width: '100%' }, style]}>
+            <DropdownSelect
+                options={formattedOptions}
+                value={value}
+                onChange={onSelect}
+                placeholder={placeholder}
+                insideModal={insideModal}
+            />
         </View>
     );
 };
@@ -1147,23 +1089,22 @@ const OverviewMode = () => {
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}><View style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: '#10b981' }} /><Text style={{ fontSize: 11, color: '#64748b', fontWeight: '600' }}>Treatment Revenue</Text></View>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}><View style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: '#6366f1' }} /><Text style={{ fontSize: 11, color: '#64748b', fontWeight: '600' }}>Total Revenue</Text></View>
                         </View>
-                        <TouchableOpacity style={styles.dropdownBtn} onPress={() => setShowMonthDropdown(!showMonthDropdown)}>
-                            <Text style={{ fontSize: 12 }}>{MONTHS[parseInt(overviewMonthStr.split('-')[1]) - 1]} {overviewMonthStr.split('-')[0]} ▼</Text>
-                        </TouchableOpacity>
+                        <View style={{ minWidth: 150 }}>
+                            <DropdownSelect
+                                options={['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, i) => {
+                                    const y = overviewMonthStr.split('-')[0] || new Date().getFullYear();
+                                    return {
+                                        label: `${m} ${y}`,
+                                        value: `${y}-${String(i + 1).padStart(2, '0')}`
+                                    };
+                                })}
+                                value={overviewMonthStr}
+                                onChange={(val) => setOverviewMonthStr(val)}
+                                placeholder="Select Month"
+                            />
+                        </View>
                     </View>
                 </View>
-                {showMonthDropdown && (
-                    <View style={styles.dropdownMenu}>
-                        {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, i) => {
-                            const val = `${new Date().getFullYear()}-${String(i + 1).padStart(2, '0')}`;
-                            return (
-                                <TouchableOpacity key={val} style={styles.dropdownItem} onPress={() => { setOverviewMonthStr(val); setShowMonthDropdown(false); }}>
-                                    <Text>{m}</Text>
-                                </TouchableOpacity>
-                            );
-                        })}
-                    </View>
-                )}
 
                 <View style={{ flexDirection: 'row', height: 180, alignItems: 'flex-end', justifyContent: 'space-around', paddingTop: 20 }}>
                     {chartData.map((m, i) => {
@@ -2078,22 +2019,23 @@ const PatientsMode = ({ onBookToken, setPendingDownload }) => {
                                         <View style={{ flexDirection: isNarrow ? 'column' : 'row', gap: 10 }}>
                                             <View style={{ flex: 1 }}>
                                                 <Text style={styles.label}>Gender</Text>
-                                                <View style={styles.pickerWrapper}>
-                                                    <Picker selectedValue={editForm.gender} onValueChange={v => setEditForm({ ...editForm, gender: v })}>
-                                                        <Picker.Item label="Male" value="Male" />
-                                                        <Picker.Item label="Female" value="Female" />
-                                                        <Picker.Item label="Other" value="Other" />
-                                                    </Picker>
-                                                </View>
+                                                <CustomSelectDropdown
+                                                    insideModal={true}
+                                                    value={editForm.gender}
+                                                    placeholder="Select Gender"
+                                                    options={['Male', 'Female', 'Other']}
+                                                    onSelect={v => setEditForm({ ...editForm, gender: v })}
+                                                />
                                             </View>
                                             <View style={{ flex: 1 }}>
                                                 <Text style={styles.label}>Blood Group</Text>
-                                                <View style={styles.pickerWrapper}>
-                                                    <Picker selectedValue={editForm.bloodGroup} onValueChange={v => setEditForm({ ...editForm, bloodGroup: v })}>
-                                                        <Picker.Item label="Unknown" value="" />
-                                                        {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map(b => <Picker.Item key={b} label={b} value={b} />)}
-                                                    </Picker>
-                                                </View>
+                                                <CustomSelectDropdown
+                                                    insideModal={true}
+                                                    value={editForm.bloodGroup}
+                                                    placeholder="Select Blood Group"
+                                                    options={['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']}
+                                                    onSelect={v => setEditForm({ ...editForm, bloodGroup: v })}
+                                                />
                                             </View>
                                         </View>
                                         <View>
