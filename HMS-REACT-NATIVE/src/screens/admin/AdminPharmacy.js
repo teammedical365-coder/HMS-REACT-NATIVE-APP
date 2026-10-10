@@ -1,19 +1,31 @@
 import React, { useState, useEffect } from 'react';
 import { 
     View, Text, TouchableOpacity, ScrollView, TextInput, 
-    StyleSheet, Alert, Dimensions, ActivityIndicator 
+    StyleSheet, Alert, Dimensions, ActivityIndicator, RefreshControl 
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { adminEntitiesAPI } from '../../utils/api';
 import PasswordInput from '../../components/PasswordInput';
 import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { fetchSuperAdminPharmacies } from '../../services/offline/offlineSuperAdminService';
+import { subscribeNetworkStatus } from '../../services/offline/networkStatus';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
 
 const AdminPharmacy = () => {
     const navigation = useNavigation();
     const [pharmacies, setPharmacies] = useState([]);
     const [loading, setLoading] = useState(false);
     const [loadingData, setLoadingData] = useState(false);
+    const [offlineState, setOfflineState] = useState({
+        isOffline: false,
+        fromCache: false,
+        lastFetchedAt: null,
+        isSynthetic: false,
+        noCache: false,
+    });
+    const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [editingPharmacy, setEditingPharmacy] = useState(null);
@@ -63,16 +75,56 @@ const AdminPharmacy = () => {
     const fetchPharmacies = async () => {
         try {
             setLoadingData(true);
-            const response = await adminEntitiesAPI.getPharmacies();
-            if (response.success) {
-                setPharmacies(response.pharmacies);
+            const res = await fetchSuperAdminPharmacies({
+                onCacheHit: (cached) => {
+                    if (Array.isArray(cached?.data)) {
+                        setPharmacies(cached.data);
+                        setOfflineState(prev => ({
+                            ...prev,
+                            fromCache: true,
+                            lastFetchedAt: cached.lastFetchedAt,
+                            isSynthetic: cached.isSynthetic,
+                            noCache: false,
+                        }));
+                    }
+                }
+            });
+            if (res.success && Array.isArray(res.data)) {
+                setPharmacies(res.data);
+                setOfflineState({
+                    isOffline: Boolean(res.isOffline),
+                    fromCache: Boolean(res.fromCache),
+                    lastFetchedAt: res.lastFetchedAt,
+                    isSynthetic: Boolean(res.isSynthetic),
+                    noCache: false,
+                });
+            } else if (res.noCache) {
+                setOfflineState({
+                    isOffline: true,
+                    fromCache: false,
+                    lastFetchedAt: null,
+                    isSynthetic: false,
+                    noCache: true,
+                });
             }
         } catch (err) {
             setError(err.response?.data?.message || 'Error fetching pharmacies');
         } finally {
             setLoadingData(false);
+            setRefreshing(false);
         }
     };
+
+    useEffect(() => {
+        const unsubscribe = subscribeNetworkStatus((netState) => {
+            if (netState.isOnline) {
+                fetchPharmacies();
+            } else {
+                setOfflineState(prev => ({ ...prev, isOffline: true }));
+            }
+        });
+        return unsubscribe;
+    }, []);
 
     const handleChange = (name, value) => {
         setFormData({ ...formData, [name]: value });
@@ -182,7 +234,31 @@ const AdminPharmacy = () => {
     };
 
     return (
-        <ScrollView style={styles.container}>
+        <ScrollView 
+            style={styles.container}
+            refreshControl={
+                <RefreshControl
+                    refreshing={refreshing}
+                    onRefresh={() => {
+                        setRefreshing(true);
+                        fetchPharmacies();
+                    }}
+                    colors={['#3b82f6']}
+                    tintColor="#3b82f6"
+                />
+            }
+        >
+            <OfflineBanner
+                isOffline={offlineState.isOffline}
+                fromCache={offlineState.fromCache}
+                lastFetchedAt={offlineState.lastFetchedAt}
+                isSynthetic={offlineState.isSynthetic}
+                onRetry={() => {
+                    setRefreshing(true);
+                    fetchPharmacies();
+                }}
+                retrying={refreshing || loadingData}
+            />
             <View style={styles.content}>
                 <View style={styles.header}>
                     <View style={{ flex: 1 }}>
@@ -328,7 +404,19 @@ const AdminPharmacy = () => {
                             <Text style={{ color: '#64748b', marginTop: 10 }}>Loading pharmacies...</Text>
                         </View>
                     ) : pharmacies.length === 0 ? (
-                        <Text style={{ padding: 20, textAlign: 'center', color: '#64748b' }}>No pharmacies found. Create one to get started.</Text>
+                        offlineState.noCache ? (
+                            <OfflineEmptyState 
+                                title="No Cached Pharmacies"
+                                message="No offline pharmacy records are cached on this device. Connect to the internet and tap Retry to synchronize."
+                                onRetry={() => {
+                                    setRefreshing(true);
+                                    fetchPharmacies();
+                                }}
+                                retrying={refreshing || loadingData}
+                            />
+                        ) : (
+                            <Text style={{ padding: 20, textAlign: 'center', color: '#64748b' }}>No pharmacies found. Create one to get started.</Text>
+                        )
                     ) : (
                         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                             <View style={{ minWidth: 800 }}>

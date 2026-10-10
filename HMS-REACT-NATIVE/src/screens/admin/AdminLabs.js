@@ -4,12 +4,24 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import { adminEntitiesAPI } from '../../utils/api';
 import TimePickerInput from '../../components/common/TimePickerInput';
+import { fetchSuperAdminLabs } from '../../services/offline/offlineSuperAdminService';
+import { subscribeNetworkStatus } from '../../services/offline/networkStatus';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
 
 const AdminLabs = () => {
     const navigation = useNavigation();
     const [labs, setLabs] = useState([]);
     const [loading, setLoading] = useState(false);
     const [loadingData, setLoadingData] = useState(false);
+    const [offlineState, setOfflineState] = useState({
+        isOffline: false,
+        fromCache: false,
+        lastFetchedAt: null,
+        isSynthetic: false,
+        noCache: false,
+    });
+    const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [showForm, setShowForm] = useState(false);
@@ -24,6 +36,48 @@ const AdminLabs = () => {
 
     const [formData, setFormData] = useState({ name: '', email: '', phone: '', address: '', password: '', services: '', description: '', facilities: '', availability: initialAvailability });
     const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+    const fetchLabs = async () => {
+        try {
+            setLoadingData(true);
+            const res = await fetchSuperAdminLabs({
+                onCacheHit: (cached) => {
+                    if (Array.isArray(cached?.data)) {
+                        setLabs(cached.data);
+                        setOfflineState(prev => ({
+                            ...prev,
+                            fromCache: true,
+                            lastFetchedAt: cached.lastFetchedAt,
+                            isSynthetic: cached.isSynthetic,
+                            noCache: false,
+                        }));
+                    }
+                }
+            });
+            if (res.success && Array.isArray(res.data)) {
+                setLabs(res.data);
+                setOfflineState({
+                    isOffline: Boolean(res.isOffline),
+                    fromCache: Boolean(res.fromCache),
+                    lastFetchedAt: res.lastFetchedAt,
+                    isSynthetic: Boolean(res.isSynthetic),
+                    noCache: false,
+                });
+            } else if (res.noCache) {
+                setOfflineState({
+                    isOffline: true,
+                    fromCache: false,
+                    lastFetchedAt: null,
+                    isSynthetic: false,
+                    noCache: true,
+                });
+            }
+        } catch (err) { setError('Error fetching labs'); }
+        finally { 
+            setLoadingData(false);
+            setRefreshing(false);
+        }
+    };
 
     useEffect(() => {
         const checkAuth = async () => {
@@ -40,14 +94,16 @@ const AdminLabs = () => {
         fetchLabs();
     }, []);
 
-    const fetchLabs = async () => {
-        try {
-            setLoadingData(true);
-            const res = await adminEntitiesAPI.getLabs();
-            if (res.success) setLabs(res.labs);
-        } catch (err) { setError('Error fetching labs'); }
-        finally { setLoadingData(false); }
-    };
+    useEffect(() => {
+        const unsubscribe = subscribeNetworkStatus((netState) => {
+            if (netState.isOnline) {
+                fetchLabs();
+            } else {
+                setOfflineState(prev => ({ ...prev, isOffline: true }));
+            }
+        });
+        return unsubscribe;
+    }, []);
 
     const handleChange = (name, value) => { setFormData(prev => ({ ...prev, [name]: value })); setError(''); setSuccess(''); };
 
@@ -163,6 +219,18 @@ const AdminLabs = () => {
                 </TouchableOpacity>
             </View>
 
+            <OfflineBanner
+                isOffline={offlineState.isOffline}
+                fromCache={offlineState.fromCache}
+                lastFetchedAt={offlineState.lastFetchedAt}
+                isSynthetic={offlineState.isSynthetic}
+                onRetry={() => {
+                    setRefreshing(true);
+                    fetchLabs();
+                }}
+                retrying={refreshing || loadingData}
+            />
+
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
             {success ? <Text style={styles.successText}>{success}</Text> : null}
 
@@ -217,12 +285,32 @@ const AdminLabs = () => {
 
             <View style={styles.card}>
                 <Text style={styles.cardTitle}>All Labs</Text>
-                {loadingData ? <ActivityIndicator size="large" /> : (
+                {loadingData && !labs.length ? <ActivityIndicator size="large" /> : (
                     <FlatList
                         data={labs}
                         keyExtractor={item => item._id}
                         renderItem={renderLabItem}
+                        refreshing={refreshing}
+                        onRefresh={() => {
+                            setRefreshing(true);
+                            fetchLabs();
+                        }}
                         contentContainerStyle={{ paddingBottom: 40 }}
+                        ListEmptyComponent={
+                            offlineState.noCache ? (
+                                <OfflineEmptyState 
+                                    title="No Cached Labs"
+                                    message="No offline lab records are cached on this device. Connect to the internet and tap Retry to synchronize."
+                                    onRetry={() => {
+                                        setRefreshing(true);
+                                        fetchLabs();
+                                    }}
+                                    retrying={refreshing || loadingData}
+                                />
+                            ) : (
+                                <Text style={{ textAlign: 'center', color: '#64748b', padding: 24 }}>No labs registered yet.</Text>
+                            )
+                        }
                     />
                 )}
             </View>

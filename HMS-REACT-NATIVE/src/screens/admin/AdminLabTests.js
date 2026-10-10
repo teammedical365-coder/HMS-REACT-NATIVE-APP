@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { 
     View, Text, TouchableOpacity, ScrollView, TextInput, 
-    StyleSheet, Alert, ActivityIndicator, Modal, Dimensions
+    StyleSheet, Alert, ActivityIndicator, Modal, Dimensions, RefreshControl
 } from 'react-native';
 import { labTestAPI, hospitalAPI } from '../../utils/api';
 import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { fetchSuperAdminLabTests, fetchSuperAdminHospitals } from '../../services/offline/offlineSuperAdminService';
+import { subscribeNetworkStatus } from '../../services/offline/networkStatus';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
 
 import DropdownSelect from '../../components/common/DropdownSelect';
 
@@ -16,6 +20,14 @@ const CustomSelect = (props) => <DropdownSelect {...props} />;
 const AdminLabTests = () => {
     const [tests, setTests] = useState([]);
     const [loading, setLoading] = useState(false);
+    const [offlineState, setOfflineState] = useState({
+        isOffline: false,
+        fromCache: false,
+        lastFetchedAt: null,
+        isSynthetic: false,
+        noCache: false,
+    });
+    const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [showForm, setShowForm] = useState(false);
@@ -57,24 +69,71 @@ const AdminLabTests = () => {
     const fetchTests = async () => {
         try {
             setLoading(true);
-            const res = await labTestAPI.getLabTests();
-            if (res.success) {
+            const res = await fetchSuperAdminLabTests({
+                onCacheHit: (cached) => {
+                    if (Array.isArray(cached?.data)) {
+                        setTests(cached.data);
+                        setOfflineState(prev => ({
+                            ...prev,
+                            fromCache: true,
+                            lastFetchedAt: cached.lastFetchedAt,
+                            isSynthetic: cached.isSynthetic,
+                            noCache: false,
+                        }));
+                    }
+                }
+            });
+            if (res.success && Array.isArray(res.data)) {
                 setTests(res.data);
+                setOfflineState({
+                    isOffline: Boolean(res.isOffline),
+                    fromCache: Boolean(res.fromCache),
+                    lastFetchedAt: res.lastFetchedAt,
+                    isSynthetic: Boolean(res.isSynthetic),
+                    noCache: false,
+                });
+            } else if (res.noCache) {
+                setOfflineState({
+                    isOffline: true,
+                    fromCache: false,
+                    lastFetchedAt: null,
+                    isSynthetic: false,
+                    noCache: true,
+                });
             }
         } catch (err) {
             console.error('Error fetching lab tests:', err);
             setError('Failed to fetch lab tests.');
         } finally {
             setLoading(false);
+            setRefreshing(false);
         }
     };
 
     const fetchHospitals = async () => {
         try {
-            const res = await hospitalAPI.getHospitals();
-            if (res.success) setHospitals(res.hospitals);
+            const res = await fetchSuperAdminHospitals({
+                onCacheHit: (cached) => {
+                    if (Array.isArray(cached?.data)) setHospitals(cached.data);
+                }
+            });
+            if (res.success && Array.isArray(res.data)) {
+                setHospitals(res.data);
+            }
         } catch (err) { console.error('Error fetching hospitals:', err); }
     };
+
+    useEffect(() => {
+        const unsubscribe = subscribeNetworkStatus((netState) => {
+            if (netState.isOnline) {
+                fetchTests();
+                if (isCentralAdmin) fetchHospitals();
+            } else {
+                setOfflineState(prev => ({ ...prev, isOffline: true }));
+            }
+        });
+        return unsubscribe;
+    }, [isCentralAdmin]);
 
     const handleChange = (name, value) => {
         setFormData(prev => ({
@@ -189,7 +248,33 @@ const AdminLabTests = () => {
     };
 
     return (
-        <ScrollView style={styles.container}>
+        <ScrollView 
+            style={styles.container}
+            refreshControl={
+                <RefreshControl
+                    refreshing={refreshing}
+                    onRefresh={() => {
+                        setRefreshing(true);
+                        fetchTests();
+                        if (isCentralAdmin) fetchHospitals();
+                    }}
+                    colors={['#3b82f6']}
+                    tintColor="#3b82f6"
+                />
+            }
+        >
+            <OfflineBanner
+                isOffline={offlineState.isOffline}
+                fromCache={offlineState.fromCache}
+                lastFetchedAt={offlineState.lastFetchedAt}
+                isSynthetic={offlineState.isSynthetic}
+                onRetry={() => {
+                    setRefreshing(true);
+                    fetchTests();
+                    if (isCentralAdmin) fetchHospitals();
+                }}
+                retrying={refreshing || loading}
+            />
             <View style={styles.content}>
                 <View style={styles.header}>
                     <View style={{ flex: 1 }}>
@@ -331,9 +416,22 @@ const AdminLabTests = () => {
                                 </View>
                                 
                                 {tests.length === 0 ? (
-                                    <View style={{ padding: 20, alignItems: 'center' }}>
-                                        <Text style={{ color: '#64748b' }}>No lab tests defined yet.</Text>
-                                    </View>
+                                    offlineState.noCache ? (
+                                        <OfflineEmptyState 
+                                            title="No Cached Lab Tests"
+                                            message="No offline lab test records are cached on this device. Connect to the internet and tap Retry to synchronize."
+                                            onRetry={() => {
+                                                setRefreshing(true);
+                                                fetchTests();
+                                                if (isCentralAdmin) fetchHospitals();
+                                            }}
+                                            retrying={refreshing || loading}
+                                        />
+                                    ) : (
+                                        <View style={{ padding: 20, alignItems: 'center' }}>
+                                            <Text style={{ color: '#64748b' }}>No lab tests defined yet.</Text>
+                                        </View>
+                                    )
                                 ) : (
                                     tests.map(test => {
                                         const hospitalPrice = selectedHospitalFilter ? getHospitalPrice(test, selectedHospitalFilter) : undefined;

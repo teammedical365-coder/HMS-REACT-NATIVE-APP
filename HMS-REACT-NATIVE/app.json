@@ -13,7 +13,14 @@
           }
         }
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "expo-sqlite",
+        {
+          "useSQLCipher": true
+        }
+      ],
+      "expo-secure-store"
     ],
     "android": {
       "package": "com.medical365.app",

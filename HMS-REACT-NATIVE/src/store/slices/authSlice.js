@@ -4,6 +4,8 @@ import { Platform } from 'react-native';
 import { REHYDRATE } from 'redux-persist';
 import { authAPI, adminAPI, hospitalAdminAPI, setAuthHeader } from '../../utils/api';
 import { STORAGE_KEYS } from '../../utils/Constants';
+import { clearBrowserSessionMemoryCache } from '../../services/offline/offlineSuperAdminService';
+import { clearMemoryCache } from '../../services/offline/cacheRepository';
 
 // ── OTP-Based Login Thunks ────────────────────────────────────────────────────
 
@@ -280,6 +282,10 @@ const authSlice = createSlice({
         } catch (e) {}
       }
       AsyncStorage.multiRemove([STORAGE_KEYS.TOKEN, STORAGE_KEYS.USER, 'token', 'user', 'superadmin_token', 'role']);
+      try {
+        clearBrowserSessionMemoryCache();
+        clearMemoryCache();
+      } catch (e) {}
     },
     clearError: (state) => {
       state.error = null;

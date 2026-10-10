@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
     View, Text, TextInput, TouchableOpacity, ScrollView, Image, 
-    StyleSheet, ActivityIndicator, Alert, Modal, Platform, useWindowDimensions 
+    StyleSheet, ActivityIndicator, Alert, Modal, Platform, useWindowDimensions, RefreshControl 
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -9,6 +9,15 @@ import { Feather } from '@expo/vector-icons';
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import { adminAPI, uploadAPI, hospitalAPI, publicAPI } from '../../utils/api';
 import { getSubscriptionLimits } from '../../utils/subscriptionPlans';
+import { 
+    fetchSuperAdminUsers, 
+    fetchSuperAdminRoles, 
+    fetchSuperAdminHospitals, 
+    fetchSuperAdminDoctors 
+} from '../../services/offline/offlineSuperAdminService';
+import { subscribeNetworkStatus } from '../../services/offline/networkStatus';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
 
 import DropdownSelect from '../../components/common/DropdownSelect';
 
@@ -60,6 +69,14 @@ const Admin = () => {
 
     // Available doctors for doctor assistant queue assignment (Exact Web parity)
     const [availableDoctors, setAvailableDoctors] = useState([]);
+    const [offlineState, setOfflineState] = useState({
+        isOffline: false,
+        fromCache: false,
+        lastFetchedAt: null,
+        isSynthetic: false,
+        noCache: false,
+    });
+    const [refreshing, setRefreshing] = useState(false);
 
     // UPI state (Exact Web parity)
     const [upiList, setUpiList] = useState([]);
@@ -69,8 +86,17 @@ const Admin = () => {
 
     const fetchDocs = async () => {
         try {
-            const res = await publicAPI.getDoctors();
-            if (res.success) setAvailableDoctors(res.doctors || res.data || []);
+            const res = await fetchSuperAdminDoctors({
+                source: 'public',
+                onCacheHit: (cached) => {
+                    if (Array.isArray(cached?.data)) {
+                        setAvailableDoctors(cached.data);
+                    }
+                }
+            });
+            if (res.success && Array.isArray(res.data)) {
+                setAvailableDoctors(res.data);
+            }
         } catch (err) { }
     };
 
@@ -198,8 +224,17 @@ const Admin = () => {
 
     const fetchHospitals = async (plan = staffPlanFilter) => {
         try {
-            const res = await hospitalAPI.getHospitals(plan === '' ? 'all' : plan);
-            if (res.success) setHospitals(res.hospitals || []);
+            const res = await fetchSuperAdminHospitals({
+                plan: plan === '' ? 'all' : plan,
+                onCacheHit: (cached) => {
+                    if (cached?.data?.hospitals) {
+                        setHospitals(cached.data.hospitals);
+                    }
+                }
+            });
+            if (res.success && res.data?.hospitals) {
+                setHospitals(res.data.hospitals);
+            }
         } catch (err) { console.error('Error fetching hospitals:', err); }
     };
 
@@ -225,10 +260,18 @@ const Admin = () => {
 
     const fetchRoles = async () => {
         try {
-            const response = await adminAPI.getRoles();
-            const actualData = response?.data?.data || response?.data?.roles || response?.roles || response?.data || response || [];
-            const safeRoles = Array.isArray(actualData) && actualData.length > 0 ? actualData : defaultRoles;
-            setRoles(safeRoles);
+            const response = await fetchSuperAdminRoles({
+                onCacheHit: (cached) => {
+                    if (Array.isArray(cached?.data) && cached.data.length > 0) {
+                        setRoles(cached.data);
+                    }
+                }
+            });
+            if (response.success && Array.isArray(response.data) && response.data.length > 0) {
+                setRoles(response.data);
+            } else {
+                setRoles(defaultRoles);
+            }
         } catch (err) {
             console.error('Error fetching roles:', err);
             setRoles(defaultRoles);
@@ -247,19 +290,59 @@ const Admin = () => {
             const uStr = await AsyncStorage.getItem('user');
             const userObj = JSON.parse(uStr || '{}');
             const isCentral = ['superadmin', 'centraladmin'].includes(userObj.role);
-            const response = await adminAPI.getUsers(plan, hospitalId, targetPage, limit, search, !isCentral);
-            
-            if (response && response.success) {
-                const rawUsers = response.users || response.data || [];
-                const staffUsers = rawUsers.filter(u => {
+
+            const filterStaff = (rawUsers) => {
+                return (rawUsers || []).filter(u => {
                     const r = (typeof u.role === 'string' ? u.role : (u.role?.name || u.roleName || '')).toLowerCase();
                     if (['patient', 'user'].includes(r)) return false;
                     if (!isCentral && r.includes('doctor')) return false;
                     return true;
                 });
-                setUsers(staffUsers);
-            } else if (response && Array.isArray(response)) {
-                setUsers(response);
+            };
+
+            const result = await fetchSuperAdminUsers({
+                plan,
+                hospitalId,
+                page: targetPage,
+                limit,
+                search,
+                excludeDoctors: !isCentral,
+                onCacheHit: (cached) => {
+                    const cachedUsers = cached?.data?.users || cached?.data || [];
+                    if (Array.isArray(cachedUsers) && cachedUsers.length > 0) {
+                        setUsers(filterStaff(cachedUsers));
+                        setOfflineState(prev => ({
+                            ...prev,
+                            fromCache: true,
+                            lastFetchedAt: cached.lastFetchedAt,
+                            isSynthetic: cached.isSynthetic,
+                            noCache: false,
+                        }));
+                        setLoadingUsers(false);
+                    }
+                }
+            });
+
+            if (result.success && result.data) {
+                const freshUsers = result.data?.users || result.data || [];
+                setUsers(filterStaff(freshUsers));
+                setOfflineState({
+                    isOffline: Boolean(result.isOffline),
+                    fromCache: Boolean(result.fromCache),
+                    lastFetchedAt: result.lastFetchedAt,
+                    isSynthetic: Boolean(result.isSynthetic),
+                    noCache: false,
+                });
+                setError('');
+            } else if (result.noCache) {
+                setOfflineState({
+                    isOffline: true,
+                    fromCache: false,
+                    lastFetchedAt: null,
+                    isSynthetic: false,
+                    noCache: true,
+                });
+                setUsers(prev => (prev.length > 0 ? prev : []));
             }
         } catch (err) {
             console.error('Error fetching users:', err);
@@ -267,8 +350,24 @@ const Admin = () => {
             setError(err?.response?.data?.message || 'Failed to fetch staff members');
         } finally {
             setLoadingUsers(false);
+            setRefreshing(false);
         }
     };
+
+    // Reconnect listener: automatically refresh when reconnecting
+    useEffect(() => {
+        const unsubscribe = subscribeNetworkStatus((netState) => {
+            if (netState.isOnline) {
+                fetchUsers();
+                fetchRoles();
+                fetchHospitals();
+                fetchDocs();
+            } else {
+                setOfflineState(prev => ({ ...prev, isOffline: true }));
+            }
+        });
+        return unsubscribe;
+    }, []);
 
     const openEditModal = (userItem) => {
         setEditForm({
@@ -601,7 +700,38 @@ const Admin = () => {
     };
 
     return (
-        <ScrollView style={styles.superadminPage} contentContainerStyle={{ paddingBottom: 40 }}>
+        <ScrollView 
+            style={styles.superadminPage} 
+            contentContainerStyle={{ paddingBottom: 40 }}
+            refreshControl={
+                <RefreshControl
+                    refreshing={refreshing}
+                    onRefresh={() => {
+                        setRefreshing(true);
+                        fetchUsers();
+                        fetchRoles();
+                        fetchHospitals();
+                        fetchDocs();
+                    }}
+                    colors={['#0d9488']}
+                    tintColor="#0d9488"
+                />
+            }
+        >
+            <OfflineBanner
+                isOffline={offlineState.isOffline}
+                fromCache={offlineState.fromCache}
+                lastFetchedAt={offlineState.lastFetchedAt}
+                isSynthetic={offlineState.isSynthetic}
+                onRetry={() => {
+                    setRefreshing(true);
+                    fetchUsers();
+                    fetchRoles();
+                    fetchHospitals();
+                    fetchDocs();
+                }}
+                retrying={refreshing || loadingUsers}
+            />
             <View style={styles.superadminContainer}>
                 {error ? <View style={styles.errorMessage}><Text style={styles.errorMessageText}>{error}</Text></View> : null}
                 {success ? <View style={styles.successMessage}><Text style={styles.successMessageText}>{success}</Text></View> : null}
@@ -822,16 +952,31 @@ const Admin = () => {
                     {loadingUsers ? (
                         <View style={{ padding: 30, alignItems: 'center' }}><ActivityIndicator size="large" color="#0d9488" /></View>
                     ) : filteredUsers.length === 0 ? (
-                        <View style={styles.staffEmptyState}>
-                            <Text style={{ fontSize: 32, marginBottom: 8 }}>👥</Text>
-                            <Text style={{ fontSize: 16, fontWeight: '700', color: '#1e293b' }}>No staff found</Text>
-                            <Text style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>No staff members match your current search or filters.</Text>
-                            {staffSearchQuery ? (
-                                <TouchableOpacity onPress={() => setStaffSearchQuery('')} style={{ marginTop: 12, backgroundColor: '#f1f5f9', paddingVertical: 6, paddingHorizontal: 14, borderRadius: 8 }}>
-                                    <Text style={{ color: '#475569', fontSize: 12, fontWeight: '600' }}>Clear Search</Text>
-                                </TouchableOpacity>
-                            ) : null}
-                        </View>
+                        offlineState.noCache ? (
+                            <OfflineEmptyState 
+                                title="No Cached Staff"
+                                message="No offline staff records are stored on this device. Connect to the internet and tap Retry to synchronize."
+                                onRetry={() => {
+                                    setRefreshing(true);
+                                    fetchUsers();
+                                    fetchRoles();
+                                    fetchHospitals();
+                                    fetchDocs();
+                                }}
+                                retrying={refreshing || loadingUsers}
+                            />
+                        ) : (
+                            <View style={styles.staffEmptyState}>
+                                <Text style={{ fontSize: 32, marginBottom: 8 }}>👥</Text>
+                                <Text style={{ fontSize: 16, fontWeight: '700', color: '#1e293b' }}>No staff found</Text>
+                                <Text style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>No staff members match your current search or filters.</Text>
+                                {staffSearchQuery ? (
+                                    <TouchableOpacity onPress={() => setStaffSearchQuery('')} style={{ marginTop: 12, backgroundColor: '#f1f5f9', paddingVertical: 6, paddingHorizontal: 14, borderRadius: 8 }}>
+                                        <Text style={{ color: '#475569', fontSize: 12, fontWeight: '600' }}>Clear Search</Text>
+                                    </TouchableOpacity>
+                                ) : null}
+                            </View>
+                        )
                     ) : (
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.usersTableWrapper}>
                             <View style={{ minWidth: 1090 }}>

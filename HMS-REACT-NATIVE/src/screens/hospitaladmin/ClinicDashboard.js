@@ -807,7 +807,6 @@ const OverviewMode = () => {
     const [showAllKpis, setShowAllKpis] = useState(false);
     const [gridContainerWidth, setGridContainerWidth] = useState(0);
     const [showMonthDropdown, setShowMonthDropdown] = useState(false);
-    const [showApptModeDropdown, setShowApptModeDropdown] = useState(false);
 
     const [fetchError, setFetchError] = useState(null);
 

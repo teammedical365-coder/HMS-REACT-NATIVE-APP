@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
     View, Text, TouchableOpacity, ScrollView, TextInput,
     StyleSheet, Alert, Dimensions, Modal, ActivityIndicator, Image,
-    Animated, Platform, useWindowDimensions
+    Animated, Platform, useWindowDimensions, RefreshControl
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useAppDispatch, useAuth, useAdminEntities } from '../../store/hooks';
@@ -12,6 +12,9 @@ import { getSubscriptionLimits } from '../../utils/subscriptionPlans';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import Svg, { Defs, RadialGradient, LinearGradient as SvgLinearGradient, Stop, Circle, Path, Rect, Line, G, Text as SvgText, Ellipse } from 'react-native-svg';
+import { subscribeNetworkStatus } from '../../services/offline/networkStatus';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
 
 const AdminDoctors = () => {
     const navigation = useNavigation();
@@ -26,6 +29,14 @@ const AdminDoctors = () => {
     const doctors = doctorsState.data || [];
     const loadingData = doctorsState.loading;
     const [loading, setLoading] = useState(false);
+    const [offlineState, setOfflineState] = useState({
+        isOffline: false,
+        fromCache: false,
+        lastFetchedAt: null,
+        isSynthetic: false,
+        noCache: false,
+    });
+    const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [editingDoctor, setEditingDoctor] = useState(null);
@@ -115,6 +126,17 @@ const AdminDoctors = () => {
         }
         dispatch(fetchAdminDoctors());
     }, [navigation, user, userRole, dispatch]);
+
+    useEffect(() => {
+        const unsubscribe = subscribeNetworkStatus((netState) => {
+            if (netState.isOnline) {
+                dispatch(fetchAdminDoctors());
+            } else {
+                setOfflineState(prev => ({ ...prev, isOffline: true }));
+            }
+        });
+        return unsubscribe;
+    }, [dispatch]);
 
     useEffect(() => {
         if (doctorsState.error) setError(doctorsState.error);
@@ -308,7 +330,34 @@ const AdminDoctors = () => {
     const isQuotaReached = maxDocs !== Infinity && docCount >= maxDocs;
 
     return (
-        <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+        <ScrollView 
+            style={styles.container} 
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+                <RefreshControl
+                    refreshing={refreshing}
+                    onRefresh={async () => {
+                        setRefreshing(true);
+                        await dispatch(fetchAdminDoctors());
+                        setRefreshing(false);
+                    }}
+                    colors={['#0284c7']}
+                    tintColor="#0284c7"
+                />
+            }
+        >
+            <OfflineBanner
+                isOffline={offlineState.isOffline}
+                fromCache={offlineState.fromCache}
+                lastFetchedAt={offlineState.lastFetchedAt}
+                isSynthetic={offlineState.isSynthetic}
+                onRetry={async () => {
+                    setRefreshing(true);
+                    await dispatch(fetchAdminDoctors());
+                    setRefreshing(false);
+                }}
+                retrying={refreshing || loadingData}
+            />
             <View style={styles.content}>
                 {/* ==================== 1. HERO BANNER (MATCHING WEB SCREENSHOT) ==================== */}
                 <ExpoLinearGradient
@@ -757,11 +806,24 @@ const AdminDoctors = () => {
                             <Text style={{ color: '#64748b', marginTop: 12, fontWeight: '600' }}>Loading doctor profiles...</Text>
                         </View>
                     ) : filteredDoctors.length === 0 ? (
-                        <View style={styles.emptyCard}>
-                            <Text style={styles.emptyCardText}>
-                                {searchQuery ? 'No doctors match the search filter.' : 'No doctors registered yet.'}
-                            </Text>
-                        </View>
+                        offlineState.noCache ? (
+                            <OfflineEmptyState 
+                                title="No Cached Doctors"
+                                message="No offline doctor records are stored on this device. Connect to the internet and tap Retry to synchronize."
+                                onRetry={async () => {
+                                    setRefreshing(true);
+                                    await dispatch(fetchAdminDoctors());
+                                    setRefreshing(false);
+                                }}
+                                retrying={refreshing || loadingData}
+                            />
+                        ) : (
+                            <View style={styles.emptyCard}>
+                                <Text style={styles.emptyCardText}>
+                                    {searchQuery ? 'No doctors match the search filter.' : 'No doctors registered yet.'}
+                                </Text>
+                            </View>
+                        )
                     ) : viewMode === 'grid' ? (
                         /* Grid Cards View */
                         <View style={styles.adDoctorsGrid}>

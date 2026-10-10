@@ -1,12 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
     View, Text, TextInput, TouchableOpacity, ScrollView, Image, 
-    StyleSheet, ActivityIndicator, Alert, Modal, Platform, useWindowDimensions 
+    StyleSheet, ActivityIndicator, Alert, Modal, Platform, useWindowDimensions, RefreshControl 
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { adminAPI, uploadAPI } from '../../utils/api';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { fetchSuperAdminUsers, fetchSuperAdminRoles } from '../../services/offline/offlineSuperAdminService';
+import { subscribeNetworkStatus } from '../../services/offline/networkStatus';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
 
 import DropdownSelect from '../../components/common/DropdownSelect';
 import * as DocumentPicker from 'expo-document-picker';
@@ -25,6 +29,14 @@ const SuperAdmin = () => {
     const [loadingUsers, setLoadingUsers] = useState(false);
     const [roles, setRoles] = useState([]);
     const [currentUser, setCurrentUser] = useState({});
+    const [offlineState, setOfflineState] = useState({
+        isOffline: false,
+        fromCache: false,
+        lastFetchedAt: null,
+        isSynthetic: false,
+        noCache: false,
+    });
+    const [refreshing, setRefreshing] = useState(false);
 
     const [editModal, setEditModal] = useState(false);
     const [editForm, setEditForm] = useState({
@@ -118,36 +130,88 @@ const SuperAdmin = () => {
         loadUser();
     }, [navigation]);
 
-    useEffect(() => {
-        fetchUsers();
-        fetchRoles();
-    }, []);
-
     const fetchUsers = async () => {
         try {
             setLoadingUsers(true);
-            const response = await adminAPI.getUsers();
-            if (response.success) {
-                setUsers(response.users || response.data || []);
+            const result = await fetchSuperAdminUsers({
+                onCacheHit: (cached) => {
+                    if (cached?.data?.users) {
+                        setUsers(cached.data.users);
+                        setOfflineState(prev => ({
+                            ...prev,
+                            fromCache: true,
+                            lastFetchedAt: cached.lastFetchedAt,
+                            isSynthetic: cached.isSynthetic,
+                            noCache: false,
+                        }));
+                        setLoadingUsers(false);
+                    }
+                }
+            });
+
+            if (result.success && result.data?.users) {
+                setUsers(result.data.users);
+                setOfflineState({
+                    isOffline: Boolean(result.isOffline),
+                    fromCache: Boolean(result.fromCache),
+                    lastFetchedAt: result.lastFetchedAt,
+                    isSynthetic: Boolean(result.isSynthetic),
+                    noCache: false,
+                });
+                setError('');
+            } else if (result.noCache) {
+                setOfflineState({
+                    isOffline: true,
+                    fromCache: false,
+                    lastFetchedAt: null,
+                    isSynthetic: false,
+                    noCache: true,
+                });
+                setUsers(prev => (prev.length > 0 ? prev : []));
             }
         } catch (err) {
             console.error('Error fetching users:', err);
             setError('Error fetching users.');
         } finally {
             setLoadingUsers(false);
+            setRefreshing(false);
         }
     };
 
     const fetchRoles = async () => {
         try {
-            const response = await adminAPI.getRoles();
-            if (response.success) {
-                setRoles(response.data || response.roles || []);
+            const result = await fetchSuperAdminRoles({
+                onCacheHit: (cached) => {
+                    if (Array.isArray(cached?.data)) {
+                        setRoles(cached.data);
+                    }
+                }
+            });
+            if (result.success && Array.isArray(result.data)) {
+                setRoles(result.data);
             }
         } catch (err) {
             console.error('Error fetching roles:', err);
         }
     };
+
+    useEffect(() => {
+        fetchUsers();
+        fetchRoles();
+    }, []);
+
+    // Listen to network status changes and auto-refresh when reconnecting
+    useEffect(() => {
+        const unsubscribe = subscribeNetworkStatus((netState) => {
+            if (netState.isOnline) {
+                fetchUsers();
+                fetchRoles();
+            } else {
+                setOfflineState(prev => ({ ...prev, isOffline: true }));
+            }
+        });
+        return unsubscribe;
+    }, []);
 
     // Open Edit Modal
     const openEditModal = (userItem) => {
@@ -296,7 +360,31 @@ const SuperAdmin = () => {
             contentContainerStyle={styles.superadminContainer}
             showsVerticalScrollIndicator={true}
             nestedScrollEnabled={true}
+            refreshControl={
+                <RefreshControl
+                    refreshing={refreshing}
+                    onRefresh={() => {
+                        setRefreshing(true);
+                        fetchUsers();
+                        fetchRoles();
+                    }}
+                    colors={['#0d9488']}
+                    tintColor="#0d9488"
+                />
+            }
         >
+            <OfflineBanner
+                isOffline={offlineState.isOffline}
+                fromCache={offlineState.fromCache}
+                lastFetchedAt={offlineState.lastFetchedAt}
+                isSynthetic={offlineState.isSynthetic}
+                onRetry={() => {
+                    setRefreshing(true);
+                    fetchUsers();
+                    fetchRoles();
+                }}
+                retrying={refreshing || loadingUsers}
+            />
             
             <View style={[styles.adminHeader, isMobile && { padding: 16, borderRadius: 14, flexDirection: 'column', alignItems: 'flex-start', gap: 14, marginBottom: 20 }]}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: isMobile ? 8 : 16 }}>
@@ -444,7 +532,20 @@ const SuperAdmin = () => {
                 {loadingUsers ? (
                     <View style={{ padding: 20, alignItems: 'center' }}><ActivityIndicator size="large" color="#0d9488" /><Text style={{ color: '#64748b', marginTop: 10 }}>Loading users...</Text></View>
                 ) : users.length === 0 ? (
-                    <View style={{ padding: 20, alignItems: 'center' }}><Text style={{ color: '#64748b' }}>No users found</Text></View>
+                    offlineState.noCache ? (
+                        <OfflineEmptyState 
+                            title="No Cached Users"
+                            message="No offline staff records are stored on this device. Connect to the internet and tap Retry to synchronize."
+                            onRetry={() => {
+                                setRefreshing(true);
+                                fetchUsers();
+                                fetchRoles();
+                            }}
+                            retrying={refreshing || loadingUsers}
+                        />
+                    ) : (
+                        <View style={{ padding: 20, alignItems: 'center' }}><Text style={{ color: '#64748b' }}>No users found</Text></View>
+                    )
                 ) : (
                     <ScrollView horizontal showsHorizontalScrollIndicator={true} nestedScrollEnabled={true} style={styles.usersTableWrapper}>
                         <View style={styles.usersTable}>

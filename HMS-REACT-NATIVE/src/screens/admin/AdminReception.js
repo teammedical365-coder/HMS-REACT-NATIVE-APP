@@ -1,18 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import { 
     View, Text, TouchableOpacity, ScrollView, TextInput, 
-    StyleSheet, Alert, ActivityIndicator 
+    StyleSheet, Alert, ActivityIndicator, RefreshControl 
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { adminEntitiesAPI } from '../../utils/api';
 import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { fetchSuperAdminReceptions } from '../../services/offline/offlineSuperAdminService';
+import { subscribeNetworkStatus } from '../../services/offline/networkStatus';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
 
 const AdminReception = () => {
     const navigation = useNavigation();
     const [receptions, setReceptions] = useState([]);
     const [loading, setLoading] = useState(false);
     const [loadingData, setLoadingData] = useState(false);
+    const [offlineState, setOfflineState] = useState({
+        isOffline: false,
+        fromCache: false,
+        lastFetchedAt: null,
+        isSynthetic: false,
+        noCache: false,
+    });
+    const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [editingReception, setEditingReception] = useState(null);
@@ -62,16 +74,56 @@ const AdminReception = () => {
     const fetchReceptions = async () => {
         try {
             setLoadingData(true);
-            const response = await adminEntitiesAPI.getReceptions();
-            if (response.success) {
-                setReceptions(response.receptions);
+            const res = await fetchSuperAdminReceptions({
+                onCacheHit: (cached) => {
+                    if (Array.isArray(cached?.data)) {
+                        setReceptions(cached.data);
+                        setOfflineState(prev => ({
+                            ...prev,
+                            fromCache: true,
+                            lastFetchedAt: cached.lastFetchedAt,
+                            isSynthetic: cached.isSynthetic,
+                            noCache: false,
+                        }));
+                    }
+                }
+            });
+            if (res.success && Array.isArray(res.data)) {
+                setReceptions(res.data);
+                setOfflineState({
+                    isOffline: Boolean(res.isOffline),
+                    fromCache: Boolean(res.fromCache),
+                    lastFetchedAt: res.lastFetchedAt,
+                    isSynthetic: Boolean(res.isSynthetic),
+                    noCache: false,
+                });
+            } else if (res.noCache) {
+                setOfflineState({
+                    isOffline: true,
+                    fromCache: false,
+                    lastFetchedAt: null,
+                    isSynthetic: false,
+                    noCache: true,
+                });
             }
         } catch (err) {
             setError(err.response?.data?.message || 'Error fetching receptions');
         } finally {
             setLoadingData(false);
+            setRefreshing(false);
         }
     };
+
+    useEffect(() => {
+        const unsubscribe = subscribeNetworkStatus((netState) => {
+            if (netState.isOnline) {
+                fetchReceptions();
+            } else {
+                setOfflineState(prev => ({ ...prev, isOffline: true }));
+            }
+        });
+        return unsubscribe;
+    }, []);
 
     const handleChange = (name, value) => {
         setFormData(prev => ({ ...prev, [name]: value }));
@@ -183,7 +235,31 @@ const AdminReception = () => {
     };
 
     return (
-        <ScrollView style={styles.container}>
+        <ScrollView 
+            style={styles.container}
+            refreshControl={
+                <RefreshControl
+                    refreshing={refreshing}
+                    onRefresh={() => {
+                        setRefreshing(true);
+                        fetchReceptions();
+                    }}
+                    colors={['#3b82f6']}
+                    tintColor="#3b82f6"
+                />
+            }
+        >
+            <OfflineBanner
+                isOffline={offlineState.isOffline}
+                fromCache={offlineState.fromCache}
+                lastFetchedAt={offlineState.lastFetchedAt}
+                isSynthetic={offlineState.isSynthetic}
+                onRetry={() => {
+                    setRefreshing(true);
+                    fetchReceptions();
+                }}
+                retrying={refreshing || loadingData}
+            />
             <View style={styles.content}>
                 <View style={styles.header}>
                     <View style={{ flex: 1 }}>
@@ -329,7 +405,19 @@ const AdminReception = () => {
                             <Text style={{ color: '#64748b', marginTop: 10 }}>Loading receptions...</Text>
                         </View>
                     ) : receptions.length === 0 ? (
-                        <Text style={{ padding: 20, textAlign: 'center', color: '#64748b' }}>No receptions found. Create one to get started.</Text>
+                        offlineState.noCache ? (
+                            <OfflineEmptyState 
+                                title="No Cached Receptionists"
+                                message="No offline reception records are cached on this device. Connect to the internet and tap Retry to synchronize."
+                                onRetry={() => {
+                                    setRefreshing(true);
+                                    fetchReceptions();
+                                }}
+                                retrying={refreshing || loadingData}
+                            />
+                        ) : (
+                            <Text style={{ padding: 20, textAlign: 'center', color: '#64748b' }}>No receptions found. Create one to get started.</Text>
+                        )
                     ) : (
                         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                             <View style={{ minWidth: 800 }}>

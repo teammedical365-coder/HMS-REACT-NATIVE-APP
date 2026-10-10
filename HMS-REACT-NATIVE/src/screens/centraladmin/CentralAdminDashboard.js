@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, ScrollView, SafeAreaView, Text, Alert, Modal, TouchableOpacity, TextInput, useWindowDimensions, Platform } from 'react-native';
+import { View, ScrollView, SafeAreaView, Text, Alert, Modal, TouchableOpacity, TextInput, useWindowDimensions, Platform, RefreshControl } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -16,6 +16,9 @@ import HospitalBrandingEditor from '../../components/HospitalBrandingEditor';
 import RevenuePlanEditorModal from '../../components/centraladmin/RevenuePlanEditorModal';
 import AdminLabs from '../admin/AdminLabs';
 import AdminPharmacy from '../admin/AdminPharmacy';
+import { fetchSuperAdminHospitals, fetchSuperAdminQuestionLibrary } from '../../services/offline/offlineSuperAdminService';
+import { subscribeNetworkStatus } from '../../services/offline/networkStatus';
+import OfflineBanner from '../../components/OfflineBanner';
 import { 
   hospitalAPI, 
   simpleClinicAPI, 
@@ -63,6 +66,13 @@ export default function CentralAdminDashboard() {
   const [brandingVersions, setBrandingVersions] = useState({});
   const [revenuePlanModalData, setRevenuePlanModalData] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [offlineState, setOfflineState] = useState({
+    isOffline: false,
+    fromCache: false,
+    lastFetchedAt: null,
+    isSynthetic: false,
+    noCache: false,
+  });
 
   // Form states - Hospital
   const [showHospitalForm, setShowHospitalForm] = useState(false);
@@ -137,8 +147,9 @@ export default function CentralAdminDashboard() {
 
   const fetchDepartments = async () => {
     try {
-      const res = await questionLibraryAPI.getLibrary();
-      const dataObj = res?.data?.data || res?.data;
+      const res = await fetchSuperAdminQuestionLibrary();
+      const payload = res?.data;
+      const dataObj = payload?.data?.data || payload?.data || payload;
       if (dataObj && typeof dataObj === 'object') {
         const depts = Object.keys(dataObj);
         if (depts.length > 0) {
@@ -187,7 +198,35 @@ export default function CentralAdminDashboard() {
   const fetchHospitals = async () => {
     setLoading(true);
     try {
-      const hospitalsRes = await hospitalAPI.getHospitals('all');
+      const hospitalsRes = await fetchSuperAdminHospitals({
+        onCacheHit: (cached) => {
+          if (Array.isArray(cached?.data)) {
+            const rawHospitals = cached.data;
+            const normalizedHospitals = rawHospitals.map(item => ({
+              ...item,
+              brandingSchema: item.brandingSchema ? {
+                ...item.brandingSchema,
+                logoUrl: isSafeUrl(item.brandingSchema.logoUrl) ? item.brandingSchema.logoUrl : '',
+              } : item.brandingSchema,
+              branding: item.branding ? {
+                ...item.branding,
+                logoUrl: isSafeUrl(item.branding.logoUrl) ? item.branding.logoUrl : '',
+              } : item.branding,
+              isSimpleClinic: item.clinicType === 'clinic',
+              clinicType: item.clinicType === 'clinic' ? 'clinic' : (item.clinicType || 'hospital'),
+              plan: (item.plan || item.planName || item.subscriptionPlan || 'enterprise').toLowerCase().replace(/[\s-]/g, '_')
+            }));
+            setHospitals(normalizedHospitals);
+            setOfflineState(prev => ({
+              ...prev,
+              fromCache: true,
+              lastFetchedAt: cached.lastFetchedAt,
+              isSynthetic: cached.isSynthetic,
+              noCache: false,
+            }));
+          }
+        }
+      });
       let clinicsRes = { clinics: [] };
       try {
         clinicsRes = await simpleClinicAPI.getClinics('starter');
@@ -240,6 +279,13 @@ export default function CentralAdminDashboard() {
 
       const unifiedList = [...normalizedHospitals, ...normalizedClinics];
       setHospitals(unifiedList);
+      setOfflineState({
+        isOffline: Boolean(hospitalsRes.isOffline),
+        fromCache: Boolean(hospitalsRes.fromCache),
+        lastFetchedAt: hospitalsRes.lastFetchedAt,
+        isSynthetic: Boolean(hospitalsRes.isSynthetic),
+        noCache: unifiedList.length === 0 && Boolean(hospitalsRes.isOffline),
+      });
     } catch (err) {
       if (err.response?.status === 404) {
         setHospitals([]);
@@ -251,6 +297,18 @@ export default function CentralAdminDashboard() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const unsubscribe = subscribeNetworkStatus((netState) => {
+      if (netState.isOnline) {
+        fetchHospitals();
+        fetchSystemAnalytics();
+      } else {
+        setOfflineState(prev => ({ ...prev, isOffline: true }));
+      }
+    });
+    return unsubscribe;
+  }, []);
 
   const handleRefresh = async () => {
     if (isRefreshing) return;
@@ -500,6 +558,14 @@ export default function CentralAdminDashboard() {
           ]} 
           showsVerticalScrollIndicator={true}
           nestedScrollEnabled={true}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              colors={['#14b8a6']}
+              tintColor="#14b8a6"
+            />
+          }
         >
         
         {/* Child Component 1: Header and Tabs */}
@@ -509,6 +575,15 @@ export default function CentralAdminDashboard() {
           onRevenueAnalyticsPress={() => navigation.navigate('SystemRevenueDashboard')}
           onRefreshPress={handleRefresh}
           isRefreshing={isRefreshing}
+        />
+
+        <OfflineBanner
+          isOffline={offlineState.isOffline}
+          fromCache={offlineState.fromCache}
+          lastFetchedAt={offlineState.lastFetchedAt}
+          isSynthetic={offlineState.isSynthetic}
+          onRetry={handleRefresh}
+          retrying={isRefreshing || loading}
         />
 
         {/* Global Notifications */}

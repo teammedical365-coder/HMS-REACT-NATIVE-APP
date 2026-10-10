@@ -1,12 +1,16 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { adminEntitiesAPI } from '../../utils/api';
+import { fetchSuperAdminDoctors } from '../../services/offline/offlineSuperAdminService';
 
 export const fetchAdminDoctors = createAsyncThunk(
   'adminEntities/fetchDoctors',
   async (_, { rejectWithValue }) => {
     try {
-      const response = await adminEntitiesAPI.getDoctors();
-      return response.success ? response.doctors || [] : rejectWithValue(response.message);
+      const result = await fetchSuperAdminDoctors({ source: 'adminEntities' });
+      if (result.success && Array.isArray(result.data)) {
+        return result.data;
+      }
+      return rejectWithValue('Failed to fetch doctors');
     } catch (error) {
       return rejectWithValue(error.response?.data?.message || 'Failed to fetch doctors');
     }

@@ -1,18 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import { 
     View, Text, TouchableOpacity, ScrollView, TextInput, 
-    StyleSheet, Alert, ActivityIndicator 
+    StyleSheet, Alert, ActivityIndicator, RefreshControl 
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { adminEntitiesAPI } from '../../utils/api';
 import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { fetchSuperAdminServices } from '../../services/offline/offlineSuperAdminService';
+import { subscribeNetworkStatus } from '../../services/offline/networkStatus';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
 
 const AdminServices = () => {
     const navigation = useNavigation();
     const [services, setServices] = useState([]);
     const [loading, setLoading] = useState(false);
     const [loadingData, setLoadingData] = useState(false);
+    const [offlineState, setOfflineState] = useState({
+        isOffline: false,
+        fromCache: false,
+        lastFetchedAt: null,
+        isSynthetic: false,
+        noCache: false,
+    });
+    const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [editingService, setEditingService] = useState(null);
@@ -53,16 +65,56 @@ const AdminServices = () => {
     const fetchServices = async () => {
         try {
             setLoadingData(true);
-            const response = await adminEntitiesAPI.getServices();
-            if (response.success) {
-                setServices(response.services);
+            const res = await fetchSuperAdminServices({
+                onCacheHit: (cached) => {
+                    if (Array.isArray(cached?.data)) {
+                        setServices(cached.data);
+                        setOfflineState(prev => ({
+                            ...prev,
+                            fromCache: true,
+                            lastFetchedAt: cached.lastFetchedAt,
+                            isSynthetic: cached.isSynthetic,
+                            noCache: false,
+                        }));
+                    }
+                }
+            });
+            if (res.success && Array.isArray(res.data)) {
+                setServices(res.data);
+                setOfflineState({
+                    isOffline: Boolean(res.isOffline),
+                    fromCache: Boolean(res.fromCache),
+                    lastFetchedAt: res.lastFetchedAt,
+                    isSynthetic: Boolean(res.isSynthetic),
+                    noCache: false,
+                });
+            } else if (res.noCache) {
+                setOfflineState({
+                    isOffline: true,
+                    fromCache: false,
+                    lastFetchedAt: null,
+                    isSynthetic: false,
+                    noCache: true,
+                });
             }
         } catch (err) {
             setError(err.response?.data?.message || 'Error fetching services');
         } finally {
             setLoadingData(false);
+            setRefreshing(false);
         }
     };
+
+    useEffect(() => {
+        const unsubscribe = subscribeNetworkStatus((netState) => {
+            if (netState.isOnline) {
+                fetchServices();
+            } else {
+                setOfflineState(prev => ({ ...prev, isOffline: true }));
+            }
+        });
+        return unsubscribe;
+    }, []);
 
     const handleChange = (name, value) => {
         setFormData(prev => ({
@@ -156,7 +208,31 @@ const AdminServices = () => {
     };
 
     return (
-        <ScrollView style={styles.container}>
+        <ScrollView 
+            style={styles.container}
+            refreshControl={
+                <RefreshControl
+                    refreshing={refreshing}
+                    onRefresh={() => {
+                        setRefreshing(true);
+                        fetchServices();
+                    }}
+                    colors={['#14C38E']}
+                    tintColor="#14C38E"
+                />
+            }
+        >
+            <OfflineBanner
+                isOffline={offlineState.isOffline}
+                fromCache={offlineState.fromCache}
+                lastFetchedAt={offlineState.lastFetchedAt}
+                isSynthetic={offlineState.isSynthetic}
+                onRetry={() => {
+                    setRefreshing(true);
+                    fetchServices();
+                }}
+                retrying={refreshing || loadingData}
+            />
             <View style={styles.content}>
                 <View style={styles.header}>
                     <View style={{ flex: 1 }}>
@@ -306,7 +382,19 @@ const AdminServices = () => {
                             <Text style={{ color: '#64748b', marginTop: 10 }}>Loading services...</Text>
                         </View>
                     ) : services.length === 0 ? (
-                        <Text style={{ padding: 20, textAlign: 'center', color: '#64748b' }}>No services found. Create one to get started.</Text>
+                        offlineState.noCache ? (
+                            <OfflineEmptyState 
+                                title="No Cached Services"
+                                message="No offline services are cached on this device. Connect to the internet and tap Retry to synchronize."
+                                onRetry={() => {
+                                    setRefreshing(true);
+                                    fetchServices();
+                                }}
+                                retrying={refreshing || loadingData}
+                            />
+                        ) : (
+                            <Text style={{ padding: 20, textAlign: 'center', color: '#64748b' }}>No services found. Create one to get started.</Text>
+                        )
                     ) : (
                         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                             <View style={{ minWidth: 800 }}>

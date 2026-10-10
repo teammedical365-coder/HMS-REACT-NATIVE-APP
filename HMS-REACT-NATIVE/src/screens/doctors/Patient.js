@@ -10,6 +10,8 @@ import * as DocumentPicker from 'expo-document-picker';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
 import { doctorAPI, reportAPI } from '../../utils/api';
 import DatePickerInput from '../../components/common/DatePickerInput';
+import { fetchAppointmentsWithOffline } from '../../services/offline/offlineDoctorService';
+import OfflineBanner from '../../components/OfflineBanner';
 
 const avatarColors = ['#0ea5e9', '#8b5cf6', '#10b981', '#f59e0b', '#ec4899', '#06b6d4'];
 
@@ -29,6 +31,12 @@ const Patient = ({ route: propRoute } = {}) => {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState(null);
+    const [offlineState, setOfflineState] = useState({
+        isOffline: false,
+        fromCache: false,
+        lastFetchedAt: null,
+        isSynthetic: false,
+    });
 
     // Search, Tabs, Filter & Sort
     const [searchQuery, setSearchQuery] = useState('');
@@ -86,19 +94,39 @@ const Patient = ({ route: propRoute } = {}) => {
             
             const hasViewAllAccess = isClinicDoctor || (!isDoctor && (isAdminOrStaff || permissions.includes('patient_view') || permissions.includes('appointment_view_all')));
 
-            const res = hasViewAllAccess
-                ? await doctorAPI.getAllAppointments()
-                : await doctorAPI.getAppointments();
+            const offlineResult = await fetchAppointmentsWithOffline({
+                hasViewAllAccess,
+                onCacheHit: (cached) => {
+                    // Fast path: immediately render valid cached appointments without blocking UI
+                    if (Array.isArray(cached?.appointments) && cached.appointments.length > 0) {
+                        setAppointments(cached.appointments);
+                        setOfflineState({
+                            isOffline: false,
+                            fromCache: true,
+                            lastFetchedAt: cached.lastFetchedAt,
+                            isSynthetic: cached.isSynthetic,
+                        });
+                        setLoading(false);
+                    }
+                },
+            });
 
-            if (res && res.success && Array.isArray(res.appointments)) {
-                setAppointments(res.appointments);
+            if (offlineResult && Array.isArray(offlineResult.appointments)) {
+                setAppointments(offlineResult.appointments);
+                setOfflineState({
+                    isOffline: Boolean(offlineResult.isOffline),
+                    fromCache: Boolean(offlineResult.fromCache),
+                    lastFetchedAt: offlineResult.lastFetchedAt,
+                    isSynthetic: Boolean(offlineResult.isSynthetic),
+                });
             } else {
                 setAppointments([]);
             }
         } catch (err) {
             console.error('Fetch error:', err);
             setError('Unable to load appointments. Please check network connection or try again.');
-            setAppointments([]);
+            // Retain any existing cached records instead of blanking out
+            setAppointments(prev => (prev.length > 0 ? prev : []));
         } finally {
             setLoading(false);
             setRefreshing(false);
@@ -459,7 +487,16 @@ const Patient = ({ route: propRoute } = {}) => {
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
         >
-            {Boolean(error) && (
+            <OfflineBanner
+                isOffline={offlineState.isOffline}
+                fromCache={offlineState.fromCache}
+                lastFetchedAt={offlineState.lastFetchedAt}
+                isSynthetic={offlineState.isSynthetic}
+                onRetry={() => fetchAllAppointments(true)}
+                retrying={refreshing}
+            />
+
+            {Boolean(error) && !offlineState.fromCache && (
                 <View style={styles.errorBanner}>
                     <Text style={styles.errorBannerText}>⚠️ {error}</Text>
                 </View>

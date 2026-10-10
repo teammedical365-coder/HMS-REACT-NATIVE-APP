@@ -9,10 +9,15 @@ import {
     Alert,
     Dimensions,
     Platform,
-    useWindowDimensions
+    useWindowDimensions,
+    RefreshControl
 } from 'react-native';
 import { adminAPI } from '../../utils/api';
 import { FontAwesome5 } from '@expo/vector-icons';
+import { fetchSuperAdminRoles } from '../../services/offline/offlineSuperAdminService';
+import { subscribeNetworkStatus } from '../../services/offline/networkStatus';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
 
 // Custom Toast / Confirm implementations using Alert for React Native
 const toast = {
@@ -49,6 +54,14 @@ const AdminRoles = () => {
     });
     const [editingRoleId, setEditingRoleId] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [offlineState, setOfflineState] = useState({
+        isOffline: false,
+        fromCache: false,
+        lastFetchedAt: null,
+        isSynthetic: false,
+        noCache: false,
+    });
+    const [refreshing, setRefreshing] = useState(false);
 
     const scrollViewRef = useRef(null);
 
@@ -138,20 +151,61 @@ const AdminRoles = () => {
         return links;
     };
 
+    const fetchRoles = async () => {
+        try {
+            const res = await fetchSuperAdminRoles({
+                onCacheHit: (cached) => {
+                    if (Array.isArray(cached?.data)) {
+                        setRoles(cached.data);
+                        setOfflineState(prev => ({
+                            ...prev,
+                            fromCache: true,
+                            lastFetchedAt: cached.lastFetchedAt,
+                            isSynthetic: cached.isSynthetic,
+                            noCache: false,
+                        }));
+                    }
+                }
+            });
+            if (res.success && Array.isArray(res.data)) {
+                setRoles(res.data);
+                setOfflineState({
+                    isOffline: Boolean(res.isOffline),
+                    fromCache: Boolean(res.fromCache),
+                    lastFetchedAt: res.lastFetchedAt,
+                    isSynthetic: Boolean(res.isSynthetic),
+                    noCache: false,
+                });
+            } else if (res.noCache) {
+                setOfflineState({
+                    isOffline: true,
+                    fromCache: false,
+                    lastFetchedAt: null,
+                    isSynthetic: false,
+                    noCache: true,
+                });
+            }
+        } catch (err) {
+            console.error("Error fetching roles", err);
+        } finally {
+            setRefreshing(false);
+        }
+    };
+
     useEffect(() => {
         fetchRoles();
     }, []);
 
-    const fetchRoles = async () => {
-        try {
-            const res = await adminAPI.getRoles();
-            console.log("🔥 API RESPONSE (AdminRoles):", res);
-            const actualData = res?.data?.data || res?.data?.roles || res?.roles || res?.data || res || [];
-            setRoles(Array.isArray(actualData) ? actualData : []);
-        } catch (err) {
-            console.error("Error fetching roles", err);
-        }
-    };
+    useEffect(() => {
+        const unsubscribe = subscribeNetworkStatus((netState) => {
+            if (netState.isOnline) {
+                fetchRoles();
+            } else {
+                setOfflineState(prev => ({ ...prev, isOffline: true }));
+            }
+        });
+        return unsubscribe;
+    }, []);
 
     const handlePermissionToggle = (key) => {
         setFormData(prev => {
@@ -292,7 +346,29 @@ const AdminRoles = () => {
             ref={scrollViewRef}
             showsVerticalScrollIndicator={true}
             nestedScrollEnabled={true}
+            refreshControl={
+                <RefreshControl
+                    refreshing={refreshing}
+                    onRefresh={() => {
+                        setRefreshing(true);
+                        fetchRoles();
+                    }}
+                    colors={['#0d9488']}
+                    tintColor="#0d9488"
+                />
+            }
         >
+            <OfflineBanner
+                isOffline={offlineState.isOffline}
+                fromCache={offlineState.fromCache}
+                lastFetchedAt={offlineState.lastFetchedAt}
+                isSynthetic={offlineState.isSynthetic}
+                onRetry={() => {
+                    setRefreshing(true);
+                    fetchRoles();
+                }}
+                retrying={refreshing || loading}
+            />
             <View style={styles.rpmHeaderRow}>
                 <View style={styles.rpmHeaderLeft}>
                     <Text style={styles.rpmHeaderTitle}>Role & Permission Manager</Text>
@@ -483,9 +559,21 @@ const AdminRoles = () => {
                         showsVerticalScrollIndicator={true}
                     >
                         {roles.length === 0 && (
-                            <View style={styles.rpmEmptyState}>
-                                <Text style={styles.rpmEmptyStateText}>No roles defined yet. Create one on the left!</Text>
-                            </View>
+                            offlineState.noCache ? (
+                                <OfflineEmptyState 
+                                    title="No Cached Roles"
+                                    message="No offline role definitions are stored on this device. Connect to the internet and tap Retry to synchronize."
+                                    onRetry={() => {
+                                        setRefreshing(true);
+                                        fetchRoles();
+                                    }}
+                                    retrying={refreshing || loading}
+                                />
+                            ) : (
+                                <View style={styles.rpmEmptyState}>
+                                    <Text style={styles.rpmEmptyStateText}>No roles defined yet. Create one on the left!</Text>
+                                </View>
+                            )
                         )}
 
                         {roles.map((role, idx) => {
