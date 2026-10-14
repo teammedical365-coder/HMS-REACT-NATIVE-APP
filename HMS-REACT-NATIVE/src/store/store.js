@@ -3,7 +3,7 @@ import { persistStore, persistReducer, FLUSH, REHYDRATE, PAUSE, PERSIST, PURGE, 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { combineReducers } from '@reduxjs/toolkit';
 
-import authReducer from './slices/authSlice';
+import authReducer, { logout, performLogoutCleanup } from './slices/authSlice';
 import appointmentReducer from './slices/appointmentSlice';
 import doctorReducer from './slices/doctorSlice';
 import serviceReducer from './slices/serviceSlice';
@@ -11,7 +11,7 @@ import publicDataReducer from './slices/publicDataSlice';
 import adminEntitiesReducer from './slices/adminEntitiesSlice';
 import labReducer from './slices/labSlice';
 import notificationReducer from './slices/notificationSlice';
-import { setStoreRef } from './storeRef';
+import { setStoreRef, setLogoutThunk } from './storeRef';
 
 // Persist only the auth slice — keeps the user logged in across app restarts.
 // All other slices are transient and refetch fresh data on mount.
@@ -32,6 +32,21 @@ const rootReducer = combineReducers({
   notifications: notificationReducer,
 });
 
+/**
+ * Middleware safety net:
+ * Intercepts any direct { type: 'auth/logout' } action dispatch, captures the
+ * departing user before the reducer clears state, and executes safe cleanup.
+ */
+const authLogoutMiddleware = (storeApi) => (next) => (action) => {
+  if (action?.type === 'auth/logout') {
+    const currentUser = storeApi.getState()?.auth?.user || storeApi.getState()?.auth?.departingUser;
+    if (currentUser) {
+      performLogoutCleanup(currentUser).catch(() => {});
+    }
+  }
+  return next(action);
+};
+
 export const store = configureStore({
   reducer: rootReducer,
   middleware: (getDefaultMiddleware) =>
@@ -39,11 +54,12 @@ export const store = configureStore({
       serializableCheck: {
         ignoredActions: [FLUSH, REHYDRATE, PAUSE, PERSIST, PURGE, REGISTER],
       },
-    }),
+    }).concat(authLogoutMiddleware),
 });
 
 export const persistor = persistStore(store);
 
 setStoreRef(store);
+setLogoutThunk(logout);
 
 export default store;

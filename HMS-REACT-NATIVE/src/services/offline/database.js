@@ -74,6 +74,37 @@ const MIGRATIONS = [
       `);
     },
   },
+  {
+    version: 2,
+    description: 'Generic offline outbox queue for resilient multi-tenant operation synchronization',
+    up: async (db) => {
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS offline_outbox (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          operation_id TEXT NOT NULL UNIQUE,
+          tenant_id TEXT NOT NULL,
+          user_id TEXT NOT NULL,
+          resource_type TEXT NOT NULL,
+          operation_type TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          status TEXT NOT NULL,
+          retry_count INTEGER DEFAULT 0,
+          error_message TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_outbox_tenant_user_status 
+          ON offline_outbox(tenant_id, user_id, status);
+
+        CREATE INDEX IF NOT EXISTS idx_outbox_resource_status 
+          ON offline_outbox(resource_type, status);
+
+        CREATE INDEX IF NOT EXISTS idx_outbox_created 
+          ON offline_outbox(created_at);
+      `);
+    },
+  },
 ];
 
 /**
@@ -324,7 +355,18 @@ export async function safeMigrateUnencryptedDatabase(activeDb, key) {
       await FileSystem.moveAsync({ from: sourceUri, to: transientBackupUri });
 
       // 2. Move verified encrypted target to primary DB location
-      await FileSystem.moveAsync({ from: targetUri, to: sourceUri });
+      try {
+        await FileSystem.moveAsync({ from: targetUri, to: sourceUri });
+      } catch (promoteErr) {
+        // Recovery: safely restore original database if moving target failed
+        try {
+          await FileSystem.moveAsync({ from: transientBackupUri, to: sourceUri });
+          console.warn('[OfflineDB] Restored original database after failed target promotion.');
+        } catch (restoreErr) {
+          console.error('[OfflineDB] Critical: Failed to restore backup after failed promotion:', restoreErr.message);
+        }
+        throw promoteErr;
+      }
 
       // 3. Immediately purge transient backup (NO permanent .bak retention)
       if (FileSystem.deleteAsync) {
@@ -393,6 +435,18 @@ async function runMigrations(db) {
  * 9. Fail closed if any security check fails.
  */
 export async function getDatabase() {
+  if (Platform.OS === 'web') {
+    _encryptionStatus = {
+      isEncrypted: false,
+      isKeyed: false,
+      isKeyAuthenticated: false,
+      cipherVersion: null,
+      reopenVerified: false,
+      reason: 'SQLCipher is unavailable on web platform. Persistent database access is strictly blocked.',
+    };
+    return null;
+  }
+
   if (_dbInstance) return _dbInstance;
 
   if (_initPromise) return _initPromise;
@@ -414,6 +468,7 @@ export async function getDatabase() {
           reason: `SECURE_KEY_ERROR: ${keyResolution.error}`,
         };
         console.warn(`[OfflineDB] 🛡️ Security Gate: Key retrieval failed (${keyResolution.error}). Failing closed.`);
+        _dbInstance = null;
         return null;
       }
 
@@ -442,9 +497,12 @@ export async function getDatabase() {
           reason: 'SQLCipher is unavailable in active native SQLite binary. Plaintext clinical storage is strictly blocked (Fail Closed).',
         };
         console.warn('[OfflineDB] 🛡️ SQLCipher unavailable. Plaintext fallback is strictly blocked.');
-        _dbInstance = db;
-        // Do NOT run clinical migrations on unencrypted database
-        return _dbInstance;
+        try {
+          await db.closeAsync();
+        } catch (closeErr) {}
+        _dbInstance = null;
+        // Do NOT run clinical migrations or return unencrypted database
+        return null;
       }
 
       // ── Step 5: Verify Database Key Authentication ────────────────────────
@@ -465,6 +523,9 @@ export async function getDatabase() {
         }
 
         if (!authCheck.success) {
+          try {
+            await db.closeAsync();
+          } catch (closeErr) {}
           _encryptionStatus = {
             isEncrypted: false,
             isKeyed: true,
@@ -475,12 +536,30 @@ export async function getDatabase() {
             reason: `DATABASE_AUTH_FAILED: ${migrationCheck?.error || authCheck.error || 'Authentication failed'}. Existing file preserved untouched; fail closed.`,
           };
           console.error('[OfflineDB] 🛡️ Database authentication failed. File preserved. Failing closed.');
+          _dbInstance = null;
           return null;
         }
       }
 
       // ── Step 6: Verify Reopening with Key ─────────────────────────────────
       const reopenCheck = await verifyDatabaseReopen();
+      if (!reopenCheck.success) {
+        try {
+          await db.closeAsync();
+        } catch (closeErr) {}
+        _encryptionStatus = {
+          isEncrypted: false,
+          isKeyed: true,
+          isKeyAuthenticated: false,
+          cipherVersion: cipherCheck.cipherVersion,
+          reopenVerified: false,
+          error: reopenCheck.error,
+          reason: `DATABASE_REOPEN_FAILED: Reopen authentication failed (${reopenCheck.error}). Failing closed.`,
+        };
+        console.error('[OfflineDB] 🛡️ Database reopen check failed. Failing closed.');
+        _dbInstance = null;
+        return null;
+      }
 
       // ── Step 7: Update Verified Security Status ───────────────────────────
       _encryptionStatus = {
@@ -488,7 +567,7 @@ export async function getDatabase() {
         isKeyed: true,
         isKeyAuthenticated: true,
         cipherVersion: cipherCheck.cipherVersion,
-        reopenVerified: reopenCheck.success,
+        reopenVerified: true,
         reason: `SQLCipher v${cipherCheck.cipherVersion} active with verified AES-256 key authentication and reopen validation.`,
       };
       console.log('[OfflineDB] ✅ Security Verified:', _encryptionStatus.reason);
@@ -510,6 +589,7 @@ export async function getDatabase() {
         error: error.message,
         reason: `INITIALIZATION_EXCEPTION: ${error.message}`,
       };
+      _dbInstance = null;
       return null;
     }
   })();
@@ -521,7 +601,18 @@ export async function getDatabase() {
  * Retrieve verified encryption status of the active SQLite database.
  */
 export async function getDatabaseEncryptionStatus() {
-  if (_encryptionStatus && _encryptionStatus.isKeyAuthenticated) {
+  if (Platform.OS === 'web') {
+    return {
+      isEncrypted: false,
+      isKeyed: false,
+      isKeyAuthenticated: false,
+      cipherVersion: null,
+      reopenVerified: false,
+      reason: 'SQLCipher is unavailable on web platform. Persistent database access is strictly blocked.',
+    };
+  }
+
+  if (_encryptionStatus && _encryptionStatus.isEncrypted && _encryptionStatus.isKeyAuthenticated && _encryptionStatus.reopenVerified && _dbInstance) {
     return _encryptionStatus;
   }
   await getDatabase();
@@ -551,7 +642,9 @@ export async function getAll(query, params = []) {
  */
 export async function runQuery(query, params = []) {
   const db = await getDatabase();
-  if (!db) return { changes: 0 };
+  if (!db) {
+    throw new Error('[OfflineDB] Cannot execute query: secure database is unavailable or unencrypted.');
+  }
   return await db.runAsync(query, params);
 }
 
@@ -560,7 +653,9 @@ export async function runQuery(query, params = []) {
  */
 export async function withTransaction(callback) {
   const db = await getDatabase();
-  if (!db) return await callback();
+  if (!db) {
+    throw new Error('[OfflineDB] Cannot execute transaction: secure database is unavailable or unencrypted.');
+  }
   return await db.withTransactionAsync(callback);
 }
 

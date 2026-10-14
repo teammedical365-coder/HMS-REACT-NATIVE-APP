@@ -2,7 +2,7 @@ import axios from 'axios';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL, STORAGE_KEYS } from './Constants';
-import { getStoreRef } from '../store/storeRef';
+import { getStoreRef, dispatchLogout } from '../store/storeRef';
 
 export const baseURL = API_BASE_URL;
 
@@ -202,11 +202,8 @@ apiClient.interceptors.response.use(
           );
         }
 
-        // Synchronize Redux auth state so navigator transitions cleanly to AuthStack
-        const store = getStoreRef();
-        if (store) {
-          store.dispatch({ type: 'auth/logout' });
-        }
+        // Synchronize Redux auth state and execute safe logout cleanup
+        dispatchLogout();
       }
     }
 

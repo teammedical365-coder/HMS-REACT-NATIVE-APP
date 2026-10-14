@@ -5,7 +5,7 @@ import { REHYDRATE } from 'redux-persist';
 import { authAPI, adminAPI, hospitalAdminAPI, setAuthHeader } from '../../utils/api';
 import { STORAGE_KEYS } from '../../utils/Constants';
 import { clearBrowserSessionMemoryCache } from '../../services/offline/offlineSuperAdminService';
-import { clearMemoryCache } from '../../services/offline/cacheRepository';
+import { clearMemoryCache, clearUserCache } from '../../services/offline/cacheRepository';
 
 // ── OTP-Based Login Thunks ────────────────────────────────────────────────────
 
@@ -205,6 +205,100 @@ export const signupAdmin = createAsyncThunk(
   }
 );
 
+// ── Logout Side-Effect Layer ──────────────────────────────────────────────────
+let _isLoggingOut = false;
+
+/**
+ * Shared safe logout cleanup flow.
+ * Invoked by both manual UI logout (thunk) and API interceptor / session expiry.
+ * Strictly scoped to the departing user and tenant.
+ * Non-blocking: errors are logged and never prevent state reset.
+ */
+export async function performLogoutCleanup(currentUser) {
+  if (_isLoggingOut) return;
+  _isLoggingOut = true;
+
+  try {
+    const exitingUserId = currentUser?._id || currentUser?.id || null;
+    let rawTenant = currentUser?.tenantId || currentUser?.hospitalId || currentUser?.hospital;
+    if (rawTenant && typeof rawTenant === 'object') {
+      rawTenant = rawTenant._id || rawTenant.id || rawTenant.slug || null;
+    }
+    const exitingTenantId = rawTenant ? String(rawTenant) : null;
+
+    // 1. Clear API client authorization headers
+    try {
+      setAuthHeader(null);
+    } catch (e) {}
+
+    // 2. Clear web storage if running in browser
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem(STORAGE_KEYS.TOKEN);
+        localStorage.removeItem('token');
+        localStorage.removeItem('superadmin_token');
+        localStorage.removeItem(STORAGE_KEYS.USER);
+        localStorage.removeItem('user');
+        localStorage.removeItem('role');
+        sessionStorage.removeItem('role');
+        localStorage.setItem('isLoggedOut', 'true');
+        sessionStorage.setItem('isLoggedOut', 'true');
+        if (window.location.hash) window.location.hash = '';
+      } catch (e) {}
+    }
+
+    // 3. Native AsyncStorage persistence cleanup
+    try {
+      await AsyncStorage.multiRemove([
+        STORAGE_KEYS.TOKEN,
+        STORAGE_KEYS.USER,
+        'token',
+        'user',
+        'superadmin_token',
+        'role',
+      ]);
+    } catch (e) {}
+
+    // 4. Clear volatile in-memory session caches for departing identity
+    // (Preserves persistent encrypted offline_outbox records in SQLite)
+    try {
+      clearBrowserSessionMemoryCache({ userId: exitingUserId, tenantId: exitingTenantId });
+      clearMemoryCache(exitingUserId, exitingTenantId);
+    } catch (e) {}
+
+    // 5. Asynchronous database cleanup (strictly scoped to departing user and tenant)
+    if (exitingUserId) {
+      try {
+        await clearUserCache(exitingUserId, exitingTenantId);
+      } catch (err) {
+        console.warn('[authSlice] Non-blocking user cache cleanup error during logout:', err?.message || err);
+      }
+    }
+  } finally {
+    _isLoggingOut = false;
+  }
+}
+
+export const logout = createAsyncThunk(
+  'auth/logout',
+  async (arg, { getState }) => {
+    // 1. Capture departing user coordinates before state reset
+    const state = getState();
+    const currentUser = arg || state?.auth?.departingUser || state?.auth?.user;
+    const exitingUserId = currentUser?._id || currentUser?.id || null;
+    let rawTenant = currentUser?.tenantId || currentUser?.hospitalId || currentUser?.hospital;
+    if (rawTenant && typeof rawTenant === 'object') {
+      rawTenant = rawTenant._id || rawTenant.id || rawTenant.slug || null;
+    }
+    const exitingTenantId = rawTenant ? String(rawTenant) : null;
+
+    // 2. Execute safe cleanup flow in side-effect layer
+    await performLogoutCleanup(currentUser);
+
+    return { exitingUserId, exitingTenantId };
+  }
+);
+
 // ── Initial State ─────────────────────────────────────────────────────────────
 // Note: redux-persist rehydrates user/token/isAuthenticated from AsyncStorage automatically.
 const initialState = {
@@ -219,6 +313,7 @@ const initialState = {
   activeSession: null,
   otpSuccessMsg: null,
   sessionExpiredMessage: null,
+  departingUser: null,
 };
 
 // ── Slice ─────────────────────────────────────────────────────────────────────
@@ -254,38 +349,6 @@ const authSlice = createSlice({
           AsyncStorage.setItem('user', JSON.stringify(action.payload.user));
         }
       }
-    },
-    logout: (state) => {
-      state.user = null;
-      state.token = null;
-      state.isAuthenticated = false;
-      state.error = null;
-      state.otpStep = null;
-      state.preAuthToken = null;
-      state.otpEmail = null;
-      state.activeSession = null;
-      state.otpSuccessMsg = null;
-      state.sessionExpiredMessage = null;
-      setAuthHeader(null);
-      if (Platform.OS === 'web' && typeof window !== 'undefined') {
-        localStorage.removeItem(STORAGE_KEYS.TOKEN);
-        localStorage.removeItem('token');
-        localStorage.removeItem('superadmin_token');
-        localStorage.removeItem(STORAGE_KEYS.USER);
-        localStorage.removeItem('user');
-        localStorage.removeItem('role');
-        sessionStorage.removeItem('role');
-        localStorage.setItem('isLoggedOut', 'true');
-        sessionStorage.setItem('isLoggedOut', 'true');
-        try {
-          if (window.location.hash) window.location.hash = '';
-        } catch (e) {}
-      }
-      AsyncStorage.multiRemove([STORAGE_KEYS.TOKEN, STORAGE_KEYS.USER, 'token', 'user', 'superadmin_token', 'role']);
-      try {
-        clearBrowserSessionMemoryCache();
-        clearMemoryCache();
-      } catch (e) {}
     },
     clearError: (state) => {
       state.error = null;
@@ -508,12 +571,43 @@ const authSlice = createSlice({
         state.loading = false;
         state.error = action.payload;
       });
+
+    // Logout handling (Pure Reducer State Reset)
+    const resetAuthState = (state) => {
+      state.user = null;
+      state.token = null;
+      state.isAuthenticated = false;
+      state.error = null;
+      state.otpStep = null;
+      state.preAuthToken = null;
+      state.otpEmail = null;
+      state.activeSession = null;
+      state.otpSuccessMsg = null;
+      state.sessionExpiredMessage = null;
+    };
+
+    builder
+      .addCase(logout.pending, (state) => {
+        state.departingUser = state.user;
+        resetAuthState(state);
+      })
+      .addCase(logout.fulfilled, (state) => {
+        state.departingUser = null;
+        resetAuthState(state);
+      })
+      .addCase(logout.rejected, (state) => {
+        state.departingUser = null;
+        resetAuthState(state);
+      })
+      .addCase('auth/logout', (state) => {
+        state.departingUser = null;
+        resetAuthState(state);
+      });
   },
 });
 
 export const {
   setCredentials,
-  logout,
   clearError,
   updateUser,
   resetOtpFlow,

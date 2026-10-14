@@ -38,6 +38,16 @@ import {
 import { getStoreRef } from '../../store/storeRef';
 import { setCacheEntry, getCacheEntry } from './cacheRepository';
 import { checkOnlineStatus } from './networkStatus';
+import {
+  enqueueOperation,
+  getPendingOperations,
+  markOperationSyncing,
+  markOperationFailed,
+  markOperationSynced,
+  removeOperation,
+  clearOutbox,
+  clearMemoryOutbox,
+} from './offlineQueue';
 
 /**
  * Browser-only in-memory session cache for read-only resources during web dev testing.
@@ -54,12 +64,19 @@ const _questionLibraryMemoryCache = new Map();
 /**
  * Deterministic cache key generator.
  * Strict isolation by tenant, user, resource type, department, and query params.
+ * Strictly rejects missing or invalid identity coordinates.
  */
 export function buildDeterministicCacheKey({ tenantId, userId, resourceType, resourceKey, department = '', params = {} }) {
-  const normTenant = String(tenantId || 'global_superadmin').trim().toLowerCase();
-  const normUser = String(userId || 'superadmin').trim().toLowerCase();
-  const normResource = String(resourceType || 'unknown').trim().toLowerCase();
-  const normKey = String(resourceKey || 'default').trim().toLowerCase();
+  if (!tenantId || !userId || !resourceType || !resourceKey) {
+    return null;
+  }
+  const normTenant = String(tenantId).trim().toLowerCase();
+  const normUser = String(userId).trim().toLowerCase();
+  if (!normTenant || !normUser || normTenant === 'null' || normTenant === 'undefined' || normUser === 'null' || normUser === 'undefined') {
+    return null;
+  }
+  const normResource = String(resourceType).trim().toLowerCase();
+  const normKey = String(resourceKey).trim().toLowerCase();
   const normDept = department ? `::dept_${String(department).trim().toLowerCase()}` : '';
   const paramKeys = Object.keys(params || {}).sort();
   const paramStr = paramKeys.length > 0 ? `::params_${paramKeys.map(k => `${k}=${params[k]}`).join('&')}` : '';
@@ -74,9 +91,35 @@ export function getBrowserSessionMemoryCacheStats() {
   };
 }
 
-export function clearBrowserSessionMemoryCache() {
-  _questionLibraryMemoryCache.clear();
-  clearQuestionLibraryOfflineQueue();
+/**
+ * Clears volatile in-memory session caches.
+ * When called with departing identity coordinates, cleans only that user's volatile entries.
+ * Crucial: Does NOT purge persistent encrypted offline_outbox records on logout.
+ */
+export function clearBrowserSessionMemoryCache(departingContext = {}) {
+  const exitingUserId = departingContext?.userId || null;
+  const exitingTenantId = departingContext?.tenantId || null;
+
+  if (!exitingUserId && !exitingTenantId) {
+    _questionLibraryMemoryCache.clear();
+    clearQuestionLibraryOfflineQueue();
+    clearMemoryOutbox();
+    return;
+  }
+
+  const normUser = exitingUserId ? String(exitingUserId).toLowerCase() : null;
+  const normTenant = exitingTenantId ? String(exitingTenantId).toLowerCase() : null;
+
+  for (const [key, entry] of _questionLibraryMemoryCache.entries()) {
+    const matchUser = !normUser || String(entry.userId || '').toLowerCase() === normUser;
+    const matchTenant = !normTenant || String(entry.tenantId || '').toLowerCase() === normTenant;
+    if (matchUser && matchTenant) {
+      _questionLibraryMemoryCache.delete(key);
+    }
+  }
+
+  clearQuestionLibraryOfflineQueue({ tenantId: exitingTenantId, userId: exitingUserId });
+  clearMemoryOutbox({ tenantId: exitingTenantId, userId: exitingUserId });
 }
 
 // ── Focused Offline Outbox for Question Library Add Question ──────────────────
@@ -100,7 +143,11 @@ export async function queueQuestionAddition({ department, category, question }) 
     throw new Error('[OfflineQueue] Missing required question parameters (department, category, question.q)');
   }
 
-  const { tenantId, userId } = await getSuperAdminAuthContext();
+  const authContext = await getSuperAdminAuthContext();
+  if (!authContext.isValid || !authContext.userId || !authContext.tenantId) {
+    throw new Error(`[OfflineQueue] Cannot queue operation: unauthenticated or invalid user identity (${authContext.reason || 'INVALID_AUTH_CONTEXT'})`);
+  }
+  const { tenantId, userId } = authContext;
   const operationId = `op_ql_add_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
 
   const queuedQuestion = {
@@ -137,37 +184,42 @@ export async function queueQuestionAddition({ department, category, question }) 
       resourceKey: 'library_master',
     });
 
-    const cachedLib = _questionLibraryMemoryCache.get(libraryCacheKey);
-    if (cachedLib && cachedLib.payload && cachedLib.payload.data) {
-      const libData = cachedLib.payload.data;
-      if (!libData[department]) libData[department] = {};
-      if (!libData[department][category]) libData[department][category] = [];
-      
-      const existingIdx = libData[department][category].findIndex(q => q._operationId === operationId);
-      if (existingIdx >= 0) {
-        libData[department][category][existingIdx] = queuedQuestion;
-      } else {
-        libData[department][category].push(queuedQuestion);
+    if (libraryCacheKey) {
+      const cachedLib = _questionLibraryMemoryCache.get(libraryCacheKey);
+      if (cachedLib && cachedLib.payload && cachedLib.payload.data) {
+        const libData = cachedLib.payload.data;
+        if (!libData[department]) libData[department] = {};
+        if (!libData[department][category]) libData[department][category] = [];
+        
+        const existingIdx = libData[department][category].findIndex(q => q._operationId === operationId);
+        if (existingIdx >= 0) {
+          libData[department][category][existingIdx] = queuedQuestion;
+        } else {
+          libData[department][category].push(queuedQuestion);
+        }
+        cachedLib.lastFetchedAt = Date.now();
       }
-      cachedLib.lastFetchedAt = Date.now();
     }
   } catch (memErr) {
     console.warn('[OfflineQueue] Could not patch memory cache:', memErr.message);
   }
 
-  // 3. Persist to native SQLCipher database on Android Tier 2
-  if (Platform.OS !== 'web') {
-    try {
-      await setCacheEntry({
-        tenantId,
-        userId,
-        resourceType: 'question_library_outbox',
-        resourceKey: operationId,
-        payload: queueEntry,
-      });
-    } catch (dbErr) {
-      console.warn('[OfflineQueue] Could not persist to SQLite outbox:', dbErr.message);
-    }
+  // 3. Persist to native SQLCipher database via reusable generic offline outbox
+  try {
+    await enqueueOperation({
+      operationId,
+      tenantId,
+      userId,
+      resourceType: 'question_library',
+      operationType: 'ADD_QUESTION',
+      payload: {
+        department: String(department),
+        category: String(category),
+        question: queuedQuestion,
+      },
+    });
+  } catch (dbErr) {
+    console.warn('[OfflineSuperAdmin] Could not persist to encrypted outbox:', dbErr.message);
   }
 
   return {
@@ -178,6 +230,71 @@ export async function queueQuestionAddition({ department, category, question }) 
 }
 
 /**
+ * Hydrates pending question library operations from the encrypted native outbox.
+ * Restores pending additions after app restarts for the exact authenticated identity.
+ */
+export async function hydrateQuestionLibraryOfflineQueue() {
+  const authContext = await getSuperAdminAuthContext();
+  if (!authContext.isValid || !authContext.userId || !authContext.tenantId) {
+    // Identity unresolved: do not restore operations
+    return [];
+  }
+  const { tenantId, userId } = authContext;
+
+  // Purge any memory queue entries from a different user/tenant
+  for (const [opId, entry] of _questionLibraryOfflineQueue.entries()) {
+    if (entry.tenantId !== tenantId || entry.userId !== userId) {
+      _questionLibraryOfflineQueue.delete(opId);
+    }
+  }
+
+  if (Platform.OS === 'web') {
+    return Array.from(_questionLibraryOfflineQueue.values());
+  }
+
+  try {
+    const persistedOps = await getPendingOperations({
+      tenantId,
+      userId,
+      resourceType: 'question_library',
+    });
+
+    for (const op of persistedOps) {
+      const qPayload = op.payload || {};
+      const department = qPayload.department;
+      const category = qPayload.category;
+      const question = qPayload.question;
+
+      if (department && category && question) {
+        if (!_questionLibraryOfflineQueue.has(op.operationId)) {
+          _questionLibraryOfflineQueue.set(op.operationId, {
+            operationId: op.operationId,
+            tenantId: op.tenantId,
+            userId: op.userId,
+            department: String(department),
+            category: String(category),
+            question: {
+              ...question,
+              _offlinePending: true,
+              _operationId: op.operationId,
+              _syncStatus: op.status,
+            },
+            createdAt: op.createdAt,
+            status: op.status,
+            retryCount: op.retryCount,
+            errorMessage: op.errorMessage,
+          });
+        }
+      }
+    }
+    return Array.from(_questionLibraryOfflineQueue.values());
+  } catch (err) {
+    console.warn('[OfflineSuperAdmin] Hydration error:', err.message);
+    return Array.from(_questionLibraryOfflineQueue.values());
+  }
+}
+
+/**
  * Returns all pending/queued Question Library operations.
  */
 export function getPendingQuestionLibraryOperations() {
@@ -185,11 +302,16 @@ export function getPendingQuestionLibraryOperations() {
 }
 
 /**
- * Returns count of currently pending operations in the queue.
+ * Returns count of currently pending operations in the queue for the specified or current identity.
  */
-export function getPendingQuestionCount() {
+export function getPendingQuestionCount({ tenantId = null, userId = null } = {}) {
   let count = 0;
+  const normTenant = tenantId ? String(tenantId).toLowerCase() : null;
+  const normUser = userId ? String(userId).toLowerCase() : null;
+
   for (const entry of _questionLibraryOfflineQueue.values()) {
+    if (normTenant && String(entry.tenantId || '').toLowerCase() !== normTenant) continue;
+    if (normUser && String(entry.userId || '').toLowerCase() !== normUser) continue;
     if (entry.status === 'pending' || entry.status === 'failed') {
       count++;
     }
@@ -198,14 +320,18 @@ export function getPendingQuestionCount() {
 }
 
 /**
- * Injects any queued offline questions into a library data structure.
+ * Injects queued offline questions into a library data structure scoped to owning identity.
  */
-export function injectPendingQuestionsIntoLibrary(libraryData) {
+export function injectPendingQuestionsIntoLibrary(libraryData, { tenantId = null, userId = null } = {}) {
   if (!libraryData || typeof libraryData !== 'object') return libraryData;
   const cloned = { ...libraryData };
+  const normTenant = tenantId ? String(tenantId).toLowerCase() : null;
+  const normUser = userId ? String(userId).toLowerCase() : null;
 
   for (const entry of _questionLibraryOfflineQueue.values()) {
     if (entry.status === 'synced') continue;
+    if (normTenant && String(entry.tenantId || '').toLowerCase() !== normTenant) continue;
+    if (normUser && String(entry.userId || '').toLowerCase() !== normUser) continue;
     const { department, category, question } = entry;
     if (!cloned[department]) cloned[department] = {};
     if (!cloned[department][category]) cloned[department][category] = [];
@@ -225,10 +351,11 @@ export function injectPendingQuestionsIntoLibrary(libraryData) {
 /**
  * Synchronizes pending Question Library Add operations when connectivity is restored.
  * 
- * - Processes operations sequentially
+ * - Strictly validates authenticated identity context
+ * - Processes only operations belonging to the authenticated user and tenant
  * - Mutex lock prevents rapid double-submission
  * - Calls authenticated Render API function questionLibraryAPI.updateLibrary
- * - On confirmed success, removes operation from queue and updates question status
+ * - On confirmed success, removes operation from queue and outbox
  * - On failure, retains operation with status 'failed' or 'needs_attention'
  */
 export async function syncPendingQuestionLibraryOperations({ onProgress = null } = {}) {
@@ -236,13 +363,24 @@ export async function syncPendingQuestionLibraryOperations({ onProgress = null }
     return { success: false, reason: 'sync_already_in_progress' };
   }
 
+  const authContext = await getSuperAdminAuthContext();
+  if (!authContext.isValid || !authContext.userId || !authContext.tenantId) {
+    return { success: false, reason: 'unauthenticated_or_invalid_identity' };
+  }
+  const { tenantId, userId } = authContext;
+
   const isOnline = await checkOnlineStatus();
   if (!isOnline) {
     return { success: false, reason: 'offline' };
   }
 
+  const normTenant = String(tenantId).toLowerCase();
+  const normUser = String(userId).toLowerCase();
+
   const pendingOps = Array.from(_questionLibraryOfflineQueue.values()).filter(
-    op => op.status === 'pending' || op.status === 'failed'
+    op => String(op.tenantId || '').toLowerCase() === normTenant &&
+          String(op.userId || '').toLowerCase() === normUser &&
+          (op.status === 'pending' || op.status === 'failed')
   );
 
   if (pendingOps.length === 0) {
@@ -280,6 +418,7 @@ export async function syncPendingQuestionLibraryOperations({ onProgress = null }
     // 2. Process each pending operation sequentially
     for (const op of pendingOps) {
       op.status = 'syncing';
+      await markOperationSyncing(op.operationId);
       if (typeof onProgress === 'function') {
         onProgress({ operationId: op.operationId, status: 'syncing' });
       }
@@ -314,8 +453,10 @@ export async function syncPendingQuestionLibraryOperations({ onProgress = null }
           op.status = 'synced';
           syncedCount++;
 
-          // Remove from memory queue
+          // Remove from memory queue and persistent outbox
           _questionLibraryOfflineQueue.delete(op.operationId);
+          await markOperationSynced(op.operationId);
+          await removeOperation(op.operationId);
 
           if (typeof onProgress === 'function') {
             onProgress({ operationId: op.operationId, status: 'synced' });
@@ -324,6 +465,7 @@ export async function syncPendingQuestionLibraryOperations({ onProgress = null }
           op.status = 'failed';
           op.errorMessage = res?.message || 'Server rejected question update';
           failedCount++;
+          await markOperationFailed(op.operationId, op.errorMessage);
           if (typeof onProgress === 'function') {
             onProgress({ operationId: op.operationId, status: 'failed', error: op.errorMessage });
           }
@@ -333,6 +475,7 @@ export async function syncPendingQuestionLibraryOperations({ onProgress = null }
         op.status = 'failed';
         op.errorMessage = reqErr.message;
         failedCount++;
+        await markOperationFailed(op.operationId, reqErr.message);
         if (typeof onProgress === 'function') {
           onProgress({ operationId: op.operationId, status: 'failed', error: reqErr.message });
         }
@@ -365,14 +508,42 @@ export async function syncPendingQuestionLibraryOperations({ onProgress = null }
 }
 
 /**
- * Clears the offline question queue (used on logout or session reset).
+ * Clears the in-memory Question Library offline queue (RAM only).
+ * When coordinates are passed, clears only matching operations.
+ * Crucial: Does NOT delete persistent encrypted offline_outbox records on logout.
  */
-export function clearQuestionLibraryOfflineQueue() {
-  _questionLibraryOfflineQueue.clear();
+export function clearQuestionLibraryOfflineQueue({ tenantId = null, userId = null } = {}) {
+  if (!tenantId && !userId) {
+    _questionLibraryOfflineQueue.clear();
+    return;
+  }
+  const normUser = userId ? String(userId).toLowerCase() : null;
+  const normTenant = tenantId ? String(tenantId).toLowerCase() : null;
+
+  for (const [opId, entry] of _questionLibraryOfflineQueue.entries()) {
+    const matchUser = !normUser || String(entry.userId || '').toLowerCase() === normUser;
+    const matchTenant = !normTenant || String(entry.tenantId || '').toLowerCase() === normTenant;
+    if (matchUser && matchTenant) {
+      _questionLibraryOfflineQueue.delete(opId);
+    }
+  }
+}
+
+/**
+ * Explicit discard/purge of pending operations (administrative / intentional user action only).
+ * Coupled to explicit user intent only, NEVER automatically invoked on logout.
+ */
+export async function discardUserPendingOperations({ tenantId, userId }) {
+  if (!tenantId || !userId) return false;
+  clearQuestionLibraryOfflineQueue({ tenantId, userId });
+  clearMemoryOutbox({ tenantId, userId });
+  return clearOutbox({ tenantId, userId });
 }
 
 /**
  * Resolves current authenticated Super Admin context deterministically across all environments.
+ * Strictly requires stable, non-empty user identifier and valid tenant scope.
+ * Never falls back to shared default identities like 'superadmin' or 'global_superadmin' for unresolved users.
  */
 export async function getSuperAdminAuthContext() {
   let user = null;
@@ -415,26 +586,72 @@ export async function getSuperAdminAuthContext() {
     } catch (e) {}
   }
 
-  const role = (typeof user?.role === 'object' ? user?.role?.name : user?.role || '').toLowerCase();
-  const isSuperAdminRole = ['superadmin', 'centraladmin', 'admin'].includes(role);
+  if (!user || typeof user !== 'object') {
+    return {
+      isValid: false,
+      reason: 'NO_AUTHENTICATED_USER',
+      tenantId: null,
+      userId: null,
+      role: null,
+      user: null,
+      isSuperAdmin: false,
+    };
+  }
+
+  // Require stable, non-empty user identifier before allowing cache or queue access
+  const rawUserId = user?._id || user?.id || user?.email || user?.username;
+  if (!rawUserId || typeof rawUserId !== 'string' || !rawUserId.trim() || rawUserId === 'null' || rawUserId === 'undefined') {
+    return {
+      isValid: false,
+      reason: 'MISSING_USER_ID',
+      tenantId: null,
+      userId: null,
+      role: null,
+      user: null,
+      isSuperAdmin: false,
+    };
+  }
+  const userId = String(rawUserId).trim();
+
+  const role = (typeof user?.role === 'object' ? user?.role?.name : user?.role || '').trim().toLowerCase();
+  const isGlobalSuperAdminRole = ['superadmin', 'centraladmin'].includes(role);
+  const isAdminRole = isGlobalSuperAdminRole || role === 'admin';
 
   // Robust tenant resolution
   let rawTenant = user?.tenantId || user?.hospitalId || user?.hospital;
   if (rawTenant && typeof rawTenant === 'object') {
     rawTenant = rawTenant._id || rawTenant.id || rawTenant.slug || null;
   }
-  const tenantId = rawTenant ? String(rawTenant) : (isSuperAdminRole ? 'global_superadmin' : 'default_tenant');
 
-  // Robust user resolution
-  const rawUserId = user?._id || user?.id || user?.email || user?.username;
-  const userId = rawUserId ? String(rawUserId) : (isSuperAdminRole ? 'superadmin' : 'authenticated_user');
+  let tenantId = null;
+  if (rawTenant && typeof rawTenant === 'string' && rawTenant.trim() && rawTenant !== 'null' && rawTenant !== 'undefined') {
+    tenantId = rawTenant.trim();
+  } else if (isGlobalSuperAdminRole) {
+    // Explicit global scope ONLY when authenticated role and real user identity confirm legitimate global account
+    tenantId = 'global_superadmin';
+  }
+
+  if (!tenantId) {
+    // Unresolved tenant scope: strictly refuse shared default fallback
+    return {
+      isValid: false,
+      reason: 'UNRESOLVED_TENANT_SCOPE',
+      tenantId: null,
+      userId,
+      role,
+      user,
+      isSuperAdmin: isAdminRole,
+    };
+  }
 
   return {
+    isValid: true,
+    reason: null,
     tenantId: String(tenantId),
-    userId: String(userId),
+    userId,
     role,
     user,
-    isSuperAdmin: isSuperAdminRole,
+    isSuperAdmin: isAdminRole,
   };
 }
 
@@ -453,7 +670,52 @@ export async function fetchWithOfflineRead({
   onCacheHit = null,
   isSynthetic = false,
 }) {
-  const { tenantId, userId } = await getSuperAdminAuthContext();
+  const authContext = await getSuperAdminAuthContext();
+
+  // If authentication/identity is invalid, DO NOT read or write persistent or shared cache
+  if (!authContext.isValid || !authContext.tenantId || !authContext.userId) {
+    const isOnline = await checkOnlineStatus();
+    if (!isOnline) {
+      return {
+        success: false,
+        data: null,
+        fromCache: false,
+        isOffline: true,
+        noCache: true,
+        lastFetchedAt: null,
+        isSynthetic: false,
+        error: 'Unauthenticated or invalid user identity context.',
+      };
+    }
+
+    // Online: execute live fetcher for screen/login handling, but DO NOT read or write persistent or shared cache
+    try {
+      const rawResponse = await fetcher();
+      const freshData = extractor(rawResponse);
+      return {
+        success: true,
+        data: freshData,
+        fromCache: false,
+        isOffline: false,
+        lastFetchedAt: Date.now(),
+        isSynthetic,
+        rawResponse,
+      };
+    } catch (networkErr) {
+      return {
+        success: false,
+        data: null,
+        fromCache: false,
+        isOffline: false,
+        noCache: true,
+        lastFetchedAt: null,
+        isSynthetic: false,
+        error: networkErr.response?.data?.message || networkErr.message || 'Network request failed and identity context is invalid.',
+      };
+    }
+  }
+
+  const { tenantId, userId } = authContext;
   const cacheKey = buildDeterministicCacheKey({
     tenantId,
     userId,
@@ -536,7 +798,7 @@ export async function fetchWithOfflineRead({
       if (resourceType === 'superadmin_question_library' && payloadToReturn?.data) {
         payloadToReturn = {
           ...payloadToReturn,
-          data: injectPendingQuestionsIntoLibrary(payloadToReturn.data),
+          data: injectPendingQuestionsIntoLibrary(payloadToReturn.data, { tenantId, userId }),
         };
       }
       return {
@@ -569,7 +831,7 @@ export async function fetchWithOfflineRead({
 
     // If there are pending offline questions not yet synced, keep them visible in payload
     if (resourceType === 'superadmin_question_library' && freshData?.data) {
-      freshData.data = injectPendingQuestionsIntoLibrary(freshData.data);
+      freshData.data = injectPendingQuestionsIntoLibrary(freshData.data, { tenantId, userId });
     }
 
     // ── Step 4: Write immediately into module-level In-Memory Map Cache ─────────
@@ -784,6 +1046,11 @@ export async function fetchSuperAdminQuestionLibrary({
   onCacheHit = null,
 } = {}) {
   const resourceKey = 'library_master';
+
+  // Hydrate any pending operations from native encrypted outbox before reading/serving
+  try {
+    await hydrateQuestionLibraryOfflineQueue();
+  } catch (e) {}
 
   return fetchWithOfflineRead({
     resourceType: 'superadmin_question_library',
@@ -1008,7 +1275,9 @@ export const fetchSuperAdminReceptions = fetchSuperAdminReceptionists;
  * Allows safe verification of offline behavior even in unencrypted developer mode.
  */
 export async function seedSyntheticSuperAdminDataForTesting() {
-  const { tenantId, userId } = await getSuperAdminAuthContext();
+  const authContext = await getSuperAdminAuthContext();
+  const tenantId = authContext.isValid ? authContext.tenantId : 'global_superadmin';
+  const userId = authContext.isValid ? authContext.userId : 'synthetic_superadmin';
 
   const syntheticHospitals = {
     hospitals: [
@@ -1203,5 +1472,13 @@ export default {
   fetchSuperAdminLabTests,
   fetchSuperAdminPharmacies,
   fetchSuperAdminServices,
+  hydrateQuestionLibraryOfflineQueue,
+  queueQuestionAddition,
+  getPendingQuestionLibraryOperations,
+  getPendingQuestionCount,
+  syncPendingQuestionLibraryOperations,
+  clearQuestionLibraryOfflineQueue,
+  clearBrowserSessionMemoryCache,
+  discardUserPendingOperations,
   seedSyntheticSuperAdminDataForTesting,
 };
