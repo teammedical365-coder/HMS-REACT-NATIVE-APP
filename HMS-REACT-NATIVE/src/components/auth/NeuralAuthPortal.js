@@ -424,8 +424,8 @@ const NeuralAuthPortal = ({
                             </View>
                         )}
 
-                        {/* ─── CENTER SECTION: HOLOGRAPHIC SURGEON STAGE (Desktop Only) ─── */}
-                        {isDesktop && (
+                        {/* ─── CENTER SECTION: HOLOGRAPHIC SURGEON STAGE (Desktop Web) ─── */}
+                        {(Platform.OS === 'web' && isDesktop) && (
                             <View style={styles.centerPane}>
                                 <View style={styles.hologramContainer}>
                                     <Animated.View style={[
@@ -456,45 +456,26 @@ const NeuralAuthPortal = ({
                             isMobile && styles.rightPaneSmall
                         ]}>
                             {isMobile && (
-                                <>
-                                    <View style={styles.mobileBrandHeader}>
-                                        {logoSrc ? (
-                                            <Image 
-                                                source={logoSrc} 
-                                                style={styles.mobileBrandLogo} 
-                                                resizeMode="contain" 
-                                            />
-                                        ) : (
-                                            <View style={styles.mobileBrandPlaceholder}>
-                                                <View style={styles.mobileBrandSkeletonIcon}>
-                                                    <Feather name="activity" size={20} color="#0d9488" />
-                                                </View>
-                                                {hospitalName ? (
-                                                    <Text style={styles.mobileBrandTitleText}>{hospitalName}</Text>
-                                                ) : (
-                                                    <View style={styles.mobileBrandSkeletonBar} />
-                                                )}
+                                <View style={styles.mobileBrandHeader}>
+                                    {logoSrc ? (
+                                        <Image 
+                                            source={logoSrc} 
+                                            style={styles.mobileBrandLogo} 
+                                            resizeMode="contain" 
+                                        />
+                                    ) : (
+                                        <View style={styles.mobileBrandPlaceholder}>
+                                            <View style={styles.mobileBrandSkeletonIcon}>
+                                                <Feather name="activity" size={20} color="#0d9488" />
                                             </View>
-                                        )}
-                                    </View>
-                                    <View style={styles.mobileDoctorStage}>
-                                        <View style={styles.mobileDoctorContainer}>
-                                            <Animated.View style={[
-                                                styles.mobileHaloRing, 
-                                                Platform.OS === 'web' ? { animation: 'rotateClockwise 16s linear infinite' } : { transform: [{ rotate: spin }] }
-                                            ]} />
-                                            <Animated.View style={[
-                                                styles.mobileHaloRingInner, 
-                                                Platform.OS === 'web' ? { animation: 'rotateCounterClockwise 10s linear infinite' } : { transform: [{ rotate: spinReverse }] }
-                                            ]} />
-                                            <Image 
-                                                source={require('../../../assets/hologram_surgeon_feathered.png')} 
-                                                style={styles.mobileDoctorImg} 
-                                                resizeMode="contain" 
-                                            />
+                                            {hospitalName ? (
+                                                <Text style={styles.mobileBrandTitleText}>{hospitalName}</Text>
+                                            ) : (
+                                                <View style={styles.mobileBrandSkeletonBar} />
+                                            )}
                                         </View>
-                                    </View>
-                                </>
+                                    )}
+                                </View>
                             )}
 
                             <View style={[
@@ -1181,7 +1162,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         width: '100%',
         paddingTop: 14,
-        paddingBottom: 6,
+        paddingBottom: 14,
         paddingHorizontal: 16,
     },
     mobileBrandLogo: {
