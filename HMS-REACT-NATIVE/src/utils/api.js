@@ -1422,6 +1422,28 @@ export const refundReceptionAPI = {
   getRefundHistory: async () => (await apiClient.get('/api/refunds/reception/refund-history')).data,
 };
 
+// ─── Doctor Assistant / Clinical Assistant API ────────────────────────────────
+export const assistantAPI = {
+  getDashboard: async () => (await apiClient.get('/api/assistant/dashboard')).data,
+  getDoctors: async () => (await apiClient.get('/api/assistant/doctors')).data,
+  getAppointments: async (params = {}) => (await apiClient.get('/api/assistant/appointments', { params })).data,
+  getQuestionLibrary: async (params = {}) => (await apiClient.get('/api/assistant/question-library', { params })).data,
+  getPreparation: async (appointmentId, params = {}) => (await apiClient.get(`/api/assistant/preparation/${appointmentId}`, { params })).data,
+  updateVitals: async (appointmentId, data) => (await apiClient.put(`/api/assistant/preparation/${appointmentId}/vitals`, data)).data,
+  updateHistory: async (appointmentId, data) => (await apiClient.put(`/api/assistant/preparation/${appointmentId}/history`, data)).data,
+  updateQuestionnaire: async (appointmentId, data) => (await apiClient.put(`/api/assistant/preparation/${appointmentId}/questionnaire`, data)).data,
+  uploadReports: async (appointmentId, formData) => {
+    const config = {};
+    if (Platform.OS !== 'web') {
+      config.headers = { 'Content-Type': 'multipart/form-data' };
+    }
+    return (await apiClient.post(`/api/assistant/preparation/${appointmentId}/reports`, formData, config)).data;
+  },
+  updateInvestigations: async (appointmentId, data) => (await apiClient.put(`/api/assistant/preparation/${appointmentId}/investigations`, data)).data,
+  updateNotes: async (appointmentId, data) => (await apiClient.put(`/api/assistant/preparation/${appointmentId}/notes`, data)).data,
+  markReady: async (appointmentId) => (await apiClient.post(`/api/assistant/preparation/${appointmentId}/mark-ready`)).data,
+};
+
 export default apiClient;
 
 

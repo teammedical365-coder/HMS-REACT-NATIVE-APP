@@ -1,6 +1,8 @@
 import React from 'react';
+import { View, Text } from 'react-native';
 import { useSelector } from 'react-redux';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { Feather } from '@expo/vector-icons';
 
 // Dashboard Layout
 import DashboardLayout from '../components/layouts/DashboardLayout';
@@ -90,6 +92,12 @@ import PatientBillingProfile from '../screens/billing/PatientBillingProfile';
 // -- Patient Pages --
 import PatientDashboard from '../screens/patient/PatientDashboard';
 import UnifiedPatientProfile from '../screens/patient/UnifiedPatientProfile';
+
+// -- Doctor Assistant Pages --
+import DoctorAssistantDashboard from '../screens/assistant/DoctorAssistantDashboard';
+import DoctorAssistantQueue from '../screens/assistant/DoctorAssistantQueue';
+import DoctorAssistantQuestionLibrary from '../screens/assistant/DoctorAssistantQuestionLibrary';
+import DoctorAssistantPreparation from '../screens/assistant/DoctorAssistantPreparation';
 
 const Stack = createNativeStackNavigator();
 
@@ -335,5 +343,15 @@ export const PatientApp = () => (
         <Stack.Screen name="UnifiedPatientProfile" component={UnifiedPatientProfile} />
         <Stack.Screen name="UserPharmacy" component={UserPharmacy} />
         <Stack.Screen name="PatientPharmacy" component={UserPharmacy} />
+    </Stack.Navigator>
+);
+
+// -- Doctor Assistant App Stack --
+export const AssistantApp = () => (
+    <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
+        <Stack.Screen name="DoctorAssistantDashboard" component={withLayout(DoctorAssistantDashboard)} />
+        <Stack.Screen name="DoctorAssistantQueue" component={withLayout(DoctorAssistantQueue)} />
+        <Stack.Screen name="DoctorAssistantQuestionLibrary" component={withLayout(DoctorAssistantQuestionLibrary)} />
+        <Stack.Screen name="DoctorAssistantPreparation" component={withLayout(DoctorAssistantPreparation)} />
     </Stack.Navigator>
 );

@@ -33,10 +33,14 @@ const Navbar = () => {
   const handleLogout = () => {
     dispatch(logout());
     setShowSettings(false);
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'LoginScreen' }],
-    });
+    try {
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Login' }],
+      });
+    } catch (e) {
+      // In case navigation stack unmounts or auth state handles root reset
+    }
   };
 
   const handleNotificationClick = (id) => {
@@ -177,7 +181,7 @@ const Navbar = () => {
                         style={styles.dropdownItem} 
                         onPress={() => {
                           setShowSettings(false);
-                          navigation.navigate('LoginScreen');
+                          navigation.navigate('Login');
                         }}
                       >
                         <Ionicons name="log-in-outline" size={18} color="#0ea5e9" style={styles.dropdownIcon} />

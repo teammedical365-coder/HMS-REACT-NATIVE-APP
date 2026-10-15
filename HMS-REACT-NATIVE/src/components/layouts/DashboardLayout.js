@@ -204,7 +204,22 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
             ];
         }
 
-        const isDoctor = role === 'doctor' || role === 'clinic doctor' || roleClean === 'doctor' || roleClean === 'clinicdoctor';
+        const isAssistantRoute = currentPath && (
+            currentPath === 'DoctorAssistantDashboard' ||
+            currentPath === 'DoctorAssistantQueue' ||
+            currentPath === 'DoctorAssistantQuestionLibrary' ||
+            currentPath === 'DoctorAssistantPreparation'
+        );
+        const isAssistant = role === 'doctor_assistant' || role === 'doctor assistant' || role === 'clinical assistant' || roleClean === 'doctor_assistant' || roleClean === 'doctorassistant' || roleClean === 'clinicalassistant' || roleClean === 'assistant';
+        if (isAssistant || isAssistantRoute) {
+            return [
+                { label: 'Assistant Dashboard', path: 'DoctorAssistantDashboard', icon: <Feather name="home" size={18} /> },
+                { label: 'Patient Queue', path: 'DoctorAssistantQueue', icon: <Feather name="users" size={18} /> },
+                { label: 'Question Library', path: 'DoctorAssistantQuestionLibrary', icon: <Feather name="book-open" size={18} /> },
+            ];
+        }
+
+        const isDoctor = (role === 'doctor' || role === 'clinic doctor' || roleClean === 'doctor' || roleClean === 'clinicdoctor') && !isAssistant;
         const isDoctorRoute = currentPath && (
             currentPath === 'DoctorDashboard' || 
             currentPath === 'DoctorPatients' || 

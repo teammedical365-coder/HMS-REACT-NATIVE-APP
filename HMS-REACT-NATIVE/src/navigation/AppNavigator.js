@@ -17,7 +17,8 @@ import {
     AccountantApp,
     CashierApp,
     NurseApp,
-    PatientApp
+    PatientApp,
+    AssistantApp
 } from './RoleStacks';
 import DashboardScreen from '../screens/DashboardScreen';
 import DashboardLayout from '../components/layouts/DashboardLayout';
@@ -288,6 +289,11 @@ const AppNavigator = () => {
                 return <Stack.Screen name="Nurse" component={NurseApp} />;
             case 'patient':
                 return <Stack.Screen name="Patient" component={PatientApp} />;
+            case 'doctor_assistant':
+            case 'doctorassistant':
+            case 'clinicalassistant':
+            case 'assistant':
+                return <Stack.Screen name="Assistant" component={AssistantApp} />;
             default:
                 return <Stack.Screen name="Fallback" component={FallbackStack} />;
         }

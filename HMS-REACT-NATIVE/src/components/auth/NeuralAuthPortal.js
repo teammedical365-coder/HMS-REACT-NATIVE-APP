@@ -11,8 +11,6 @@ import { useBranding } from '../../context/BrandingContext';
 
 const isSafeLogo = (u) => Boolean(u && typeof u === 'string' && u.trim() && !u.includes('gemini.google.com'));
 
-const __DISABLE_LOGIN_VISUALS__ = false;
-
 const NeuralAuthPortal = ({
     portalType = 'hospital',
     title = 'Hospital Portal',
@@ -38,7 +36,6 @@ const NeuralAuthPortal = ({
     sessionBanner = null,
     extraFooter = null,
 }) => {
-    console.log('[DIAG] LOGIN_RENDER');
     const { width: windowWidth, height: windowHeight } = useWindowDimensions();
     const isDesktop = windowWidth >= 1200;
     const isTablet = windowWidth >= 769 && windowWidth < 1200;
@@ -117,27 +114,37 @@ const NeuralAuthPortal = ({
     }, []);
 
     useEffect(() => {
-        console.log('[DIAG] LOGIN_MOUNT');
-        if (__DISABLE_LOGIN_VISUALS__) {
-            console.log('[DIAG] VISUALS_DISABLED');
+        // Decorative hologram/halo/ECG animations are strictly for desktop web viewports
+        // where centerPane / leftPane are rendered.
+        // On native Android/iOS and mobile viewports, these views are omitted, so running
+        // native animation loops at 60fps causes thread contention and native focus dismissal.
+        if (Platform.OS !== 'web' || !isDesktop) {
             return;
         }
 
-        Animated.loop(
-            Animated.timing(spinAnim, { toValue: 1, duration: 16000, useNativeDriver: Platform.OS !== 'web' })
-        ).start();
-
-        Animated.loop(
+        const spinLoop = Animated.loop(
+            Animated.timing(spinAnim, { toValue: 1, duration: 16000, useNativeDriver: false })
+        );
+        const pulseLoop = Animated.loop(
             Animated.sequence([
-                Animated.timing(pulseAnim, { toValue: 1.18, duration: 900, useNativeDriver: Platform.OS !== 'web' }),
-                Animated.timing(pulseAnim, { toValue: 1, duration: 900, useNativeDriver: Platform.OS !== 'web' })
+                Animated.timing(pulseAnim, { toValue: 1.18, duration: 900, useNativeDriver: false }),
+                Animated.timing(pulseAnim, { toValue: 1, duration: 900, useNativeDriver: false })
             ])
-        ).start();
+        );
+        const ecgLoop = Animated.loop(
+            Animated.timing(ecgAnim, { toValue: 1, duration: 3200, useNativeDriver: false })
+        );
 
-        Animated.loop(
-            Animated.timing(ecgAnim, { toValue: 1, duration: 3200, useNativeDriver: Platform.OS !== 'web' })
-        ).start();
-    }, []);
+        spinLoop.start();
+        pulseLoop.start();
+        ecgLoop.start();
+
+        return () => {
+            spinLoop.stop();
+            pulseLoop.stop();
+            ecgLoop.stop();
+        };
+    }, [isDesktop]);
 
     const spin = spinAnim.interpolate({
         inputRange: [0, 1],
@@ -856,8 +863,7 @@ const styles = StyleSheet.create({
         })
     },
     scrollContentSmall: {
-        height: 'auto',
-        minHeight: '100%',
+        flexGrow: 1,
         justifyContent: 'flex-start',
         paddingTop: 16,
         paddingBottom: 24,
@@ -876,13 +882,15 @@ const styles = StyleSheet.create({
         height: '100%',
     },
     centerSectionSmall: {
-        flex: 0,
+        flex: 1,
         justifyContent: 'flex-start',
         alignItems: 'center',
         width: '100%',
-        height: 'auto',
-        minHeight: 'auto',
         paddingVertical: 0,
+        ...(Platform.OS === 'web' ? {
+            height: 'auto',
+            minHeight: 'auto',
+        } : {}),
     },
     mainWrapper: { 
         width: '100%', 
@@ -1369,11 +1377,8 @@ const styles = StyleSheet.create({
         ...(Platform.OS === 'web' ? {
             boxShadow: '0 0 0 3.5px rgba(139, 92, 246, 0.18)',
         } : {
-            shadowColor: '#8b5cf6',
-            shadowOffset: { width: 0, height: 0 },
-            shadowOpacity: 0.25,
-            shadowRadius: 6,
-            elevation: 2,
+            borderColor: '#7c3aed',
+            borderWidth: 2,
         })
     },
     inputIcon: { 

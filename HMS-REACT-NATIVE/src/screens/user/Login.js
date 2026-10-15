@@ -69,7 +69,11 @@ const Login = () => {
                     clinicdoctor: 'HospitalAdmin',
                     otmanager: 'OTDashboard',
                     otstaff: 'OTDashboard',
-                    ot: 'OTDashboard'
+                    ot: 'OTDashboard',
+                    doctor_assistant: 'DoctorAssistantDashboard',
+                    doctorassistant: 'DoctorAssistantDashboard',
+                    clinicalassistant: 'DoctorAssistantDashboard',
+                    assistant: 'DoctorAssistantDashboard'
                 };
                 const role = (user.role || '').toLowerCase().replace(/\s+/g, '');
                 let targetPath = redirectMap[role] || redirectMap[(user.role || '').toLowerCase()] || searchParams.redirect || 'Dashboard';
