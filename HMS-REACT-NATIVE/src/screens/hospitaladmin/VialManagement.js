@@ -9,6 +9,10 @@ import { vialAPI, patientAPI } from '../../utils/api';
 import DatePickerInput from '../../components/common/DatePickerInput';
 import TimePickerInput from '../../components/common/TimePickerInput';
 import DropdownSelect from '../../components/common/DropdownSelect';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
+import { fetchHospitalVialsWithOffline, assertHospitalAdminActionAllowed } from '../../services/offline/offlineHospitalAdminService';
 
 const VIAL_TYPES = [
     'Biological Sample',
@@ -26,6 +30,15 @@ const VialManagement = () => {
     const { width: windowWidth } = useWindowDimensions();
     const isMobile = windowWidth < 768;
     const isSmallMobile = windowWidth <= 430;
+
+    // Offline Resilience State
+    const [offlineMeta, setOfflineMeta] = useState({
+        isOffline: false,
+        isStale: false,
+        lastSynced: null,
+        freshnessNote: '',
+        noCache: false,
+    });
 
     // Data State (Direct 1:1 with Web VialManagement.jsx)
     const [vials, setVials] = useState([]);
@@ -161,7 +174,7 @@ const VialManagement = () => {
         }
     };
 
-    // Fetch Vials (Direct Web API: vialAPI.getAll)
+    // Fetch Vials (Direct Web API: vialAPI.getAll with offline resilience)
     const fetchVials = useCallback(async () => {
         setLoading(true);
         setError(null);
@@ -177,22 +190,34 @@ const VialManagement = () => {
             if (startDate) params.startDate = startDate;
             if (endDate) params.endDate = endDate;
 
-            const res = await vialAPI.getAll(params);
-            if (res && res.success) {
-                setVials(res.vials || []);
-                if (res.pagination) {
-                    setPagination(res.pagination);
+            const isOnline = await checkOnlineStatus();
+            const res = await fetchHospitalVialsWithOffline(params);
+            if (res && res.data) {
+                setVials(res.data.vials || []);
+                if (res.data.pagination) {
+                    setPagination(res.data.pagination);
+                }
+                if (res.data.stats) {
+                    setStats(res.data.stats);
                 }
             } else {
-                setError(res?.message || 'Unable to load vial information.');
+                setError('Unable to load vial information.');
                 setVials([]);
             }
+            setOfflineMeta({
+                isOffline: !isOnline || Boolean(res?.isStale),
+                isStale: Boolean(res?.isStale),
+                lastSynced: res?.lastSynced,
+                freshnessNote: res?.freshnessNote || '',
+                noCache: Boolean(res?.noCache),
+            });
         } catch (err) {
             console.error('Error fetching vials:', err);
             setError(err?.response?.data?.message || 'Unable to load vial information. Please try again.');
             setVials([]);
         } finally {
             setLoading(false);
+            setStatsLoading(false);
         }
     }, [page, searchTerm, selectedStatus, selectedType, storageUnitFilter, startDate, endDate]);
 
@@ -281,6 +306,11 @@ const VialManagement = () => {
 
     // Submit Store Vial
     const handleStoreSubmit = async () => {
+        const guard = await assertHospitalAdminActionAllowed('VIAL_MUTATION');
+        if (!guard.allowed) {
+            showNotification(guard.message, true);
+            return;
+        }
         if (!selectedPatient) {
             showNotification('Please search and select a patient first', true);
             return;
@@ -351,6 +381,11 @@ const VialManagement = () => {
     };
 
     const handleMoveSubmit = async () => {
+        const guard = await assertHospitalAdminActionAllowed('VIAL_MUTATION');
+        if (!guard.allowed) {
+            showNotification(guard.message, true);
+            return;
+        }
         if (!moveForm.storageUnit.trim()) {
             showNotification('Destination Storage Unit is required', true);
             return;
@@ -390,6 +425,11 @@ const VialManagement = () => {
     };
 
     const handleRetrieveSubmit = async () => {
+        const guard = await assertHospitalAdminActionAllowed('VIAL_MUTATION');
+        if (!guard.allowed) {
+            showNotification(guard.message, true);
+            return;
+        }
         if (!retrieveForm.reason.trim()) {
             showNotification('Reason for retrieval is required', true);
             return;
@@ -441,6 +481,11 @@ const VialManagement = () => {
     };
 
     const handleReturnSubmit = async () => {
+        const guard = await assertHospitalAdminActionAllowed('VIAL_MUTATION');
+        if (!guard.allowed) {
+            showNotification(guard.message, true);
+            return;
+        }
         if (!returnForm.storageUnit.trim()) {
             showNotification('Storage Unit is required to return vial to storage', true);
             return;
@@ -480,6 +525,11 @@ const VialManagement = () => {
     };
 
     const handleDiscardSubmit = async () => {
+        const guard = await assertHospitalAdminActionAllowed('VIAL_MUTATION');
+        if (!guard.allowed) {
+            showNotification(guard.message, true);
+            return;
+        }
         if (!discardForm.discardReason.trim() || discardForm.discardReason.trim().length < 3) {
             showNotification('Please enter a valid discard reason (at least 3 characters)', true);
             return;
@@ -624,6 +674,17 @@ const VialManagement = () => {
             ) : null}
 
             <ScrollView style={styles.mainScrollView} contentContainerStyle={styles.scrollContent}>
+
+            {/* Offline Status & Stale Cache Warning Banner */}
+            {(offlineMeta.isOffline || offlineMeta.isStale) && (
+                <OfflineBanner
+                    isOffline={offlineMeta.isOffline}
+                    isStale={offlineMeta.isStale}
+                    lastSynced={offlineMeta.lastSynced}
+                    customMessage={offlineMeta.freshnessNote || 'Notice: Offline Mode. Biological specimen locations and counts reflect cached records.'}
+                    onRefresh={() => fetchVials()}
+                />
+            )}
 
             {/* 1. PAGE HEADER (Exact Web .vm-header) */}
             <View style={styles.header}>

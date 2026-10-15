@@ -19,6 +19,16 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ipdCommandCenterAPI } from '../../utils/api';
 import socket from '../../utils/socket';
+import {
+  fetchIPDOverviewWithOffline,
+  fetchIPDFlowBoardWithOffline,
+  fetchDischargeBlockersWithOffline,
+  fetchIPDAnalyticsWithOffline,
+  reconcileBedsOnlineOnly,
+} from '../../services/offline/offlineIPDService';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
 
 const STAGE_CONFIG = {
   ADMITTED: { label: 'Admitted (<24h)', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)', border: '#93c5fd' },
@@ -44,6 +54,13 @@ export default function IPDCommandCenter({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState(new Date());
+  const [offlineState, setOfflineState] = useState({
+    isOffline: false,
+    fromCache: false,
+    lastFetchedAt: null,
+    noCache: false,
+    isCensusEstimate: false,
+  });
 
   // Overview & Flow Board Data
   const [census, setCensus] = useState(null);
@@ -125,26 +142,54 @@ export default function IPDCommandCenter({ navigation }) {
     if (!isSilent) setRefreshing(true);
     try {
       const [overviewRes, boardRes] = await Promise.all([
-        ipdCommandCenterAPI.getOverview().catch((err) => {
-          console.error('Overview error:', err);
-          return { success: false };
+        fetchIPDOverviewWithOffline({
+          onCacheHit: (cached) => {
+            if (cached && cached.overview) {
+              setCensus(cached.overview.census);
+              setWorkload(cached.overview.clinicalWorkload);
+              setWardBreakdown(cached.overview.wardBreakdown || []);
+              setOfflineState({
+                isOffline: false,
+                fromCache: true,
+                lastFetchedAt: cached.lastFetchedAt,
+                noCache: false,
+                isCensusEstimate: true,
+              });
+              setLoading(false);
+            }
+          }
+        }).catch((err) => {
+          console.warn('Overview offline fetch error:', err?.message);
+          return { success: false, isOffline: true };
         }),
-        ipdCommandCenterAPI
-          .getFlowBoard({
-            ward: selectedWard,
-            search: searchQuery,
-            stageFilter: selectedStage,
-          })
-          .catch((err) => {
-            console.error('Flow board error:', err);
-            return { success: false };
-          }),
+        fetchIPDFlowBoardWithOffline({
+          ward: selectedWard,
+          search: searchQuery,
+          stageFilter: selectedStage,
+          onCacheHit: (cached) => {
+            if (cached && (cached.board || cached.cards)) {
+              setFlowBoard(cached.board || {});
+              setFlowCards(cached.cards || []);
+              setLoading(false);
+            }
+          }
+        }).catch((err) => {
+          console.warn('Flow board offline fetch error:', err?.message);
+          return { success: false, isOffline: true };
+        }),
       ]);
 
       if (overviewRes?.success) {
         setCensus(overviewRes.census);
         setWorkload(overviewRes.clinicalWorkload);
         setWardBreakdown(overviewRes.wardBreakdown || []);
+        setOfflineState({
+          isOffline: !!overviewRes.isOffline,
+          fromCache: !!overviewRes.fromCache,
+          lastFetchedAt: overviewRes.lastFetchedAt || Date.now(),
+          noCache: false,
+          isCensusEstimate: !!overviewRes.isOffline,
+        });
       }
 
       if (boardRes?.success) {
@@ -155,21 +200,25 @@ export default function IPDCommandCenter({ navigation }) {
       setLastRefreshed(new Date());
     } catch (error) {
       console.error('Failed to load IPD Command Center data:', error);
+      setOfflineState(prev => ({
+        ...prev,
+        isOffline: true,
+        noCache: !census && (!flowCards || flowCards.length === 0),
+      }));
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [selectedWard, searchQuery, selectedStage]);
+  }, [selectedWard, searchQuery, selectedStage, census, flowCards]);
 
   // ── Fetch Analytics Data ──
   const fetchAnalyticsData = useCallback(async () => {
     try {
-      const [trendsRes, nursesRes] = await Promise.all([
-        ipdCommandCenterAPI.getCensusTrends({ days: trendsDays }),
-        ipdCommandCenterAPI.getNurseWorkload(),
-      ]);
-      if (trendsRes?.success) setTrendsData(trendsRes);
-      if (nursesRes?.success) setNurseWorkloadData(nursesRes.workload || []);
+      const res = await fetchIPDAnalyticsWithOffline({ days: trendsDays });
+      if (res?.success) {
+        if (res.trends) setTrendsData(res.trends);
+        if (res.workload) setNurseWorkloadData(res.workload || []);
+      }
     } catch (error) {
       console.error('Failed to load analytics:', error);
     }
@@ -222,7 +271,7 @@ export default function IPDCommandCenter({ navigation }) {
     setBlockerModalOpen(true);
     setLoadingBlockers(true);
     try {
-      const res = await ipdCommandCenterAPI.getDischargeBlockers(admissionId);
+      const res = await fetchDischargeBlockersWithOffline(admissionId);
       if (res?.success) {
         setBlockerData(res);
       }
@@ -235,16 +284,25 @@ export default function IPDCommandCenter({ navigation }) {
 
   // ── Bed Reconciliation Execution ──
   const handleRunReconciliation = async () => {
+    const isOnline = await checkOnlineStatus();
+    if (!isOnline) {
+      setReconcileResult({
+        success: false,
+        message: 'Action Blocked: Bed census reconciliation requires active server connectivity to sync physical beds with live billing and admission registries.',
+      });
+      return;
+    }
+
     setReconciling(true);
     try {
-      const res = await ipdCommandCenterAPI.reconcileBeds();
+      const res = await reconcileBedsOnlineOnly();
       setReconcileResult(res);
       fetchCommandCenterData(true);
     } catch (error) {
       console.error('Reconciliation failed:', error);
       setReconcileResult({
         success: false,
-        message: error.response?.data?.message || 'Reconciliation failed',
+        message: error.response?.data?.message || error.message || 'Reconciliation failed',
       });
     } finally {
       setReconciling(false);
@@ -282,7 +340,39 @@ export default function IPDCommandCenter({ navigation }) {
         keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Top Command Bar ── */}
+        <OfflineBanner
+          isOffline={offlineState.isOffline}
+          isStale={offlineState.isStale}
+          lastSynced={offlineState.lastSynced}
+          onRetry={fetchCommandCenterData}
+        />
+        {offlineState.isOffline && (
+          <View style={{
+            backgroundColor: '#FEF3C7',
+            borderColor: '#F59E0B',
+            borderWidth: 1,
+            borderRadius: 8,
+            padding: 10,
+            marginHorizontal: 4,
+            marginBottom: 10,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 8,
+          }}>
+            <Ionicons name="information-circle-outline" size={20} color="#B45309" />
+            <Text style={{ color: '#92400E', fontSize: 12, flex: 1, fontWeight: '500' }}>
+              Notice: Live bed occupancy & census stats may differ from physical beds while offline. Bed allocations and transfers require online connectivity.
+            </Text>
+          </View>
+        )}
+        {offlineState.noCache && !census && flowCards.length === 0 ? (
+          <OfflineEmptyState
+            message="No cached IPD command center data available. Connect to the internet to load live inpatient census."
+            onRetry={fetchCommandCenterData}
+          />
+        ) : (
+          <>
+            {/* ── Top Command Bar ── */}
         <LinearGradient
           colors={['rgba(15, 23, 42, 0.95)', 'rgba(30, 41, 59, 0.85)']}
           start={{ x: 0, y: 0 }}
@@ -1027,6 +1117,8 @@ export default function IPDCommandCenter({ navigation }) {
               </View>
             )}
           </View>
+        )}
+          </>
         )}
       </ScrollView>
 

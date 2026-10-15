@@ -11,6 +11,17 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import {
+    fetchPharmacyOrdersWithOffline,
+    fetchPharmacyInventoryWithOffline,
+    saveDispenseDraftWithOffline,
+    getDispenseDraft,
+    clearDispenseDraft,
+    dispenseMedicationOnlineOnly,
+} from '../../services/offline/offlinePharmacyService';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
 
 const backendUrl = API_BASE_URL;
 
@@ -28,6 +39,13 @@ const PharmacyOrders = () => {
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [checkedItems, setCheckedItems] = useState({});
+    const [offlineState, setOfflineState] = useState({
+        isOffline: false,
+        fromCache: false,
+        lastFetchedAt: null,
+        noCache: false,
+    });
+    const [hasWalkInDraft, setHasWalkInDraft] = useState(false);
 
     // Filters
     const [searchTerm, setSearchTerm] = useState('');
@@ -143,14 +161,63 @@ const PharmacyOrders = () => {
         fetchHospital();
         fetchDashboardStats();
         fetchDoctors();
+        checkExistingWalkInDraft();
     }, []);
+
+    const checkExistingWalkInDraft = async () => {
+        try {
+            const draft = await getDispenseDraft({ draftKey: 'walk_in_order' });
+            if (draft && (draft.items?.length > 0 || draft.patientName)) {
+                setHasWalkInDraft(true);
+            }
+        } catch (e) {}
+    };
+
+    const handleRestoreWalkInDraft = async () => {
+        try {
+            const draft = await getDispenseDraft({ draftKey: 'walk_in_order' });
+            if (draft) {
+                setWalkInForm({
+                    patientName: draft.patientName || '',
+                    patientPhone: draft.patientPhone || '',
+                    doctorName: draft.doctorName || '',
+                    items: draft.items || [],
+                    discountPercent: String(draft.discountPercent || 0),
+                    subtotal: draft.subtotal || 0,
+                    cgstAmount: draft.cgstAmount || 0,
+                    sgstAmount: draft.sgstAmount || 0,
+                    totalAmount: draft.totalAmount || 0,
+                    discountAmount: draft.discountAmount || 0,
+                    grandTotal: draft.grandTotal || 0,
+                    paymentMode: draft.paymentMode || 'CASH'
+                });
+                setShowWalkInModal(true);
+                Alert.alert("Draft Restored", "Walk-in bill preparation loaded from device memory.");
+            }
+        } catch (e) {
+            Alert.alert("Error", "Failed to restore walk-in draft");
+        }
+    };
+
+    const handleDiscardWalkInDraft = async () => {
+        try {
+            await clearDispenseDraft({ draftKey: 'walk_in_order' });
+            setHasWalkInDraft(false);
+            Alert.alert("Draft Discarded", "Saved walk-in order draft removed.");
+        } catch (e) {}
+    };
 
     const fetchInventory = async () => {
         try {
-            const data = await pharmacyAPI.getInventory();
-            if (data && (data.success || Array.isArray(data) || data.medicines || data.inventory)) {
-                const inventoryData = data.medicines || data.inventory || data.items || data.data || (Array.isArray(data) ? data : []);
-                setInventory(Array.isArray(inventoryData) ? inventoryData : []);
+            const res = await fetchPharmacyInventoryWithOffline({
+                onCacheHit: (cached) => {
+                    if (cached && Array.isArray(cached.medicines)) {
+                        setInventory(cached.medicines);
+                    }
+                }
+            });
+            if (res && res.success && Array.isArray(res.medicines)) {
+                setInventory(res.medicines);
             }
         } catch (error) {
             console.error("Failed to load inventory", error);
@@ -314,10 +381,36 @@ const PharmacyOrders = () => {
     const fetchOrders = async () => {
         try {
             setLoading(true);
-            const res = await pharmacyOrderAPI.getOrders();
-            if (res.success) setOrders(res.orders);
+            const res = await fetchPharmacyOrdersWithOffline({
+                onCacheHit: (cached) => {
+                    if (cached && Array.isArray(cached.orders)) {
+                        setOrders(cached.orders);
+                        setOfflineState({
+                            isOffline: false,
+                            fromCache: true,
+                            lastFetchedAt: cached.lastFetchedAt,
+                            noCache: false,
+                        });
+                        setLoading(false);
+                    }
+                }
+            });
+            if (res && res.success && Array.isArray(res.orders)) {
+                setOrders(res.orders);
+                setOfflineState({
+                    isOffline: !!res.isOffline,
+                    fromCache: !!res.fromCache,
+                    lastFetchedAt: res.lastFetchedAt || Date.now(),
+                    noCache: false,
+                });
+            }
         } catch (err) {
             console.error("Failed to fetch pharmacy orders", err);
+            setOfflineState(prev => ({
+                ...prev,
+                isOffline: true,
+                noCache: orders.length === 0,
+            }));
         } finally {
             setLoading(false);
         }
@@ -348,6 +441,24 @@ const PharmacyOrders = () => {
             paymentMode: walkInForm.paymentMode
         };
 
+        const isOnline = await checkOnlineStatus();
+        if (!isOnline) {
+            try {
+                await saveDispenseDraftWithOffline({ draftKey: 'walk_in_order', draftData: payload });
+                setHasWalkInDraft(true);
+                setShowWalkInModal(false);
+                Alert.alert(
+                    "Walk-in Draft Saved (Offline)",
+                    "Device is offline. Your walk-in bill preparation has been safely saved locally as a Draft. Once connected to the hospital server, you can finalize dispensing and generate the receipt."
+                );
+            } catch (draftErr) {
+                Alert.alert("Error", draftErr?.message || "Failed to save walk-in draft");
+            } finally {
+                setWalkInSaving(false);
+            }
+            return;
+        }
+
         try {
             const token = await getAuthToken();
             // Existing backend route: POST /api/pharmacy/orders/outside-patient-bill
@@ -361,6 +472,8 @@ const PharmacyOrders = () => {
             });
             const data = await res.json();
             if (data.success) {
+                await clearDispenseDraft({ draftKey: 'walk_in_order' });
+                setHasWalkInDraft(false);
                 setShowWalkInModal(false);
                 fetchOrders();
                 setWalkInForm({
@@ -713,6 +826,15 @@ const PharmacyOrders = () => {
     };
 
     const handleCompleteOrder = async (orderId, payloadObj = null, totalItems = 100) => {
+        const isOnline = await checkOnlineStatus();
+        if (!isOnline) {
+            Alert.alert(
+                "Action Blocked (Offline)",
+                "Final medication dispensing, stock deduction, and payment confirmation require active server connectivity to ensure inventory and billing integrity."
+            );
+            return;
+        }
+
         try {
             const purchasedIndices = Array.from({ length: totalItems }, (_, i) => i);
             const payload = payloadObj || { purchasedIndices };
@@ -880,18 +1002,58 @@ const PharmacyOrders = () => {
 
     return (
         <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+            <OfflineBanner
+                isOffline={offlineState.isOffline}
+                fromCache={offlineState.fromCache}
+                lastFetchedAt={offlineState.lastFetchedAt}
+            />
+
+            {offlineState.isOffline && offlineState.fromCache && (
+                <View style={{ backgroundColor: '#fffbeb', borderColor: '#fde68a', borderWidth: 1, padding: 12, borderRadius: 12, marginBottom: 16 }}>
+                    <Text style={{ color: '#b45309', fontSize: 13, fontWeight: '600' }}>
+                        ⚠️ Prescription Queue (Offline View): Showing cached orders and prescriptions synced at {offlineState.lastFetchedAt ? new Date(offlineState.lastFetchedAt).toLocaleTimeString() : 'cached time'}. Final dispensing & payments require active server connectivity.
+                    </Text>
+                </View>
+            )}
+
+            {offlineState.noCache && orders.length === 0 ? (
+                <OfflineEmptyState
+                    title="No Cached Pharmacy Orders"
+                    message="Prescriptions and dispensing queue are not available offline on this device yet. Please connect to the hospital network."
+                    onRetry={fetchOrders}
+                />
+            ) : (
+                <>
             {/* Header Section */}
             <View style={[styles.header, !isLargeScreen && { flexDirection: 'column', alignItems: 'flex-start' }]}>
                 <View>
                     <Text style={styles.headerTitle}>Pharmacy Orders</Text>
                     <Text style={styles.headerSubtitle}>Process prescriptions sent by doctors and confirm payments.</Text>
                 </View>
-                <TouchableOpacity
-                    style={[styles.btnAction, { backgroundColor: '#10b981', marginTop: isLargeScreen ? 0 : 10 }]}
-                    onPress={() => setShowWalkInModal(true)}
-                >
-                    <Text style={styles.btnActionText}>+ Outside Patient Bill</Text>
-                </TouchableOpacity>
+                <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginTop: isLargeScreen ? 0 : 10, flexWrap: 'wrap' }}>
+                    {hasWalkInDraft && (
+                        <>
+                            <TouchableOpacity
+                                style={[styles.btnAction, { backgroundColor: '#fef3c7', borderColor: '#fde68a', borderWidth: 1 }]}
+                                onPress={handleRestoreWalkInDraft}
+                            >
+                                <Text style={[styles.btnActionText, { color: '#b45309' }]}>📥 Restore Draft</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.btnAction, { backgroundColor: '#fee2e2', borderColor: '#fecaca', borderWidth: 1 }]}
+                                onPress={handleDiscardWalkInDraft}
+                            >
+                                <Text style={[styles.btnActionText, { color: '#b91c1c' }]}>🗑️</Text>
+                            </TouchableOpacity>
+                        </>
+                    )}
+                    <TouchableOpacity
+                        style={[styles.btnAction, { backgroundColor: '#10b981' }]}
+                        onPress={() => setShowWalkInModal(true)}
+                    >
+                        <Text style={styles.btnActionText}>+ Outside Patient Bill</Text>
+                    </TouchableOpacity>
+                </View>
             </View>
 
             {/* KPI Grid */}
@@ -1661,7 +1823,8 @@ const PharmacyOrders = () => {
                     </View>
                 </View>
             </Modal>
-
+            </>
+            )}
         </ScrollView>
     );
 };

@@ -6,6 +6,20 @@ import { pharmacyAPI } from '../../utils/api';
 import PurchaseInvoiceHistory from './PurchaseInvoiceHistory';
 import DropdownSelect from '../../components/common/DropdownSelect';
 import DatePickerInput, { formatToDisplay, formatToYMD } from '../../components/common/DatePickerInput';
+import {
+    fetchPharmacyInventoryWithOffline,
+    fetchPharmacyVendorsWithOffline,
+    fetchPurchaseInvoicesWithOffline,
+    saveMedicineDraftWithOffline,
+    getMedicineDraft,
+    clearMedicineDraft,
+    addMedicineOnlineOnly,
+    recordStockConsumptionOnlineOnly,
+    processPurchaseInvoiceOnlineOnly,
+} from '../../services/offline/offlinePharmacyService';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
 
 const UNIT_OPTIONS = [
     { label: 'Tablets', value: 'Tablets' },
@@ -43,6 +57,13 @@ const PharmacyInventory = () => {
     const [medicines, setMedicines] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
+    const [offlineState, setOfflineState] = useState({
+        isOffline: false,
+        fromCache: false,
+        lastFetchedAt: null,
+        noCache: false,
+        isStockFreshnessEstimate: false,
+    });
 
     const [extractedMedicines, setExtractedMedicines] = useState([]);
     const [pendingInvoice, setPendingInvoice] = useState(null);
@@ -54,11 +75,11 @@ const PharmacyInventory = () => {
     const [successMessage, setSuccessMessage] = useState('');
     const [uploadingPdf, setUploadingPdf] = useState(false);
     const [pdfError, setPdfError] = useState('');
-    
+
     // Modal states
     const [showAddModal, setShowAddModal] = useState(false);
     const [showDetailsModal, setShowDetailsModal] = useState(false);
-    
+
     // Edit & View states
     const [isEditing, setIsEditing] = useState(false);
     const [editId, setEditId] = useState(null);
@@ -91,32 +112,93 @@ const PharmacyInventory = () => {
     const [consumptionForm, setConsumptionForm] = useState({ medicineId: '', quantity: 1, reason: 'Doctor/Staff Use', givenTo: '' });
     const [savingConsumption, setSavingConsumption] = useState(false);
 
+    // Draft state
+    const [hasDraft, setHasDraft] = useState(false);
+
     useEffect(() => {
         fetchInventory();
         fetchVendors();
         checkPendingInvoice();
+        checkExistingMedicineDraft();
     }, []);
+
+    const checkExistingMedicineDraft = async () => {
+        try {
+            const draft = await getMedicineDraft();
+            if (draft && (draft.name || draft.batchNumber || draft.buyingPrice)) {
+                setHasDraft(true);
+            }
+        } catch (e) { }
+    };
+
+    const handleRestoreDraft = async () => {
+        try {
+            const draft = await getMedicineDraft();
+            if (draft) {
+                const { draftKey, savedAt, isDraft, ...data } = draft;
+                setNewMedicine(prev => ({ ...prev, ...data }));
+                showSuccessMsg('Medicine draft restored');
+            }
+        } catch (e) {
+            Alert.alert('Error', 'Failed to restore draft');
+        }
+    };
+
+    const handleDiscardDraft = async () => {
+        try {
+            await clearMedicineDraft();
+            setHasDraft(false);
+            showSuccessMsg('Draft discarded');
+        } catch (e) {
+            Alert.alert('Error', 'Failed to discard draft');
+        }
+    };
 
     const fetchInventory = async () => {
         try {
             setLoading(true);
-            const response = await pharmacyAPI.getInventory();
-            if (response && (response.success || Array.isArray(response))) {
-                const data = response.data || (Array.isArray(response) ? response : []);
-                setMedicines(Array.isArray(data) ? data : []);
+            const res = await fetchPharmacyInventoryWithOffline({
+                onCacheHit: (cached) => {
+                    if (cached && Array.isArray(cached.medicines)) {
+                        setMedicines(cached.medicines);
+                        setOfflineState({
+                            isOffline: false,
+                            fromCache: true,
+                            lastFetchedAt: cached.lastFetchedAt,
+                            noCache: false,
+                            isStockFreshnessEstimate: true,
+                        });
+                        setLoading(false);
+                    }
+                }
+            });
+            if (res && res.success && Array.isArray(res.medicines)) {
+                setMedicines(res.medicines);
+                setOfflineState({
+                    isOffline: !!res.isOffline,
+                    fromCache: !!res.fromCache,
+                    lastFetchedAt: res.lastFetchedAt || Date.now(),
+                    noCache: false,
+                    isStockFreshnessEstimate: !!res.isOffline,
+                });
             } else {
                 setMedicines([]);
             }
         } catch (error) {
             console.error("Fetch Error:", error);
-            setMedicines([]);
+            setOfflineState(prev => ({
+                ...prev,
+                isOffline: true,
+                noCache: medicines.length === 0,
+            }));
+            if (medicines.length === 0) setMedicines([]);
         } finally { setLoading(false); }
     };
 
     const fetchVendors = async () => {
         try {
-            const res = await pharmacyAPI.getVendors();
-            if (res.success) setVendors(res.data || []);
+            const res = await fetchPharmacyVendorsWithOffline();
+            if (res && res.success) setVendors(res.vendors || []);
         } catch (error) { console.error("Error fetching vendors", error); }
     };
 
@@ -147,9 +229,9 @@ const PharmacyInventory = () => {
 
     const checkPendingInvoice = async () => {
         try {
-            const res = await pharmacyAPI.getPurchaseInvoices();
-            if (res.success && res.data) {
-                const pending = res.data.find(inv => inv.status === 'Pending');
+            const res = await fetchPurchaseInvoicesWithOffline();
+            if (res.success && res.invoices) {
+                const pending = res.invoices.find(inv => inv.status === 'Pending');
                 if (pending) {
                     setPendingInvoice(pending);
                     // Restore extracted medicines from storage (Web: localStorage, Native: AsyncStorage)
@@ -324,6 +406,12 @@ const PharmacyInventory = () => {
     const [savingMedicine, setSavingMedicine] = useState(false);
 
     const handleDelete = async (id) => {
+        const isOnline = await checkOnlineStatus();
+        if (!isOnline) {
+            Alert.alert('Action Blocked (Offline)', 'Deleting medicines from hospital inventory requires active server connectivity.');
+            return;
+        }
+
         Alert.alert('Confirm Delete', 'Are you sure you want to remove this medication from inventory?', [
             { text: 'Cancel', style: 'cancel' },
             {
@@ -346,6 +434,22 @@ const PharmacyInventory = () => {
     const handleAddMedicine = async () => {
         if (!newMedicine.name || !newMedicine.name.trim()) {
             Alert.alert('Validation Error', 'Medicine name is required.');
+            return;
+        }
+
+        const isOnline = await checkOnlineStatus();
+        if (!isOnline) {
+            try {
+                await saveMedicineDraftWithOffline({ draftData: newMedicine });
+                setHasDraft(true);
+                Alert.alert(
+                    "Offline Draft Saved",
+                    "Adding or editing verified medicine inventory requires active server connectivity to prevent batch/stock collisions. Your medicine details have been safely saved as a Local Draft."
+                );
+                setShowAddModal(false);
+            } catch (draftErr) {
+                Alert.alert("Error", draftErr?.message || "Failed to save local draft");
+            }
             return;
         }
 
@@ -436,6 +540,8 @@ const PharmacyInventory = () => {
                     showSuccessMsg(isEditing ? 'Medicine updated successfully!' : 'Medicine saved to inventory!');
                 }
 
+                await clearMedicineDraft();
+                setHasDraft(false);
                 setShowAddModal(false);
                 setIsEditing(false);
                 setEditId(null);
@@ -490,9 +596,18 @@ const PharmacyInventory = () => {
             Alert.alert('Validation', `Quantity cannot exceed available stock (${selectedMed.stock})`);
             return;
         }
+        const isOnline = await checkOnlineStatus();
+        if (!isOnline) {
+            Alert.alert(
+                "Action Blocked (Offline)",
+                "Stock consumption and inventory adjustments require active server connectivity for audit logging and quantity integrity."
+            );
+            return;
+        }
+
         setSavingConsumption(true);
         try {
-            const res = await pharmacyAPI.recordConsumption({
+            const res = await recordStockConsumptionOnlineOnly({
                 ...consumptionForm,
                 quantity: qty
             });
@@ -558,1051 +673,1089 @@ const PharmacyInventory = () => {
 
     return (
         <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
-            <View style={styles.header}>
-                <View style={{ flex: 1, minWidth: 200 }}>
-                    <Text style={styles.headerTitle}>💊 Medicine Inventory</Text>
-                    <Text style={styles.headerSubtitle}>Manage your hospital's medicine stock, pricing, and expiry tracking</Text>
-                </View>
-                <View style={[styles.headerButtons, isMobile && { width: '100%', flexDirection: isSmallMobile ? 'column' : 'row', marginTop: 12 }]}>
-                    <TouchableOpacity 
-                        style={[styles.btnAction, { backgroundColor: '#fee2e2', borderColor: '#fecaca' }, isSmallMobile && { width: '100%', alignItems: 'center' }]} 
-                        onPress={() => setShowConsumptionModal(true)}
-                        activeOpacity={0.7}
-                    >
-                        <Text style={[styles.btnActionText, { color: '#b91c1c' }]}>📌 Record Consumption</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity 
-                        style={[styles.btnAction, { backgroundColor: '#e0e7ff', borderColor: '#c7d2fe' }, isSmallMobile && { width: '100%', alignItems: 'center' }]} 
-                        onPress={() => setShowVendorModal(true)}
-                        activeOpacity={0.7}
-                    >
-                        <Text style={[styles.btnActionText, { color: '#4338ca' }]}>👥 Manage Vendors</Text>
-                    </TouchableOpacity>
-                </View>
-            </View>
+            <OfflineBanner
+                isOffline={offlineState.isOffline}
+                fromCache={offlineState.fromCache}
+                lastFetchedAt={offlineState.lastFetchedAt}
+            />
 
-            {/* KPI Cards: Responsive 1-2 columns mobile, 4 columns desktop */}
-            <View style={styles.pharmaKpiGrid}>
-                <View style={[styles.pharmaKpiCard, isMobile && { minWidth: '47%' }]}>
-                    <Text style={styles.pharmaKpiLabel}>Total Medicines</Text>
-                    <Text style={styles.pharmaKpiValue}>{medicines.length}</Text>
-                    <Text style={styles.pharmaKpiSub}>Unique formulations</Text>
-                </View>
-                <View style={[styles.pharmaKpiCard, { borderColor: '#fecaca', backgroundColor: '#fff5f5' }, isMobile && { minWidth: '47%' }]}>
-                    <Text style={[styles.pharmaKpiLabel, { color: '#991b1b' }]}>Low Stock Alert</Text>
-                    <Text style={[styles.pharmaKpiValue, { color: '#dc2626' }]}>
-                        {medicines.filter(m => m.stock < (m.minStockAlertLevel || 50)).length}
+            {offlineState.isOffline && offlineState.fromCache && (
+                <View style={{ backgroundColor: '#fffbeb', borderColor: '#fde68a', borderWidth: 1, padding: 12, borderRadius: 12, marginBottom: 16 }}>
+                    <Text style={{ color: '#b45309', fontSize: 13, fontWeight: '600' }}>
+                        ⚠️ Stock Freshness Estimate: Quantities reflect last synced inventory ({offlineState.lastFetchedAt ? new Date(offlineState.lastFetchedAt).toLocaleTimeString() : 'cached'}). Available stock may have changed.
                     </Text>
-                    <Text style={[styles.pharmaKpiSub, { color: '#b91c1c' }]}>Requires reordering</Text>
                 </View>
-                <View style={[styles.pharmaKpiCard, isMobile && { minWidth: '47%' }]}>
-                    <Text style={styles.pharmaKpiLabel}>Total Units</Text>
-                    <Text style={styles.pharmaKpiValue}>
-                        {medicines.reduce((acc, m) => acc + (Number(m.stock) || 0), 0)}
-                    </Text>
-                    <Text style={styles.pharmaKpiSub}>In pharmacy stock</Text>
-                </View>
-                <View style={[styles.pharmaKpiCard, isMobile && { minWidth: '47%' }]}>
-                    <Text style={styles.pharmaKpiLabel}>Active Vendors</Text>
-                    <Text style={styles.pharmaKpiValue}>{vendors.length}</Text>
-                    <Text style={styles.pharmaKpiSub}>Registered suppliers</Text>
-                </View>
-            </View>
+            )}
 
-            <View style={styles.tabsContainer}>
-                <TouchableOpacity onPress={() => setActiveTab('inventory')} style={[styles.tabButton, activeTab === 'inventory' && styles.activeTab]}>
-                    <Text style={[styles.tabText, activeTab === 'inventory' && styles.activeTabText]}>Inventory</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => setActiveTab('purchase-history')} style={[styles.tabButton, activeTab === 'purchase-history' && styles.activeTab]}>
-                    <Text style={[styles.tabText, activeTab === 'purchase-history' && styles.activeTabText]}>Purchase History</Text>
-                </TouchableOpacity>
-            </View>
-
-            {activeTab === 'inventory' ? (
-                <View>
-                    <View style={styles.invoiceUploadSection}>
-                        <View style={styles.invoiceUploadHeader}>
-                            <View>
-                                <Text style={styles.invoiceUploadTitle}>📄 Upload Purchase Invoice</Text>
-                                <Text style={styles.invoiceUploadSubtitle}>Upload a PDF invoice to automatically extract and import medicines</Text>
-                            </View>
-                            {pendingInvoice && invoiceStats.remaining === 0 && (
-                                <TouchableOpacity style={styles.btnUploadNew} onPress={handleClearInvoice}>
-                                    <Text style={styles.btnUploadNewText}>Upload New Invoice</Text>
-                                </TouchableOpacity>
-                            )}
+            {offlineState.noCache && medicines.length === 0 ? (
+                <OfflineEmptyState
+                    title="No Cached Medicine Inventory"
+                    message="Pharmacy medicine records and stock levels are not available offline on this device yet. Please connect to the hospital network."
+                    onRetry={fetchInventory}
+                />
+            ) : (
+                <>
+                    <View style={styles.header}>
+                        <View style={{ flex: 1, minWidth: 200 }}>
+                            <Text style={styles.headerTitle}>💊 Medicine Inventory</Text>
+                            <Text style={styles.headerSubtitle}>Manage your hospital's medicine stock, pricing, and expiry tracking</Text>
                         </View>
-                        
-                        {successMessage ? (
-                            <View style={styles.successBox}>
-                                <Text style={styles.successText}>✔ {successMessage}</Text>
-                            </View>
-                        ) : null}
-
-                        {pdfError ? (
-                            <View style={{ marginBottom: 12, padding: 10, backgroundColor: '#fef2f2', borderRadius: 8, borderWidth: 1, borderColor: '#fecaca' }}>
-                                <Text style={{ color: '#dc2626', fontSize: 13, fontWeight: '500' }}>⚠️ {pdfError}</Text>
-                            </View>
-                        ) : null}
-
-                        {(!pendingInvoice || invoiceStats.remaining === 0) ? (
-                            <View style={styles.uploadRow}>
-                                <TouchableOpacity 
-                                    style={[styles.uploadInputBox, uploadingPdf && { opacity: 0.7 }]}
-                                    onPress={handleSelectPdf}
-                                    disabled={uploadingPdf}
-                                    activeOpacity={0.7}
-                                >
-                                    {uploadingPdf ? (
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                                            <ActivityIndicator size="small" color="#2563eb" />
-                                            <Text style={styles.uploadInputText}>{importLoadingState || 'Uploading PDF...'}</Text>
-                                        </View>
-                                    ) : (
-                                        <Text style={styles.uploadInputText}>Select PDF File...</Text>
-                                    )}
-                                </TouchableOpacity>
-                            </View>
-                        ) : (
-                            <View style={styles.invoiceStatusBox}>
-                                <View>
-                                    <Text style={styles.invoiceStatusTitle}>✔ Invoice Uploaded Successfully</Text>
-                                    <View style={styles.invoiceStatsRow}>
-                                        <Text style={styles.invoiceStatText}>Found: {invoiceStats.total}</Text>
-                                        <Text style={styles.invoiceStatText}>Remaining: {invoiceStats.remaining}</Text>
-                                        <Text style={styles.invoiceStatText}>Imported: {invoiceStats.imported}</Text>
-                                    </View>
-                                </View>
-                                <View style={styles.invoiceActionButtons}>
-                                    <TouchableOpacity style={styles.btnCancelInvoice} onPress={handleClearInvoice}>
-                                        <Text style={styles.btnCancelInvoiceText}>Clear</Text>
-                                    </TouchableOpacity>
-                                </View>
-                            </View>
-                        )}
+                        <View style={[styles.headerButtons, isMobile && { width: '100%', flexDirection: isSmallMobile ? 'column' : 'row', marginTop: 12 }]}>
+                            <TouchableOpacity
+                                style={[styles.btnAction, { backgroundColor: '#fee2e2', borderColor: '#fecaca' }, isSmallMobile && { width: '100%', alignItems: 'center' }]}
+                                onPress={() => setShowConsumptionModal(true)}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={[styles.btnActionText, { color: '#b91c1c' }]}>📌 Record Consumption</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.btnAction, { backgroundColor: '#e0e7ff', borderColor: '#c7d2fe' }, isSmallMobile && { width: '100%', alignItems: 'center' }]}
+                                onPress={() => setShowVendorModal(true)}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={[styles.btnActionText, { color: '#4338ca' }]}>👥 Manage Vendors</Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
 
-                    {/* Inline Medicine Form Workspace (Exact Web Match) */}
-                    <View style={styles.pharmaFormCard}>
-                        <Text style={styles.pharmaFormTitle}>{isEditing ? 'Edit Medicine' : 'Add New Medicine'}</Text>
-                        
-                        <View style={styles.formSection}>
-                            {/* Row 1: Medicine Name, Salt / Composition, Category */}
-                            <View style={[styles.formRow, isNarrow && { flexDirection: 'column', gap: 12 }]}>
-                                <View style={[styles.formGroup, isNarrow ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isTablet ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : { flex: 2 })]}>
-                                    <Text style={styles.formLabel}>MEDICINE NAME *</Text>
-                                    {(!isEditing && pendingInvoice && extractedMedicines && extractedMedicines.length > 0 && invoiceStats.remaining > 0) ? (
-                                        <DropdownSelect
-                                            options={extractedMedicines.map(m => ({ label: m.medicineName, value: m.medicineName }))}
-                                            value={newMedicine.name || ''}
-                                            onChange={(val) => handleSelectExtracted(val)}
-                                            placeholder="-- Select Medicine from Invoice --"
-                                        />
-                                    ) : (
+                    {/* KPI Cards: Responsive 1-2 columns mobile, 4 columns desktop */}
+                    <View style={styles.pharmaKpiGrid}>
+                        <View style={[styles.pharmaKpiCard, isMobile && { minWidth: '47%' }]}>
+                            <Text style={styles.pharmaKpiLabel}>Total Medicines</Text>
+                            <Text style={styles.pharmaKpiValue}>{medicines.length}</Text>
+                            <Text style={styles.pharmaKpiSub}>Unique formulations</Text>
+                        </View>
+                        <View style={[styles.pharmaKpiCard, { borderColor: '#fecaca', backgroundColor: '#fff5f5' }, isMobile && { minWidth: '47%' }]}>
+                            <Text style={[styles.pharmaKpiLabel, { color: '#991b1b' }]}>Low Stock Alert</Text>
+                            <Text style={[styles.pharmaKpiValue, { color: '#dc2626' }]}>
+                                {medicines.filter(m => m.stock < (m.minStockAlertLevel || 50)).length}
+                            </Text>
+                            <Text style={[styles.pharmaKpiSub, { color: '#b91c1c' }]}>Requires reordering</Text>
+                        </View>
+                        <View style={[styles.pharmaKpiCard, isMobile && { minWidth: '47%' }]}>
+                            <Text style={styles.pharmaKpiLabel}>Total Units</Text>
+                            <Text style={styles.pharmaKpiValue}>
+                                {medicines.reduce((acc, m) => acc + (Number(m.stock) || 0), 0)}
+                            </Text>
+                            <Text style={styles.pharmaKpiSub}>In pharmacy stock</Text>
+                        </View>
+                        <View style={[styles.pharmaKpiCard, isMobile && { minWidth: '47%' }]}>
+                            <Text style={styles.pharmaKpiLabel}>Active Vendors</Text>
+                            <Text style={styles.pharmaKpiValue}>{vendors.length}</Text>
+                            <Text style={styles.pharmaKpiSub}>Registered suppliers</Text>
+                        </View>
+                    </View>
+
+                    <View style={styles.tabsContainer}>
+                        <TouchableOpacity onPress={() => setActiveTab('inventory')} style={[styles.tabButton, activeTab === 'inventory' && styles.activeTab]}>
+                            <Text style={[styles.tabText, activeTab === 'inventory' && styles.activeTabText]}>Inventory</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => setActiveTab('purchase-history')} style={[styles.tabButton, activeTab === 'purchase-history' && styles.activeTab]}>
+                            <Text style={[styles.tabText, activeTab === 'purchase-history' && styles.activeTabText]}>Purchase History</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {activeTab === 'inventory' ? (
+                        <View>
+                            <View style={styles.invoiceUploadSection}>
+                                <View style={styles.invoiceUploadHeader}>
+                                    <View>
+                                        <Text style={styles.invoiceUploadTitle}>📄 Upload Purchase Invoice</Text>
+                                        <Text style={styles.invoiceUploadSubtitle}>Upload a PDF invoice to automatically extract and import medicines</Text>
+                                    </View>
+                                    {pendingInvoice && invoiceStats.remaining === 0 && (
+                                        <TouchableOpacity style={styles.btnUploadNew} onPress={handleClearInvoice}>
+                                            <Text style={styles.btnUploadNewText}>Upload New Invoice</Text>
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
+
+                                {successMessage ? (
+                                    <View style={styles.successBox}>
+                                        <Text style={styles.successText}>✔ {successMessage}</Text>
+                                    </View>
+                                ) : null}
+
+                                {pdfError ? (
+                                    <View style={{ marginBottom: 12, padding: 10, backgroundColor: '#fef2f2', borderRadius: 8, borderWidth: 1, borderColor: '#fecaca' }}>
+                                        <Text style={{ color: '#dc2626', fontSize: 13, fontWeight: '500' }}>⚠️ {pdfError}</Text>
+                                    </View>
+                                ) : null}
+
+                                {(!pendingInvoice || invoiceStats.remaining === 0) ? (
+                                    <View style={styles.uploadRow}>
+                                        <TouchableOpacity
+                                            style={[styles.uploadInputBox, uploadingPdf && { opacity: 0.7 }]}
+                                            onPress={handleSelectPdf}
+                                            disabled={uploadingPdf}
+                                            activeOpacity={0.7}
+                                        >
+                                            {uploadingPdf ? (
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                                    <ActivityIndicator size="small" color="#2563eb" />
+                                                    <Text style={styles.uploadInputText}>{importLoadingState || 'Uploading PDF...'}</Text>
+                                                </View>
+                                            ) : (
+                                                <Text style={styles.uploadInputText}>Select PDF File...</Text>
+                                            )}
+                                        </TouchableOpacity>
+                                    </View>
+                                ) : (
+                                    <View style={styles.invoiceStatusBox}>
                                         <View>
-                                            <TextInput 
-                                                style={styles.formInput}
-                                                value={newMedicine.name}
-                                                onChangeText={(val) => {
-                                                    setNewMedicine({...newMedicine, name: val});
-                                                    if (val.length >= 3) {
-                                                        const matches = medicines.filter(m =>
-                                                            (m.name || '').toLowerCase().includes(val.toLowerCase())
-                                                        ).slice(0, 10);
-                                                        setNameSuggestions(matches);
-                                                        setShowNameSuggestions(true);
-                                                    } else {
-                                                        setShowNameSuggestions(false);
-                                                    }
-                                                }}
-                                                onFocus={() => {
-                                                    if (newMedicine.name && newMedicine.name.length >= 3) setShowNameSuggestions(true);
-                                                }}
-                                                onBlur={() => setTimeout(() => setShowNameSuggestions(false), 200)}
-                                                placeholder="e.g. Gonal-F 900 IU Pen / Menopur 75 IU"
-                                            />
-                                            {showNameSuggestions && nameSuggestions.length > 0 && (
-                                                <View style={styles.suggestionList}>
-                                                    {nameSuggestions.map((m, idx) => (
-                                                        <TouchableOpacity
-                                                            key={idx}
-                                                            style={[
-                                                                styles.suggestionItem,
-                                                                idx < nameSuggestions.length - 1 && styles.suggestionItemBorder
-                                                            ]}
-                                                            onPress={() => {
-                                                                setNewMedicine(prev => ({
-                                                                    ...prev,
-                                                                    name: m.name,
-                                                                    salt: m.salt || prev.salt,
-                                                                    category: m.category || prev.category,
-                                                                    unit: m.unit || prev.unit
-                                                                }));
+                                            <Text style={styles.invoiceStatusTitle}>✔ Invoice Uploaded Successfully</Text>
+                                            <View style={styles.invoiceStatsRow}>
+                                                <Text style={styles.invoiceStatText}>Found: {invoiceStats.total}</Text>
+                                                <Text style={styles.invoiceStatText}>Remaining: {invoiceStats.remaining}</Text>
+                                                <Text style={styles.invoiceStatText}>Imported: {invoiceStats.imported}</Text>
+                                            </View>
+                                        </View>
+                                        <View style={styles.invoiceActionButtons}>
+                                            <TouchableOpacity style={styles.btnCancelInvoice} onPress={handleClearInvoice}>
+                                                <Text style={styles.btnCancelInvoiceText}>Clear</Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                    </View>
+                                )}
+                            </View>
+
+                            {/* Inline Medicine Form Workspace (Exact Web Match) */}
+                            <View style={styles.pharmaFormCard}>
+                                <Text style={styles.pharmaFormTitle}>{isEditing ? 'Edit Medicine' : 'Add New Medicine'}</Text>
+
+                                <View style={styles.formSection}>
+                                    {/* Row 1: Medicine Name, Salt / Composition, Category */}
+                                    <View style={[styles.formRow, isNarrow && { flexDirection: 'column', gap: 12 }]}>
+                                        <View style={[styles.formGroup, isNarrow ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isTablet ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : { flex: 2 })]}>
+                                            <Text style={styles.formLabel}>MEDICINE NAME *</Text>
+                                            {(!isEditing && pendingInvoice && extractedMedicines && extractedMedicines.length > 0 && invoiceStats.remaining > 0) ? (
+                                                <DropdownSelect
+                                                    options={extractedMedicines.map(m => ({ label: m.medicineName, value: m.medicineName }))}
+                                                    value={newMedicine.name || ''}
+                                                    onChange={(val) => handleSelectExtracted(val)}
+                                                    placeholder="-- Select Medicine from Invoice --"
+                                                />
+                                            ) : (
+                                                <View>
+                                                    <TextInput
+                                                        style={styles.formInput}
+                                                        value={newMedicine.name}
+                                                        onChangeText={(val) => {
+                                                            setNewMedicine({ ...newMedicine, name: val });
+                                                            if (val.length >= 3) {
+                                                                const matches = medicines.filter(m =>
+                                                                    (m.name || '').toLowerCase().includes(val.toLowerCase())
+                                                                ).slice(0, 10);
+                                                                setNameSuggestions(matches);
+                                                                setShowNameSuggestions(true);
+                                                            } else {
                                                                 setShowNameSuggestions(false);
-                                                            }}
-                                                        >
-                                                            <Text style={styles.suggestionName}>{m.name}</Text>
-                                                            <Text style={styles.suggestionMeta}>{m.salt || 'No Salt'} • {m.category || 'General'}</Text>
-                                                        </TouchableOpacity>
-                                                    ))}
+                                                            }
+                                                        }}
+                                                        onFocus={() => {
+                                                            if (newMedicine.name && newMedicine.name.length >= 3) setShowNameSuggestions(true);
+                                                        }}
+                                                        onBlur={() => setTimeout(() => setShowNameSuggestions(false), 200)}
+                                                        placeholder="e.g. Gonal-F 900 IU Pen / Menopur 75 IU"
+                                                    />
+                                                    {showNameSuggestions && nameSuggestions.length > 0 && (
+                                                        <View style={styles.suggestionList}>
+                                                            {nameSuggestions.map((m, idx) => (
+                                                                <TouchableOpacity
+                                                                    key={idx}
+                                                                    style={[
+                                                                        styles.suggestionItem,
+                                                                        idx < nameSuggestions.length - 1 && styles.suggestionItemBorder
+                                                                    ]}
+                                                                    onPress={() => {
+                                                                        setNewMedicine(prev => ({
+                                                                            ...prev,
+                                                                            name: m.name,
+                                                                            salt: m.salt || prev.salt,
+                                                                            category: m.category || prev.category,
+                                                                            unit: m.unit || prev.unit
+                                                                        }));
+                                                                        setShowNameSuggestions(false);
+                                                                    }}
+                                                                >
+                                                                    <Text style={styles.suggestionName}>{m.name}</Text>
+                                                                    <Text style={styles.suggestionMeta}>{m.salt || 'No Salt'} • {m.category || 'General'}</Text>
+                                                                </TouchableOpacity>
+                                                            ))}
+                                                        </View>
+                                                    )}
                                                 </View>
                                             )}
                                         </View>
-                                    )}
-                                </View>
-                                <View style={[styles.formGroup, isNarrow ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isTablet ? { width: '48%', minWidth: 160, flex: 1 } : { flex: 1.5 })]}>
-                                    <Text style={styles.formLabel}>SALT / COMPOSITION</Text>
-                                    <TextInput 
-                                        style={styles.formInput}
-                                        value={newMedicine.salt}
-                                        onChangeText={(val) => setNewMedicine({...newMedicine, salt: val})}
-                                        placeholder="e.g. Acetaminophen"
-                                    />
-                                </View>
-                                <View style={[styles.formGroup, isNarrow ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isTablet ? { width: '48%', minWidth: 160, flex: 1 } : { flex: 1 })]}>
-                                    <Text style={styles.formLabel}>CATEGORY *</Text>
-                                    <TextInput 
-                                        style={styles.formInput}
-                                        value={newMedicine.category}
-                                        onChangeText={(val) => setNewMedicine({...newMedicine, category: val})}
-                                        placeholder="General"
-                                    />
-                                </View>
-                            </View>
-
-                            {/* Multi-Dose Tracking Section */}
-                            <TouchableOpacity 
-                                style={[styles.multiDoseBanner, newMedicine.isMultiDose && styles.multiDoseBannerActive]}
-                                onPress={() => setNewMedicine({ ...newMedicine, isMultiDose: !newMedicine.isMultiDose })}
-                                activeOpacity={0.8}
-                            >
-                                <Text style={styles.multiDoseText}>{newMedicine.isMultiDose ? '☑' : '☐'} Enable Partial/Dosage Tracking (Multi-Dose items like Syrups, IV Fluids, Vials)</Text>
-                            </TouchableOpacity>
-
-                            {newMedicine.isMultiDose && (
-                                <View style={[styles.formRow, isNarrow && { flexDirection: 'column', gap: 12 }]}>
-                                    <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 }]}>
-                                        <Text style={styles.formLabel}>VOLUME / DOSAGE PER UNIT *</Text>
-                                        <TextInput 
-                                            style={styles.formInput}
-                                            value={newMedicine.packVolume ? String(newMedicine.packVolume) : ''}
-                                            onChangeText={(val) => setNewMedicine({...newMedicine, packVolume: val})}
-                                            keyboardType="numeric"
-                                            placeholder="e.g. 900"
-                                        />
-                                    </View>
-                                    <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 }]}>
-                                        <Text style={styles.formLabel}>VOLUME UNIT *</Text>
-                                        <DropdownSelect
-                                            options={[
-                                                { label: 'IU (International Units)', value: 'IU' },
-                                                { label: 'IU/ml', value: 'IU/ml' },
-                                                { label: 'Units', value: 'Units' },
-                                                { label: 'ml', value: 'ml' },
-                                                { label: 'mcg', value: 'mcg' },
-                                                { label: 'mg', value: 'mg' },
-                                                { label: 'Pills / Tablets', value: 'pills' },
-                                            ]}
-                                            value={newMedicine.volumeUnit || 'IU'}
-                                            onChange={(val) => setNewMedicine({...newMedicine, volumeUnit: val})}
-                                            placeholder="Select Volume Unit"
-                                        />
-                                    </View>
-                                </View>
-                            )}
-
-                            {/* Quantities & Unit */}
-                            <View style={[styles.formRow, isNarrow && { flexDirection: 'row', flexWrap: 'wrap', gap: 12 }]}>
-                                <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
-                                    <Text style={styles.formLabel}>PURCHASE QTY *</Text>
-                                    <TextInput 
-                                        style={styles.formInput}
-                                        value={newMedicine.purchaseQty ? String(newMedicine.purchaseQty) : ''}
-                                        onChangeText={(val) => {
-                                            setNewMedicine({ ...newMedicine, purchaseQty: val, stock: (Number(val) || 0) + (Number(newMedicine.freeQty) || 0) });
-                                        }}
-                                        keyboardType="numeric"
-                                        placeholder="e.g. 10"
-                                    />
-                                </View>
-                                <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
-                                    <Text style={styles.formLabel}>FREE QTY (SCHEME)</Text>
-                                    <TextInput 
-                                        style={styles.formInput}
-                                        value={newMedicine.freeQty ? String(newMedicine.freeQty) : ''}
-                                        onChangeText={(val) => {
-                                            setNewMedicine({ ...newMedicine, freeQty: val, stock: (Number(newMedicine.purchaseQty) || 0) + (Number(val) || 0) });
-                                        }}
-                                        keyboardType="numeric"
-                                        placeholder="e.g. 2"
-                                    />
-                                </View>
-                                <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 }]}>
-                                    <Text style={styles.formLabel}>UNIT</Text>
-                                    <DropdownSelect
-                                        options={UNIT_OPTIONS}
-                                        value={newMedicine.unit || 'Tablets'}
-                                        onChange={(val) => setNewMedicine({...newMedicine, unit: val})}
-                                        placeholder="Select Unit"
-                                    />
-                                </View>
-                                {['Strip', 'Capsules', 'Tablets'].includes(newMedicine.unit) && (
-                                    <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 }]}>
-                                        <Text style={styles.formLabel}>{newMedicine.unit === 'Strip' ? 'UNITS PER STRIP' : 'UNITS PER PACK'}</Text>
-                                        <TextInput 
-                                            style={styles.formInput}
-                                            value={newMedicine.unitsPerStrip ? String(newMedicine.unitsPerStrip) : ''}
-                                            onChangeText={(val) => setNewMedicine({...newMedicine, unitsPerStrip: val})}
-                                            keyboardType="numeric"
-                                            placeholder="10"
-                                        />
-                                    </View>
-                                )}
-                            </View>
-
-                            {/* Pricing & GST */}
-                            <View style={[styles.formRow, isNarrow && { flexDirection: 'row', flexWrap: 'wrap', gap: 12 }]}>
-                                <View style={[styles.formGroup, isNarrow ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : {}]}>
-                                    <Text style={styles.formLabel}>BUYING PRICE (₹) *</Text>
-                                    <TextInput 
-                                        style={styles.formInput}
-                                        value={newMedicine.buyingPrice ? String(newMedicine.buyingPrice) : ''}
-                                        onChangeText={(val) => setNewMedicine({...newMedicine, buyingPrice: val})}
-                                        keyboardType="numeric"
-                                        placeholder="0.00"
-                                    />
-                                </View>
-                                <View style={[styles.formGroup, isSmallMobile ? { width: '48%', minWidth: 120, flex: 1 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
-                                    <Text style={styles.formLabel}>CGST (%)</Text>
-                                    <TextInput 
-                                        style={styles.formInput}
-                                        value={newMedicine.cgstPercent ? String(newMedicine.cgstPercent) : ''}
-                                        onChangeText={(val) => setNewMedicine({...newMedicine, cgstPercent: val})}
-                                        keyboardType="numeric"
-                                        placeholder="0"
-                                    />
-                                </View>
-                                <View style={[styles.formGroup, isSmallMobile ? { width: '48%', minWidth: 120, flex: 1 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
-                                    <Text style={styles.formLabel}>SGST (%)</Text>
-                                    <TextInput 
-                                        style={styles.formInput}
-                                        value={newMedicine.sgstPercent ? String(newMedicine.sgstPercent) : ''}
-                                        onChangeText={(val) => setNewMedicine({...newMedicine, sgstPercent: val})}
-                                        keyboardType="numeric"
-                                        placeholder="0"
-                                    />
-                                </View>
-                                <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 }]}>
-                                    <Text style={styles.formLabel}>FINAL AMOUNT (₹)</Text>
-                                    <View style={[styles.formInput, { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', justifyContent: 'center' }]}>
-                                        <Text style={{ color: '#0369a1', fontWeight: 'bold' }}>
-                                            {(() => {
-                                                const qty = Number(newMedicine.purchaseQty) || 0;
-                                                const price = Number(newMedicine.buyingPrice) || 0;
-                                                let baseTotal = qty * price;
-                                                let disc = newMedicine.discountType === 'Percentage'
-                                                    ? baseTotal * ((Number(newMedicine.discountValue) || 0) / 100)
-                                                    : (Number(newMedicine.discountValue) || 0);
-                                                const afterDisc = Math.max(0, baseTotal - disc);
-                                                const cgst = afterDisc * ((Number(newMedicine.cgstPercent) || 0) / 100);
-                                                const sgst = afterDisc * ((Number(newMedicine.sgstPercent) || 0) / 100);
-                                                return (afterDisc + cgst + sgst).toFixed(2);
-                                            })()}
-                                        </Text>
-                                    </View>
-                                </View>
-                            </View>
-
-                            {/* Selling Price & Batch */}
-                            <View style={[styles.formRow, isNarrow && { flexDirection: 'row', flexWrap: 'wrap', gap: 12 }]}>
-                                <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
-                                    <Text style={styles.formLabel}>SELLING PRICE (₹) *</Text>
-                                    <TextInput 
-                                        style={styles.formInput}
-                                        value={newMedicine.sellingPrice ? String(newMedicine.sellingPrice) : ''}
-                                        onChangeText={(val) => setNewMedicine({...newMedicine, sellingPrice: val})}
-                                        keyboardType="numeric"
-                                        placeholder="0.00"
-                                    />
-                                </View>
-                                <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
-                                    <Text style={styles.formLabel}>BATCH NUMBER</Text>
-                                    <TextInput 
-                                        style={styles.formInput}
-                                        value={newMedicine.batchNumber}
-                                        onChangeText={(val) => setNewMedicine({...newMedicine, batchNumber: val})}
-                                        placeholder="e.g. BT-2026-001"
-                                    />
-                                </View>
-                                <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 }]}>
-                                    <Text style={styles.formLabel}>EXPIRY DATE *</Text>
-                                    <DatePickerInput
-                                        value={newMedicine.expiryDate}
-                                        selectedDate={newMedicine.expiryDate}
-                                        onChange={(d) => setNewMedicine(prev => ({ ...prev, expiryDate: d }))}
-                                        onDateChange={(d) => setNewMedicine(prev => ({ ...prev, expiryDate: d }))}
-                                        placeholder="Expiry Date"
-                                    />
-                                </View>
-                                <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 }]}>
-                                    <Text style={styles.formLabel}>VENDOR / SUPPLIER</Text>
-                                    <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
-                                        <View style={{ flex: 1 }}>
-                                            <DropdownSelect
-                                                options={vendors.map(v => ({ label: v.vendorName, value: v._id }))}
-                                                value={newMedicine.vendorId}
-                                                onChange={(val) => {
-                                                    const v = vendors.find(vd => vd._id === val);
-                                                    setNewMedicine({...newMedicine, vendorId: val, vendor: v ? v.vendorName : ''});
-                                                }}
-                                                placeholder="-- Select Vendor --"
+                                        <View style={[styles.formGroup, isNarrow ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isTablet ? { width: '48%', minWidth: 160, flex: 1 } : { flex: 1.5 })]}>
+                                            <Text style={styles.formLabel}>SALT / COMPOSITION</Text>
+                                            <TextInput
+                                                style={styles.formInput}
+                                                value={newMedicine.salt}
+                                                onChangeText={(val) => setNewMedicine({ ...newMedicine, salt: val })}
+                                                placeholder="e.g. Acetaminophen"
                                             />
                                         </View>
-                                        <TouchableOpacity style={styles.btnAddVendor} onPress={() => setShowVendorModal(true)}>
-                                            <Text style={styles.btnAddVendorText}>+</Text>
+                                        <View style={[styles.formGroup, isNarrow ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isTablet ? { width: '48%', minWidth: 160, flex: 1 } : { flex: 1 })]}>
+                                            <Text style={styles.formLabel}>CATEGORY *</Text>
+                                            <TextInput
+                                                style={styles.formInput}
+                                                value={newMedicine.category}
+                                                onChangeText={(val) => setNewMedicine({ ...newMedicine, category: val })}
+                                                placeholder="General"
+                                            />
+                                        </View>
+                                    </View>
+
+                                    {/* Multi-Dose Tracking Section */}
+                                    <TouchableOpacity
+                                        style={[styles.multiDoseBanner, newMedicine.isMultiDose && styles.multiDoseBannerActive]}
+                                        onPress={() => setNewMedicine({ ...newMedicine, isMultiDose: !newMedicine.isMultiDose })}
+                                        activeOpacity={0.8}
+                                    >
+                                        <Text style={styles.multiDoseText}>{newMedicine.isMultiDose ? '☑' : '☐'} Enable Partial/Dosage Tracking (Multi-Dose items like Syrups, IV Fluids, Vials)</Text>
+                                    </TouchableOpacity>
+
+                                    {newMedicine.isMultiDose && (
+                                        <View style={[styles.formRow, isNarrow && { flexDirection: 'column', gap: 12 }]}>
+                                            <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 }]}>
+                                                <Text style={styles.formLabel}>VOLUME / DOSAGE PER UNIT *</Text>
+                                                <TextInput
+                                                    style={styles.formInput}
+                                                    value={newMedicine.packVolume ? String(newMedicine.packVolume) : ''}
+                                                    onChangeText={(val) => setNewMedicine({ ...newMedicine, packVolume: val })}
+                                                    keyboardType="numeric"
+                                                    placeholder="e.g. 900"
+                                                />
+                                            </View>
+                                            <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 }]}>
+                                                <Text style={styles.formLabel}>VOLUME UNIT *</Text>
+                                                <DropdownSelect
+                                                    options={[
+                                                        { label: 'IU (International Units)', value: 'IU' },
+                                                        { label: 'IU/ml', value: 'IU/ml' },
+                                                        { label: 'Units', value: 'Units' },
+                                                        { label: 'ml', value: 'ml' },
+                                                        { label: 'mcg', value: 'mcg' },
+                                                        { label: 'mg', value: 'mg' },
+                                                        { label: 'Pills / Tablets', value: 'pills' },
+                                                    ]}
+                                                    value={newMedicine.volumeUnit || 'IU'}
+                                                    onChange={(val) => setNewMedicine({ ...newMedicine, volumeUnit: val })}
+                                                    placeholder="Select Volume Unit"
+                                                />
+                                            </View>
+                                        </View>
+                                    )}
+
+                                    {/* Quantities & Unit */}
+                                    <View style={[styles.formRow, isNarrow && { flexDirection: 'row', flexWrap: 'wrap', gap: 12 }]}>
+                                        <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
+                                            <Text style={styles.formLabel}>PURCHASE QTY *</Text>
+                                            <TextInput
+                                                style={styles.formInput}
+                                                value={newMedicine.purchaseQty ? String(newMedicine.purchaseQty) : ''}
+                                                onChangeText={(val) => {
+                                                    setNewMedicine({ ...newMedicine, purchaseQty: val, stock: (Number(val) || 0) + (Number(newMedicine.freeQty) || 0) });
+                                                }}
+                                                keyboardType="numeric"
+                                                placeholder="e.g. 10"
+                                            />
+                                        </View>
+                                        <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
+                                            <Text style={styles.formLabel}>FREE QTY (SCHEME)</Text>
+                                            <TextInput
+                                                style={styles.formInput}
+                                                value={newMedicine.freeQty ? String(newMedicine.freeQty) : ''}
+                                                onChangeText={(val) => {
+                                                    setNewMedicine({ ...newMedicine, freeQty: val, stock: (Number(newMedicine.purchaseQty) || 0) + (Number(val) || 0) });
+                                                }}
+                                                keyboardType="numeric"
+                                                placeholder="e.g. 2"
+                                            />
+                                        </View>
+                                        <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 }]}>
+                                            <Text style={styles.formLabel}>UNIT</Text>
+                                            <DropdownSelect
+                                                options={UNIT_OPTIONS}
+                                                value={newMedicine.unit || 'Tablets'}
+                                                onChange={(val) => setNewMedicine({ ...newMedicine, unit: val })}
+                                                placeholder="Select Unit"
+                                            />
+                                        </View>
+                                        {['Strip', 'Capsules', 'Tablets'].includes(newMedicine.unit) && (
+                                            <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 }]}>
+                                                <Text style={styles.formLabel}>{newMedicine.unit === 'Strip' ? 'UNITS PER STRIP' : 'UNITS PER PACK'}</Text>
+                                                <TextInput
+                                                    style={styles.formInput}
+                                                    value={newMedicine.unitsPerStrip ? String(newMedicine.unitsPerStrip) : ''}
+                                                    onChangeText={(val) => setNewMedicine({ ...newMedicine, unitsPerStrip: val })}
+                                                    keyboardType="numeric"
+                                                    placeholder="10"
+                                                />
+                                            </View>
+                                        )}
+                                    </View>
+
+                                    {/* Pricing & GST */}
+                                    <View style={[styles.formRow, isNarrow && { flexDirection: 'row', flexWrap: 'wrap', gap: 12 }]}>
+                                        <View style={[styles.formGroup, isNarrow ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : {}]}>
+                                            <Text style={styles.formLabel}>BUYING PRICE (₹) *</Text>
+                                            <TextInput
+                                                style={styles.formInput}
+                                                value={newMedicine.buyingPrice ? String(newMedicine.buyingPrice) : ''}
+                                                onChangeText={(val) => setNewMedicine({ ...newMedicine, buyingPrice: val })}
+                                                keyboardType="numeric"
+                                                placeholder="0.00"
+                                            />
+                                        </View>
+                                        <View style={[styles.formGroup, isSmallMobile ? { width: '48%', minWidth: 120, flex: 1 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
+                                            <Text style={styles.formLabel}>CGST (%)</Text>
+                                            <TextInput
+                                                style={styles.formInput}
+                                                value={newMedicine.cgstPercent ? String(newMedicine.cgstPercent) : ''}
+                                                onChangeText={(val) => setNewMedicine({ ...newMedicine, cgstPercent: val })}
+                                                keyboardType="numeric"
+                                                placeholder="0"
+                                            />
+                                        </View>
+                                        <View style={[styles.formGroup, isSmallMobile ? { width: '48%', minWidth: 120, flex: 1 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
+                                            <Text style={styles.formLabel}>SGST (%)</Text>
+                                            <TextInput
+                                                style={styles.formInput}
+                                                value={newMedicine.sgstPercent ? String(newMedicine.sgstPercent) : ''}
+                                                onChangeText={(val) => setNewMedicine({ ...newMedicine, sgstPercent: val })}
+                                                keyboardType="numeric"
+                                                placeholder="0"
+                                            />
+                                        </View>
+                                        <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 }]}>
+                                            <Text style={styles.formLabel}>FINAL AMOUNT (₹)</Text>
+                                            <View style={[styles.formInput, { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', justifyContent: 'center' }]}>
+                                                <Text style={{ color: '#0369a1', fontWeight: 'bold' }}>
+                                                    {(() => {
+                                                        const qty = Number(newMedicine.purchaseQty) || 0;
+                                                        const price = Number(newMedicine.buyingPrice) || 0;
+                                                        let baseTotal = qty * price;
+                                                        let disc = newMedicine.discountType === 'Percentage'
+                                                            ? baseTotal * ((Number(newMedicine.discountValue) || 0) / 100)
+                                                            : (Number(newMedicine.discountValue) || 0);
+                                                        const afterDisc = Math.max(0, baseTotal - disc);
+                                                        const cgst = afterDisc * ((Number(newMedicine.cgstPercent) || 0) / 100);
+                                                        const sgst = afterDisc * ((Number(newMedicine.sgstPercent) || 0) / 100);
+                                                        return (afterDisc + cgst + sgst).toFixed(2);
+                                                    })()}
+                                                </Text>
+                                            </View>
+                                        </View>
+                                    </View>
+
+                                    {/* Selling Price & Batch */}
+                                    <View style={[styles.formRow, isNarrow && { flexDirection: 'row', flexWrap: 'wrap', gap: 12 }]}>
+                                        <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
+                                            <Text style={styles.formLabel}>SELLING PRICE (₹) *</Text>
+                                            <TextInput
+                                                style={styles.formInput}
+                                                value={newMedicine.sellingPrice ? String(newMedicine.sellingPrice) : ''}
+                                                onChangeText={(val) => setNewMedicine({ ...newMedicine, sellingPrice: val })}
+                                                keyboardType="numeric"
+                                                placeholder="0.00"
+                                            />
+                                        </View>
+                                        <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
+                                            <Text style={styles.formLabel}>BATCH NUMBER</Text>
+                                            <TextInput
+                                                style={styles.formInput}
+                                                value={newMedicine.batchNumber}
+                                                onChangeText={(val) => setNewMedicine({ ...newMedicine, batchNumber: val })}
+                                                placeholder="e.g. BT-2026-001"
+                                            />
+                                        </View>
+                                        <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 }]}>
+                                            <Text style={styles.formLabel}>EXPIRY DATE *</Text>
+                                            <DatePickerInput
+                                                value={newMedicine.expiryDate}
+                                                selectedDate={newMedicine.expiryDate}
+                                                onChange={(d) => setNewMedicine(prev => ({ ...prev, expiryDate: d }))}
+                                                onDateChange={(d) => setNewMedicine(prev => ({ ...prev, expiryDate: d }))}
+                                                placeholder="Expiry Date"
+                                            />
+                                        </View>
+                                        <View style={[styles.formGroup, isNarrow && { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 }]}>
+                                            <Text style={styles.formLabel}>VENDOR / SUPPLIER</Text>
+                                            <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                                                <View style={{ flex: 1 }}>
+                                                    <DropdownSelect
+                                                        options={vendors.map(v => ({ label: v.vendorName, value: v._id }))}
+                                                        value={newMedicine.vendorId}
+                                                        onChange={(val) => {
+                                                            const v = vendors.find(vd => vd._id === val);
+                                                            setNewMedicine({ ...newMedicine, vendorId: val, vendor: v ? v.vendorName : '' });
+                                                        }}
+                                                        placeholder="-- Select Vendor --"
+                                                    />
+                                                </View>
+                                                <TouchableOpacity style={styles.btnAddVendor} onPress={() => setShowVendorModal(true)}>
+                                                    <Text style={styles.btnAddVendorText}>+</Text>
+                                                </TouchableOpacity>
+                                            </View>
+                                        </View>
+                                    </View>
+
+                                    {/* Rack & Min Alert */}
+                                    <View style={[styles.formRow, isNarrow && { flexDirection: 'row', flexWrap: 'wrap', gap: 12 }]}>
+                                        <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
+                                            <Text style={styles.formLabel}>RACK LOCATION</Text>
+                                            <TextInput
+                                                style={styles.formInput}
+                                                value={newMedicine.rackLocation}
+                                                onChangeText={(val) => setNewMedicine({ ...newMedicine, rackLocation: val })}
+                                                placeholder="e.g. Rack A-3"
+                                            />
+                                        </View>
+                                        <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
+                                            <Text style={styles.formLabel}>MIN STOCK ALERT LEVEL</Text>
+                                            <TextInput
+                                                style={styles.formInput}
+                                                value={newMedicine.minStockAlertLevel ? String(newMedicine.minStockAlertLevel) : ''}
+                                                onChangeText={(val) => setNewMedicine({ ...newMedicine, minStockAlertLevel: val })}
+                                                keyboardType="numeric"
+                                                placeholder="50"
+                                            />
+                                        </View>
+                                    </View>
+
+                                    {/* Form Action Buttons */}
+                                    <View style={[styles.formActionButtonsRow, isNarrow && { flexDirection: 'column', width: '100%', gap: 10 }]}>
+                                        {isEditing && (
+                                            <TouchableOpacity
+                                                style={[styles.btnCancelEdit, isNarrow && { width: '100%', minHeight: 46, alignItems: 'center', justifyContent: 'center' }]}
+                                                onPress={() => { setIsEditing(false); setEditId(null); setNewMedicine(initialFormState); }}
+                                            >
+                                                <Text style={styles.btnCancelEditText}>Cancel Edit</Text>
+                                            </TouchableOpacity>
+                                        )}
+                                        <TouchableOpacity
+                                            style={[styles.btnSavePharma, savingMedicine && { opacity: 0.7 }, isNarrow && { width: '100%', minHeight: 46, alignItems: 'center', justifyContent: 'center' }]}
+                                            onPress={handleAddMedicine}
+                                            disabled={savingMedicine}
+                                        >
+                                            <Text style={styles.btnSavePharmaText}>
+                                                {savingMedicine ? 'Saving...' : (isEditing ? 'Update Medicine' : 'Add Medicine')}
+                                            </Text>
                                         </TouchableOpacity>
+                                        {!isEditing && (
+                                            <TouchableOpacity
+                                                style={[styles.btnClearForm, isNarrow && { width: '100%', minHeight: 46, alignItems: 'center', justifyContent: 'center' }]}
+                                                onPress={() => setNewMedicine(initialFormState)}
+                                            >
+                                                <Text style={styles.btnClearFormText}>Clear Form</Text>
+                                            </TouchableOpacity>
+                                        )}
+                                        {hasDraft && !isEditing && (
+                                            <>
+                                                <TouchableOpacity
+                                                    style={[styles.btnAction, { backgroundColor: '#fef3c7', borderColor: '#fde68a', borderWidth: 1, paddingHorizontal: 16 }, isNarrow && { width: '100%', minHeight: 46, alignItems: 'center', justifyContent: 'center' }]}
+                                                    onPress={handleRestoreDraft}
+                                                >
+                                                    <Text style={[styles.btnActionText, { color: '#b45309' }]}>📥 Restore Draft</Text>
+                                                </TouchableOpacity>
+                                                <TouchableOpacity
+                                                    style={[styles.btnAction, { backgroundColor: '#fee2e2', borderColor: '#fecaca', borderWidth: 1, paddingHorizontal: 16 }, isNarrow && { width: '100%', minHeight: 46, alignItems: 'center', justifyContent: 'center' }]}
+                                                    onPress={handleDiscardDraft}
+                                                >
+                                                    <Text style={[styles.btnActionText, { color: '#b91c1c' }]}>🗑️ Discard</Text>
+                                                </TouchableOpacity>
+                                            </>
+                                        )}
                                     </View>
                                 </View>
                             </View>
 
-                            {/* Rack & Min Alert */}
-                            <View style={[styles.formRow, isNarrow && { flexDirection: 'row', flexWrap: 'wrap', gap: 12 }]}>
-                                <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
-                                    <Text style={styles.formLabel}>RACK LOCATION</Text>
-                                    <TextInput 
-                                        style={styles.formInput}
-                                        value={newMedicine.rackLocation}
-                                        onChangeText={(val) => setNewMedicine({...newMedicine, rackLocation: val})}
-                                        placeholder="e.g. Rack A-3"
-                                    />
-                                </View>
-                                <View style={[styles.formGroup, isSmallMobile ? { width: '100%', minWidth: '100%', flexBasis: 'auto', flexGrow: 0, flexShrink: 0 } : (isNarrow ? { width: '48%', minWidth: 140, flex: 1 } : {})]}>
-                                    <Text style={styles.formLabel}>MIN STOCK ALERT LEVEL</Text>
-                                    <TextInput 
-                                        style={styles.formInput}
-                                        value={newMedicine.minStockAlertLevel ? String(newMedicine.minStockAlertLevel) : ''}
-                                        onChangeText={(val) => setNewMedicine({...newMedicine, minStockAlertLevel: val})}
-                                        keyboardType="numeric"
-                                        placeholder="50"
+                            <View style={styles.inventoryControls}>
+                                <View style={styles.searchBar}>
+                                    <TextInput
+                                        style={styles.searchInput}
+                                        placeholder="Search medicines by name or category..."
+                                        value={searchTerm}
+                                        onChangeText={setSearchTerm}
                                     />
                                 </View>
                             </View>
 
-                            {/* Form Action Buttons */}
-                            <View style={[styles.formActionButtonsRow, isNarrow && { flexDirection: 'column', width: '100%', gap: 10 }]}>
-                                {isEditing && (
-                                    <TouchableOpacity 
-                                        style={[styles.btnCancelEdit, isNarrow && { width: '100%', minHeight: 46, alignItems: 'center', justifyContent: 'center' }]} 
-                                        onPress={() => { setIsEditing(false); setEditId(null); setNewMedicine(initialFormState); }}
-                                    >
-                                        <Text style={styles.btnCancelEditText}>Cancel Edit</Text>
-                                    </TouchableOpacity>
-                                )}
-                                <TouchableOpacity 
-                                    style={[styles.btnSavePharma, savingMedicine && { opacity: 0.7 }, isNarrow && { width: '100%', minHeight: 46, alignItems: 'center', justifyContent: 'center' }]} 
-                                    onPress={handleAddMedicine} 
-                                    disabled={savingMedicine}
-                                >
-                                    <Text style={styles.btnSavePharmaText}>
-                                        {savingMedicine ? 'Saving...' : (isEditing ? 'Update Medicine' : 'Add Medicine')}
-                                    </Text>
-                                </TouchableOpacity>
-                                {!isEditing && (
-                                    <TouchableOpacity 
-                                        style={[styles.btnClearForm, isNarrow && { width: '100%', minHeight: 46, alignItems: 'center', justifyContent: 'center' }]} 
-                                        onPress={() => setNewMedicine(initialFormState)}
-                                    >
-                                        <Text style={styles.btnClearFormText}>Clear Form</Text>
-                                    </TouchableOpacity>
-                                )}
-                            </View>
-                        </View>
-                    </View>
+                            <View style={styles.tableWrapper}>
+                                {loading ? (
+                                    <View style={styles.loaderContainer}>
+                                        <ActivityIndicator size="large" color="#059669" />
+                                    </View>
+                                ) : isMobile ? (
+                                    /* Mobile Card / List Presentation (Web 1:1 Parity, Responsive First) */
+                                    <View style={styles.mobileMedList}>
+                                        {filteredMedicines.length === 0 ? (
+                                            <View style={styles.emptyMedCard}>
+                                                <Text style={styles.emptyMedText}>No medicines match your search criteria.</Text>
+                                            </View>
+                                        ) : (
+                                            filteredMedicines.map((med) => {
+                                                const isLow = med.stock < (med.minStockAlertLevel || 50);
+                                                const expiryStr = med.expiryDate ? formatToDisplay(med.expiryDate) : 'N/A';
+                                                return (
+                                                    <View key={med._id} style={styles.medCard}>
+                                                        {/* Header: Title + Category + Status */}
+                                                        <View style={styles.medCardHeader}>
+                                                            <View style={{ flex: 1, marginRight: 8 }}>
+                                                                <Text style={styles.medCardName}>{med.name}</Text>
+                                                                {med.salt ? <Text style={styles.medCardSalt}>{med.salt}</Text> : null}
+                                                            </View>
+                                                            <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                                                                <View style={styles.categoryTag}>
+                                                                    <Text style={styles.categoryTagText}>{med.category || 'General'}</Text>
+                                                                </View>
+                                                                <View style={[
+                                                                    styles.statusBadgeSmall,
+                                                                    med.stock <= 0 ? styles.badgeOutOfStock : (isLow ? styles.badgeLowStock : styles.badgeInStock)
+                                                                ]}>
+                                                                    <Text style={[
+                                                                        styles.statusBadgeSmallText,
+                                                                        med.stock <= 0 ? styles.textOutOfStock : (isLow ? styles.textLowStock : styles.textInStock)
+                                                                    ]}>
+                                                                        {med.stock <= 0 ? 'Out of Stock' : (isLow ? 'Low Stock' : 'In Stock')}
+                                                                    </Text>
+                                                                </View>
+                                                            </View>
+                                                        </View>
 
-                    <View style={styles.inventoryControls}>
-                        <View style={styles.searchBar}>
-                            <TextInput 
-                                style={styles.searchInput}
-                                placeholder="Search medicines by name or category..."
-                                value={searchTerm}
-                                onChangeText={setSearchTerm}
-                            />
-                        </View>
-                    </View>
+                                                        {/* Details Grid */}
+                                                        <View style={styles.medCardGrid}>
+                                                            <View style={styles.medCardGridItem}>
+                                                                <Text style={styles.medCardGridLabel}>Batch #</Text>
+                                                                <Text style={styles.medCardGridVal}>#{med.batchNumber || '—'}</Text>
+                                                            </View>
+                                                            <View style={[styles.medCardGridItem, med.isMultiDose && { width: '100%' }]}>
+                                                                <Text style={styles.medCardGridLabel}>Available Stock</Text>
+                                                                {med.isMultiDose ? (
+                                                                    <View style={{ marginTop: 2 }}>
+                                                                        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                                                                            <Text style={[styles.medCardGridVal, isLow ? styles.lowStockText : styles.goodStockText, { fontWeight: '700' }]}>
+                                                                                {med.stock} {med.unit || 'Vials'}
+                                                                            </Text>
+                                                                            <Text style={{ fontSize: 11.5, color: '#475569', fontWeight: 'normal' }}>
+                                                                                ({med.openUnitVolume || 0}/{med.packVolume} {med.volumeUnit} open)
+                                                                            </Text>
+                                                                            {isLow && (
+                                                                                <View style={styles.lowStockBadge}>
+                                                                                    <Text style={styles.lowStockBadgeText}>Low</Text>
+                                                                                </View>
+                                                                            )}
+                                                                        </View>
+                                                                        {Number(med.openUnitVolume) > 0 && (
+                                                                            <View style={styles.stockProgressBarBg}>
+                                                                                <View
+                                                                                    style={[
+                                                                                        styles.stockProgressBarFill,
+                                                                                        { width: `${Math.min(100, Math.max(0, ((Number(med.openUnitVolume) / (Number(med.packVolume) || 1)) * 100)))}%` }
+                                                                                    ]}
+                                                                                />
+                                                                            </View>
+                                                                        )}
+                                                                    </View>
+                                                                ) : (
+                                                                    <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginTop: 2 }}>
+                                                                        {['Strip', 'Capsules', 'Tablets'].includes(med.unit) ? (
+                                                                            <Text style={[styles.medCardGridVal, isLow ? styles.lowStockText : styles.goodStockText]}>
+                                                                                {Math.floor(med.stock / (Number(med.unitsPerStrip) || 1))} {med.unit}{' '}
+                                                                                <Text style={{ fontSize: 11, color: '#64748b', fontWeight: 'normal' }}>({med.stock} Units)</Text>
+                                                                            </Text>
+                                                                        ) : (
+                                                                            <Text style={[styles.medCardGridVal, isLow ? styles.lowStockText : styles.goodStockText]}>
+                                                                                {med.stock} {med.unit}
+                                                                            </Text>
+                                                                        )}
+                                                                        {isLow && (
+                                                                            <View style={styles.lowStockBadge}>
+                                                                                <Text style={styles.lowStockBadgeText}>Low</Text>
+                                                                            </View>
+                                                                        )}
+                                                                    </View>
+                                                                )}
+                                                            </View>
+                                                            <View style={styles.medCardGridItem}>
+                                                                <Text style={styles.medCardGridLabel}>Min Stock Alert</Text>
+                                                                <Text style={styles.medCardGridVal}>{med.minStockAlertLevel || 50} {med.unit}</Text>
+                                                            </View>
+                                                            <View style={styles.medCardGridItem}>
+                                                                <Text style={styles.medCardGridLabel}>Expiry Date</Text>
+                                                                <Text style={styles.medCardGridVal}>{expiryStr}</Text>
+                                                            </View>
+                                                            <View style={styles.medCardGridItem}>
+                                                                <Text style={styles.medCardGridLabel}>Buying / Selling</Text>
+                                                                <Text style={styles.medCardGridVal}>₹{med.buyingPrice} / ₹{med.sellingPrice}</Text>
+                                                            </View>
+                                                            <View style={styles.medCardGridItem}>
+                                                                <Text style={styles.medCardGridLabel}>Rack Location</Text>
+                                                                <Text style={styles.medCardGridVal}>{med.rackLocation || '—'}</Text>
+                                                            </View>
+                                                            <View style={[styles.medCardGridItem, { width: '100%' }]}>
+                                                                <Text style={styles.medCardGridLabel}>Vendor</Text>
+                                                                <Text style={styles.medCardGridVal} numberOfLines={2}>{med.vendor || 'N/A'}</Text>
+                                                            </View>
+                                                        </View>
 
-                    <View style={styles.tableWrapper}>
-                        {loading ? (
-                            <View style={styles.loaderContainer}>
-                                <ActivityIndicator size="large" color="#059669" />
-                            </View>
-                        ) : isMobile ? (
-                            /* Mobile Card / List Presentation (Web 1:1 Parity, Responsive First) */
-                            <View style={styles.mobileMedList}>
-                                {filteredMedicines.length === 0 ? (
-                                    <View style={styles.emptyMedCard}>
-                                        <Text style={styles.emptyMedText}>No medicines match your search criteria.</Text>
+                                                        {/* Actions Row */}
+                                                        <View style={styles.medCardActionsRow}>
+                                                            <TouchableOpacity
+                                                                style={[styles.medCardActionBtn, { backgroundColor: '#f0f9ff', borderColor: '#bae6fd' }]}
+                                                                onPress={() => handleViewDetails(med)}
+                                                                activeOpacity={0.7}
+                                                            >
+                                                                <Text style={[styles.medCardActionText, { color: '#0369a1' }]}>👁️ Details</Text>
+                                                            </TouchableOpacity>
+                                                            <TouchableOpacity
+                                                                style={[styles.medCardActionBtn, { backgroundColor: '#ecfdf5', borderColor: '#a7f3d0' }]}
+                                                                onPress={() => handleEdit(med)}
+                                                                activeOpacity={0.7}
+                                                            >
+                                                                <Text style={[styles.medCardActionText, { color: '#059669' }]}>✏️ Edit</Text>
+                                                            </TouchableOpacity>
+                                                            <TouchableOpacity
+                                                                style={[styles.medCardActionBtn, { backgroundColor: '#fef3c7', borderColor: '#fde68a' }]}
+                                                                onPress={() => {
+                                                                    setConsumptionForm({
+                                                                        medicineId: med._id,
+                                                                        quantity: '',
+                                                                        reason: 'Doctor/Staff Use',
+                                                                        givenTo: ''
+                                                                    });
+                                                                    setShowConsumptionModal(true);
+                                                                }}
+                                                                activeOpacity={0.7}
+                                                            >
+                                                                <Text style={[styles.medCardActionText, { color: '#b45309' }]}>📌 Stock Adj.</Text>
+                                                            </TouchableOpacity>
+                                                            <TouchableOpacity
+                                                                style={[styles.medCardActionBtn, { backgroundColor: '#fef2f2', borderColor: '#fecaca' }]}
+                                                                onPress={() => handleDelete(med._id)}
+                                                                activeOpacity={0.7}
+                                                            >
+                                                                <Text style={[styles.medCardActionText, { color: '#dc2626' }]}>🗑️ Delete</Text>
+                                                            </TouchableOpacity>
+                                                        </View>
+                                                    </View>
+                                                );
+                                            })
+                                        )}
                                     </View>
                                 ) : (
-                                    filteredMedicines.map((med) => {
-                                        const isLow = med.stock < (med.minStockAlertLevel || 50);
-                                        const expiryStr = med.expiryDate ? formatToDisplay(med.expiryDate) : 'N/A';
-                                        return (
-                                            <View key={med._id} style={styles.medCard}>
-                                                {/* Header: Title + Category + Status */}
-                                                <View style={styles.medCardHeader}>
-                                                    <View style={{ flex: 1, marginRight: 8 }}>
-                                                        <Text style={styles.medCardName}>{med.name}</Text>
-                                                        {med.salt ? <Text style={styles.medCardSalt}>{med.salt}</Text> : null}
-                                                    </View>
-                                                    <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                                    /* Desktop / Tablet Horizontal Table View */
+                                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                                        <View style={{ minWidth: 1080 }}>
+                                            <View style={styles.tableHeadRow}>
+                                                <Text style={[styles.tableHead, { width: 100 }]}>Batch #</Text>
+                                                <Text style={[styles.tableHead, { width: 180 }]}>Medicine Name</Text>
+                                                <Text style={[styles.tableHead, { width: 120 }]}>Category</Text>
+                                                <Text style={[styles.tableHead, { width: 170 }]}>Stock</Text>
+                                                <Text style={[styles.tableHead, { width: 100 }]}>Buying (₹)</Text>
+                                                <Text style={[styles.tableHead, { width: 100 }]}>Selling (₹)</Text>
+                                                <Text style={[styles.tableHead, { width: 150 }]}>Vendor</Text>
+                                                <Text style={[styles.tableHead, { width: 110 }]}>Expiry</Text>
+                                                <Text style={[styles.tableHead, { width: 120 }]}>Actions</Text>
+                                            </View>
+                                            {filteredMedicines.map((med) => (
+                                                <View key={med._id} style={styles.tableRow}>
+                                                    <Text style={[styles.tableCell, { width: 100, color: '#64748b' }]}>#{med.batchNumber}</Text>
+                                                    <Text style={[styles.tableCell, styles.medName, { width: 180 }]}>{med.name}</Text>
+                                                    <View style={{ width: 120, padding: 12, justifyContent: 'center' }}>
                                                         <View style={styles.categoryTag}>
-                                                            <Text style={styles.categoryTagText}>{med.category || 'General'}</Text>
-                                                        </View>
-                                                        <View style={[
-                                                            styles.statusBadgeSmall,
-                                                            med.stock <= 0 ? styles.badgeOutOfStock : (isLow ? styles.badgeLowStock : styles.badgeInStock)
-                                                        ]}>
-                                                            <Text style={[
-                                                                styles.statusBadgeSmallText,
-                                                                med.stock <= 0 ? styles.textOutOfStock : (isLow ? styles.textLowStock : styles.textInStock)
-                                                            ]}>
-                                                                {med.stock <= 0 ? 'Out of Stock' : (isLow ? 'Low Stock' : 'In Stock')}
-                                                            </Text>
+                                                            <Text style={styles.categoryTagText}>{med.category}</Text>
                                                         </View>
                                                     </View>
-                                                </View>
-
-                                                {/* Details Grid */}
-                                                <View style={styles.medCardGrid}>
-                                                    <View style={styles.medCardGridItem}>
-                                                        <Text style={styles.medCardGridLabel}>Batch #</Text>
-                                                        <Text style={styles.medCardGridVal}>#{med.batchNumber || '—'}</Text>
-                                                    </View>
-                                                    <View style={[styles.medCardGridItem, med.isMultiDose && { width: '100%' }]}>
-                                                        <Text style={styles.medCardGridLabel}>Available Stock</Text>
+                                                    <View style={{ width: 170, padding: 12, justifyContent: 'center' }}>
                                                         {med.isMultiDose ? (
-                                                            <View style={{ marginTop: 2 }}>
-                                                                <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-                                                                    <Text style={[styles.medCardGridVal, isLow ? styles.lowStockText : styles.goodStockText, { fontWeight: '700' }]}>
+                                                            <View style={{ flexDirection: 'column', gap: 4 }}>
+                                                                <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                                                                    <Text style={[med.stock < (med.minStockAlertLevel || 50) ? styles.lowStock : styles.goodStock, { fontWeight: '700' }]}>
                                                                         {med.stock} {med.unit || 'Vials'}
                                                                     </Text>
-                                                                    <Text style={{ fontSize: 11.5, color: '#475569', fontWeight: 'normal' }}>
+                                                                    <Text style={{ fontSize: 11, color: '#475569', fontWeight: 'normal' }}>
                                                                         ({med.openUnitVolume || 0}/{med.packVolume} {med.volumeUnit} open)
                                                                     </Text>
-                                                                    {isLow && (
-                                                                        <View style={styles.lowStockBadge}>
-                                                                            <Text style={styles.lowStockBadgeText}>Low</Text>
-                                                                        </View>
-                                                                    )}
                                                                 </View>
                                                                 {Number(med.openUnitVolume) > 0 && (
                                                                     <View style={styles.stockProgressBarBg}>
-                                                                        <View 
+                                                                        <View
                                                                             style={[
-                                                                                styles.stockProgressBarFill, 
+                                                                                styles.stockProgressBarFill,
                                                                                 { width: `${Math.min(100, Math.max(0, ((Number(med.openUnitVolume) / (Number(med.packVolume) || 1)) * 100)))}%` }
-                                                                            ]} 
+                                                                            ]}
                                                                         />
                                                                     </View>
                                                                 )}
                                                             </View>
                                                         ) : (
-                                                            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginTop: 2 }}>
+                                                            <View>
                                                                 {['Strip', 'Capsules', 'Tablets'].includes(med.unit) ? (
-                                                                    <Text style={[styles.medCardGridVal, isLow ? styles.lowStockText : styles.goodStockText]}>
+                                                                    <Text style={med.stock < (med.minStockAlertLevel || 50) ? styles.lowStock : styles.goodStock}>
                                                                         {Math.floor(med.stock / (Number(med.unitsPerStrip) || 1))} {med.unit}{' '}
                                                                         <Text style={{ fontSize: 11, color: '#64748b', fontWeight: 'normal' }}>({med.stock} Units)</Text>
                                                                     </Text>
                                                                 ) : (
-                                                                    <Text style={[styles.medCardGridVal, isLow ? styles.lowStockText : styles.goodStockText]}>
+                                                                    <Text style={med.stock < (med.minStockAlertLevel || 50) ? styles.lowStock : styles.goodStock}>
                                                                         {med.stock} {med.unit}
                                                                     </Text>
-                                                                )}
-                                                                {isLow && (
-                                                                    <View style={styles.lowStockBadge}>
-                                                                        <Text style={styles.lowStockBadgeText}>Low</Text>
-                                                                    </View>
                                                                 )}
                                                             </View>
                                                         )}
                                                     </View>
-                                                    <View style={styles.medCardGridItem}>
-                                                        <Text style={styles.medCardGridLabel}>Min Stock Alert</Text>
-                                                        <Text style={styles.medCardGridVal}>{med.minStockAlertLevel || 50} {med.unit}</Text>
+                                                    <Text style={[styles.tableCell, { width: 100 }]}>₹{med.buyingPrice}</Text>
+                                                    <Text style={[styles.tableCell, { width: 100, fontWeight: 'bold' }]}>₹{med.sellingPrice}</Text>
+                                                    <Text style={[styles.tableCell, { width: 150, color: '#475569' }]} numberOfLines={1}>{med.vendor || 'N/A'}</Text>
+                                                    <Text style={[styles.tableCell, { width: 110 }]}>
+                                                        {med.expiryDate ? formatToDisplay(med.expiryDate) : 'N/A'}
+                                                    </Text>
+                                                    <View style={{ width: 120, padding: 12, flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                                                        <TouchableOpacity style={styles.actionBtn} onPress={() => handleViewDetails(med)}>
+                                                            <Text>👁️</Text>
+                                                        </TouchableOpacity>
+                                                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#ecfdf5', borderColor: '#a7f3d0' }]} onPress={() => handleEdit(med)}>
+                                                            <Text>✏️</Text>
+                                                        </TouchableOpacity>
+                                                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#fef2f2', borderColor: '#fecaca' }]} onPress={() => handleDelete(med._id)}>
+                                                            <Text>🗑️</Text>
+                                                        </TouchableOpacity>
                                                     </View>
-                                                    <View style={styles.medCardGridItem}>
-                                                        <Text style={styles.medCardGridLabel}>Expiry Date</Text>
-                                                        <Text style={styles.medCardGridVal}>{expiryStr}</Text>
-                                                    </View>
-                                                    <View style={styles.medCardGridItem}>
-                                                        <Text style={styles.medCardGridLabel}>Buying / Selling</Text>
-                                                        <Text style={styles.medCardGridVal}>₹{med.buyingPrice} / ₹{med.sellingPrice}</Text>
-                                                    </View>
-                                                    <View style={styles.medCardGridItem}>
-                                                        <Text style={styles.medCardGridLabel}>Rack Location</Text>
-                                                        <Text style={styles.medCardGridVal}>{med.rackLocation || '—'}</Text>
-                                                    </View>
-                                                    <View style={[styles.medCardGridItem, { width: '100%' }]}>
-                                                        <Text style={styles.medCardGridLabel}>Vendor</Text>
-                                                        <Text style={styles.medCardGridVal} numberOfLines={2}>{med.vendor || 'N/A'}</Text>
+                                                </View>
+                                            ))}
+                                        </View>
+                                    </ScrollView>
+                                )}
+                            </View>
+                        </View>
+                    ) : (
+                        <PurchaseInvoiceHistory />
+                    )}
+
+                    {/* Medicine Details Modal */}
+                    <Modal visible={showDetailsModal} transparent={true} animationType="slide" onRequestClose={() => setShowDetailsModal(false)}>
+                        <View style={styles.modalOverlay}>
+                            <View style={[styles.modalContent, { maxWidth: 680, maxHeight: '90%' }]}>
+                                <View style={styles.modalHeader}>
+                                    <View style={{ flex: 1, paddingRight: 8 }}>
+                                        <Text style={styles.modalTitle} numberOfLines={1}>💊 {selectedMedicine?.name}</Text>
+                                        <Text style={styles.modalSubtitle}>Comprehensive Inventory Details</Text>
+                                    </View>
+                                    <TouchableOpacity
+                                        onPress={() => setShowDetailsModal(false)}
+                                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                                    >
+                                        <Text style={styles.closeBtn}>×</Text>
+                                    </TouchableOpacity>
+                                </View>
+
+                                <ScrollView
+                                    style={styles.modalBody}
+                                    contentContainerStyle={{ paddingBottom: 16 }}
+                                    showsVerticalScrollIndicator={true}
+                                >
+                                    {selectedMedicine && (() => {
+                                        const groupedMedicines = medicines.filter(med =>
+                                            (med.batchNumber && med.batchNumber === selectedMedicine.batchNumber &&
+                                                (med.vendor === selectedMedicine.vendor || med.vendorId === selectedMedicine.vendorId)) ||
+                                            (med._id === selectedMedicine._id)
+                                        );
+                                        const uniqueGrouped = Array.from(new Set(groupedMedicines.map(m => m._id)))
+                                            .map(id => groupedMedicines.find(m => m._id === id));
+                                        let totalPurchaseQty = 0, totalFreeQty = 0, totalStockQty = 0, totalGrossPurchaseAmount = 0, totalDiscountAmount = 0, totalTaxableAmount = 0, totalCGST = 0, totalSGST = 0, totalGST = 0, totalFinalPurchaseAmount = 0, totalExpectedRevenue = 0;
+                                        uniqueGrouped.forEach(med => {
+                                            const pQty = (med.purchaseQty !== undefined && med.purchaseQty !== null) ? Number(med.purchaseQty) : (Number(med.stock) || 0);
+                                            const fQty = Number(med.freeQty) || 0;
+                                            const stock = pQty + fQty;
+                                            const buyingPrice = Number(med.buyingPrice) || 0;
+                                            const sellingPrice = Number(med.sellingPrice) || 0;
+                                            const gross = pQty * buyingPrice;
+                                            let discountAmount = med.discountType === 'Flat Amount' ? Number(med.discountValue) || 0 : gross * ((Number(med.discountValue) || 0) / 100);
+                                            const taxable = Math.max(0, gross - discountAmount);
+                                            const cgstAmt = taxable * ((Number(med.cgstPercent) || 0) / 100);
+                                            const sgstAmt = taxable * ((Number(med.sgstPercent) || 0) / 100);
+                                            const gstAmt = cgstAmt + sgstAmt;
+                                            totalPurchaseQty += pQty; totalFreeQty += fQty; totalStockQty += stock; totalGrossPurchaseAmount += gross; totalDiscountAmount += discountAmount; totalTaxableAmount += taxable; totalCGST += cgstAmt; totalSGST += sgstAmt; totalGST += gstAmt; totalFinalPurchaseAmount += (taxable + gstAmt); totalExpectedRevenue += (stock * sellingPrice);
+                                        });
+                                        const expectedProfit = totalExpectedRevenue - totalFinalPurchaseAmount;
+
+                                        return (
+                                            <View>
+                                                {/* Inventory Status Card */}
+                                                <View style={styles.detailsBox}>
+                                                    <Text style={styles.sectionTitle}>Inventory Status</Text>
+                                                    <View style={styles.detailsGrid}>
+                                                        <View style={{ minWidth: '45%', flex: 1 }}>
+                                                            <Text style={styles.detailsLabel}>Supplier</Text>
+                                                            <Text style={styles.detailsValue}>{selectedMedicine.vendor || 'N/A'}</Text>
+                                                        </View>
+                                                        <View style={{ minWidth: '45%', flex: 1 }}>
+                                                            <Text style={styles.detailsLabel}>Batch</Text>
+                                                            <Text style={styles.detailsValue}>{selectedMedicine.batchNumber || 'N/A'}</Text>
+                                                        </View>
+                                                        <View style={{ minWidth: '45%', flex: 1 }}>
+                                                            <Text style={styles.detailsLabel}>Expiry</Text>
+                                                            <Text style={styles.detailsValue}>
+                                                                {selectedMedicine.expiryDate ? formatToDisplay(selectedMedicine.expiryDate) : 'N/A'}
+                                                            </Text>
+                                                        </View>
+                                                        <View style={{ minWidth: '45%', flex: 1 }}>
+                                                            <Text style={styles.detailsLabel}>Category</Text>
+                                                            <Text style={styles.detailsValue}>{selectedMedicine.category || 'General'}</Text>
+                                                        </View>
                                                     </View>
                                                 </View>
 
-                                                {/* Actions Row */}
-                                                <View style={styles.medCardActionsRow}>
-                                                    <TouchableOpacity 
-                                                        style={[styles.medCardActionBtn, { backgroundColor: '#f0f9ff', borderColor: '#bae6fd' }]} 
-                                                        onPress={() => handleViewDetails(med)}
-                                                        activeOpacity={0.7}
-                                                    >
-                                                        <Text style={[styles.medCardActionText, { color: '#0369a1' }]}>👁️ Details</Text>
-                                                    </TouchableOpacity>
-                                                    <TouchableOpacity 
-                                                        style={[styles.medCardActionBtn, { backgroundColor: '#ecfdf5', borderColor: '#a7f3d0' }]} 
-                                                        onPress={() => handleEdit(med)}
-                                                        activeOpacity={0.7}
-                                                    >
-                                                        <Text style={[styles.medCardActionText, { color: '#059669' }]}>✏️ Edit</Text>
-                                                    </TouchableOpacity>
-                                                    <TouchableOpacity 
-                                                        style={[styles.medCardActionBtn, { backgroundColor: '#fef3c7', borderColor: '#fde68a' }]} 
-                                                        onPress={() => {
-                                                            setConsumptionForm({
-                                                                medicineId: med._id,
-                                                                quantity: '',
-                                                                reason: 'Doctor/Staff Use',
-                                                                givenTo: ''
-                                                            });
-                                                            setShowConsumptionModal(true);
-                                                        }}
-                                                        activeOpacity={0.7}
-                                                    >
-                                                        <Text style={[styles.medCardActionText, { color: '#b45309' }]}>📌 Stock Adj.</Text>
-                                                    </TouchableOpacity>
-                                                    <TouchableOpacity 
-                                                        style={[styles.medCardActionBtn, { backgroundColor: '#fef2f2', borderColor: '#fecaca' }]} 
-                                                        onPress={() => handleDelete(med._id)}
-                                                        activeOpacity={0.7}
-                                                    >
-                                                        <Text style={[styles.medCardActionText, { color: '#dc2626' }]}>🗑️ Delete</Text>
-                                                    </TouchableOpacity>
+                                                {/* Detailed Inventory Table */}
+                                                <View style={styles.detailsTableWrapper}>
+                                                    <ScrollView horizontal showsHorizontalScrollIndicator={true} nestedScrollEnabled={true}>
+                                                        <View style={{ minWidth: 570 }}>
+                                                            <View style={styles.detailsTableHeadRow}>
+                                                                <Text style={[styles.detailsTableHead, { width: 140 }]}>Medicine Name</Text>
+                                                                <Text style={[styles.detailsTableHead, { width: 80 }]}>Batch #</Text>
+                                                                <Text style={[styles.detailsTableHead, { width: 85 }]}>Stock Qty</Text>
+                                                                <Text style={[styles.detailsTableHead, { width: 95 }]}>Cost Price</Text>
+                                                                <Text style={[styles.detailsTableHead, { width: 85 }]}>Selling Price</Text>
+                                                                <Text style={[styles.detailsTableHead, { width: 85 }]}>Total Amount</Text>
+                                                            </View>
+                                                            {uniqueGrouped.map(med => {
+                                                                const pQty = (med.purchaseQty !== undefined && med.purchaseQty !== null) ? Number(med.purchaseQty) : (Number(med.stock) || 0);
+                                                                const buyingPrice = Number(med.buyingPrice) || 0;
+                                                                const gross = pQty * buyingPrice;
+                                                                let discountAmount = med.discountType === 'Flat Amount' ? Number(med.discountValue) || 0 : gross * ((Number(med.discountValue) || 0) / 100);
+                                                                const taxable = Math.max(0, gross - discountAmount);
+                                                                const cgstAmt = taxable * ((Number(med.cgstPercent) || 0) / 100);
+                                                                const sgstAmt = taxable * ((Number(med.sgstPercent) || 0) / 100);
+                                                                const totalFinalCost = taxable + cgstAmt + sgstAmt;
+                                                                const isSelected = med._id === selectedMedicine._id;
+
+                                                                return (
+                                                                    <View
+                                                                        key={med._id}
+                                                                        style={[
+                                                                            styles.detailsTableRow,
+                                                                            isSelected && styles.detailsTableRowSelected
+                                                                        ]}
+                                                                    >
+                                                                        <View style={{ width: 140, paddingRight: 6 }}>
+                                                                            <Text style={[styles.detailsTableCell, { fontWeight: '700', color: '#0f172a' }]}>
+                                                                                {med.name} {isSelected ? '(Selected)' : ''}
+                                                                            </Text>
+                                                                        </View>
+                                                                        <View style={{ width: 80, paddingRight: 4 }}>
+                                                                            <Text style={[styles.detailsTableCell, { color: '#475569' }]}>
+                                                                                {med.batchNumber || 'N/A'}
+                                                                            </Text>
+                                                                        </View>
+                                                                        <View style={{ width: 85, paddingRight: 4 }}>
+                                                                            <Text style={[
+                                                                                styles.detailsTableCell,
+                                                                                { fontWeight: '700', color: med.stock < (med.minStockAlertLevel || 50) ? '#dc2626' : '#059669' }
+                                                                            ]}>
+                                                                                {med.stock} {med.unit || 'Tabs'}
+                                                                            </Text>
+                                                                        </View>
+                                                                        <View style={{ width: 95, paddingRight: 4 }}>
+                                                                            <Text style={[styles.detailsTableCell, { color: '#1e293b' }]}>
+                                                                                ₹{med.buyingPrice || 0}
+                                                                            </Text>
+                                                                            <Text style={{ fontSize: 9.5, color: '#64748b' }}>
+                                                                                (+{med.cgstPercent || 0}% CGST)
+                                                                            </Text>
+                                                                        </View>
+                                                                        <View style={{ width: 85, paddingRight: 4 }}>
+                                                                            <Text style={[styles.detailsTableCell, { fontWeight: '700', color: '#059669' }]}>
+                                                                                ₹{med.sellingPrice || 0}
+                                                                            </Text>
+                                                                        </View>
+                                                                        <View style={{ width: 85, paddingRight: 4 }}>
+                                                                            <Text style={[styles.detailsTableCell, { fontWeight: '700', color: '#0f172a' }]}>
+                                                                                ₹{totalFinalCost.toFixed(2)}
+                                                                            </Text>
+                                                                        </View>
+                                                                    </View>
+                                                                );
+                                                            })}
+                                                        </View>
+                                                    </ScrollView>
+                                                </View>
+
+                                                {/* Financial Summary */}
+                                                <View style={styles.financialSummaryCard}>
+                                                    <View style={styles.financialSummaryGrid}>
+                                                        <View style={styles.financialMetricItem}>
+                                                            <Text style={[styles.financialMetricLabel, styles.financialMetricLabelEmerald]}>Stock</Text>
+                                                            <Text style={[styles.financialMetricValue, styles.financialMetricValueEmerald]}>{totalStockQty}</Text>
+                                                        </View>
+                                                        <View style={styles.financialMetricItem}>
+                                                            <Text style={styles.financialMetricLabel}>Final Cost</Text>
+                                                            <Text style={styles.financialMetricValue}>₹{totalFinalPurchaseAmount.toFixed(2)}</Text>
+                                                        </View>
+                                                        <View style={styles.financialMetricItem}>
+                                                            <Text style={styles.financialMetricLabel}>Revenue</Text>
+                                                            <Text style={styles.financialMetricValue}>₹{totalExpectedRevenue.toFixed(2)}</Text>
+                                                        </View>
+                                                        <View style={styles.financialMetricItem}>
+                                                            <Text style={[styles.financialMetricLabel, styles.financialMetricLabelEmerald]}>Profit</Text>
+                                                            <Text style={[styles.financialMetricValue, styles.financialMetricValueEmerald]}>₹{expectedProfit.toFixed(2)}</Text>
+                                                        </View>
+                                                    </View>
                                                 </View>
                                             </View>
                                         );
-                                    })
-                                )}
+                                    })()}
+                                </ScrollView>
                             </View>
-                        ) : (
-                            /* Desktop / Tablet Horizontal Table View */
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                                <View style={{ minWidth: 1080 }}>
-                                    <View style={styles.tableHeadRow}>
-                                        <Text style={[styles.tableHead, { width: 100 }]}>Batch #</Text>
-                                        <Text style={[styles.tableHead, { width: 180 }]}>Medicine Name</Text>
-                                        <Text style={[styles.tableHead, { width: 120 }]}>Category</Text>
-                                        <Text style={[styles.tableHead, { width: 170 }]}>Stock</Text>
-                                        <Text style={[styles.tableHead, { width: 100 }]}>Buying (₹)</Text>
-                                        <Text style={[styles.tableHead, { width: 100 }]}>Selling (₹)</Text>
-                                        <Text style={[styles.tableHead, { width: 150 }]}>Vendor</Text>
-                                        <Text style={[styles.tableHead, { width: 110 }]}>Expiry</Text>
-                                        <Text style={[styles.tableHead, { width: 120 }]}>Actions</Text>
-                                    </View>
-                                    {filteredMedicines.map((med) => (
-                                        <View key={med._id} style={styles.tableRow}>
-                                             <Text style={[styles.tableCell, { width: 100, color: '#64748b' }]}>#{med.batchNumber}</Text>
-                                             <Text style={[styles.tableCell, styles.medName, { width: 180 }]}>{med.name}</Text>
-                                             <View style={{ width: 120, padding: 12, justifyContent: 'center' }}>
-                                                 <View style={styles.categoryTag}>
-                                                     <Text style={styles.categoryTagText}>{med.category}</Text>
-                                                 </View>
-                                             </View>
-                                             <View style={{ width: 170, padding: 12, justifyContent: 'center' }}>
-                                                 {med.isMultiDose ? (
-                                                     <View style={{ flexDirection: 'column', gap: 4 }}>
-                                                         <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
-                                                             <Text style={[med.stock < (med.minStockAlertLevel || 50) ? styles.lowStock : styles.goodStock, { fontWeight: '700' }]}>
-                                                                 {med.stock} {med.unit || 'Vials'}
-                                                             </Text>
-                                                             <Text style={{ fontSize: 11, color: '#475569', fontWeight: 'normal' }}>
-                                                                 ({med.openUnitVolume || 0}/{med.packVolume} {med.volumeUnit} open)
-                                                             </Text>
-                                                         </View>
-                                                         {Number(med.openUnitVolume) > 0 && (
-                                                             <View style={styles.stockProgressBarBg}>
-                                                                 <View 
-                                                                     style={[
-                                                                         styles.stockProgressBarFill, 
-                                                                         { width: `${Math.min(100, Math.max(0, ((Number(med.openUnitVolume) / (Number(med.packVolume) || 1)) * 100)))}%` }
-                                                                     ]} 
-                                                                 />
-                                                             </View>
-                                                         )}
-                                                     </View>
-                                                 ) : (
-                                                     <View>
-                                                         {['Strip', 'Capsules', 'Tablets'].includes(med.unit) ? (
-                                                             <Text style={med.stock < (med.minStockAlertLevel || 50) ? styles.lowStock : styles.goodStock}>
-                                                                 {Math.floor(med.stock / (Number(med.unitsPerStrip) || 1))} {med.unit}{' '}
-                                                                 <Text style={{ fontSize: 11, color: '#64748b', fontWeight: 'normal' }}>({med.stock} Units)</Text>
-                                                             </Text>
-                                                         ) : (
-                                                             <Text style={med.stock < (med.minStockAlertLevel || 50) ? styles.lowStock : styles.goodStock}>
-                                                                 {med.stock} {med.unit}
-                                                             </Text>
-                                                         )}
-                                                     </View>
-                                                 )}
-                                             </View>
-                                            <Text style={[styles.tableCell, { width: 100 }]}>₹{med.buyingPrice}</Text>
-                                            <Text style={[styles.tableCell, { width: 100, fontWeight: 'bold' }]}>₹{med.sellingPrice}</Text>
-                                            <Text style={[styles.tableCell, { width: 150, color: '#475569' }]} numberOfLines={1}>{med.vendor || 'N/A'}</Text>
-                                            <Text style={[styles.tableCell, { width: 110 }]}>
-                                                {med.expiryDate ? formatToDisplay(med.expiryDate) : 'N/A'}
-                                            </Text>
-                                            <View style={{ width: 120, padding: 12, flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-                                                <TouchableOpacity style={styles.actionBtn} onPress={() => handleViewDetails(med)}>
-                                                    <Text>👁️</Text>
-                                                </TouchableOpacity>
-                                                <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#ecfdf5', borderColor: '#a7f3d0' }]} onPress={() => handleEdit(med)}>
-                                                    <Text>✏️</Text>
-                                                </TouchableOpacity>
-                                                <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#fef2f2', borderColor: '#fecaca' }]} onPress={() => handleDelete(med._id)}>
-                                                    <Text>🗑️</Text>
-                                                </TouchableOpacity>
-                                            </View>
-                                        </View>
-                                    ))}
-                                </View>
-                            </ScrollView>
-                        )}
-                    </View>
-                </View>
-            ) : (
-                <PurchaseInvoiceHistory />
-            )}
-
-            {/* Medicine Details Modal */}
-            <Modal visible={showDetailsModal} transparent={true} animationType="slide" onRequestClose={() => setShowDetailsModal(false)}>
-                <View style={styles.modalOverlay}>
-                    <View style={[styles.modalContent, { maxWidth: 680, maxHeight: '90%' }]}>
-                        <View style={styles.modalHeader}>
-                            <View style={{ flex: 1, paddingRight: 8 }}>
-                                <Text style={styles.modalTitle} numberOfLines={1}>💊 {selectedMedicine?.name}</Text>
-                                <Text style={styles.modalSubtitle}>Comprehensive Inventory Details</Text>
-                            </View>
-                            <TouchableOpacity 
-                                onPress={() => setShowDetailsModal(false)}
-                                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                            >
-                                <Text style={styles.closeBtn}>×</Text>
-                            </TouchableOpacity>
                         </View>
-                        
-                        <ScrollView 
-                            style={styles.modalBody}
-                            contentContainerStyle={{ paddingBottom: 16 }}
-                            showsVerticalScrollIndicator={true}
-                        >
-                            {selectedMedicine && (() => {
-                                const groupedMedicines = medicines.filter(med =>
-                                    (med.batchNumber && med.batchNumber === selectedMedicine.batchNumber &&
-                                        (med.vendor === selectedMedicine.vendor || med.vendorId === selectedMedicine.vendorId)) ||
-                                    (med._id === selectedMedicine._id)
-                                );
-                                const uniqueGrouped = Array.from(new Set(groupedMedicines.map(m => m._id)))
-                                    .map(id => groupedMedicines.find(m => m._id === id));
-                                let totalPurchaseQty = 0, totalFreeQty = 0, totalStockQty = 0, totalGrossPurchaseAmount = 0, totalDiscountAmount = 0, totalTaxableAmount = 0, totalCGST = 0, totalSGST = 0, totalGST = 0, totalFinalPurchaseAmount = 0, totalExpectedRevenue = 0;
-                                uniqueGrouped.forEach(med => {
-                                    const pQty = (med.purchaseQty !== undefined && med.purchaseQty !== null) ? Number(med.purchaseQty) : (Number(med.stock) || 0);
-                                    const fQty = Number(med.freeQty) || 0;
-                                    const stock = pQty + fQty;
-                                    const buyingPrice = Number(med.buyingPrice) || 0;
-                                    const sellingPrice = Number(med.sellingPrice) || 0;
-                                    const gross = pQty * buyingPrice;
-                                    let discountAmount = med.discountType === 'Flat Amount' ? Number(med.discountValue) || 0 : gross * ((Number(med.discountValue) || 0) / 100);
-                                    const taxable = Math.max(0, gross - discountAmount);
-                                    const cgstAmt = taxable * ((Number(med.cgstPercent) || 0) / 100);
-                                    const sgstAmt = taxable * ((Number(med.sgstPercent) || 0) / 100);
-                                    const gstAmt = cgstAmt + sgstAmt;
-                                    totalPurchaseQty += pQty; totalFreeQty += fQty; totalStockQty += stock; totalGrossPurchaseAmount += gross; totalDiscountAmount += discountAmount; totalTaxableAmount += taxable; totalCGST += cgstAmt; totalSGST += sgstAmt; totalGST += gstAmt; totalFinalPurchaseAmount += (taxable + gstAmt); totalExpectedRevenue += (stock * sellingPrice);
-                                });
-                                const expectedProfit = totalExpectedRevenue - totalFinalPurchaseAmount;
+                    </Modal>
 
-                                return (
+                    {/* Vendor Modal */}
+                    <Modal visible={showVendorModal} transparent={true} animationType="fade">
+                        <View style={styles.modalOverlay}>
+                            <View style={styles.modalContent}>
+                                <View style={styles.modalHeader}>
                                     <View>
-                                        {/* Inventory Status Card */}
-                                        <View style={styles.detailsBox}>
-                                            <Text style={styles.sectionTitle}>Inventory Status</Text>
-                                            <View style={styles.detailsGrid}>
-                                                <View style={{ minWidth: '45%', flex: 1 }}>
-                                                    <Text style={styles.detailsLabel}>Supplier</Text>
-                                                    <Text style={styles.detailsValue}>{selectedMedicine.vendor || 'N/A'}</Text>
-                                                </View>
-                                                <View style={{ minWidth: '45%', flex: 1 }}>
-                                                    <Text style={styles.detailsLabel}>Batch</Text>
-                                                    <Text style={styles.detailsValue}>{selectedMedicine.batchNumber || 'N/A'}</Text>
-                                                </View>
-                                                <View style={{ minWidth: '45%', flex: 1 }}>
-                                                    <Text style={styles.detailsLabel}>Expiry</Text>
-                                                    <Text style={styles.detailsValue}>
-                                                        {selectedMedicine.expiryDate ? formatToDisplay(selectedMedicine.expiryDate) : 'N/A'}
-                                                    </Text>
-                                                </View>
-                                                <View style={{ minWidth: '45%', flex: 1 }}>
-                                                    <Text style={styles.detailsLabel}>Category</Text>
-                                                    <Text style={styles.detailsValue}>{selectedMedicine.category || 'General'}</Text>
-                                                </View>
-                                            </View>
-                                        </View>
-
-                                        {/* Detailed Inventory Table */}
-                                        <View style={styles.detailsTableWrapper}>
-                                            <ScrollView horizontal showsHorizontalScrollIndicator={true} nestedScrollEnabled={true}>
-                                                <View style={{ minWidth: 570 }}>
-                                                    <View style={styles.detailsTableHeadRow}>
-                                                        <Text style={[styles.detailsTableHead, { width: 140 }]}>Medicine Name</Text>
-                                                        <Text style={[styles.detailsTableHead, { width: 80 }]}>Batch #</Text>
-                                                        <Text style={[styles.detailsTableHead, { width: 85 }]}>Stock Qty</Text>
-                                                        <Text style={[styles.detailsTableHead, { width: 95 }]}>Cost Price</Text>
-                                                        <Text style={[styles.detailsTableHead, { width: 85 }]}>Selling Price</Text>
-                                                        <Text style={[styles.detailsTableHead, { width: 85 }]}>Total Amount</Text>
-                                                    </View>
-                                                    {uniqueGrouped.map(med => {
-                                                        const pQty = (med.purchaseQty !== undefined && med.purchaseQty !== null) ? Number(med.purchaseQty) : (Number(med.stock) || 0);
-                                                        const buyingPrice = Number(med.buyingPrice) || 0;
-                                                        const gross = pQty * buyingPrice;
-                                                        let discountAmount = med.discountType === 'Flat Amount' ? Number(med.discountValue) || 0 : gross * ((Number(med.discountValue) || 0) / 100);
-                                                        const taxable = Math.max(0, gross - discountAmount);
-                                                        const cgstAmt = taxable * ((Number(med.cgstPercent) || 0) / 100);
-                                                        const sgstAmt = taxable * ((Number(med.sgstPercent) || 0) / 100);
-                                                        const totalFinalCost = taxable + cgstAmt + sgstAmt;
-                                                        const isSelected = med._id === selectedMedicine._id;
-
-                                                        return (
-                                                            <View 
-                                                                key={med._id} 
-                                                                style={[
-                                                                    styles.detailsTableRow,
-                                                                    isSelected && styles.detailsTableRowSelected
-                                                                ]}
-                                                            >
-                                                                <View style={{ width: 140, paddingRight: 6 }}>
-                                                                    <Text style={[styles.detailsTableCell, { fontWeight: '700', color: '#0f172a' }]}>
-                                                                        {med.name} {isSelected ? '(Selected)' : ''}
-                                                                    </Text>
-                                                                </View>
-                                                                <View style={{ width: 80, paddingRight: 4 }}>
-                                                                    <Text style={[styles.detailsTableCell, { color: '#475569' }]}>
-                                                                        {med.batchNumber || 'N/A'}
-                                                                    </Text>
-                                                                </View>
-                                                                <View style={{ width: 85, paddingRight: 4 }}>
-                                                                    <Text style={[
-                                                                        styles.detailsTableCell, 
-                                                                        { fontWeight: '700', color: med.stock < (med.minStockAlertLevel || 50) ? '#dc2626' : '#059669' }
-                                                                    ]}>
-                                                                        {med.stock} {med.unit || 'Tabs'}
-                                                                    </Text>
-                                                                </View>
-                                                                <View style={{ width: 95, paddingRight: 4 }}>
-                                                                    <Text style={[styles.detailsTableCell, { color: '#1e293b' }]}>
-                                                                        ₹{med.buyingPrice || 0}
-                                                                    </Text>
-                                                                    <Text style={{ fontSize: 9.5, color: '#64748b' }}>
-                                                                        (+{med.cgstPercent || 0}% CGST)
-                                                                    </Text>
-                                                                </View>
-                                                                <View style={{ width: 85, paddingRight: 4 }}>
-                                                                    <Text style={[styles.detailsTableCell, { fontWeight: '700', color: '#059669' }]}>
-                                                                        ₹{med.sellingPrice || 0}
-                                                                    </Text>
-                                                                </View>
-                                                                <View style={{ width: 85, paddingRight: 4 }}>
-                                                                    <Text style={[styles.detailsTableCell, { fontWeight: '700', color: '#0f172a' }]}>
-                                                                        ₹{totalFinalCost.toFixed(2)}
-                                                                    </Text>
-                                                                </View>
-                                                            </View>
-                                                        );
-                                                    })}
-                                                </View>
-                                            </ScrollView>
-                                        </View>
-
-                                        {/* Financial Summary */}
-                                        <View style={styles.financialSummaryCard}>
-                                            <View style={styles.financialSummaryGrid}>
-                                                <View style={styles.financialMetricItem}>
-                                                    <Text style={[styles.financialMetricLabel, styles.financialMetricLabelEmerald]}>Stock</Text>
-                                                    <Text style={[styles.financialMetricValue, styles.financialMetricValueEmerald]}>{totalStockQty}</Text>
-                                                </View>
-                                                <View style={styles.financialMetricItem}>
-                                                    <Text style={styles.financialMetricLabel}>Final Cost</Text>
-                                                    <Text style={styles.financialMetricValue}>₹{totalFinalPurchaseAmount.toFixed(2)}</Text>
-                                                </View>
-                                                <View style={styles.financialMetricItem}>
-                                                    <Text style={styles.financialMetricLabel}>Revenue</Text>
-                                                    <Text style={styles.financialMetricValue}>₹{totalExpectedRevenue.toFixed(2)}</Text>
-                                                </View>
-                                                <View style={styles.financialMetricItem}>
-                                                    <Text style={[styles.financialMetricLabel, styles.financialMetricLabelEmerald]}>Profit</Text>
-                                                    <Text style={[styles.financialMetricValue, styles.financialMetricValueEmerald]}>₹{expectedProfit.toFixed(2)}</Text>
-                                                </View>
-                                            </View>
-                                        </View>
+                                        <Text style={styles.modalTitle}>Add New Vendor</Text>
+                                        <Text style={styles.modalSubtitle}>Register a new supplier for inventory</Text>
                                     </View>
-                                );
-                            })()}
-                        </ScrollView>
-                    </View>
-                </View>
-            </Modal>
+                                    <TouchableOpacity onPress={() => setShowVendorModal(false)}>
+                                        <Text style={styles.closeBtn}>×</Text>
+                                    </TouchableOpacity>
+                                </View>
 
-            {/* Vendor Modal */}
-            <Modal visible={showVendorModal} transparent={true} animationType="fade">
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
-                        <View style={styles.modalHeader}>
-                            <View>
-                                <Text style={styles.modalTitle}>Add New Vendor</Text>
-                                <Text style={styles.modalSubtitle}>Register a new supplier for inventory</Text>
+                                <ScrollView style={styles.modalBody}>
+                                    <View style={styles.formGroup}>
+                                        <Text style={styles.formLabel}>Vendor Name *</Text>
+                                        <TextInput
+                                            style={styles.formInput}
+                                            value={vendorForm.vendorName}
+                                            onChangeText={(val) => setVendorForm({ ...vendorForm, vendorName: val })}
+                                            placeholder="e.g. PharmaCorp Ltd."
+                                        />
+                                    </View>
+                                    <View style={styles.formGroup}>
+                                        <Text style={styles.formLabel}>Contact Person</Text>
+                                        <TextInput
+                                            style={styles.formInput}
+                                            value={vendorForm.contactPerson}
+                                            onChangeText={(val) => setVendorForm({ ...vendorForm, contactPerson: val })}
+                                            placeholder="e.g. John Doe"
+                                        />
+                                    </View>
+                                    <View style={styles.formGroup}>
+                                        <Text style={styles.formLabel}>Phone Number</Text>
+                                        <TextInput
+                                            style={styles.formInput}
+                                            value={vendorForm.phone}
+                                            onChangeText={(val) => setVendorForm({ ...vendorForm, phone: val })}
+                                            keyboardType="phone-pad"
+                                            placeholder="10 digit number"
+                                        />
+                                    </View>
+                                    <View style={styles.formGroup}>
+                                        <Text style={styles.formLabel}>GSTIN</Text>
+                                        <TextInput
+                                            style={styles.formInput}
+                                            value={vendorForm.gstin}
+                                            onChangeText={(val) => setVendorForm({ ...vendorForm, gstin: val })}
+                                            placeholder="GST Number"
+                                            autoCapitalize="characters"
+                                        />
+                                    </View>
+                                    <View style={styles.formGroup}>
+                                        <Text style={styles.formLabel}>DL Number</Text>
+                                        <TextInput
+                                            style={styles.formInput}
+                                            value={vendorForm.dlNumber}
+                                            onChangeText={(val) => setVendorForm({ ...vendorForm, dlNumber: val })}
+                                            placeholder="Drug License Number"
+                                            autoCapitalize="characters"
+                                        />
+                                    </View>
+                                </ScrollView>
+
+                                <View style={styles.modalActions}>
+                                    <TouchableOpacity style={styles.btnCancel} onPress={() => setShowVendorModal(false)}>
+                                        <Text style={styles.btnCancelText}>Cancel</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity style={[styles.btnSave, savingVendor && { opacity: 0.7 }]} onPress={handleSaveVendor} disabled={savingVendor}>
+                                        <Text style={styles.btnSaveText}>{savingVendor ? 'Saving...' : 'Save Vendor'}</Text>
+                                    </TouchableOpacity>
+                                </View>
                             </View>
-                            <TouchableOpacity onPress={() => setShowVendorModal(false)}>
-                                <Text style={styles.closeBtn}>×</Text>
-                            </TouchableOpacity>
                         </View>
-                        
-                        <ScrollView style={styles.modalBody}>
-                            <View style={styles.formGroup}>
-                                <Text style={styles.formLabel}>Vendor Name *</Text>
-                                <TextInput 
-                                    style={styles.formInput}
-                                    value={vendorForm.vendorName}
-                                    onChangeText={(val) => setVendorForm({...vendorForm, vendorName: val})}
-                                    placeholder="e.g. PharmaCorp Ltd."
-                                />
-                            </View>
-                            <View style={styles.formGroup}>
-                                <Text style={styles.formLabel}>Contact Person</Text>
-                                <TextInput 
-                                    style={styles.formInput}
-                                    value={vendorForm.contactPerson}
-                                    onChangeText={(val) => setVendorForm({...vendorForm, contactPerson: val})}
-                                    placeholder="e.g. John Doe"
-                                />
-                            </View>
-                            <View style={styles.formGroup}>
-                                <Text style={styles.formLabel}>Phone Number</Text>
-                                <TextInput 
-                                    style={styles.formInput}
-                                    value={vendorForm.phone}
-                                    onChangeText={(val) => setVendorForm({...vendorForm, phone: val})}
-                                    keyboardType="phone-pad"
-                                    placeholder="10 digit number"
-                                />
-                            </View>
-                            <View style={styles.formGroup}>
-                                <Text style={styles.formLabel}>GSTIN</Text>
-                                <TextInput 
-                                    style={styles.formInput}
-                                    value={vendorForm.gstin}
-                                    onChangeText={(val) => setVendorForm({...vendorForm, gstin: val})}
-                                    placeholder="GST Number"
-                                    autoCapitalize="characters"
-                                />
-                            </View>
-                            <View style={styles.formGroup}>
-                                <Text style={styles.formLabel}>DL Number</Text>
-                                <TextInput 
-                                    style={styles.formInput}
-                                    value={vendorForm.dlNumber}
-                                    onChangeText={(val) => setVendorForm({...vendorForm, dlNumber: val})}
-                                    placeholder="Drug License Number"
-                                    autoCapitalize="characters"
-                                />
-                            </View>
-                        </ScrollView>
+                    </Modal>
 
-                        <View style={styles.modalActions}>
-                            <TouchableOpacity style={styles.btnCancel} onPress={() => setShowVendorModal(false)}>
-                                <Text style={styles.btnCancelText}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={[styles.btnSave, savingVendor && { opacity: 0.7 }]} onPress={handleSaveVendor} disabled={savingVendor}>
-                                <Text style={styles.btnSaveText}>{savingVendor ? 'Saving...' : 'Save Vendor'}</Text>
-                            </TouchableOpacity>
+                    {/* Consumption Modal */}
+                    <Modal visible={showConsumptionModal} transparent={true} animationType="fade">
+                        <View style={styles.modalOverlay}>
+                            <View style={styles.modalContent}>
+                                <View style={styles.modalHeader}>
+                                    <View>
+                                        <Text style={styles.modalTitle}>Record Consumption</Text>
+                                        <Text style={styles.modalSubtitle}>Log medicines used internally by doctors or staff</Text>
+                                    </View>
+                                    <TouchableOpacity onPress={() => setShowConsumptionModal(false)}>
+                                        <Text style={styles.closeBtn}>×</Text>
+                                    </TouchableOpacity>
+                                </View>
+
+                                <ScrollView style={styles.modalBody}>
+                                    <View style={styles.formGroup}>
+                                        <Text style={styles.formLabel}>Select Medicine *</Text>
+                                        <DropdownSelect
+                                            insideModal={true}
+                                            options={medicines.map(m => ({ label: `${m.name} (Stock: ${m.stock})`, value: m._id }))}
+                                            value={consumptionForm.medicineId}
+                                            onChange={(val) => setConsumptionForm({ ...consumptionForm, medicineId: val })}
+                                            placeholder="-- Choose Medicine --"
+                                        />
+                                    </View>
+                                    <View style={styles.formGroup}>
+                                        <Text style={styles.formLabel}>Quantity Used *</Text>
+                                        <TextInput
+                                            style={styles.formInput}
+                                            value={consumptionForm.quantity ? consumptionForm.quantity.toString() : ''}
+                                            onChangeText={(val) => setConsumptionForm({ ...consumptionForm, quantity: val })}
+                                            keyboardType="numeric"
+                                        />
+                                    </View>
+                                    <View style={styles.formGroup}>
+                                        <Text style={styles.formLabel}>Reason</Text>
+                                        <DropdownSelect
+                                            insideModal={true}
+                                            options={REASON_OPTIONS}
+                                            value={consumptionForm.reason}
+                                            onChange={(val) => setConsumptionForm({ ...consumptionForm, reason: val })}
+                                            placeholder="Select Reason"
+                                        />
+                                    </View>
+                                    <View style={styles.formGroup}>
+                                        <Text style={styles.formLabel}>Given To (Optional)</Text>
+                                        <TextInput
+                                            style={styles.formInput}
+                                            value={consumptionForm.givenTo}
+                                            onChangeText={(val) => setConsumptionForm({ ...consumptionForm, givenTo: val })}
+                                            placeholder="Name of doctor/staff"
+                                        />
+                                    </View>
+                                </ScrollView>
+
+                                <View style={styles.modalActions}>
+                                    <TouchableOpacity style={styles.btnCancel} onPress={() => setShowConsumptionModal(false)}>
+                                        <Text style={styles.btnCancelText}>Cancel</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity style={[styles.btnSave, { backgroundColor: '#ef4444' }, savingConsumption && { opacity: 0.7 }]} onPress={handleRecordConsumption} disabled={savingConsumption}>
+                                        <Text style={styles.btnSaveText}>{savingConsumption ? 'Recording...' : 'Record Usage'}</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
                         </View>
-                    </View>
-                </View>
-            </Modal>
-
-            {/* Consumption Modal */}
-            <Modal visible={showConsumptionModal} transparent={true} animationType="fade">
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
-                        <View style={styles.modalHeader}>
-                            <View>
-                                <Text style={styles.modalTitle}>Record Consumption</Text>
-                                <Text style={styles.modalSubtitle}>Log medicines used internally by doctors or staff</Text>
-                            </View>
-                            <TouchableOpacity onPress={() => setShowConsumptionModal(false)}>
-                                <Text style={styles.closeBtn}>×</Text>
-                            </TouchableOpacity>
-                        </View>
-                        
-                        <ScrollView style={styles.modalBody}>
-                            <View style={styles.formGroup}>
-                                <Text style={styles.formLabel}>Select Medicine *</Text>
-                                <DropdownSelect
-                                    insideModal={true}
-                                    options={medicines.map(m => ({ label: `${m.name} (Stock: ${m.stock})`, value: m._id }))}
-                                    value={consumptionForm.medicineId}
-                                    onChange={(val) => setConsumptionForm({...consumptionForm, medicineId: val})}
-                                    placeholder="-- Choose Medicine --"
-                                />
-                            </View>
-                            <View style={styles.formGroup}>
-                                <Text style={styles.formLabel}>Quantity Used *</Text>
-                                <TextInput 
-                                    style={styles.formInput}
-                                    value={consumptionForm.quantity ? consumptionForm.quantity.toString() : ''}
-                                    onChangeText={(val) => setConsumptionForm({...consumptionForm, quantity: val})}
-                                    keyboardType="numeric"
-                                />
-                            </View>
-                            <View style={styles.formGroup}>
-                                <Text style={styles.formLabel}>Reason</Text>
-                                <DropdownSelect
-                                    insideModal={true}
-                                    options={REASON_OPTIONS}
-                                    value={consumptionForm.reason}
-                                    onChange={(val) => setConsumptionForm({...consumptionForm, reason: val})}
-                                    placeholder="Select Reason"
-                                />
-                            </View>
-                            <View style={styles.formGroup}>
-                                <Text style={styles.formLabel}>Given To (Optional)</Text>
-                                <TextInput 
-                                    style={styles.formInput}
-                                    value={consumptionForm.givenTo}
-                                    onChangeText={(val) => setConsumptionForm({...consumptionForm, givenTo: val})}
-                                    placeholder="Name of doctor/staff"
-                                />
-                            </View>
-                        </ScrollView>
-
-                        <View style={styles.modalActions}>
-                            <TouchableOpacity style={styles.btnCancel} onPress={() => setShowConsumptionModal(false)}>
-                                <Text style={styles.btnCancelText}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={[styles.btnSave, { backgroundColor: '#ef4444' }, savingConsumption && { opacity: 0.7 }]} onPress={handleRecordConsumption} disabled={savingConsumption}>
-                                <Text style={styles.btnSaveText}>{savingConsumption ? 'Recording...' : 'Record Usage'}</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </View>
-            </Modal>
-
-
+                    </Modal>
+                </>
+            )}
         </ScrollView>
     );
 };
@@ -2087,7 +2240,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-    
+
     /* Modal Styles */
     modalOverlay: {
         flex: 1,
@@ -2244,7 +2397,7 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         fontSize: 13,
     },
-    
+
     /* Details Modal Styles */
     detailsBox: {
         backgroundColor: '#f8fafc',

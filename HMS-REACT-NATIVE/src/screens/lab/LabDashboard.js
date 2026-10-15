@@ -1,32 +1,74 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, useWindowDimensions } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, useWindowDimensions, RefreshControl } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { labAPI } from '../../utils/api';
 import { LinearGradient } from 'expo-linear-gradient';
+import { fetchLabDashboardWithOffline } from '../../services/offline/offlineLabService';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
 
 const LabDashboard = () => {
     const navigation = useNavigation();
     const { width } = useWindowDimensions();
     const [stats, setStats] = useState({ pending: 0, completed: 0, revenue: 0, labName: 'Lab' });
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [offlineState, setOfflineState] = useState({
+        isOffline: false,
+        fromCache: false,
+        lastFetchedAt: null,
+        noCache: false,
+    });
+
+    const loadStats = useCallback(async (isPullToRefresh = false) => {
+        if (isPullToRefresh) {
+            setRefreshing(true);
+        } else {
+            setLoading(true);
+        }
+
+        try {
+            const res = await fetchLabDashboardWithOffline({
+                onCacheHit: (cached) => {
+                    if (cached && cached.stats) {
+                        setStats(cached.stats);
+                        setOfflineState({
+                            isOffline: false,
+                            fromCache: true,
+                            lastFetchedAt: cached.lastFetchedAt,
+                            noCache: false,
+                        });
+                        setLoading(false);
+                    }
+                },
+            });
+
+            if (res && res.success && res.stats) {
+                setStats(res.stats);
+                setOfflineState({
+                    isOffline: !!res.isOffline,
+                    fromCache: !!res.fromCache,
+                    lastFetchedAt: res.lastFetchedAt || Date.now(),
+                    noCache: false,
+                });
+            }
+        } catch (err) {
+            console.error('[LabDashboard] Error loading stats:', err?.message || err);
+            setOfflineState((prev) => ({
+                ...prev,
+                isOffline: true,
+                noCache: !stats || (stats.pending === 0 && stats.completed === 0 && stats.revenue === 0),
+            }));
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+        }
+    }, [stats]);
 
     useEffect(() => {
-        const fetchStats = async () => {
-            try {
-                const res = await labAPI.getStats();
-                if (res.success) {
-                    setStats(res.stats);
-                }
-            } catch (err) {
-                console.error("Error loading stats:", err);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchStats();
+        loadStats();
     }, []);
 
-    if (loading) {
+    if (loading && (!stats || (stats.pending === 0 && stats.completed === 0 && stats.revenue === 0 && !offlineState.fromCache))) {
         return (
             <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color="#3b82f6" />
@@ -38,57 +80,79 @@ const LabDashboard = () => {
     const isLargeScreen = width > 768;
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={[styles.contentContainer, width < 400 && { padding: 16 }]}>
-            <View style={[styles.header, !isLargeScreen && { flexDirection: 'column', alignItems: 'flex-start' }, width < 400 && { padding: 16, marginBottom: 24 }]}>
-                <View>
-                    <Text style={styles.headerTitle}>🔬 {stats.labName} Dashboard</Text>
-                    <Text style={styles.headerSubtitle}>Manage test requests and upload reports</Text>
-                </View>
-            </View>
+        <ScrollView
+            style={styles.container}
+            contentContainerStyle={[styles.contentContainer, width < 400 && { padding: 16 }]}
+            refreshControl={
+                <RefreshControl refreshing={refreshing} onRefresh={() => loadStats(true)} colors={['#3b82f6']} />
+            }
+        >
+            <OfflineBanner
+                isOffline={offlineState.isOffline}
+                fromCache={offlineState.fromCache}
+                lastFetchedAt={offlineState.lastFetchedAt}
+            />
 
-            <View style={[styles.statsGrid, !isLargeScreen && { flexDirection: 'column' }]}>
-                <TouchableOpacity
-                    style={[styles.statCard, !isLargeScreen && { minWidth: '100%', width: '100%' }]}
-                    onPress={() => navigation.navigate('AssignedTests')}
-                    activeOpacity={0.8}
-                >
-                    <View style={[styles.cardIndicator, { backgroundColor: '#f59e0b' }]} />
-                    <Text style={styles.statValue}>{stats.pending}</Text>
-                    <Text style={styles.statLabel}>Pending Requests</Text>
-                </TouchableOpacity>
-                <View style={[styles.statCard, !isLargeScreen && { minWidth: '100%', width: '100%' }]}>
-                    <View style={[styles.cardIndicator, { backgroundColor: '#10b981' }]} />
-                    <Text style={styles.statValue}>{stats.completed}</Text>
-                    <Text style={styles.statLabel}>Completed Reports</Text>
-                </View>
-                <View style={[styles.statCard, !isLargeScreen && { minWidth: '100%', width: '100%' }]}>
-                    <View style={[styles.cardIndicator, { backgroundColor: '#8b5cf6' }]} />
-                    <Text style={styles.statValue}>₹{stats.revenue}</Text>
-                    <Text style={styles.statLabel}>Est. Revenue</Text>
-                </View>
-            </View>
+            {offlineState.noCache ? (
+                <OfflineEmptyState
+                    title="No Cached Lab Statistics"
+                    message="Lab dashboard metrics are not available offline on this device yet. Please connect to the network to sync fresh records."
+                    onRetry={() => loadStats(false)}
+                />
+            ) : (
+                <>
+                    <View style={[styles.header, !isLargeScreen && { flexDirection: 'column', alignItems: 'flex-start' }, width < 400 && { padding: 16, marginBottom: 24 }]}>
+                        <View>
+                            <Text style={styles.headerTitle}>🔬 {stats.labName} Dashboard</Text>
+                            <Text style={styles.headerSubtitle}>Manage test requests and upload reports</Text>
+                        </View>
+                    </View>
 
-            <View style={[styles.actionsContainer, !isLargeScreen && { flexDirection: 'column' }]}>
-                <TouchableOpacity
-                    style={[styles.actionBtnPrimary, !isLargeScreen && { minWidth: '100%', width: '100%' }]}
-                    onPress={() => navigation.navigate('AssignedTests')}
-                >
-                    <LinearGradient
-                        colors={['#3b82f6', '#06b6d4']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={styles.gradientBg}
-                    >
-                        <Text style={styles.actionBtnTextPrimary}>📋 View Assigned Tests</Text>
-                    </LinearGradient>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    style={[styles.actionBtnSecondary, !isLargeScreen && { minWidth: '100%', width: '100%' }]}
-                    onPress={() => navigation.navigate('CompletedReports')}
-                >
-                    <Text style={styles.actionBtnTextSecondary}>🗄️ Past Records</Text>
-                </TouchableOpacity>
-            </View>
+                    <View style={[styles.statsGrid, !isLargeScreen && { flexDirection: 'column' }]}>
+                        <TouchableOpacity
+                            style={[styles.statCard, !isLargeScreen && { minWidth: '100%', width: '100%' }]}
+                            onPress={() => navigation.navigate('AssignedTests')}
+                            activeOpacity={0.8}
+                        >
+                            <View style={[styles.cardIndicator, { backgroundColor: '#f59e0b' }]} />
+                            <Text style={styles.statValue}>{stats.pending}</Text>
+                            <Text style={styles.statLabel}>Pending Requests</Text>
+                        </TouchableOpacity>
+                        <View style={[styles.statCard, !isLargeScreen && { minWidth: '100%', width: '100%' }]}>
+                            <View style={[styles.cardIndicator, { backgroundColor: '#10b981' }]} />
+                            <Text style={styles.statValue}>{stats.completed}</Text>
+                            <Text style={styles.statLabel}>Completed Reports</Text>
+                        </View>
+                        <View style={[styles.statCard, !isLargeScreen && { minWidth: '100%', width: '100%' }]}>
+                            <View style={[styles.cardIndicator, { backgroundColor: '#8b5cf6' }]} />
+                            <Text style={styles.statValue}>₹{stats.revenue}</Text>
+                            <Text style={styles.statLabel}>Est. Revenue</Text>
+                        </View>
+                    </View>
+
+                    <View style={[styles.actionsContainer, !isLargeScreen && { flexDirection: 'column' }]}>
+                        <TouchableOpacity
+                            style={[styles.actionBtnPrimary, !isLargeScreen && { minWidth: '100%', width: '100%' }]}
+                            onPress={() => navigation.navigate('AssignedTests')}
+                        >
+                            <LinearGradient
+                                colors={['#3b82f6', '#06b6d4']}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 1 }}
+                                style={styles.gradientBg}
+                            >
+                                <Text style={styles.actionBtnTextPrimary}>📋 View Assigned Tests</Text>
+                            </LinearGradient>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.actionBtnSecondary, !isLargeScreen && { minWidth: '100%', width: '100%' }]}
+                            onPress={() => navigation.navigate('CompletedReports')}
+                        >
+                            <Text style={styles.actionBtnTextSecondary}>🗄️ Past Records</Text>
+                        </TouchableOpacity>
+                    </View>
+                </>
+            )}
         </ScrollView>
     );
 };

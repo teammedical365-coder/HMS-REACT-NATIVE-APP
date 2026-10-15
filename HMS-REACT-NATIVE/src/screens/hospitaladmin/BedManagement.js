@@ -7,6 +7,16 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { bedAPI } from '../../utils/api';
 import DropdownSelect from '../../components/common/DropdownSelect';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
+import {
+    fetchHospitalBedsWithOffline,
+    saveBedDraftWithOffline,
+    getBedDraftWithOffline,
+    clearBedDraftWithOffline,
+    assertHospitalAdminActionAllowed,
+} from '../../services/offline/offlineHospitalAdminService';
 
 const CustomSelect = (props) => <DropdownSelect {...props} />;
 
@@ -17,6 +27,15 @@ const BedManagement = () => {
     const [beds, setBeds] = useState([]);
     const [loading, setLoading] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
+
+    // Offline Resilience State
+    const [offlineMeta, setOfflineMeta] = useState({
+        isOffline: false,
+        isStale: false,
+        lastSynced: null,
+        freshnessNote: '',
+        noCache: false,
+    });
 
     // Filters & Search
     const [filterWard, setFilterWard] = useState('');
@@ -46,11 +65,19 @@ const BedManagement = () => {
             if (filterWard) params.ward = filterWard;
             if (filterStatus) params.status = filterStatus;
 
-            const res = await bedAPI.getBeds(params);
-            if (res.success) {
-                setBeds(res.beds || []);
-                if (showAlert) Alert.alert('Refreshed', 'Bed data refreshed successfully!');
+            const isOnline = await checkOnlineStatus();
+            const res = await fetchHospitalBedsWithOffline(params, showAlert);
+            if (res && res.data) {
+                setBeds(res.data);
+                if (showAlert && isOnline) Alert.alert('Refreshed', 'Bed data refreshed successfully!');
             }
+            setOfflineMeta({
+                isOffline: !isOnline || Boolean(res?.isStale),
+                isStale: Boolean(res?.isStale),
+                lastSynced: res?.lastSynced,
+                freshnessNote: res?.freshnessNote || '',
+                noCache: Boolean(res?.noCache),
+            });
         } catch (error) {
             console.error("Error fetching beds:", error);
             Alert.alert('Error', error.response?.data?.message || 'Error fetching beds');
@@ -77,6 +104,11 @@ const BedManagement = () => {
                 bedType: 'General',
                 status: 'AVAILABLE'
             });
+            getBedDraftWithOffline().then(draft => {
+                if (draft && draft.bedNumber) {
+                    setFormData(prev => ({ ...prev, ...draft }));
+                }
+            }).catch(() => {});
         }
         setModalOpen(true);
     };
@@ -84,6 +116,13 @@ const BedManagement = () => {
     const handleSubmit = async () => {
         if (!formData.bedNumber.trim() || !formData.ward.trim()) {
             Alert.alert('Validation Error', 'Bed number and ward are required');
+            return;
+        }
+
+        const guard = await assertHospitalAdminActionAllowed('MANAGE_BEDS');
+        if (!guard.allowed) {
+            await saveBedDraftWithOffline(formData);
+            Alert.alert('Action Blocked (Offline)', `${guard.message}\n\nYour bed configuration has been saved as a Local Draft.`);
             return;
         }
 
@@ -96,6 +135,7 @@ const BedManagement = () => {
                 await bedAPI.createBed(formData);
                 Alert.alert('Success', `Bed ${formData.bedNumber} created successfully!`);
             }
+            await clearBedDraftWithOffline();
             setModalOpen(false);
             fetchBeds();
         } catch (error) {
@@ -106,6 +146,11 @@ const BedManagement = () => {
     };
 
     const handleDelete = async (bed) => {
+        const guard = await assertHospitalAdminActionAllowed('MANAGE_BEDS');
+        if (!guard.allowed) {
+            Alert.alert('Action Blocked (Offline)', guard.message);
+            return;
+        }
         if (bed.status === 'OCCUPIED') {
             Alert.alert('Action Forbidden', 'Cannot delete an occupied bed. Please discharge or reassign patient first.');
             return;
@@ -160,6 +205,17 @@ const BedManagement = () => {
 
     return (
         <ScrollView contentContainerStyle={[styles.container, isSmallMobile && { paddingHorizontal: 12, paddingVertical: 14 }]} nestedScrollEnabled={true}>
+            {/* Offline Status & Stale Cache Warning Banner */}
+            {(offlineMeta.isOffline || offlineMeta.isStale) && (
+                <OfflineBanner
+                    isOffline={offlineMeta.isOffline}
+                    isStale={offlineMeta.isStale}
+                    lastSynced={offlineMeta.lastSynced}
+                    customMessage={offlineMeta.freshnessNote || 'Notice: Offline Mode. Room occupancy and bed availability must be confirmed live.'}
+                    onRefresh={() => fetchBeds(true)}
+                />
+            )}
+
             {/* 1. Header Banner & Actions */}
             <View style={styles.header}>
                 <View style={{ flex: 1, minWidth: 240 }}>
@@ -288,6 +344,11 @@ const BedManagement = () => {
                     <ActivityIndicator size="large" color="#3b82f6" />
                     <Text style={styles.loadingText}>Loading real-time bed allocation data...</Text>
                 </View>
+            ) : offlineMeta.noCache && Object.keys(groupedBeds).length === 0 ? (
+                <OfflineEmptyState
+                    message="You are currently offline and no bed records are cached. Please connect to the internet to synchronize."
+                    onRetry={() => fetchBeds(true)}
+                />
             ) : Object.keys(groupedBeds).length === 0 ? (
                 <View style={styles.emptyContainer}>
                     <Text style={styles.emptyIcon}>🛏️</Text>

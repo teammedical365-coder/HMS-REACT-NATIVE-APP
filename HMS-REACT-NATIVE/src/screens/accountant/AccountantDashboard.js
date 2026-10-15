@@ -4,6 +4,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import { financeAPI, billingAPI } from '../../utils/api';
 import DatePickerInput from '../../components/common/DatePickerInput';
+import OfflineBanner from '../../components/common/OfflineBanner';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
+import { fetchAccountantDashboardWithOffline } from '../../services/offline/offlineHospitalAdminService';
 
 const AccountantDashboard = () => {
     const navigation = useNavigation();
@@ -11,10 +14,11 @@ const AccountantDashboard = () => {
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-    
+    const [offlineMeta, setOfflineMeta] = useState(null);
+
     const [billingSearch, setBillingSearch] = useState('');
     const [billingSearching, setBillingSearching] = useState(false);
-    
+
     const [datePreset, setDatePreset] = useState('all');
     const [customStartDate, setCustomStartDate] = useState('');
     const [customEndDate, setCustomEndDate] = useState('');
@@ -47,17 +51,17 @@ const AccountantDashboard = () => {
                 const now = new Date();
                 const endD = new Date(now);
                 const startD = new Date(now);
-                if (preset === 'today') { 
-                    startD.setHours(0,0,0,0); 
-                    endD.setHours(23,59,59,999); 
-                } else if (preset === '7') { 
-                    startD.setDate(startD.getDate() - 7); 
-                } else if (preset === '30') { 
-                    startD.setDate(startD.getDate() - 30); 
-                } else if (preset === '60') { 
-                    startD.setDate(startD.getDate() - 60); 
-                } else if (preset === '90') { 
-                    startD.setDate(startD.getDate() - 90); 
+                if (preset === 'today') {
+                    startD.setHours(0,0,0,0);
+                    endD.setHours(23,59,59,999);
+                } else if (preset === '7') {
+                    startD.setDate(startD.getDate() - 7);
+                } else if (preset === '30') {
+                    startD.setDate(startD.getDate() - 30);
+                } else if (preset === '60') {
+                    startD.setDate(startD.getDate() - 60);
+                } else if (preset === '90') {
+                    startD.setDate(startD.getDate() - 90);
                 }
                 queryStart = startD.toISOString();
                 queryEnd = endD.toISOString();
@@ -65,16 +69,22 @@ const AccountantDashboard = () => {
                 if (start) queryStart = new Date(start).toISOString();
                 if (end) queryEnd = new Date(end).toISOString();
             }
-            const res = await financeAPI.getDashboardStats(queryStart, queryEnd);
-            if (res.success) {
+            const res = await fetchAccountantDashboardWithOffline(queryStart, queryEnd);
+            if (res.success && res.data) {
                 setStats(res.data);
+                setOfflineMeta(res.offlineMeta || (res.fromCache ? {
+                    isOffline: true,
+                    isStale: res.isStale,
+                    cachedAt: res.cachedAt,
+                    freshnessNote: res.freshnessNote
+                } : null));
             } else {
-                setError(res.message || 'Failed to fetch financial stats');
+                setError(res.message || res.error || 'Failed to fetch financial stats');
             }
-        } catch (err) { 
-            setError(err.response?.data?.message || 'Failed to fetch financial stats');
-        } finally { 
-            setLoading(false); 
+        } catch (err) {
+            setError(err.response?.data?.message || err.message || 'Failed to fetch financial stats');
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -82,6 +92,11 @@ const AccountantDashboard = () => {
         if (!billingSearch.trim()) return;
         setBillingSearching(true);
         try {
+            const isOnline = await checkOnlineStatus();
+            if (!isOnline) {
+                Alert.alert('Offline Notice', 'Live billing lookup requires an active internet connection.');
+                return;
+            }
             const res = await billingAPI.getPatientBills(billingSearch.trim());
             if (res.success) {
                 // Navigate to billing profile
@@ -95,6 +110,7 @@ const AccountantDashboard = () => {
 
     return (
         <ScrollView style={styles.container}>
+            <OfflineBanner offlineMeta={offlineMeta} />
             <View style={styles.header}>
                 <Text style={styles.title}>Finance & Accounting</Text>
                 <Text style={styles.subtitle}>Track revenues, costs, and profits</Text>
@@ -103,17 +119,17 @@ const AccountantDashboard = () => {
             <View style={styles.card}>
                 <Text style={styles.cardTitle}>🧾 Patient Billing Search</Text>
                 <View style={styles.searchRow}>
-                    <TextInput 
-                        style={styles.input} 
-                        placeholder="Search Phone/MRN..." 
-                        value={billingSearch} 
-                        onChangeText={setBillingSearch} 
+                    <TextInput
+                        style={styles.input}
+                        placeholder="Search Phone/MRN..."
+                        value={billingSearch}
+                        onChangeText={setBillingSearch}
                     />
                     <TouchableOpacity style={styles.btnPrimary} onPress={handleBillingSearch} disabled={billingSearching}>
                         <Text style={styles.btnText}>{billingSearching ? '...' : 'Search'}</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity 
-                        style={styles.btnOpenBilling} 
+                    <TouchableOpacity
+                        style={styles.btnOpenBilling}
                         onPress={() => navigation.navigate('PatientBillingProfile')}
                     >
                         <Text style={styles.btnOpenBillingText}>Open Billing</Text>
@@ -132,9 +148,9 @@ const AccountantDashboard = () => {
                         { key: '60', label: '60 Days' },
                         { key: '90', label: '90 Days' },
                     ].map(p => (
-                        <TouchableOpacity 
-                            key={p.key} 
-                            style={[styles.filterBtn, datePreset === p.key && styles.filterBtnActive]} 
+                        <TouchableOpacity
+                            key={p.key}
+                            style={[styles.filterBtn, datePreset === p.key && styles.filterBtnActive]}
                             onPress={() => { setDatePreset(p.key); fetchStats(p.key); }}
                         >
                             <Text style={datePreset === p.key ? styles.filterBtnTextActive : styles.filterBtnText}>
@@ -163,14 +179,14 @@ const AccountantDashboard = () => {
                             onChange={(val) => { setDatePreset('custom'); setCustomEndDate(val || ''); }}
                         />
                     </View>
-                    <TouchableOpacity 
-                        style={styles.btnApplyCustom} 
+                    <TouchableOpacity
+                        style={styles.btnApplyCustom}
                         onPress={() => fetchStats('custom', customStartDate, customEndDate)}
                     >
                         <Text style={styles.btnApplyCustomText}>Apply</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity 
-                        style={styles.btnResetCustom} 
+                    <TouchableOpacity
+                        style={styles.btnResetCustom}
                         onPress={() => {
                             setCustomStartDate('');
                             setCustomEndDate('');

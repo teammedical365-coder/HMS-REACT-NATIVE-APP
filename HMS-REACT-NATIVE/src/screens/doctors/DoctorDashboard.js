@@ -20,6 +20,9 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { useAuth } from '../../store/hooks';
 import { doctorAPI } from '../../utils/api';
+import { fetchDoctorDashboardWithOffline } from '../../services/offline/offlineDoctorService';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
 
 const DoctorDashboard = () => {
   const navigation = useNavigation();
@@ -34,6 +37,12 @@ const DoctorDashboard = () => {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [offlineState, setOfflineState] = useState({
+    isOffline: false,
+    fromCache: false,
+    lastFetchedAt: null,
+    isSynthetic: false,
+  });
 
   useEffect(() => {
     const loadUser = async () => {
@@ -76,25 +85,36 @@ const DoctorDashboard = () => {
         setLoading(true);
       }
 
-      const aptRes = await doctorAPI.getAppointments();
-      if (aptRes && aptRes.success) {
-        const apts = aptRes.appointments || [];
-        setAppointments(apts);
+      const res = await fetchDoctorDashboardWithOffline({
+        onCacheHit: (cached) => {
+          if (cached && cached.stats) {
+            setStats(cached.stats);
+            if (Array.isArray(cached.appointments)) setAppointments(cached.appointments);
+            setOfflineState({
+              isOffline: false,
+              fromCache: true,
+              lastFetchedAt: cached.lastFetchedAt,
+              isSynthetic: Boolean(cached.isSynthetic),
+            });
+            setLoading(false);
+          }
+        },
+      });
 
-        const todayStr = new Date().toISOString().split('T')[0];
-        const todayApts = apts.filter(a => a.appointmentDate && String(a.appointmentDate).startsWith(todayStr));
-        const pendingApts = apts.filter(a => ['pending', 'confirmed', 'scheduled', 'in_progress'].includes(a.status));
-        const completedApts = apts.filter(a => a.status === 'completed');
-
-        setStats({
-          today: todayApts.length,
-          pending: pendingApts.length,
-          completed: completedApts.length,
-          total: apts.length,
+      if (res && res.stats) {
+        setStats(res.stats);
+        setAppointments(res.appointments || []);
+        setOfflineState({
+          isOffline: Boolean(res.isOffline),
+          fromCache: Boolean(res.fromCache),
+          lastFetchedAt: res.lastFetchedAt,
+          isSynthetic: Boolean(res.isSynthetic),
         });
       }
     } catch (err) {
-      console.error("Error fetching doctor stats:", err);
+      console.warn("[DoctorDashboard] Offline or network error:", err.message);
+      // Retain existing appointments and stats if available
+      setAppointments(prev => prev);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -310,6 +330,16 @@ const DoctorDashboard = () => {
       }
     >
       <View style={styles.innerWrapper}>
+        <OfflineBanner
+          isOffline={offlineState.isOffline}
+          fromCache={offlineState.fromCache}
+          lastFetchedAt={offlineState.lastFetchedAt}
+          isSynthetic={offlineState.isSynthetic}
+          onRetry={() => fetchDoctorStats(true)}
+          retrying={refreshing}
+          moduleName="Doctor Dashboard"
+        />
+
         {/* 1. HERO BANNER SECTION (Full Width, Sleek Dark Navy Theme, Seamlessly Blended Doctor AI Graphic) */}
         <View style={styles.heroBannerContainer}>
           <ImageBackground
@@ -362,8 +392,8 @@ const DoctorDashboard = () => {
           </View>
 
           <View style={styles.statsGrid}>
-            <TouchableOpacity 
-              style={styles.statCard} 
+            <TouchableOpacity
+              style={styles.statCard}
               activeOpacity={0.85}
               onPress={() => navigation.navigate('DoctorPatients')}
             >
@@ -376,8 +406,8 @@ const DoctorDashboard = () => {
               </View>
             </TouchableOpacity>
 
-            <TouchableOpacity 
-              style={styles.statCard} 
+            <TouchableOpacity
+              style={styles.statCard}
               activeOpacity={0.85}
               onPress={() => navigation.navigate('DoctorPatients')}
             >
@@ -390,8 +420,8 @@ const DoctorDashboard = () => {
               </View>
             </TouchableOpacity>
 
-            <TouchableOpacity 
-              style={styles.statCard} 
+            <TouchableOpacity
+              style={styles.statCard}
               activeOpacity={0.85}
               onPress={() => navigation.navigate('DoctorPatients')}
             >
@@ -404,8 +434,8 @@ const DoctorDashboard = () => {
               </View>
             </TouchableOpacity>
 
-            <TouchableOpacity 
-              style={styles.statCard} 
+            <TouchableOpacity
+              style={styles.statCard}
               activeOpacity={0.85}
               onPress={() => navigation.navigate('DoctorPatients')}
             >
@@ -625,6 +655,15 @@ const DoctorDashboard = () => {
               })}
             </View>
           </View>
+        )}
+
+        {todayAppointments.length === 0 && offlineState.isOffline && !offlineState.fromCache && (
+          <OfflineEmptyState
+            title="Doctor Queue Unavailable Offline"
+            message="No cached appointment queue is available for today on this device. Reconnect to sync appointments."
+            onRetry={() => fetchDoctorStats(true)}
+            retrying={refreshing}
+          />
         )}
 
         {/* 5. YOUR PERMISSIONS SECTION (Display-Only / Non-Clickable Badges matching Web 1:1) */}

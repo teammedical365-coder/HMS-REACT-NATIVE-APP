@@ -7,6 +7,13 @@ import socket from '../../utils/socket';
 import OTHeader from './OTHeader';
 import { SurgeryDetailsModal } from '../../components/ot/OTModals';
 import useOTResponsive from './otResponsive';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
+import {
+    fetchOTInProgressWithOffline,
+    updateSurgeryWorkflowOnlineOnly
+} from '../../services/offline/offlineOTService';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
 
 const getElapsedTime = (startTime) => {
     if (!startTime) return null;
@@ -39,20 +46,40 @@ const OTInProgressPage = () => {
     const [lastUpdated, setLastUpdated] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [now, setNow] = useState(Date.now()); // State to trigger timer rerender
+    const [offlineMeta, setOfflineMeta] = useState({
+        isOffline: false,
+        isStale: false,
+        lastSynced: null,
+        freshnessNote: null,
+        noCache: false,
+    });
 
     const [selectedSurgery, setSelectedSurgery] = useState(null);
     const [showDetailsModal, setShowDetailsModal] = useState(false);
 
-    const fetchInOtData = useCallback(async () => {
+    const fetchInOtData = useCallback(async (forceRefresh = false) => {
         setLoading(true);
         try {
-            const today = new Date().toISOString().split('T')[0];
-            const res = await otAPI.getTodaySchedule(today);
-            if (res.success) {
-                const list = (res.schedule || []).filter(s => s.status === 'IN_OT');
-                setInOtSurgeries(list);
+            const isOnline = await checkOnlineStatus();
+            const res = await fetchOTInProgressWithOffline(forceRefresh);
+
+            if (res.data) {
+                setInOtSurgeries(res.data);
             }
-            setLastUpdated(new Date());
+
+            setOfflineMeta({
+                isOffline: !isOnline,
+                isStale: !!res.isStale,
+                lastSynced: res.lastSynced,
+                freshnessNote: res.freshnessNote,
+                noCache: !!res.noCache,
+            });
+
+            if (res.lastSynced) {
+                setLastUpdated(new Date(res.lastSynced));
+            } else {
+                setLastUpdated(new Date());
+            }
         } catch (err) {
             console.error('Fetch in-ot error:', err);
         } finally {
@@ -93,13 +120,13 @@ const OTInProgressPage = () => {
                     style: "default",
                     onPress: async () => {
                         try {
-                            const res = await otAPI.updateSurgeryWorkflow(surgeryId, { status: 'SURGERY_COMPLETED' });
+                            const res = await updateSurgeryWorkflowOnlineOnly(surgeryId, { status: 'SURGERY_COMPLETED' });
                             if (res.success) {
                                 Alert.alert("Success", "Surgery completed and transferred to Post-Op recovery");
-                                fetchInOtData();
+                                fetchInOtData(true);
                             }
                         } catch (err) {
-                            Alert.alert("Error", err.message || 'Failed to complete surgery');
+                            Alert.alert("Workflow Error", err.message || 'Failed to complete surgery');
                         }
                     }
                 }
@@ -127,11 +154,30 @@ const OTInProgressPage = () => {
                 subtitle="Live intraoperative status, elapsed surgery duration, and active surgical team monitoring."
                 lastUpdated={lastUpdated}
                 loading={loading}
-                onRefresh={fetchInOtData}
+                onRefresh={() => fetchInOtData(true)}
                 searchQuery={searchQuery}
                 onSearchChange={setSearchQuery}
                 badgeCounts={{ inOt: inOtSurgeries.length }}
             />
+
+            {/* Offline Status & Stale Cache Warning Banner */}
+            {(offlineMeta.isOffline || offlineMeta.isStale) && (
+                <OfflineBanner
+                    isOffline={offlineMeta.isOffline}
+                    isStale={offlineMeta.isStale}
+                    lastSynced={offlineMeta.lastSynced}
+                    message={offlineMeta.freshnessNote || 'Notice: Offline Mode. Intraoperative telemetry must be verified live.'}
+                    onRetry={() => fetchInOtData(true)}
+                />
+            )}
+
+            {offlineMeta.noCache && (
+                <OfflineEmptyState
+                    moduleName="In-OT Surgeries"
+                    onRetry={() => fetchInOtData(true)}
+                    customMessage="No cached in-theatre surgeries available. Connect to the hospital network to view live surgical feed."
+                />
+            )}
 
             {/* In-OT Surgeries List */}
             {filteredSurgeries.length === 0 ? (

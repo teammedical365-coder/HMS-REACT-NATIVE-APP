@@ -9,6 +9,13 @@ import { formatToDisplay } from '../../components/common/DatePickerInput';
 import { pharmacyAPI, baseURL } from '../../utils/api';
 import { useAuth } from '../../store/hooks';
 import { useNavigation } from '@react-navigation/native';
+import {
+    fetchPurchaseInvoicesWithOffline,
+    processPurchaseInvoiceOnlineOnly,
+} from '../../services/offline/offlinePharmacyService';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
 
 const PurchaseInvoiceHistory = () => {
     const { width } = useWindowDimensions();
@@ -19,6 +26,12 @@ const PurchaseInvoiceHistory = () => {
     const [refreshing, setRefreshing] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [sortOrder, setSortOrder] = useState('newest'); // 'newest' or 'oldest'
+    const [offlineState, setOfflineState] = useState({
+        isOffline: false,
+        fromCache: false,
+        lastFetchedAt: null,
+        noCache: false,
+    });
 
     const { user } = useAuth();
     const navigation = useNavigation();
@@ -35,23 +48,53 @@ const PurchaseInvoiceHistory = () => {
         if (isPull) setRefreshing(true);
         else setLoading(true);
         try {
-            const res = await pharmacyAPI.getPurchaseInvoices();
-            if (res && (res.success || Array.isArray(res))) {
-                const data = res.data || (Array.isArray(res) ? res : []);
-                setInvoices(Array.isArray(data) ? data : []);
+            const res = await fetchPurchaseInvoicesWithOffline({
+                onCacheHit: (cached) => {
+                    if (cached && Array.isArray(cached.invoices)) {
+                        setInvoices(cached.invoices);
+                        setOfflineState({
+                            isOffline: false,
+                            fromCache: true,
+                            lastFetchedAt: cached.lastFetchedAt,
+                            noCache: false,
+                        });
+                        setLoading(false);
+                        setRefreshing(false);
+                    }
+                }
+            });
+            if (res && res.success && Array.isArray(res.invoices)) {
+                setInvoices(res.invoices);
+                setOfflineState({
+                    isOffline: !!res.isOffline,
+                    fromCache: !!res.fromCache,
+                    lastFetchedAt: res.lastFetchedAt || Date.now(),
+                    noCache: false,
+                });
             } else {
                 setInvoices([]);
             }
         } catch (error) {
             console.error("Error fetching invoices:", error);
-            setInvoices([]);
+            setOfflineState(prev => ({
+                ...prev,
+                isOffline: true,
+                noCache: invoices.length === 0,
+            }));
+            if (invoices.length === 0) setInvoices([]);
         } finally {
             setLoading(false);
             setRefreshing(false);
         }
     };
 
-    const handleDelete = (id) => {
+    const handleDelete = async (id) => {
+        const isOnline = await checkOnlineStatus();
+        if (!isOnline) {
+            Alert.alert("Action Blocked (Offline)", "Deleting purchase invoices requires active server connectivity to ensure ledger consistency.");
+            return;
+        }
+
         Alert.alert(
             "Confirm Delete",
             "Are you sure you want to delete this invoice? This action cannot be undone.",
@@ -71,7 +114,13 @@ const PurchaseInvoiceHistory = () => {
         );
     };
 
-    const handleProcessInvoice = (id) => {
+    const handleProcessInvoice = async (id) => {
+        const isOnline = await checkOnlineStatus();
+        if (!isOnline) {
+            Alert.alert("Action Blocked (Offline)", "Processing and importing purchase invoices modifies live medicine stock and requires active server connectivity.");
+            return;
+        }
+
         Alert.alert(
             "Confirm Import",
             "Are you sure you want to process and import this invoice?",
@@ -80,7 +129,7 @@ const PurchaseInvoiceHistory = () => {
                 { text: "Process", onPress: async () => {
                     setLoading(true);
                     try {
-                        const res = await pharmacyAPI.processPurchaseInvoice(id);
+                        const res = await processPurchaseInvoiceOnlineOnly(id);
                         if (res.success) {
                             Alert.alert('Success', `Invoice processed successfully. ${res.importedCount} medicines imported.`);
                             fetchInvoices();
@@ -95,6 +144,17 @@ const PurchaseInvoiceHistory = () => {
     };
 
     const handleView = async (invoice) => {
+        const isOnline = await checkOnlineStatus();
+        if (!isOnline) {
+            if (invoice && (invoice.medicines || invoice.items || invoice.importedMedicinesList)) {
+                setSelectedInvoice(invoice);
+                setShowModal(true);
+            } else {
+                Alert.alert('Offline Mode', 'Detailed item breakdown for this invoice is not cached on this device.');
+            }
+            return;
+        }
+
         setLoading(true);
         try {
             const res = await pharmacyAPI.getPurchaseInvoiceById(invoice._id);
@@ -128,6 +188,28 @@ const PurchaseInvoiceHistory = () => {
                 <RefreshControl refreshing={refreshing} onRefresh={() => fetchInvoices(true)} colors={['#0ea5e9']} />
             }
         >
+            <OfflineBanner
+                isOffline={offlineState.isOffline}
+                fromCache={offlineState.fromCache}
+                lastFetchedAt={offlineState.lastFetchedAt}
+            />
+
+            {offlineState.isOffline && offlineState.fromCache && (
+                <View style={{ backgroundColor: '#fffbeb', borderColor: '#fde68a', borderWidth: 1, padding: 12, borderRadius: 12, marginBottom: 16 }}>
+                    <Text style={{ color: '#b45309', fontSize: 13, fontWeight: '600' }}>
+                        ⚠️ Invoices Archive (Offline View): Showing cached purchase invoices synced at {offlineState.lastFetchedAt ? new Date(offlineState.lastFetchedAt).toLocaleTimeString() : 'cached time'}. Importing invoices and modifying live inventory requires active server connectivity.
+                    </Text>
+                </View>
+            )}
+
+            {offlineState.noCache && invoices.length === 0 ? (
+                <OfflineEmptyState
+                    title="No Cached Purchase Invoices"
+                    message="Purchase invoice records are not cached offline on this device yet. Please connect to the hospital network."
+                    onRetry={() => fetchInvoices(false)}
+                />
+            ) : (
+                <>
             <View style={[styles.header, { flexDirection: isDesktop ? 'row' : 'column', alignItems: isDesktop ? 'center' : 'stretch' }]}>
                 <View>
                     <Text style={styles.headerTitle}>Purchase Invoice History</Text>
@@ -379,6 +461,8 @@ const PurchaseInvoiceHistory = () => {
                     </View>
                 </View>
             </Modal>
+            </>
+            )}
         </ScrollView>
     );
 };

@@ -6,6 +6,13 @@ import socket from '../../utils/socket';
 import OTHeader from './OTHeader';
 import { getStatusStyle, SurgeryDetailsModal } from '../../components/ot/OTModals';
 import useOTResponsive from './otResponsive';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
+import {
+    fetchOTPreOpWithOffline,
+    updateSurgeryWorkflowOnlineOnly
+} from '../../services/offline/offlineOTService';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
 
 const OTPreOpPage = () => {
     const {
@@ -23,21 +30,41 @@ const OTPreOpPage = () => {
     const [loading, setLoading] = useState(true);
     const [lastUpdated, setLastUpdated] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
+    const [offlineMeta, setOfflineMeta] = useState({
+        isOffline: false,
+        isStale: false,
+        lastSynced: null,
+        freshnessNote: null,
+        noCache: false,
+    });
 
     // Modals
     const [selectedSurgery, setSelectedSurgery] = useState(null);
     const [showDetailsModal, setShowDetailsModal] = useState(false);
 
-    const fetchPreOpData = useCallback(async () => {
+    const fetchPreOpData = useCallback(async (forceRefresh = false) => {
         setLoading(true);
         try {
-            const today = new Date().toISOString().split('T')[0];
-            const res = await otAPI.getTodaySchedule(today);
-            if (res.success) {
-                const list = (res.schedule || []).filter(s => s.status === 'PRE_OP' || s.status === 'READY_FOR_OT');
-                setPreOpSurgeries(list);
+            const isOnline = await checkOnlineStatus();
+            const res = await fetchOTPreOpWithOffline(forceRefresh);
+
+            if (res.data) {
+                setPreOpSurgeries(res.data);
             }
-            setLastUpdated(new Date());
+
+            setOfflineMeta({
+                isOffline: !isOnline,
+                isStale: !!res.isStale,
+                lastSynced: res.lastSynced,
+                freshnessNote: res.freshnessNote,
+                noCache: !!res.noCache,
+            });
+
+            if (res.lastSynced) {
+                setLastUpdated(new Date(res.lastSynced));
+            } else {
+                setLastUpdated(new Date());
+            }
         } catch (err) {
             console.error('Fetch pre-op error:', err);
         } finally {
@@ -63,13 +90,13 @@ const OTPreOpPage = () => {
 
     const handleWorkflowTransition = async (surgeryId, nextStatus) => {
         try {
-            const res = await otAPI.updateSurgeryWorkflow(surgeryId, { status: nextStatus });
+            const res = await updateSurgeryWorkflowOnlineOnly(surgeryId, { status: nextStatus });
             if (res.success) {
                 Alert.alert('Success', nextStatus === 'READY_FOR_OT' ? 'Patient marked ready for OT' : 'Patient transferred to OT');
-                fetchPreOpData();
+                fetchPreOpData(true);
             }
         } catch (err) {
-            Alert.alert('Error', err.response?.data?.message || 'Workflow transition failed');
+            Alert.alert('Workflow Error', err.message || err.response?.data?.message || 'Workflow transition failed');
         }
     };
 
@@ -93,11 +120,30 @@ const OTPreOpPage = () => {
                 subtitle="Patients currently admitted and preparing for surgery (fasting, pre-medication, clinical clearance)."
                 lastUpdated={lastUpdated}
                 loading={loading}
-                onRefresh={fetchPreOpData}
+                onRefresh={() => fetchPreOpData(true)}
                 searchQuery={searchQuery}
                 onSearchChange={setSearchQuery}
                 badgeCounts={{ preOp: preOpSurgeries.length }}
             />
+
+            {/* Offline Status & Stale Cache Warning Banner */}
+            {(offlineMeta.isOffline || offlineMeta.isStale) && (
+                <OfflineBanner
+                    isOffline={offlineMeta.isOffline}
+                    isStale={offlineMeta.isStale}
+                    lastSynced={offlineMeta.lastSynced}
+                    message={offlineMeta.freshnessNote || 'Notice: Offline Mode. Pre-op clearance must be confirmed with Ward Nurse.'}
+                    onRetry={() => fetchPreOpData(true)}
+                />
+            )}
+
+            {offlineMeta.noCache && (
+                <OfflineEmptyState
+                    moduleName="Pre-Op Patients"
+                    onRetry={() => fetchPreOpData(true)}
+                    customMessage="No cached pre-operative records available. Connect to the hospital network to view pre-op cases."
+                />
+            )}
                 {/* Pre-Op Patients List */}
                 {filteredSurgeries.length === 0 ? (
                     <View style={styles.emptyState}>

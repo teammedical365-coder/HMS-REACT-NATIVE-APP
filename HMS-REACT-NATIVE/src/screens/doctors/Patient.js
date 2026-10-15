@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { 
-    View, Text, TouchableOpacity, ScrollView, TextInput, 
-    StyleSheet, ActivityIndicator, Alert, Modal, Platform, 
+import {
+    View, Text, TouchableOpacity, ScrollView, TextInput,
+    StyleSheet, ActivityIndicator, Alert, Modal, Platform,
     useWindowDimensions, Pressable, RefreshControl
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -10,8 +10,9 @@ import * as DocumentPicker from 'expo-document-picker';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
 import { doctorAPI, reportAPI } from '../../utils/api';
 import DatePickerInput from '../../components/common/DatePickerInput';
-import { fetchAppointmentsWithOffline } from '../../services/offline/offlineDoctorService';
+import { fetchAppointmentsWithOffline, saveVitalsWithOffline } from '../../services/offline/offlineDoctorService';
 import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
 
 const avatarColors = ['#0ea5e9', '#8b5cf6', '#10b981', '#f59e0b', '#ec4899', '#06b6d4'];
 
@@ -86,12 +87,12 @@ const Patient = ({ route: propRoute } = {}) => {
             const user = userStr ? JSON.parse(userStr) : {};
             const role = (user.role || '').toLowerCase();
             const permissions = user.permissions || [];
-            
+
             const staffRoles = ['nurse', 'admin', 'superadmin', 'hospitaladmin', 'reception', 'receptionist'];
             const isAdminOrStaff = staffRoles.some(r => role.includes(r));
             const isDoctor = role.includes('doctor');
             const isClinicDoctor = isDoctor && user.clinicType === 'clinic';
-            
+
             const hasViewAllAccess = isClinicDoctor || (!isDoctor && (isAdminOrStaff || permissions.includes('patient_view') || permissions.includes('appointment_view_all')));
 
             const offlineResult = await fetchAppointmentsWithOffline({
@@ -155,7 +156,7 @@ const Patient = ({ route: propRoute } = {}) => {
         if (!apt) return;
         const targetId = (typeof apt.userId === 'object' ? apt.userId?._id || apt.userId?.patientId || apt.userId?.mrn : apt.userId)
             || (typeof apt.clinicPatientId === 'object' ? apt.clinicPatientId?._id || apt.clinicPatientId?.patientUid : apt.clinicPatientId)
-            || apt.patientId 
+            || apt.patientId
             || apt._id;
 
         if (!targetId) {
@@ -218,9 +219,9 @@ const Patient = ({ route: propRoute } = {}) => {
             if (res && (res.success || res.report)) {
                 const uploadedFile = res.report || res;
                 const patientId = uploadPatient.userId?._id || uploadPatient.clinicPatientId?.patientUid || uploadPatient.clinicPatientId?._id || uploadPatient.patientId;
-                
+
                 const isClinic = !!uploadPatient.clinicPatientId;
-                const existingReports = isClinic 
+                const existingReports = isClinic
                     ? (uploadPatient.clinicPatientId?.reports || []).map(r => ({
                         fileName: r.name,
                         url: (r.filename || '').startsWith('http://') || (r.filename || '').startsWith('https://')
@@ -229,7 +230,7 @@ const Patient = ({ route: propRoute } = {}) => {
                         date: r.uploadedAt
                       }))
                     : (uploadPatient.userId?.fertilityProfile?.previousReports || []);
-                
+
                 const newReport = {
                     fileName: uploadFile.name || 'Report',
                     url: uploadedFile.url,
@@ -264,8 +265,15 @@ const Patient = ({ route: propRoute } = {}) => {
         setSaving(true);
         try {
             const patientId = vitalsPatient.clinicPatientId?._id || vitalsPatient.clinicPatientId || vitalsPatient.userId?._id || vitalsPatient.userId;
-            const profileData = {
-                vitals: {
+            if (!patientId) {
+                Alert.alert('Error', 'Patient record ID not found to save vitals');
+                return;
+            }
+
+            const result = await saveVitalsWithOffline({
+                patientId,
+                appointmentId: vitalsPatient._id,
+                vitalsData: {
                     weight: vitals.weight,
                     height: vitals.height,
                     bmi: vitals.bmi,
@@ -274,22 +282,17 @@ const Patient = ({ route: propRoute } = {}) => {
                     temperature: vitals.temperature,
                     spo2: vitals.spo2,
                     respiratoryRate: vitals.respiratoryRate,
-                    lastRecorded: new Date().toISOString()
-                }
-            };
-            if (patientId) {
-                await doctorAPI.updatePatientProfile(patientId, profileData);
+                },
+                notes: vitals.notes,
+                chiefComplaint: vitals.chiefComplaint,
+            });
+
+            if (result.isDraft) {
+                Alert.alert('Saved Offline Draft', 'Device is offline. Patient vitals saved locally as a draft and queued to synchronize automatically when online.');
+            } else {
+                Alert.alert('Success', 'Vitals saved successfully!');
             }
 
-            if (vitals.chiefComplaint || vitals.notes) {
-                try {
-                    await doctorAPI.updateSession(vitalsPatient._id, {
-                        notes: `Chief Complaint: ${vitals.chiefComplaint}\nNurse Notes: ${vitals.notes}`
-                    });
-                } catch (e) {}
-            }
-
-            Alert.alert('Success', 'Vitals saved successfully!');
             setVitalsPatient(null);
             setVitals({ weight: '', height: '', bmi: '', bloodPressure: '', pulse: '', temperature: '', spo2: '', respiratoryRate: '', chiefComplaint: '', notes: '' });
             fetchAllAppointments();
@@ -351,7 +354,7 @@ const Patient = ({ route: propRoute } = {}) => {
     };
 
     // Active filters count
-    const activeFilterCount = 
+    const activeFilterCount =
         (statusFilter !== 'all' ? 1 : 0) +
         (sortBy !== 'latest' ? 1 : 0) +
         (fromDate ? 1 : 0) +
@@ -446,7 +449,7 @@ const Patient = ({ route: propRoute } = {}) => {
     }, [appointments]);
 
     const completedToday = useMemo(() => {
-        return appointments.filter(a => 
+        return appointments.filter(a =>
             a.status === 'completed' && a.appointmentDate && new Date(a.appointmentDate).toDateString() === todayStr
         ).length;
     }, [appointments, todayStr]);
@@ -603,7 +606,7 @@ const Patient = ({ route: propRoute } = {}) => {
 
                     {/* Centered Controls Group: Queue Tabs + Filter & Sort */}
                     <View style={styles.toolbarControlsGroup}>
-                        <TouchableOpacity 
+                        <TouchableOpacity
                             style={[styles.tabPill, activeTab === 'all' && styles.tabPillActive]}
                             onPress={() => setActiveTab('all')}
                             activeOpacity={0.8}
@@ -615,7 +618,7 @@ const Patient = ({ route: propRoute } = {}) => {
                             </View>
                         </TouchableOpacity>
 
-                        <TouchableOpacity 
+                        <TouchableOpacity
                             style={[styles.tabPill, activeTab === 'today' && styles.tabPillActive]}
                             onPress={() => setActiveTab('today')}
                             activeOpacity={0.8}
@@ -644,7 +647,7 @@ const Patient = ({ route: propRoute } = {}) => {
                         </TouchableOpacity>
 
                         {activeFilterCount > 0 && (
-                            <TouchableOpacity 
+                            <TouchableOpacity
                                 style={styles.quickResetBtn}
                                 onPress={clearAllFilters}
                                 activeOpacity={0.8}
@@ -665,20 +668,29 @@ const Patient = ({ route: propRoute } = {}) => {
                         <Text style={styles.loadingText}>Loading patient records...</Text>
                     </View>
                 ) : displayList.length === 0 ? (
-                    <View style={styles.emptyBox}>
-                        <Text style={styles.emptyEmoji}>👥</Text>
-                        <Text style={styles.emptyTitle}>No Patient Appointments Found</Text>
-                        <Text style={styles.emptySubtitle}>
-                            {searchQuery || activeFilterCount > 0
-                                ? "No patients match your search or filter criteria. Try adjusting or clearing filters."
-                                : "No patient appointments have been booked for this queue yet."}
-                        </Text>
-                        {activeFilterCount > 0 && (
-                            <TouchableOpacity style={styles.clearFiltersBtn} onPress={clearAllFilters}>
-                                <Text style={styles.clearFiltersBtnText}>Clear All Filters</Text>
-                            </TouchableOpacity>
-                        )}
-                    </View>
+                    offlineState.isOffline && !offlineState.fromCache ? (
+                        <OfflineEmptyState
+                            title="Patient Queue Unavailable Offline"
+                            message="No cached appointment records are available for this section yet. Please connect to the internet to load the queue."
+                            onRetry={() => fetchAllAppointments(true)}
+                            retrying={refreshing}
+                        />
+                    ) : (
+                        <View style={styles.emptyBox}>
+                            <Text style={styles.emptyEmoji}>👥</Text>
+                            <Text style={styles.emptyTitle}>No Patient Appointments Found</Text>
+                            <Text style={styles.emptySubtitle}>
+                                {searchQuery || activeFilterCount > 0
+                                    ? "No patients match your search or filter criteria. Try adjusting or clearing filters."
+                                    : "No patient appointments have been booked for this queue yet."}
+                            </Text>
+                            {activeFilterCount > 0 && (
+                                <TouchableOpacity style={styles.clearFiltersBtn} onPress={clearAllFilters}>
+                                    <Text style={styles.clearFiltersBtnText}>Clear All Filters</Text>
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    )
                 ) : (
                     <View style={styles.cardsGrid}>
                         {displayList.map((apt, index) => {
@@ -686,7 +698,7 @@ const Patient = ({ route: propRoute } = {}) => {
                             const rawId = apt.userId?.mrn || apt.clinicPatientId?.mrn || apt.userId?.patientId || apt.clinicPatientId?.patientUid || apt.patientId || '—';
                             const pId = typeof rawId === 'string' ? rawId.replace(/^MRN[:\-\s]*/i, '') : rawId;
                             const dName = (apt.doctorName || apt.doctorId?.name || 'Assigned Doctor').replace(/^Dr\.?\s*/i, '');
-                            
+
                             const aptDateObj = apt.appointmentDate ? new Date(apt.appointmentDate) : null;
                             const dateFormatted = aptDateObj && !isNaN(aptDateObj.getTime())
                                 ? aptDateObj.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
@@ -718,7 +730,7 @@ const Patient = ({ route: propRoute } = {}) => {
 
                                         {/* 3-Dots Menu Button */}
                                         <View style={styles.cardMenuWrapper}>
-                                            <TouchableOpacity 
+                                            <TouchableOpacity
                                                 style={styles.cardMoreBtn}
                                                 onPress={() => setActiveMenuId(isMenuOpen ? null : apt._id)}
                                                 activeOpacity={0.8}
@@ -728,7 +740,7 @@ const Patient = ({ route: propRoute } = {}) => {
 
                                             {isMenuOpen && (
                                                 <View style={styles.cardDropdownMenu}>
-                                                    <TouchableOpacity 
+                                                    <TouchableOpacity
                                                         style={styles.cardMenuAction}
                                                         onPress={() => {
                                                             setActiveMenuId(null);
@@ -739,7 +751,7 @@ const Patient = ({ route: propRoute } = {}) => {
                                                         <Text style={styles.cardMenuActionText}>View Full Profile</Text>
                                                     </TouchableOpacity>
 
-                                                    <TouchableOpacity 
+                                                    <TouchableOpacity
                                                         style={styles.cardMenuAction}
                                                         onPress={() => {
                                                             setActiveMenuId(null);
@@ -750,7 +762,7 @@ const Patient = ({ route: propRoute } = {}) => {
                                                         <Text style={styles.cardMenuActionText}>Enter Vitals</Text>
                                                     </TouchableOpacity>
 
-                                                    <TouchableOpacity 
+                                                    <TouchableOpacity
                                                         style={styles.cardMenuAction}
                                                         onPress={() => {
                                                             setActiveMenuId(null);
@@ -764,7 +776,7 @@ const Patient = ({ route: propRoute } = {}) => {
                                                     <View style={styles.cardMenuDivider} />
 
                                                     {status !== 'completed' && (
-                                                        <TouchableOpacity 
+                                                        <TouchableOpacity
                                                             style={styles.cardMenuAction}
                                                             onPress={() => handleUpdateStatus(apt._id, 'completed')}
                                                         >
@@ -774,7 +786,7 @@ const Patient = ({ route: propRoute } = {}) => {
                                                     )}
 
                                                     {status !== 'cancelled' && (
-                                                        <TouchableOpacity 
+                                                        <TouchableOpacity
                                                             style={styles.cardMenuAction}
                                                             onPress={() => handleUpdateStatus(apt._id, 'cancelled')}
                                                         >
@@ -830,7 +842,7 @@ const Patient = ({ route: propRoute } = {}) => {
 
                                     {/* Card Footer Actions (View Profile & Consult) */}
                                     <View style={styles.cardActionsRow}>
-                                        <TouchableOpacity 
+                                        <TouchableOpacity
                                             style={styles.btnProfile}
                                             onPress={() => handleViewProfile(apt)}
                                             activeOpacity={0.8}
@@ -839,7 +851,7 @@ const Patient = ({ route: propRoute } = {}) => {
                                             <Text style={styles.btnProfileText}>View Profile</Text>
                                         </TouchableOpacity>
 
-                                        <TouchableOpacity 
+                                        <TouchableOpacity
                                             style={styles.btnConsult}
                                             onPress={() => {
                                                 const ptName = (pName || 'Walk-in').replace(/\s+/g, '-');
@@ -1011,7 +1023,7 @@ const Patient = ({ route: propRoute } = {}) => {
                                 </Text>
                             </View>
 
-                            <TouchableOpacity 
+                            <TouchableOpacity
                                 style={styles.btnApplyModal}
                                 onPress={() => setFilterPopoverOpen(false)}
                                 activeOpacity={0.85}
@@ -1103,7 +1115,7 @@ const Patient = ({ route: propRoute } = {}) => {
                             <TouchableOpacity onPress={() => setVitalsPatient(null)} style={styles.btnSecondary}>
                                 <Text style={styles.btnSecondaryText}>Cancel</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity 
+                            <TouchableOpacity
                                 style={[styles.btnPrimary, saving && { opacity: 0.6 }]}
                                 onPress={handleSaveVitals}
                                 disabled={saving}
@@ -1142,7 +1154,7 @@ const Patient = ({ route: propRoute } = {}) => {
                                 Upload previous medical reports, prescriptions, or imaging scans.
                             </Text>
 
-                            <TouchableOpacity 
+                            <TouchableOpacity
                                 style={styles.dropzone}
                                 onPress={handlePickDocument}
                                 activeOpacity={0.8}
@@ -1159,7 +1171,7 @@ const Patient = ({ route: propRoute } = {}) => {
                             <TouchableOpacity onPress={() => setUploadPatient(null)} style={styles.btnSecondary}>
                                 <Text style={styles.btnSecondaryText}>Cancel</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity 
+                            <TouchableOpacity
                                 style={[styles.btnPrimary, (uploading || !uploadFile) && { opacity: 0.6 }]}
                                 onPress={handleUploadReport}
                                 disabled={uploading || !uploadFile}

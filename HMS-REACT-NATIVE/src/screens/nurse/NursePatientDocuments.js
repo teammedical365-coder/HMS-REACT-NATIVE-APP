@@ -22,6 +22,15 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Print from 'expo-print';
 import { reportAPI, patientAPI, admissionAPI, doctorAPI } from '../../utils/api';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
+import {
+    fetchNursePatientDocumentsWithOffline,
+    fetchNursePatientConsentsWithOffline,
+    uploadDiagnosticReportOnlineOnly,
+    submitConsentOnlineOnly,
+} from '../../services/offline/offlineNursingService';
 
 const REPORT_CATEGORIES = [
     { value: 'LAB_REPORT', label: '🔬 Blood / Lab Investigation' },
@@ -151,6 +160,13 @@ const NursePatientDocuments = () => {
     });
     const [uploadingConsent, setUploadingConsent] = useState(false);
 
+    // Offline state
+    const [offlineState, setOfflineState] = useState({
+        isOffline: false,
+        isCached: false,
+        lastSynced: null,
+    });
+
     // Toast State
     const [toast, setToast] = useState(null);
     const toastTimerRef = useRef(null);
@@ -225,60 +241,37 @@ const NursePatientDocuments = () => {
         fetchInitialData();
     }, [fetchInitialData]);
 
-    // ── Fetch Selected Patient's Reports & Consents ──
-    const fetchPatientRecords = useCallback(async () => {
+    // ── Fetch Selected Patient's Reports & Consents with SWR Offline Support ──
+    const fetchPatientRecords = useCallback(async (forceRefresh = false) => {
         if (!selectedPatient?._id) return;
         const patientId = selectedPatient._id;
 
-        // Fetch reports
+        // Fetch reports with SWR offline cache fallback
         setLoadingReports(true);
         try {
-            const [repRes, docRes, userHistory] = await Promise.all([
-                reportAPI.getReportsByPatient(patientId).catch(() => ({ reports: [] })),
-                patientAPI.getDocuments(patientId).catch(() => ({ documents: [] })),
-                patientAPI.getFullHistory(patientId).catch(() => ({}))
-            ]);
-
-            const serverReports = repRes.reports || repRes.data || [];
-            const docs = docRes.documents || docRes.data || [];
-            const userReports = userHistory.patient?.fertilityProfile?.reports || userHistory.patient?.fertilityProfile?.previousReports || [];
-
-            // Combine unique reports by url/fileId
-            const combined = [...serverReports];
-            const seen = new Set(serverReports.map(r => r.url || r.fileId || r._id));
-
-            docs.forEach(d => {
-                const key = d.url || d.fileId || d._id;
-                if (key && !seen.has(key)) {
-                    seen.add(key);
-                    combined.push(d);
-                }
-            });
-
-            userReports.forEach(ur => {
-                const key = ur.url || ur.fileId || ur._id;
-                if (key && !seen.has(key)) {
-                    seen.add(key);
-                    combined.push({
-                        ...ur,
-                        fileName: ur.name || ur.fileName || 'Diagnostic Report',
-                        uploadedAt: ur.date || ur.uploadedAt || new Date()
-                    });
-                }
-            });
-
-            setReportsList(combined);
+            const reportResult = await fetchNursePatientDocumentsWithOffline(patientId, forceRefresh);
+            if (reportResult?.data) {
+                setReportsList(reportResult.data);
+            }
+            setOfflineState(prev => ({
+                ...prev,
+                isOffline: !!reportResult.isOffline,
+                isCached: !!reportResult.isCached,
+                lastSynced: reportResult.lastSynced || prev.lastSynced,
+            }));
         } catch (err) {
             console.warn('Could not load reports:', err);
         } finally {
             setLoadingReports(false);
         }
 
-        // Fetch consents
+        // Fetch consents with SWR offline cache fallback
         setLoadingConsents(true);
         try {
-            const consentRes = await patientAPI.getConsent(patientId).catch(() => ({ consentForms: [] }));
-            setConsentList(consentRes.consentForms || consentRes.data || []);
+            const consentResult = await fetchNursePatientConsentsWithOffline(patientId, forceRefresh);
+            if (consentResult?.data) {
+                setConsentList(consentResult.data);
+            }
         } catch (err) {
             console.warn('Could not load consents:', err);
         } finally {
@@ -287,13 +280,13 @@ const NursePatientDocuments = () => {
     }, [selectedPatient]);
 
     useEffect(() => {
-        fetchPatientRecords();
+        fetchPatientRecords(false);
     }, [fetchPatientRecords]);
 
     const onRefresh = () => {
         setRefreshing(true);
         fetchInitialData();
-        fetchPatientRecords();
+        fetchPatientRecords(true);
     };
 
     // ── Filtered Patients for Picker ──
@@ -353,6 +346,12 @@ const NursePatientDocuments = () => {
         }
         if (!reportForm.file) {
             showToast('Please select a report file to upload', 'error');
+            return;
+        }
+
+        const isOnline = await checkOnlineStatus();
+        if (!isOnline) {
+            showToast('Uploading diagnostic reports requires active server connectivity.', 'error');
             return;
         }
 
@@ -596,6 +595,12 @@ const NursePatientDocuments = () => {
             return;
         }
 
+        const isOnline = await checkOnlineStatus();
+        if (!isOnline) {
+            showToast('Recording patient legal consent requires active server connectivity.', 'error');
+            return;
+        }
+
         setUploadingConsent(true);
         try {
             const formData = new FormData();
@@ -673,6 +678,19 @@ const NursePatientDocuments = () => {
                 contentContainerStyle={styles.scrollContent}
                 refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#0284c7']} />}
             >
+                {/* Offline State Banner */}
+                {offlineState.isOffline && (
+                    <OfflineBanner
+                        isOffline={true}
+                        isCached={offlineState.isCached}
+                        lastSynced={offlineState.lastSynced}
+                        message="Device is offline. Patient diagnostic documents and signed consents are displayed from local cache. Uploading reports and submitting signed consents require an active internet connection."
+                        onSync={() => {
+                            fetchInitialData();
+                            fetchPatientRecords(true);
+                        }}
+                    />
+                )}
                 {/* ── Header Banner ── */}
                 <LinearGradient colors={['#0369a1', '#0284c7']} style={styles.headerGradient}>
                     <View style={styles.headerTop}>

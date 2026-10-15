@@ -7,6 +7,10 @@ import socket from '../../utils/socket';
 import OTHeader from './OTHeader';
 import DatePickerInput from '../../components/common/DatePickerInput';
 import { useOTResponsive } from './otResponsive';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
+import { fetchOTReportsWithOffline } from '../../services/offline/offlineOTService';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
 
 const OTReportsPage = () => {
     const navigation = useNavigation();
@@ -18,26 +22,46 @@ const OTReportsPage = () => {
     const [loading, setLoading] = useState(true);
     const [lastUpdated, setLastUpdated] = useState(null);
     const [error, setError] = useState(null);
+    const [offlineMeta, setOfflineMeta] = useState({
+        isOffline: false,
+        isStale: false,
+        lastSynced: null,
+        freshnessNote: null,
+        noCache: false,
+    });
 
     const [dateRange, setDateRange] = useState('THIS_MONTH');
     const [customFrom, setCustomFrom] = useState('');
     const [customTo, setCustomTo] = useState('');
 
-    const fetchReportsData = useCallback(async () => {
+    const fetchReportsData = useCallback(async (forceRefresh = false) => {
         setLoading(true);
         setError(null);
         try {
-            const [schedRes, roomsRes] = await Promise.all([
-                otAPI.getScheduledSurgeries(),
-                otAPI.getRooms()
-            ]);
+            const isOnline = await checkOnlineStatus();
+            const res = await fetchOTReportsWithOffline(forceRefresh);
 
-            if (schedRes.surgeries) setAllSurgeries(schedRes.surgeries || []);
-            if (roomsRes.rooms) setRooms(roomsRes.rooms || []);
-            setLastUpdated(new Date());
+            if (res.data) {
+                if (res.data.surgeries) setAllSurgeries(res.data.surgeries || []);
+                if (res.data.rooms) setRooms(res.data.rooms || []);
+            }
+
+            setOfflineMeta({
+                isOffline: !isOnline,
+                isStale: !!res.isStale,
+                lastSynced: res.lastSynced,
+                freshnessNote: res.freshnessNote,
+                noCache: !!res.noCache,
+            });
+
+            if (res.lastSynced) {
+                setLastUpdated(new Date(res.lastSynced));
+            } else {
+                setLastUpdated(new Date());
+            }
         } catch (err) {
             console.error('Fetch reports error:', err);
-            setError(err.response?.data?.message || 'Unable to load OT reports data. Please check connection and retry.');
+            setError(err.message || err.response?.data?.message || 'Unable to load OT reports data.');
         } finally {
             setLoading(false);
         }
@@ -129,8 +153,27 @@ const OTReportsPage = () => {
                 subtitle="Departmental throughput, room utilization, surgical volume, and performance indicators."
                 lastUpdated={lastUpdated}
                 loading={loading}
-                onRefresh={fetchReportsData}
+                onRefresh={() => fetchReportsData(true)}
             />
+
+            {/* Offline Status & Stale Cache Warning Banner */}
+            {(offlineMeta.isOffline || offlineMeta.isStale) && (
+                <OfflineBanner
+                    isOffline={offlineMeta.isOffline}
+                    isStale={offlineMeta.isStale}
+                    lastSynced={offlineMeta.lastSynced}
+                    message={offlineMeta.freshnessNote || 'Notice: Offline Mode. Displaying cached surgical analytics.'}
+                    onRetry={() => fetchReportsData(true)}
+                />
+            )}
+
+            {offlineMeta.noCache && (
+                <OfflineEmptyState
+                    moduleName="OT Reports & Analytics"
+                    onRetry={() => fetchReportsData(true)}
+                    customMessage="No cached surgical operational records available. Connect to the network to calculate analytics."
+                />
+            )}
 
             {/* Date Range Selector */}
             <View style={[styles.filterBar, isPhone && { flexDirection: 'column', alignItems: 'stretch' }]}>

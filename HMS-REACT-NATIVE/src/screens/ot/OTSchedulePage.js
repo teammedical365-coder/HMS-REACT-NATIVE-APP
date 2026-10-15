@@ -14,6 +14,14 @@ import {
 } from '../../components/ot/OTModals';
 import DatePickerInput from '../../components/common/DatePickerInput';
 import useOTResponsive from './otResponsive';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
+import {
+    fetchOTScheduleWithOffline,
+    updateSurgeryWorkflowOnlineOnly,
+    cancelSurgeryOnlineOnly
+} from '../../services/offline/offlineOTService';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
 
 const OTSchedulePage = () => {
     const {
@@ -32,6 +40,13 @@ const OTSchedulePage = () => {
     const [otRoomsList, setOtRoomsList] = useState([]);
     const [loading, setLoading] = useState(true);
     const [lastUpdated, setLastUpdated] = useState(null);
+    const [offlineMeta, setOfflineMeta] = useState({
+        isOffline: false,
+        isStale: false,
+        lastSynced: null,
+        freshnessNote: null,
+        noCache: false,
+    });
 
     // Filters & Search
     const [searchQuery, setSearchQuery] = useState('');
@@ -44,22 +59,31 @@ const OTSchedulePage = () => {
     const [showScheduleModal, setShowScheduleModal] = useState(false);
     const [bedModal, setBedModal] = useState({ open: false, actionType: null, patientId: null, surgeryId: null });
 
-    const fetchScheduleData = useCallback(async () => {
+    const fetchScheduleData = useCallback(async (forceRefresh = false) => {
         setLoading(true);
         try {
-            const [scheduleRes, docsRes, roomsRes] = await Promise.all([
-                otAPI.getTodaySchedule(selectedDate),
-                doctorAPI.getDoctors().catch(() => ({ doctors: [] })),
-                otAPI.getRooms().catch(() => ({ rooms: [] }))
-            ]);
+            const isOnline = await checkOnlineStatus();
+            const res = await fetchOTScheduleWithOffline(selectedDate, forceRefresh);
 
-            if (scheduleRes.success) {
-                setSchedule(scheduleRes.schedule || []);
+            if (res.data) {
+                setSchedule(res.data.schedule || []);
+                if (res.data.doctors) setDoctorsList(res.data.doctors);
+                if (res.data.rooms) setOtRoomsList(res.data.rooms);
             }
-            if (docsRes.doctors) setDoctorsList(docsRes.doctors);
-            if (roomsRes.rooms) setOtRoomsList(roomsRes.rooms);
 
-            setLastUpdated(new Date());
+            setOfflineMeta({
+                isOffline: !isOnline,
+                isStale: !!res.isStale,
+                lastSynced: res.lastSynced,
+                freshnessNote: res.freshnessNote,
+                noCache: !!res.noCache,
+            });
+
+            if (res.lastSynced) {
+                setLastUpdated(new Date(res.lastSynced));
+            } else {
+                setLastUpdated(new Date());
+            }
         } catch (err) {
             console.error('Fetch schedule error:', err);
         } finally {
@@ -91,13 +115,13 @@ const OTSchedulePage = () => {
 
     const handleWorkflowTransition = async (surgeryId, nextStatus) => {
         try {
-            const res = await otAPI.updateSurgeryWorkflow(surgeryId, { status: nextStatus });
+            const res = await updateSurgeryWorkflowOnlineOnly(surgeryId, { status: nextStatus });
             if (res.success) {
                 Alert.alert('Success', 'Workflow status updated');
-                fetchScheduleData();
+                fetchScheduleData(true);
             }
         } catch (err) {
-            Alert.alert('Workflow Error', err.response?.data?.message || 'Workflow update failed');
+            Alert.alert('Workflow Error', err.message || err.response?.data?.message || 'Workflow update failed');
         }
     };
 
@@ -112,13 +136,13 @@ const OTSchedulePage = () => {
                     style: 'destructive',
                     onPress: async () => {
                         try {
-                            const res = await otAPI.cancelSurgery(surgeryId);
+                            const res = await cancelSurgeryOnlineOnly(surgeryId);
                             if (res.success) {
                                 Alert.alert('Success', 'Surgery cancelled successfully');
-                                fetchScheduleData();
+                                fetchScheduleData(true);
                             }
                         } catch (err) {
-                            Alert.alert('Error', err.response?.data?.message || 'Cancel failed');
+                            Alert.alert('Cancellation Error', err.message || err.response?.data?.message || 'Cancel failed');
                         }
                     }
                 }
@@ -218,11 +242,30 @@ const OTSchedulePage = () => {
                 subtitle="Complete daily surgery roster, room allocation, surgeon teams, and real-time tracking."
                 lastUpdated={lastUpdated}
                 loading={loading}
-                onRefresh={fetchScheduleData}
+                onRefresh={() => fetchScheduleData(true)}
                 searchQuery={searchQuery}
                 onSearchChange={setSearchQuery}
                 badgeCounts={{ today: schedule.length }}
             />
+
+            {/* Offline Status & Stale Cache Warning Banner */}
+            {(offlineMeta.isOffline || offlineMeta.isStale) && (
+                <OfflineBanner
+                    isOffline={offlineMeta.isOffline}
+                    isStale={offlineMeta.isStale}
+                    lastSynced={offlineMeta.lastSynced}
+                    message={offlineMeta.freshnessNote || 'Notice: Offline Mode. Live theatre occupancy and start times may differ.'}
+                    onRetry={() => fetchScheduleData(true)}
+                />
+            )}
+
+            {offlineMeta.noCache && (
+                <OfflineEmptyState
+                    moduleName="OT Schedule Board"
+                    onRetry={() => fetchScheduleData(true)}
+                    customMessage="No cached OT schedule available for this date. Connect to the hospital network to load theatre bookings."
+                />
+            )}
                 {/* Date Navigator Bar & Filter Pills */}
                 <View style={[styles.navBar, { flexDirection: isTablet ? 'row' : 'column', alignItems: isTablet ? 'center' : 'stretch', gap: 14 }]}>
                     {/* Date Navigation */}

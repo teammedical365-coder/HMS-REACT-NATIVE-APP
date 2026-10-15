@@ -1,47 +1,109 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, TextInput, Linking, Alert, Platform, useWindowDimensions, RefreshControl } from 'react-native';
+import React, { useEffect, useState, useCallback } from 'react';
+import {
+    View, Text, StyleSheet, TouchableOpacity, ScrollView,
+    ActivityIndicator, TextInput, Linking, Alert, Platform,
+    useWindowDimensions, RefreshControl
+} from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import * as Print from 'expo-print';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { fetchLabRequests } from '../../store/slices/labSlice';
 import DatePickerInput from '../../components/common/DatePickerInput';
+import { fetchLabCompletedReportsWithOffline } from '../../services/offline/offlineLabService';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
 
 const CompletedReports = () => {
     const { width } = useWindowDimensions();
     const dispatch = useDispatch();
-    const { requests = [], loading } = useSelector((state) => state.lab);
+    const { requests: reduxRequests = [], loading: reduxLoading } = useSelector((state) => state.lab);
 
+    const [reports, setReports] = useState(reduxRequests);
+    const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [filterDate, setFilterDate] = useState('');
     const [refreshing, setRefreshing] = useState(false);
 
-    useEffect(() => {
-        loadRequests();
-    }, []);
+    const [offlineState, setOfflineState] = useState({
+        isOffline: false,
+        fromCache: false,
+        lastFetchedAt: null,
+        noCache: false,
+    });
 
-    const loadRequests = () => {
-        dispatch(fetchLabRequests('completed'));
-    };
+    const loadReports = useCallback(async (isPullToRefresh = false) => {
+        if (isPullToRefresh) {
+            setRefreshing(true);
+        } else {
+            setLoading(true);
+        }
 
-    const onRefresh = async () => {
-        setRefreshing(true);
         try {
-            await dispatch(fetchLabRequests('completed')).unwrap();
+            const res = await fetchLabCompletedReportsWithOffline({
+                onCacheHit: (cached) => {
+                    if (cached && Array.isArray(cached.requests)) {
+                        setReports(cached.requests);
+                        setOfflineState({
+                            isOffline: false,
+                            fromCache: true,
+                            lastFetchedAt: cached.lastFetchedAt,
+                            noCache: false,
+                        });
+                        setLoading(false);
+                    }
+                },
+            });
+
+            if (res && res.success && Array.isArray(res.requests)) {
+                setReports(res.requests);
+                setOfflineState({
+                    isOffline: !!res.isOffline,
+                    fromCache: !!res.fromCache,
+                    lastFetchedAt: res.lastFetchedAt || Date.now(),
+                    noCache: false,
+                });
+            }
+
+            // Sync with redux if online
+            if (!res.isOffline) {
+                dispatch(fetchLabRequests('completed'));
+            }
         } catch (err) {
-            console.error("Refresh completed reports error:", err);
+            console.error('[CompletedReports] Error loading records:', err?.message || err);
+            setOfflineState((prev) => ({
+                ...prev,
+                isOffline: true,
+                noCache: reports.length === 0,
+            }));
         } finally {
+            setLoading(false);
             setRefreshing(false);
         }
-    };
+    }, [dispatch, reports.length]);
 
-    const handleView = (url) => {
+    useEffect(() => {
+        loadReports();
+    }, []);
+
+    const handleView = async (url) => {
         if (!url) return;
+        const isOnline = await checkOnlineStatus();
+        if (!isOnline && url.startsWith('http')) {
+            Alert.alert("Network Required", "Viewing remote digital documents requires an internet connection. Diagnostic report metadata is preserved offline.");
+            return;
+        }
         Linking.openURL(url).catch(() => Alert.alert("Error", "Cannot open URL"));
     };
 
     const handleDownload = async (url, fileName) => {
         if (!url) return;
+        const isOnline = await checkOnlineStatus();
+        if (!isOnline && url.startsWith('http')) {
+            Alert.alert("Network Required", "Downloading digital report files requires an active network connection.");
+            return;
+        }
 
         if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof document !== 'undefined') {
             try {
@@ -83,15 +145,18 @@ const CompletedReports = () => {
 
     const handlePrint = async (url) => {
         if (!url) return;
+        const isOnline = await checkOnlineStatus();
+        if (!isOnline && url.startsWith('http')) {
+            Alert.alert("Network Required", "Printing remote report documents requires an active internet connection.");
+            return;
+        }
 
         if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof document !== 'undefined') {
             try {
-                // Fetch file as blob to handle CORS for printing, matching Web CompletedReports
                 const response = await fetch(url);
                 const blob = await response.blob();
                 const blobUrl = URL.createObjectURL(blob);
 
-                // Create a hidden iframe for print dialog
                 const iframe = document.createElement('iframe');
                 iframe.style.display = 'none';
                 iframe.src = blobUrl;
@@ -123,10 +188,12 @@ const CompletedReports = () => {
         }
     };
 
-    const filteredReports = (requests || []).filter(report => {
+    const activeList = reports.length > 0 ? reports : reduxRequests;
+
+    const filteredReports = (activeList || []).filter((report) => {
         const matchesSearch =
             report.userId?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            report.testNames?.some(t => t.toLowerCase().includes(searchTerm.toLowerCase()));
+            report.testNames?.some((t) => t.toLowerCase().includes(searchTerm.toLowerCase()));
 
         const matchesDate = filterDate ? report.updatedAt?.startsWith(filterDate) : true;
 
@@ -147,9 +214,15 @@ const CompletedReports = () => {
             style={styles.container}
             contentContainerStyle={[styles.contentContainer, width < 400 && { padding: 16 }]}
             refreshControl={
-                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#22c55e']} />
+                <RefreshControl refreshing={refreshing} onRefresh={() => loadReports(true)} colors={['#22c55e']} />
             }
         >
+            <OfflineBanner
+                isOffline={offlineState.isOffline}
+                fromCache={offlineState.fromCache}
+                lastFetchedAt={offlineState.lastFetchedAt}
+            />
+
             <View style={[styles.header, !isLargeScreen && { flexDirection: 'column', alignItems: 'stretch' }, width < 400 && { padding: 16, marginBottom: 24 }]}>
                 <View style={!isLargeScreen && { marginBottom: 15 }}>
                     <Text style={styles.headerTitle}>✅ Completed Reports</Text>
@@ -179,7 +252,13 @@ const CompletedReports = () => {
                 </View>
             </View>
 
-            {loading && (!requests || requests.length === 0) ? (
+            {offlineState.noCache && activeList.length === 0 ? (
+                <OfflineEmptyState
+                    title="No Cached Completed Reports"
+                    message="Completed diagnostic records are not cached on this device yet. Connect to the network to download archived reports."
+                    onRetry={() => loadReports(false)}
+                />
+            ) : loading && activeList.length === 0 ? (
                 <View style={styles.loadingContainer}>
                     <ActivityIndicator size="large" color="#22c55e" />
                     <Text style={styles.loadingText}>Loading records...</Text>
@@ -208,11 +287,11 @@ const CompletedReports = () => {
                                 <View style={styles.cardMain}>
                                     <View style={styles.infoBlock}>
                                         <Text style={styles.infoLabel}>👤 Patient</Text>
-                                        <Text style={styles.infoTitle}>{report.userId?.name}</Text>
+                                        <Text style={styles.infoTitle}>{report.userId?.name || 'N/A'}</Text>
                                     </View>
                                     <View style={styles.infoBlock}>
                                         <Text style={styles.infoLabel}>👨‍⚕️ Requesting Doctor</Text>
-                                        <Text style={styles.infoDesc}>{report.doctorId?.name}</Text>
+                                        <Text style={styles.infoDesc}>Dr. {report.doctorId?.name || 'N/A'}</Text>
                                     </View>
 
                                     <View style={styles.testsBlock}>
@@ -353,23 +432,25 @@ const styles = StyleSheet.create({
         fontSize: 16
     },
     emptyState: {
+        flex: 1,
         padding: 40,
         alignItems: 'center',
-        backgroundColor: 'rgba(255, 255, 255, 0.5)',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(255, 255, 255, 0.6)',
         borderRadius: 20,
         borderWidth: 1,
-        borderColor: 'rgba(226, 232, 240, 0.8)',
-        borderStyle: 'dashed'
+        borderColor: 'rgba(255, 255, 255, 0.8)'
     },
     emptyStateTitle: {
-        fontSize: 24,
+        fontSize: 18,
         fontWeight: 'bold',
         color: '#1e293b',
         marginBottom: 8
     },
     emptyStateText: {
         color: '#64748b',
-        fontSize: 16
+        fontSize: 14,
+        textAlign: 'center'
     },
     grid: {
         flexDirection: 'row',
@@ -378,177 +459,156 @@ const styles = StyleSheet.create({
     },
     card: {
         flex: 1,
-        minWidth: 260,
+        minWidth: 320,
         maxWidth: '100%',
-        backgroundColor: 'rgba(255, 255, 255, 0.7)',
+        backgroundColor: 'white',
         borderRadius: 20,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.6)',
-        overflow: 'hidden',
+        borderColor: 'rgba(226, 232, 240, 0.8)',
+        padding: 24,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.02,
-        shadowRadius: 10,
+        shadowOpacity: 0.05,
+        shadowRadius: 15,
         elevation: 2
     },
     cardTop: {
-        backgroundColor: 'rgba(255, 255, 255, 0.4)',
-        padding: 20,
-        borderBottomWidth: 1,
-        borderBottomColor: 'rgba(226, 232, 240, 0.6)',
         flexDirection: 'row',
         justifyContent: 'space-between',
-        alignItems: 'center'
+        alignItems: 'flex-start',
+        marginBottom: 16
     },
     patientMeta: {
-        flexDirection: 'column',
-        gap: 6
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12
     },
     idBadge: {
-        fontFamily: 'monospace',
+        fontSize: 12,
         fontWeight: '700',
-        color: '#64748b',
-        fontSize: 14,
-        backgroundColor: 'rgba(0, 0, 0, 0.05)',
-        paddingVertical: 2,
-        paddingHorizontal: 6,
-        borderRadius: 4,
-        alignSelf: 'flex-start'
+        color: '#0ea5e9',
+        backgroundColor: '#e0f2fe',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 6
     },
     dateMeta: {
-        fontSize: 13,
-        color: '#94a3b8',
-        fontWeight: '500'
+        fontSize: 12,
+        color: '#64748b'
     },
     statusPill: {
         backgroundColor: '#dcfce7',
-        borderWidth: 1,
-        borderColor: '#bbf7d0',
-        paddingVertical: 6,
-        paddingHorizontal: 14,
+        paddingHorizontal: 10,
+        paddingVertical: 4,
         borderRadius: 20
     },
     statusPillText: {
         color: '#15803d',
-        fontWeight: '800',
-        fontSize: 12
+        fontSize: 11,
+        fontWeight: '800'
     },
     cardMain: {
-        padding: 24
-    },
-    infoBlock: {
+        gap: 12,
         marginBottom: 20
     },
+    infoBlock: {},
     infoLabel: {
         fontSize: 12,
-        color: '#94a3b8',
-        fontWeight: '800',
-        textTransform: 'uppercase',
-        marginBottom: 8,
-        letterSpacing: 0.5
+        color: '#64748b',
+        fontWeight: '600',
+        marginBottom: 2
     },
     infoTitle: {
-        fontSize: 20,
+        fontSize: 16,
         fontWeight: '700',
         color: '#0f172a'
     },
     infoDesc: {
-        color: '#475569',
-        fontSize: 16
+        fontSize: 14,
+        color: '#334155',
+        fontWeight: '500'
     },
     testsBlock: {
-        marginTop: 10
+        marginTop: 4
     },
     testTags: {
         flexDirection: 'row',
         flexWrap: 'wrap',
         gap: 8,
-        marginTop: 10
+        marginTop: 6
     },
     testTag: {
-        backgroundColor: 'white',
-        borderWidth: 1,
-        borderColor: '#e2e8f0',
-        paddingVertical: 8,
-        paddingHorizontal: 14,
-        borderRadius: 10
+        backgroundColor: '#f1f5f9',
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 8
     },
     testTagText: {
+        fontSize: 12,
         color: '#475569',
-        fontSize: 14,
         fontWeight: '600'
     },
     filePreview: {
-        marginHorizontal: 24,
-        marginBottom: 24,
-        backgroundColor: 'rgba(255, 255, 255, 0.6)',
-        borderWidth: 1,
-        borderColor: 'rgba(226, 232, 240, 0.8)',
-        borderRadius: 12,
-        padding: 16,
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 16
+        gap: 12,
+        backgroundColor: '#f8fafc',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        padding: 12,
+        borderRadius: 12,
+        marginBottom: 20
     },
     fileIcon: {
-        fontSize: 28,
-        color: '#ef4444'
+        fontSize: 24
     },
     filename: {
-        fontSize: 15,
-        fontWeight: '600',
-        color: '#334155'
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#1e293b'
     },
     filesize: {
-        fontSize: 13,
-        color: '#94a3b8'
+        fontSize: 11,
+        color: '#10b981',
+        fontWeight: '600'
     },
     cardActions: {
-        padding: 20,
-        borderTopWidth: 1,
-        borderTopColor: 'rgba(226, 232, 240, 0.6)',
-        backgroundColor: 'rgba(255, 255, 255, 0.4)',
         flexDirection: 'row',
-        gap: 16
+        gap: 10,
+        borderTopWidth: 1,
+        borderTopColor: '#f1f5f9',
+        paddingTop: 16
     },
     btnAction: {
         flex: 1,
-        minHeight: 48,
-        paddingVertical: 14,
-        paddingHorizontal: 16,
-        borderRadius: 12,
+        paddingVertical: 10,
+        borderRadius: 10,
         alignItems: 'center',
-        justifyContent: 'center',
-        flexDirection: 'row',
-        gap: 8
-    },
-    btnPrimary: {
-        backgroundColor: '#0f172a',
-    },
-    btnPrimaryText: {
-        color: 'white',
-        fontWeight: '600',
-        fontSize: 15
+        justifyContent: 'center'
     },
     btnSecondary: {
-        backgroundColor: 'white',
-        borderWidth: 1,
-        borderColor: '#cbd5e1'
+        backgroundColor: '#f1f5f9'
     },
     btnSecondaryText: {
-        color: '#475569',
+        color: '#334155',
         fontWeight: '600',
-        fontSize: 15
+        fontSize: 13
+    },
+    btnPrimary: {
+        backgroundColor: '#e0f2fe'
+    },
+    btnPrimaryText: {
+        color: '#0284c7',
+        fontWeight: '600',
+        fontSize: 13
     },
     btnPrint: {
-        backgroundColor: 'white',
-        borderWidth: 1,
-        borderColor: '#cbd5e1'
+        backgroundColor: '#f0fdf4'
     },
     btnPrintText: {
-        color: '#475569',
+        color: '#16a34a',
         fontWeight: '600',
-        fontSize: 15
+        fontSize: 13
     }
 });
 

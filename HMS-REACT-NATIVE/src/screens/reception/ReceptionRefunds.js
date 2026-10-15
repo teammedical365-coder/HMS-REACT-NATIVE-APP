@@ -6,6 +6,13 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { refundReceptionAPI } from '../../utils/api';
 import socket from '../../utils/socket';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
+import {
+    fetchReceptionRefundsWithOffline,
+    handOverRefundCashOnlineOnly,
+} from '../../services/offline/offlineReceptionService';
 
 const formatCurrency = (amount) =>
     new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 0 }).format(amount || 0);
@@ -21,23 +28,34 @@ const ReceptionRefunds = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [actionLoading, setActionLoading] = useState(false);
     const [confirmModal, setConfirmModal] = useState(null);
+    const [offlineState, setOfflineState] = useState({
+        isOffline: false,
+        fromCache: false,
+        lastFetchedAt: null,
+    });
 
     const loadRefunds = useCallback(async () => {
         try {
             setLoading(true);
             setError('');
-            let res;
-            if (viewTab === 'PENDING') {
-                res = await refundReceptionAPI.getCashRefunds(false);
-            } else {
-                res = await refundReceptionAPI.getRefundHistory();
-            }
+            const res = await fetchReceptionRefundsWithOffline({ viewTab });
             if (res.success) {
-                setRefunds(res.data || []);
+                setRefunds(res.refunds || []);
+                setOfflineState({
+                    isOffline: Boolean(res.isOffline),
+                    fromCache: Boolean(res.fromCache),
+                    lastFetchedAt: res.lastFetchedAt || null,
+                });
             }
         } catch (err) {
             console.error('Reception Refunds load error:', err);
-            setError('Failed to load cash refund queue');
+            const isOnline = await checkOnlineStatus();
+            setOfflineState(prev => ({ ...prev, isOffline: !isOnline }));
+            if (!isOnline && refunds.length === 0) {
+                setError('');
+            } else {
+                setError(err.message || 'Failed to load cash refund queue');
+            }
         } finally {
             setLoading(false);
         }
@@ -76,7 +94,7 @@ const ReceptionRefunds = () => {
         if (!confirmModal) return;
         try {
             setActionLoading(true);
-            const res = await refundReceptionAPI.handOverCash(confirmModal._id);
+            const res = await handOverRefundCashOnlineOnly(confirmModal._id);
             if (res.success) {
                 Alert.alert('Success', `₹${confirmModal.refundAmount} cash handed over to ${confirmModal.patientName}`);
                 setConfirmModal(null);
@@ -84,7 +102,7 @@ const ReceptionRefunds = () => {
             }
         } catch (err) {
             console.error('Handover error:', err);
-            Alert.alert('Error', err.response?.data?.message || 'Failed to complete cash handover');
+            Alert.alert('Error', err.response?.data?.message || err.message || 'Failed to complete cash handover');
         } finally {
             setActionLoading(false);
         }
@@ -106,6 +124,13 @@ const ReceptionRefunds = () => {
 
     return (
         <View style={styles.container}>
+            <OfflineBanner
+                isOffline={offlineState.isOffline}
+                fromCache={offlineState.fromCache}
+                lastFetchedAt={offlineState.lastFetchedAt}
+                moduleName="Reception"
+                onRefresh={loadRefunds}
+            />
             <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
                 {/* Header */}
                 <View style={styles.headerRow}>
@@ -186,17 +211,25 @@ const ReceptionRefunds = () => {
                         <Text style={styles.loadingText}>Loading cash queue...</Text>
                     </View>
                 ) : filteredRefunds.length === 0 ? (
-                    <View style={styles.emptyBox}>
-                        <Text style={styles.emptyIcon}>💸</Text>
-                        <Text style={styles.emptyTitle}>
-                            {viewTab === 'PENDING' ? 'No pending cash refunds' : 'No handover history found'}
-                        </Text>
-                        <Text style={styles.emptySub}>
-                            {viewTab === 'PENDING'
-                                ? 'When an admin approves a cash refund, it will appear here.'
-                                : 'Completed cash handovers will be listed here.'}
-                        </Text>
-                    </View>
+                    offlineState.isOffline && refunds.length === 0 ? (
+                        <OfflineEmptyState
+                            title="No Cached Refunds"
+                            message={`You are currently offline and no ${viewTab.toLowerCase()} refund records are cached. Please reconnect to synchronize.`}
+                            onRetry={loadRefunds}
+                        />
+                    ) : (
+                        <View style={styles.emptyBox}>
+                            <Text style={styles.emptyIcon}>💸</Text>
+                            <Text style={styles.emptyTitle}>
+                                {viewTab === 'PENDING' ? 'No pending cash refunds' : 'No handover history found'}
+                            </Text>
+                            <Text style={styles.emptySub}>
+                                {viewTab === 'PENDING'
+                                    ? 'When an admin approves a cash refund, it will appear here.'
+                                    : 'Completed cash handovers will be listed here.'}
+                            </Text>
+                        </View>
+                    )
                 ) : (
                     filteredRefunds.map((r) => (
                         <View key={r._id} style={styles.refundCard}>

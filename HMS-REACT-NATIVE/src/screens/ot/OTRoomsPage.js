@@ -6,6 +6,10 @@ import socket from '../../utils/socket';
 import OTHeader from './OTHeader';
 import { SurgeryDetailsModal } from '../../components/ot/OTModals';
 import useOTResponsive from './otResponsive';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
+import { fetchOTRoomsWithOffline } from '../../services/offline/offlineOTService';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
 
 const OTRoomsPage = () => {
     const {
@@ -24,6 +28,13 @@ const OTRoomsPage = () => {
     const [loading, setLoading] = useState(true);
     const [lastUpdated, setLastUpdated] = useState(null);
     const [error, setError] = useState(null);
+    const [offlineMeta, setOfflineMeta] = useState({
+        isOffline: false,
+        isStale: false,
+        lastSynced: null,
+        freshnessNote: null,
+        noCache: false,
+    });
 
     // Filters & Search
     const [searchQuery, setSearchQuery] = useState('');
@@ -33,20 +44,34 @@ const OTRoomsPage = () => {
     const [selectedSurgery, setSelectedSurgery] = useState(null);
     const [showDetailsModal, setShowDetailsModal] = useState(false);
 
-    const fetchRoomsData = useCallback(async () => {
+    const fetchRoomsData = useCallback(async (forceRefresh = false) => {
         setLoading(true);
         setError(null);
         try {
-            const today = new Date().toISOString().split('T')[0];
-            const res = await otAPI.getRoomStatus(today);
-            if (res.success) {
-                setRooms(res.rooms || []);
-                if (res.summary) setSummary(res.summary);
+            const isOnline = await checkOnlineStatus();
+            const res = await fetchOTRoomsWithOffline(null, forceRefresh);
+
+            if (res.data) {
+                setRooms(res.data.rooms || []);
+                if (res.data.summary) setSummary(res.data.summary);
             }
-            setLastUpdated(new Date());
+
+            setOfflineMeta({
+                isOffline: !isOnline,
+                isStale: !!res.isStale,
+                lastSynced: res.lastSynced,
+                freshnessNote: res.freshnessNote,
+                noCache: !!res.noCache,
+            });
+
+            if (res.lastSynced) {
+                setLastUpdated(new Date(res.lastSynced));
+            } else {
+                setLastUpdated(new Date());
+            }
         } catch (err) {
             console.error('Fetch rooms error:', err);
-            setError(err.response?.data?.message || 'Unable to load OT rooms data. Please check connection and retry.');
+            setError(err.message || err.response?.data?.message || 'Unable to load OT rooms data.');
         } finally {
             setLoading(false);
         }
@@ -109,11 +134,30 @@ const OTRoomsPage = () => {
                 subtitle="Live status, capacity, intraoperative monitoring, and real-time equipment allocation for all OT suites."
                 lastUpdated={lastUpdated}
                 loading={loading}
-                onRefresh={fetchRoomsData}
+                onRefresh={() => fetchRoomsData(true)}
                 searchQuery={searchQuery}
                 onSearchChange={setSearchQuery}
                 badgeCounts={{ roomsInUse: summary.inOt }}
             />
+
+            {/* Offline Status & Stale Cache Warning Banner */}
+            {(offlineMeta.isOffline || offlineMeta.isStale) && (
+                <OfflineBanner
+                    isOffline={offlineMeta.isOffline}
+                    isStale={offlineMeta.isStale}
+                    lastSynced={offlineMeta.lastSynced}
+                    message={offlineMeta.freshnessNote || 'Notice: Offline Mode. Room occupancy must be confirmed on-site before patient transfer.'}
+                    onRetry={() => fetchRoomsData(true)}
+                />
+            )}
+
+            {offlineMeta.noCache && (
+                <OfflineEmptyState
+                    moduleName="OT Rooms & Suites"
+                    onRetry={() => fetchRoomsData(true)}
+                    customMessage="No cached OT room status available. Connect to the network to view theatre availability."
+                />
+            )}
                 {/* Room Summary KPI Cards */}
                 <View style={[styles.kpiGrid, { gap }]}>
                     <View style={[styles.kpiCard, { width: kpiCardWidth }]}>

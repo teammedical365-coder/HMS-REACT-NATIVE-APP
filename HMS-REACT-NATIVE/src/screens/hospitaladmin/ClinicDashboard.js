@@ -12,6 +12,9 @@ import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
 import DatePickerInput from '../../components/common/DatePickerInput';
 import DropdownSelect from '../../components/common/DropdownSelect';
+import OfflineBanner from '../../components/OfflineBanner';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
+import { fetchClinicDashboardWithOffline } from '../../services/offline/offlineHospitalAdminService';
 
 const CustomSelectDropdown = ({ value, placeholder = 'Select...', options = [], onSelect, style, insideModal = false }) => {
     const formattedOptions = (options || []).map(opt => {
@@ -810,81 +813,47 @@ const OverviewMode = () => {
 
     const [fetchError, setFetchError] = useState(null);
 
+    // Offline Resilience State
+    const [offlineMeta, setOfflineMeta] = useState({
+        isOffline: false,
+        isStale: false,
+        lastSynced: null,
+        freshnessNote: '',
+    });
+
     useEffect(() => {
-        console.log('[ClinicDashboard][stats] START');
-        console.log('[ClinicDashboard][appointments] START');
-        console.log('[ClinicDashboard][treatmentPlans] START');
-        console.log('[ClinicDashboard][config] START');
-        Promise.allSettled([
-            clinicAPI.getStats(),
-            clinicAPI.getAppointments(),
-            clinicAPI.getTreatmentPlans(),
-            clinicAPI.getConfig()
-        ]).then(([statsRes, apptRes, plansRes, cfgRes]) => {
-            if (statsRes.status === 'fulfilled' && statsRes.value?.success) {
-                const sData = statsRes.value.stats || statsRes.value.data || statsRes.value;
-                console.log('[ClinicDashboard][stats] STATUS', 200);
-                console.log('[ClinicDashboard][stats] DATA_KEYS', Object.keys(sData || {}));
-                setStats(sData);
-                console.log('[ClinicDashboard][stats] SET_STATE');
-            } else {
-                const err = statsRes.reason || statsRes.value;
-                const status = err?.response?.status || err?.status || 'FAIL';
-                const message = err?.response?.data?.message || err?.message || 'Failed to load stats';
-                console.log('[ClinicDashboard][stats] ERROR', { status, message });
-                setFetchError(message);
-            }
-
-            if (apptRes.status === 'fulfilled' && apptRes.value?.success) {
-                const appts = apptRes.value.appointments || apptRes.value.data || [];
-                console.log('[ClinicDashboard][appointments] STATUS', 200);
-                console.log('[ClinicDashboard][appointments] DATA_KEYS', Object.keys(appts[0] || {}));
-                setAppointments(appts);
-                console.log('[ClinicDashboard][appointments] SET_STATE');
-            } else {
-                const err = apptRes.reason || apptRes.value;
-                const status = err?.response?.status || err?.status || 'FAIL';
-                const message = err?.response?.data?.message || err?.message || 'Failed to load appointments';
-                console.log('[ClinicDashboard][appointments] ERROR', { status, message });
-            }
-
-            if (plansRes.status === 'fulfilled' && plansRes.value?.success) {
-                const plans = plansRes.value.plans || plansRes.value.data || [];
-                console.log('[ClinicDashboard][treatmentPlans] STATUS', 200);
-                console.log('[ClinicDashboard][treatmentPlans] DATA_KEYS', Object.keys(plans[0] || {}));
-                setTreatmentPlans(plans);
-                console.log('[ClinicDashboard][treatmentPlans] SET_STATE');
-            } else {
-                const err = plansRes.reason || plansRes.value;
-                const status = err?.response?.status || err?.status || 'FAIL';
-                const message = err?.response?.data?.message || err?.message || 'Failed to load treatment plans';
-                console.log('[ClinicDashboard][treatmentPlans] ERROR', { status, message });
-            }
-
-            if (cfgRes.status === 'fulfilled' && cfgRes.value?.success) {
-                const cfgR = cfgRes.value;
-                console.log('[ClinicDashboard][config] STATUS', 200);
-                console.log('[ClinicDashboard][config] DATA_KEYS', Object.keys(cfgR || {}));
-                setConfig({
-                    defaultFee: String(cfgR.defaultFee ?? 0),
-                    followUpDays: String(cfgR.followUpDays ?? 0),
-                    defaultServiceName: cfgR.defaultServiceName || 'General Consultation',
-                    appointmentMode: cfgR.appointmentMode || 'token'
+        const loadOverview = async () => {
+            try {
+                const isOnline = await checkOnlineStatus();
+                const res = await fetchClinicDashboardWithOffline(false);
+                if (res && res.data) {
+                    if (res.data.stats) setStats(res.data.stats);
+                    if (res.data.appointments) setAppointments(res.data.appointments);
+                    if (res.data.treatmentPlans) setTreatmentPlans(res.data.treatmentPlans);
+                    if (res.data.config) {
+                        const cfgR = res.data.config;
+                        setConfig({
+                            defaultFee: String(cfgR.defaultFee ?? 0),
+                            followUpDays: String(cfgR.followUpDays ?? 0),
+                            defaultServiceName: cfgR.defaultServiceName || 'General Consultation',
+                            appointmentMode: cfgR.appointmentMode || 'token'
+                        });
+                    }
+                }
+                setOfflineMeta({
+                    isOffline: !isOnline || Boolean(res?.isStale),
+                    isStale: Boolean(res?.isStale),
+                    lastSynced: res?.lastSynced,
+                    freshnessNote: res?.freshnessNote || '',
                 });
-                console.log('[ClinicDashboard][config] SET_STATE');
-            } else {
-                const err = cfgRes.reason || cfgRes.value;
-                const status = err?.response?.status || err?.status || 'FAIL';
-                const message = err?.response?.data?.message || err?.message || 'Failed to load config';
-                console.log('[ClinicDashboard][config] ERROR', { status, message });
+            } catch (err) {
+                console.error('[ClinicDashboard] Overview load error:', err);
+                setFetchError(err?.message || 'Failed to load clinic overview');
+            } finally {
+                setLoading(false);
             }
-        }).catch(err => {
-            console.log('[ClinicDashboard][overview] ERROR', {
-                status: err?.response?.status,
-                message: err?.response?.data?.message || err?.message
-            });
-            setFetchError(err?.message);
-        }).finally(() => setLoading(false));
+        };
+        loadOverview();
     }, []);
 
     const saveConfig = async () => {
@@ -1027,6 +996,15 @@ const OverviewMode = () => {
 
     return (
         <ScrollView style={{ flex: 1 }}>
+            {/* Offline Status & Stale Cache Warning Banner */}
+            {(offlineMeta.isOffline || offlineMeta.isStale) && (
+                <OfflineBanner
+                    isOffline={offlineMeta.isOffline}
+                    isStale={offlineMeta.isStale}
+                    lastSynced={offlineMeta.lastSynced}
+                    customMessage={offlineMeta.freshnessNote || 'Notice: Offline Mode. Clinic appointments, revenue, and treatment plans reflect cached records.'}
+                />
+            )}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                 <Text style={{ fontSize: isNarrow ? 20 : 24, fontWeight: 'bold', color: '#0f172a' }}>Dashboard Overview</Text>
             </View>
@@ -1643,7 +1621,7 @@ const PatientsMode = ({ onBookToken, setPendingDownload }) => {
                                     <Ionicons name="download-outline" size={14} color="#059669" />
                                     <Text style={{ color: '#059669', fontWeight: '700', fontSize: 12 }}>📥 Download Profile PDF</Text>
                                 </TouchableOpacity>
-                                
+
                             </View>
                         </View>
                     </View>

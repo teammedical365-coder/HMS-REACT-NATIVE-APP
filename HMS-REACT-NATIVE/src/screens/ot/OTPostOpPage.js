@@ -7,6 +7,13 @@ import socket from '../../utils/socket';
 import OTHeader from './OTHeader';
 import { SurgeryDetailsModal, WorkflowBedModal } from '../../components/ot/OTModals';
 import useOTResponsive from './otResponsive';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
+import {
+    fetchOTPostOpWithOffline,
+    updateSurgeryWorkflowOnlineOnly
+} from '../../services/offline/offlineOTService';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
 
 const getStatusStyle = (status) => {
     switch(status) {
@@ -41,21 +48,41 @@ const OTPostOpPage = () => {
     const [loading, setLoading] = useState(true);
     const [lastUpdated, setLastUpdated] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
+    const [offlineMeta, setOfflineMeta] = useState({
+        isOffline: false,
+        isStale: false,
+        lastSynced: null,
+        freshnessNote: null,
+        noCache: false,
+    });
 
     const [selectedSurgery, setSelectedSurgery] = useState(null);
     const [showDetailsModal, setShowDetailsModal] = useState(false);
     const [bedModal, setBedModal] = useState({ open: false, actionType: null, patientId: null, surgeryId: null });
 
-    const fetchPostOpData = useCallback(async () => {
+    const fetchPostOpData = useCallback(async (forceRefresh = false) => {
         setLoading(true);
         try {
-            const today = new Date().toISOString().split('T')[0];
-            const res = await otAPI.getTodaySchedule(today);
-            if (res.success) {
-                const list = (res.schedule || []).filter(s => s.status === 'POST_OP' || s.status === 'SURGERY_COMPLETED');
-                setPostOpSurgeries(list);
+            const isOnline = await checkOnlineStatus();
+            const res = await fetchOTPostOpWithOffline(forceRefresh);
+
+            if (res.data) {
+                setPostOpSurgeries(res.data);
             }
-            setLastUpdated(new Date());
+
+            setOfflineMeta({
+                isOffline: !isOnline,
+                isStale: !!res.isStale,
+                lastSynced: res.lastSynced,
+                freshnessNote: res.freshnessNote,
+                noCache: !!res.noCache,
+            });
+
+            if (res.lastSynced) {
+                setLastUpdated(new Date(res.lastSynced));
+            } else {
+                setLastUpdated(new Date());
+            }
         } catch (err) {
             console.error('Fetch post-op error:', err);
         } finally {
@@ -100,13 +127,13 @@ const OTPostOpPage = () => {
                     style: "default",
                     onPress: async () => {
                         try {
-                            const res = await otAPI.updateSurgeryWorkflow(surgeryId, { status: nextStatus });
+                            const res = await updateSurgeryWorkflowOnlineOnly(surgeryId, { status: nextStatus });
                             if (res.success) {
                                 Alert.alert("Success", nextStatus === 'POST_OP' ? "Patient moved to Post-Op recovery" : "Patient discharged and completed");
-                                fetchPostOpData();
+                                fetchPostOpData(true);
                             }
                         } catch (err) {
-                            Alert.alert("Error", err.message || 'Workflow transition failed');
+                            Alert.alert("Workflow Error", err.message || 'Workflow transition failed');
                         }
                     }
                 }
@@ -134,11 +161,30 @@ const OTPostOpPage = () => {
                 subtitle="Patients in PACU / recovery unit, vitals monitoring, recovery stabilization, and ward bed transfer."
                 lastUpdated={lastUpdated}
                 loading={loading}
-                onRefresh={fetchPostOpData}
+                onRefresh={() => fetchPostOpData(true)}
                 searchQuery={searchQuery}
                 onSearchChange={setSearchQuery}
                 badgeCounts={{ postOp: postOpSurgeries.length }}
             />
+
+            {/* Offline Status & Stale Cache Warning Banner */}
+            {(offlineMeta.isOffline || offlineMeta.isStale) && (
+                <OfflineBanner
+                    isOffline={offlineMeta.isOffline}
+                    isStale={offlineMeta.isStale}
+                    lastSynced={offlineMeta.lastSynced}
+                    message={offlineMeta.freshnessNote || 'Notice: Offline Mode. PACU recovery recovery vitals must be monitored live.'}
+                    onRetry={() => fetchPostOpData(true)}
+                />
+            )}
+
+            {offlineMeta.noCache && (
+                <OfflineEmptyState
+                    moduleName="Post-Op Recovery (PACU)"
+                    onRetry={() => fetchPostOpData(true)}
+                    customMessage="No cached PACU records available. Connect to the hospital network to view post-operative cases."
+                />
+            )}
 
             {/* Post-Op Patients List */}
             {filteredSurgeries.length === 0 ? (

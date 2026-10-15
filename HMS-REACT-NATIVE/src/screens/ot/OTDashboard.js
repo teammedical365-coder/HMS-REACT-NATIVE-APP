@@ -17,6 +17,13 @@ import {
     WorkflowBedModal
 } from '../../components/ot/OTModals';
 import { useOTResponsive } from './otResponsive';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
+import {
+    fetchOTDashboardWithOffline,
+    updateSurgeryWorkflowOnlineOnly
+} from '../../services/offline/offlineOTService';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
 
 const OTDashboard = () => {
     const navigation = useNavigation();
@@ -47,6 +54,13 @@ const OTDashboard = () => {
     const [loading, setLoading] = useState(true);
     const [lastUpdated, setLastUpdated] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
+    const [offlineMeta, setOfflineMeta] = useState({
+        isOffline: false,
+        isStale: false,
+        lastSynced: null,
+        freshnessNote: null,
+        noCache: false,
+    });
 
     // Modal states
     const [selectedSurgery, setSelectedSurgery] = useState(null);
@@ -55,33 +69,37 @@ const OTDashboard = () => {
     const [showScheduleModal, setShowScheduleModal] = useState(false);
     const [bedModal, setBedModal] = useState({ open: false, actionType: null, patientId: null, surgeryId: null });
 
-    const fetchDashboardData = useCallback(async () => {
+    const fetchDashboardData = useCallback(async (forceRefresh = false) => {
         setLoading(true);
         try {
-            const today = new Date().toISOString().split('T')[0];
+            const isOnline = await checkOnlineStatus();
+            const res = await fetchOTDashboardWithOffline(forceRefresh);
 
-            const [statsRes, roomsRes, alertsRes, scheduleRes, plannedRes, docsRes, allRoomsRes] = await Promise.all([
-                otAPI.getDashboardStats(),
-                otAPI.getRoomStatus(today),
-                otAPI.getWorkflowAlerts(today),
-                otAPI.getTodaySchedule(today),
-                otAPI.getPlannedSurgeries(),
-                doctorAPI.getDoctors().catch(() => ({ doctors: [] })),
-                otAPI.getRooms().catch(() => ({ rooms: [] }))
-            ]);
-
-            if (statsRes.success) setStats(statsRes.stats);
-            if (roomsRes.success) {
-                setRooms(roomsRes.rooms || []);
-                if (roomsRes.summary) setRoomSummary(roomsRes.summary);
+            if (res.data) {
+                const { stats: s, rooms: r, roomSummary: sum, alerts: a, todaySchedule: ts, plannedSurgeries: ps, doctorsList: dl, otRoomsList: rl } = res.data;
+                if (s) setStats(s);
+                if (r) setRooms(r);
+                if (sum) setRoomSummary(sum);
+                if (a) setAlerts(a);
+                if (ts) setTodaySchedule(ts);
+                if (ps) setPlannedSurgeries(ps);
+                if (dl) setDoctorsList(dl);
+                if (rl) setOtRoomsList(rl);
             }
-            if (alertsRes.success) setAlerts(alertsRes.alerts || []);
-            if (scheduleRes.success) setTodaySchedule(scheduleRes.schedule || []);
-            if (plannedRes.success) setPlannedSurgeries(plannedRes.surgeries || []);
-            if (docsRes.doctors) setDoctorsList(docsRes.doctors);
-            if (allRoomsRes.rooms) setOtRoomsList(allRoomsRes.rooms);
 
-            setLastUpdated(new Date());
+            setOfflineMeta({
+                isOffline: !isOnline,
+                isStale: !!res.isStale,
+                lastSynced: res.lastSynced,
+                freshnessNote: res.freshnessNote,
+                noCache: !!res.noCache,
+            });
+
+            if (res.lastSynced) {
+                setLastUpdated(new Date(res.lastSynced));
+            } else {
+                setLastUpdated(new Date());
+            }
         } catch (err) {
             console.error('OT Dashboard fetch error:', err);
         } finally {
@@ -125,13 +143,13 @@ const OTDashboard = () => {
 
     const handleWorkflowTransition = async (surgeryId, nextStatus) => {
         try {
-            const res = await otAPI.updateSurgeryWorkflow(surgeryId, { status: nextStatus });
+            const res = await updateSurgeryWorkflowOnlineOnly(surgeryId, { status: nextStatus });
             if (res.success) {
                 Alert.alert('Success', 'Workflow transition updated');
-                fetchDashboardData();
+                fetchDashboardData(true);
             }
         } catch (err) {
-            Alert.alert('Error', err.response?.data?.message || 'Workflow transition failed');
+            Alert.alert('Workflow Error', err.message || err.response?.data?.message || 'Workflow transition failed');
         }
     };
 
@@ -166,7 +184,7 @@ const OTDashboard = () => {
                 subtitle="Real-time operational overview, department KPIs, and quick access modules."
                 lastUpdated={lastUpdated}
                 loading={loading}
-                onRefresh={fetchDashboardData}
+                onRefresh={() => fetchDashboardData(true)}
                 searchQuery={searchQuery}
                 onSearchChange={setSearchQuery}
                 badgeCounts={{
@@ -179,6 +197,25 @@ const OTDashboard = () => {
                     completed: completedCount
                 }}
             />
+
+            {/* Offline Status & Stale Cache Warning Banner */}
+            {(offlineMeta.isOffline || offlineMeta.isStale) && (
+                <OfflineBanner
+                    isOffline={offlineMeta.isOffline}
+                    isStale={offlineMeta.isStale}
+                    lastSynced={offlineMeta.lastSynced}
+                    message={offlineMeta.freshnessNote || 'Notice: Offline Mode. Operating theatre schedules and room availability must be verified live.'}
+                    onRetry={() => fetchDashboardData(true)}
+                />
+            )}
+
+            {offlineMeta.noCache && (
+                <OfflineEmptyState
+                    moduleName="Operation Theatre Dashboard"
+                    onRetry={() => fetchDashboardData(true)}
+                    customMessage="No cached OT dashboard census available. Connect to the hospital network to fetch the latest theatre schedule."
+                />
+            )}
 
             {/* ========================================================= */}
             {/* 1. KPI SUMMARY SECTION (7 CARDS)                          */}

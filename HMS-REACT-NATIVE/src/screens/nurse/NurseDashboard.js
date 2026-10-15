@@ -18,6 +18,14 @@ import { useNavigation } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 import { admissionAPI, ipdClinicalAPI, ipdNursingAPI } from '../../utils/api';
 import socket from '../../utils/socket';
+import {
+    fetchNurseDashboardWithOffline,
+    assignNurseOnlineOnly,
+    syncQueuedNursingOperations,
+} from '../../services/offline/offlineNursingService';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
 
 // ── Ward badge styling ──
 const getWardBadgeStyle = (ward) => {
@@ -91,6 +99,14 @@ const NurseDashboard = () => {
     const [alertsMap, setAlertsMap] = useState({});
     const [patientCardsMap, setPatientCardsMap] = useState({});
 
+    // Offline State
+    const [offlineState, setOfflineState] = useState({
+        isOffline: false,
+        isStale: false,
+        lastSynced: null,
+        noCache: false,
+    });
+
     // Assignment Modal state
     const [assignModal, setAssignModal] = useState({ open: false, admission: null, nurseId: '', shift: 'Morning', notes: '' });
     const [submittingAssign, setSubmittingAssign] = useState(false);
@@ -123,54 +139,65 @@ const NurseDashboard = () => {
     const fetchDashboardData = useCallback(async (isSilent = false) => {
         if (!isSilent) setLoading(true);
         try {
-            const [admissionsRes, metricsRes, nursesRes, summaryRes, hospitalAlertsRes] = await Promise.all([
-                admissionAPI.getActiveAdmissions().catch(() => ({ admissions: [] })),
-                ipdNursingAPI.getOperationsMetrics().catch(() => ({ metrics: null })),
-                ipdNursingAPI.getHospitalNurses().catch(() => ({ nurses: [] })),
-                ipdNursingAPI.getDashboardSummary().catch(() => null),
-                ipdNursingAPI.getHospitalAlerts().catch(() => ({ alerts: [] }))
-            ]);
-
-            const list = admissionsRes.admissions || admissionsRes.data || [];
-            setAdmissions(list);
-
-            if (metricsRes?.metrics || metricsRes?.data) {
-                setOperationsMetrics(metricsRes.metrics || metricsRes.data);
-            } else if (summaryRes?.summary) {
-                setOperationsMetrics({
-                    medsDueCount: summaryRes.summary.medicinesDue || 0,
-                    overdueTasksCount: summaryRes.summary.tasksPending || 0,
-                    dischargePendingCount: 0
-                });
+            const isOnline = await checkOnlineStatus();
+            if (isOnline) {
+                syncQueuedNursingOperations().catch(() => {});
             }
 
-            if (nursesRes?.nurses || nursesRes?.data) {
-                setHospitalNurses(nursesRes.nurses || nursesRes.data);
-            }
+            const result = await fetchNurseDashboardWithOffline(!isSilent);
+            setOfflineState({
+                isOffline: !!result.fromCache,
+                isStale: !!result.isStale,
+                lastSynced: result.lastSynced,
+                noCache: !!result.noCache,
+            });
 
-            // Map patient clinical cards & vitals directly from unified dashboard summary (0 N+1 calls)
-            const summaryPatients = summaryRes?.patients || [];
-            const summaryCards = {};
-            const vMap = {};
-            summaryPatients.forEach(p => {
-                const key = String(p.admissionId);
-                summaryCards[key] = p;
-                if (p.latestVitals) {
-                    vMap[key] = p.latestVitals;
+            if (result.data) {
+                const {
+                    admissions: list = [],
+                    operationsMetrics: metrics = null,
+                    hospitalNurses: nurses = [],
+                    summary = null,
+                    summaryPatients = [],
+                    alerts: alertsList = []
+                } = result.data;
+
+                setAdmissions(list);
+
+                if (metrics) {
+                    setOperationsMetrics(metrics);
+                } else if (summary) {
+                    setOperationsMetrics({
+                        medsDueCount: summary.medicinesDue || 0,
+                        overdueTasksCount: summary.tasksPending || 0,
+                        dischargePendingCount: 0
+                    });
                 }
-            });
-            setPatientCardsMap(summaryCards);
-            setVitalsMap(vMap);
 
-            // Map alerts from hospital-wide alerts endpoint in a single call
-            const alertsList = hospitalAlertsRes?.alerts || [];
-            const aMap = {};
-            alertsList.forEach(a => {
-                const key = String(a.admissionId);
-                if (!aMap[key]) aMap[key] = [];
-                aMap[key].push(a);
-            });
-            setAlertsMap(aMap);
+                if (nurses) {
+                    setHospitalNurses(nurses);
+                }
+
+                const summaryCards = {};
+                const vMap = {};
+                summaryPatients.forEach(p => {
+                    const key = String(p.admissionId);
+                    summaryCards[key] = p;
+                    if (p.latestVitals) {
+                        vMap[key] = p.latestVitals;
+                    }
+                });
+                setPatientCardsMap(summaryCards);
+                setVitalsMap(vMap);
+
+                const aMap = {};
+                alertsList.forEach(a => {
+                    const key = String(a.admissionId);
+                    if (!aMap[key]) aMap[key] = [];
+                    aMap[key].push(a);
+                });
+                setAlertsMap(aMap);
+            }
         } catch (err) {
             console.error('Nurse Dashboard — Error fetching data:', err);
             showToast('Error loading inpatient records', 'error');
@@ -229,18 +256,26 @@ const NurseDashboard = () => {
             Alert.alert('Validation', 'Please select a nurse.');
             return;
         }
+        const isOnline = await checkOnlineStatus();
+        if (!isOnline) {
+            Alert.alert(
+                'Action Blocked (Offline)',
+                'Inpatient nurse assignment requires active server connectivity to coordinate ward shift coverage.'
+            );
+            return;
+        }
         try {
             setSubmittingAssign(true);
-            await ipdNursingAPI.assignNurse(assignModal.admission._id, {
+            await assignNurseOnlineOnly(assignModal.admission._id, {
                 nurseId: assignModal.nurseId,
                 shift: assignModal.shift,
                 notes: assignModal.notes
             });
             setAssignModal({ open: false, admission: null, nurseId: '', shift: 'Morning', notes: '' });
             showToast('Nurse assigned successfully');
-            fetchDashboardData();
+            fetchDashboardData(true);
         } catch (err) {
-            showToast(err.response?.data?.message || 'Error assigning nurse', 'error');
+            Alert.alert('Error', err?.response?.data?.message || err.message || 'Error assigning nurse');
         } finally {
             setSubmittingAssign(false);
         }
@@ -313,6 +348,19 @@ const NurseDashboard = () => {
 
     return (
         <ScrollView style={styles.screenScroll} contentContainerStyle={styles.container}>
+            <OfflineBanner
+                isOffline={offlineState.isOffline}
+                isStale={offlineState.isStale}
+                lastSynced={offlineState.lastSynced}
+                onRetry={() => fetchDashboardData(false)}
+            />
+            {offlineState.noCache && admissions.length === 0 ? (
+                <OfflineEmptyState
+                    message="No cached nurse dashboard data available. Connect to the internet to load inpatient records."
+                    onRetry={() => fetchDashboardData(false)}
+                />
+            ) : (
+                <>
             {/* ── Top Bar ── */}
             <View style={styles.headerRow}>
                 <View style={{ flex: 1 }}>
@@ -803,6 +851,8 @@ const NurseDashboard = () => {
                     <Feather name={toast.type === 'error' ? 'alert-circle' : 'check-circle'} size={16} color={toast.type === 'error' ? '#dc2626' : '#16a34a'} />
                     <Text style={[styles.toastText, { color: toast.type === 'error' ? '#991b1b' : '#166534' }]}>{toast.message}</Text>
                 </View>
+            )}
+                </>
             )}
         </ScrollView>
     );

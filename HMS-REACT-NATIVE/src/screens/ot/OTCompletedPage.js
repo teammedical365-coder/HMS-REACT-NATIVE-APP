@@ -8,6 +8,10 @@ import OTHeader from './OTHeader';
 import { SurgeryDetailsModal } from '../../components/ot/OTModals';
 import DatePickerInput from '../../components/common/DatePickerInput';
 import useOTResponsive from './otResponsive';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
+import { fetchOTCompletedWithOffline } from '../../services/offline/offlineOTService';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
 
 const getStatusStyle = (status) => {
     switch(status) {
@@ -42,6 +46,13 @@ const OTCompletedPage = () => {
     const [loading, setLoading] = useState(true);
     const [lastUpdated, setLastUpdated] = useState(null);
     const [error, setError] = useState(null);
+    const [offlineMeta, setOfflineMeta] = useState({
+        isOffline: false,
+        isStale: false,
+        lastSynced: null,
+        freshnessNote: null,
+        noCache: false,
+    });
 
     const [selectedSurgery, setSelectedSurgery] = useState(null);
     const [showDetailsModal, setShowDetailsModal] = useState(false);
@@ -51,19 +62,33 @@ const OTCompletedPage = () => {
     const [customFrom, setCustomFrom] = useState('');
     const [customTo, setCustomTo] = useState('');
 
-    const fetchCompletedData = useCallback(async () => {
+    const fetchCompletedData = useCallback(async (forceRefresh = false) => {
         setLoading(true);
         setError(null);
         try {
-            const res = await otAPI.getScheduledSurgeries();
-            if (res.success) {
-                const list = (res.surgeries || []).filter(s => s.status === 'COMPLETED' || s.status === 'SURGERY_COMPLETED');
-                setCompletedSurgeries(list);
+            const isOnline = await checkOnlineStatus();
+            const res = await fetchOTCompletedWithOffline(forceRefresh);
+
+            if (res.data) {
+                setCompletedSurgeries(res.data);
             }
-            setLastUpdated(new Date());
+
+            setOfflineMeta({
+                isOffline: !isOnline,
+                isStale: !!res.isStale,
+                lastSynced: res.lastSynced,
+                freshnessNote: res.freshnessNote,
+                noCache: !!res.noCache,
+            });
+
+            if (res.lastSynced) {
+                setLastUpdated(new Date(res.lastSynced));
+            } else {
+                setLastUpdated(new Date());
+            }
         } catch (err) {
             console.error('Fetch completed error:', err);
-            setError(err.response?.data?.message || 'Unable to load completed surgeries. Please check connection and retry.');
+            setError(err.message || err.response?.data?.message || 'Unable to load completed surgeries.');
         } finally {
             setLoading(false);
         }
@@ -196,11 +221,30 @@ const OTCompletedPage = () => {
                 subtitle="Historical surgical logbook, procedure outcomes, completion timestamps, and operational audit trail."
                 lastUpdated={lastUpdated}
                 loading={loading}
-                onRefresh={fetchCompletedData}
                 searchQuery={searchQuery}
                 onSearchChange={setSearchQuery}
+                onRefresh={() => fetchCompletedData(true)}
                 badgeCounts={{ completed: completedSurgeries.length }}
             />
+
+            {/* Offline Status & Stale Cache Warning Banner */}
+            {(offlineMeta.isOffline || offlineMeta.isStale) && (
+                <OfflineBanner
+                    isOffline={offlineMeta.isOffline}
+                    isStale={offlineMeta.isStale}
+                    lastSynced={offlineMeta.lastSynced}
+                    message={offlineMeta.freshnessNote || 'Notice: Offline Mode. Displaying cached surgical history.'}
+                    onRetry={() => fetchCompletedData(true)}
+                />
+            )}
+
+            {offlineMeta.noCache && (
+                <OfflineEmptyState
+                    moduleName="Completed Surgeries"
+                    onRetry={() => fetchCompletedData(true)}
+                    customMessage="No cached completed surgery records available. Connect to the network to view surgery archives."
+                />
+            )}
 
             {/* Filter Bar */}
             <View style={[styles.filterBar, !isTablet && { flexDirection: 'column', alignItems: 'stretch', gap: 12 }]}>

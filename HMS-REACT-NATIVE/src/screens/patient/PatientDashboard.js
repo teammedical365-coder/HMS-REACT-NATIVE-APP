@@ -3,21 +3,28 @@ import { View, Text, TouchableOpacity, ScrollView, StyleSheet, TextInput, Modal,
 import { useNavigation } from '@react-navigation/native';
 import { useBranding } from '../../context/BrandingContext';
 import { patientAuthAPI, uploadAPI } from '../../utils/api';
+import OfflineBanner from '../../components/common/OfflineBanner';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
+import {
+    fetchPatientDashboardWithOffline,
+    assertHospitalAdminActionAllowed
+} from '../../services/offline/offlineHospitalAdminService';
 
 const { width } = Dimensions.get('window');
 
 const PatientDashboard = () => {
     const navigation = useNavigation();
     const { branding, hospitalName } = useBranding();
-    
+
     const [patient, setPatient] = useState(null);
     const [profileData, setProfileData] = useState(null);
     const [appointments, setAppointments] = useState([]);
     const [documents, setDocuments] = useState([]);
     const [loading, setLoading] = useState(true);
-    
+    const [offlineMeta, setOfflineMeta] = useState(null);
+
     const [activeTab, setActiveTab] = useState('dashboard');
-    
+
     // Edit Profile State
     const [isEditing, setIsEditing] = useState(false);
     const [editForm, setEditForm] = useState(null);
@@ -30,16 +37,18 @@ const PatientDashboard = () => {
     const loadDashboardData = async () => {
         setLoading(true);
         try {
-            const [profRes, apptRes, docRes] = await Promise.all([
-                patientAuthAPI.getPatientProfile(),
-                patientAuthAPI.getPatientAppointments(),
-                patientAuthAPI.getPatientDocuments()
-            ]);
-            
-            if (profRes.success) setProfileData(profRes.profile);
-            if (apptRes.success) setAppointments(apptRes.appointments || []);
-            if (docRes.success) setDocuments(docRes.documents || []);
-            
+            const res = await fetchPatientDashboardWithOffline();
+            if (res.success && res.data) {
+                if (res.data.profile) setProfileData(res.data.profile);
+                if (res.data.appointments) setAppointments(res.data.appointments || []);
+                if (res.data.documents) setDocuments(res.data.documents || []);
+                setOfflineMeta(res.offlineMeta || (res.fromCache ? {
+                    isOffline: true,
+                    isStale: res.isStale,
+                    cachedAt: res.cachedAt,
+                    freshnessNote: res.freshnessNote
+                } : null));
+            }
         } catch (err) {
             console.error('Error loading dashboard data:', err);
         } finally {
@@ -67,6 +76,12 @@ const PatientDashboard = () => {
     const handleSaveProfile = async () => {
         if (!editForm.name?.trim()) {
             Alert.alert("Error", "Name is required.");
+            return;
+        }
+
+        const actionCheck = await assertHospitalAdminActionAllowed('UPDATE_PROFILE');
+        if (!actionCheck.allowed) {
+            Alert.alert('Action Blocked', actionCheck.message);
             return;
         }
 
@@ -176,7 +191,7 @@ const PatientDashboard = () => {
                             <Text style={styles.profileId}>MRN: {profileData?.patientId || 'N/A'}</Text>
                         </View>
                     </View>
-                    
+
                     <View style={styles.detailsGrid}>
                         <View style={styles.detailItem}>
                             <Text style={styles.detailLabel}>Email</Text>
@@ -209,7 +224,7 @@ const PatientDashboard = () => {
         <View style={styles.container}>
             <View style={styles.sidebar}>
                 <Text style={styles.sidebarTitle}>{hospitalName || 'Patient Portal'}</Text>
-                
+
                 <TouchableOpacity style={[styles.navItem, activeTab === 'dashboard' && styles.navItemActive]} onPress={() => setActiveTab('dashboard')}>
                     <Text style={[styles.navText, activeTab === 'dashboard' && styles.navTextActive]}>🏠 Dashboard</Text>
                 </TouchableOpacity>
@@ -220,8 +235,9 @@ const PatientDashboard = () => {
                     <Text style={[styles.navText, activeTab === 'profile' && styles.navTextActive]}>👤 My Profile</Text>
                 </TouchableOpacity>
             </View>
-            
+
             <ScrollView style={styles.mainContent}>
+                <OfflineBanner offlineMeta={offlineMeta} />
                 {activeTab === 'dashboard' && renderDashboard()}
                 {activeTab === 'profile' && renderProfile()}
                 {activeTab === 'appointments' && (
@@ -269,7 +285,7 @@ const styles = StyleSheet.create({
     statusBadge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
     statusText: { fontSize: 12, fontWeight: '700', textTransform: 'capitalize' },
     emptyText: { color: '#64748b', fontSize: 14, fontStyle: 'italic' },
-    
+
     headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
     editBtn: { backgroundColor: '#eff6ff', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 6, borderWidth: 1, borderColor: '#bfdbfe' },
     editBtnText: { color: '#2563eb', fontWeight: '700', fontSize: 13 },
@@ -284,7 +300,7 @@ const styles = StyleSheet.create({
     detailItem: { width: '50%', marginBottom: 16 },
     detailLabel: { fontSize: 12, color: '#94a3b8', fontWeight: '700', textTransform: 'uppercase', marginBottom: 4 },
     detailValue: { fontSize: 15, color: '#1e293b', fontWeight: '600' },
-    
+
     formContainer: { backgroundColor: '#ffffff', borderRadius: 16, padding: 24, borderWidth: 1, borderColor: '#e2e8f0' },
     inputGroup: { marginBottom: 16 },
     label: { fontSize: 13, fontWeight: '700', color: '#475569', marginBottom: 6 },

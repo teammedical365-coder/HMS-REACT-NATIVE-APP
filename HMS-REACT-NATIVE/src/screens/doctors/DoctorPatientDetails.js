@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-    View, Text, StyleSheet, ScrollView, TouchableOpacity, 
-    TextInput, ActivityIndicator, Alert, Modal, KeyboardAvoidingView, 
-    Platform, useWindowDimensions 
+import {
+    View, Text, StyleSheet, ScrollView, TouchableOpacity,
+    TextInput, ActivityIndicator, Alert, Modal, KeyboardAvoidingView,
+    Platform, useWindowDimensions
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Picker } from '@react-native-picker/picker';
@@ -10,12 +10,21 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
 
-import { 
-    doctorAPI, labTestAPI, questionLibraryAPI, hospitalAPI, 
-    patientAPI, receptionAPI, otAPI, adminEntitiesAPI, referralAPI, publicAPI 
+import {
+    doctorAPI, labTestAPI, questionLibraryAPI, hospitalAPI,
+    patientAPI, receptionAPI, otAPI, adminEntitiesAPI, referralAPI, publicAPI
 } from '../../utils/api';
 import { toast, confirmToast } from '../../utils/confirmToast';
 import { useAuth } from '../../store/hooks';
+import {
+    fetchPatientDetailsWithOffline,
+    fetchDoctorCatalogsWithOffline,
+    saveConsultationDraftWithOffline,
+    getConsultationDraft,
+    clearConsultationDraft
+} from '../../services/offline/offlineDoctorService';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
+import OfflineBanner from '../../components/OfflineBanner';
 
 // Dynamic / child components
 import DynamicQuestionForm from '../../components/DynamicQuestionForm';
@@ -35,7 +44,6 @@ const doseOptions = [
     'OW – Once Weekly',
     'SOS – As Needed'
 ];
-
 const timingOptions = [
     'Before Breakfast (BBF)',
     'After Breakfast (ABF)',
@@ -49,7 +57,6 @@ const timingOptions = [
     'On Empty Stomach',
     'At Bedtime (HS)'
 ];
-
 const isMongoId = (val) => {
     return Boolean(val && typeof val === 'string' && /^[0-9a-fA-F]{24}$/.test(val));
 };
@@ -70,12 +77,12 @@ const isValidMedicineRecord = (item) => {
         return trimmed.length > 0 && !isDocumentFileName(trimmed);
     }
     if (typeof item !== 'object') return false;
-    
+
     // Completely reject any object containing file / document / report metadata
     if (item.url || item.fileUrl || item.mimetype || item.mimeType || item.uploadedAt || item.source === 'report' || item.source === 'prescription') {
         return false;
     }
-    
+
     // Medicine name must not match document or file formats
     const medName = (item.medicineName || item.medicine || (item.name && !isDocumentFileName(item.name)) || '').trim();
     if (!medName || isDocumentFileName(medName)) {
@@ -97,7 +104,7 @@ const extractMedicinesFromAppt = (appt) => {
     } else if (Array.isArray(appt.doctorConsultation?.prescription) && appt.doctorConsultation.prescription.length > 0) {
         list = appt.doctorConsultation.prescription;
     }
-    
+
     return list
         .filter(isValidMedicineRecord)
         .map(p => {
@@ -173,7 +180,7 @@ const DoctorPatientDetails = () => {
     const [appointmentId, setAppointmentId] = useState(route.params?.appointmentId);
 
     const { user } = useAuth();
-    
+
     // Check if the current user is a Junior Doctor
     const roleName = user?._roleData?.name?.toLowerCase() || (typeof user?.role === 'string' ? user.role.toLowerCase() : '');
     const isJrDoctor = roleName.includes('jr') && roleName.includes('doctor');
@@ -227,6 +234,14 @@ const DoctorPatientDetails = () => {
     // Follow-up status for Patient
     const [currentFollowupStatus, setCurrentFollowupStatus] = useState(null);
 
+    // Offline and Clinical Draft states
+    const [offlineState, setOfflineState] = useState({
+        isOffline: false,
+        fromCache: false,
+        lastFetchedAt: null,
+    });
+    const [isDraftSaved, setIsDraftSaved] = useState(false);
+
     // Tab Scroll ref
     const tabsScrollViewRef = useRef(null);
 
@@ -244,7 +259,7 @@ const DoctorPatientDetails = () => {
                         if (refRes.success && refRes.referral) {
                             refObj = refRes.referral;
                         }
-                    } catch(e) { console.error("Error fetching referral by ID", e); }
+                    } catch (e) { console.error("Error fetching referral by ID", e); }
                 }
 
                 if (refObj) {
@@ -266,9 +281,9 @@ const DoctorPatientDetails = () => {
                     try {
                         const apptsRes = await doctorAPI.getAllAppointments().catch(() => null) || await doctorAPI.getAppointments().catch(() => null);
                         if (apptsRes && apptsRes.success) {
-                            const ptAppts = (apptsRes.appointments || []).filter(a => 
-                                a.userId?.patientId === id || 
-                                a.clinicPatientId?.patientUid === id || 
+                            const ptAppts = (apptsRes.appointments || []).filter(a =>
+                                a.userId?.patientId === id ||
+                                a.clinicPatientId?.patientUid === id ||
                                 a.patientId === id ||
                                 (a.userId?._id && a.userId._id.toString() === id.toString()) ||
                                 (a.userId?.name || '').replace(/\s+/g, '-') === id ||
@@ -280,11 +295,62 @@ const DoctorPatientDetails = () => {
                                 setAppointmentId(currentApptId);
                             }
                         }
-                    } catch(e) { console.error("Error finding appointment", e); }
+                    } catch (e) { console.error("Error finding appointment", e); }
                 }
 
                 // 3. If we have an appointment ID, fetch full appointment details
                 if (currentApptId) {
+                    try {
+                        const offlineRes = await fetchPatientDetailsWithOffline({
+                            appointmentId: currentApptId,
+                            patientId: id,
+                        });
+                        if (offlineRes && offlineRes.appointment) {
+                            setAppointment(offlineRes.appointment);
+                            setIntakeData(offlineRes.intakeData || {});
+                            if (Array.isArray(offlineRes.history)) {
+                                setHistory(offlineRes.history);
+                            }
+                            setOfflineState({
+                                isOffline: Boolean(offlineRes.isOffline),
+                                fromCache: Boolean(offlineRes.fromCache),
+                                lastFetchedAt: offlineRes.lastFetchedAt,
+                            });
+
+                            if (offlineRes.appointment.status === 'completed') {
+                                setIsLocked(true);
+                                Alert.alert('Session Completed', 'This consultation has already been completed. This record is now read-only.');
+                            }
+
+                            const loadedMeds = extractMedicinesFromAppt(offlineRes.appointment);
+                            const loadedLabs = extractLabTestsFromAppt(offlineRes.appointment);
+
+                            setSessionData({
+                                diagnosis: offlineRes.appointment.diagnosis || '',
+                                notes: offlineRes.appointment.doctorNotes || '',
+                                medicines: loadedMeds,
+                                labTests: loadedLabs,
+                            });
+
+                            // Restore local consultation draft if one exists
+                            try {
+                                const draft = await getConsultationDraft({ appointmentId: currentApptId, patientId: id });
+                                if (draft && draft.sessionData) {
+                                    setSessionData(draft.sessionData);
+                                    if (draft.intakeData && Object.keys(draft.intakeData).length > 0) {
+                                        setIntakeData(prev => ({ ...prev, ...draft.intakeData }));
+                                    }
+                                    setIsDraftSaved(true);
+                                }
+                            } catch (dErr) { }
+
+                            setLoading(false);
+                            return;
+                        }
+                    } catch (offErr) {
+                        console.warn("[DoctorPatientDetails] offline fetch fallback to direct API:", offErr.message);
+                    }
+
                     const res = await doctorAPI.getAppointmentDetails(currentApptId);
                     if (res.success && res.appointment) {
                         setAppointment(res.appointment);
@@ -301,7 +367,7 @@ const DoctorPatientDetails = () => {
                             allergies: cp.allergies || fert.allergies || '',
                             chronicConditions: cp.chronicConditions || fert.chronicConditions || ''
                         });
-                        
+
                         // Lock if completed
                         if (res.appointment.status === 'completed') {
                             setIsLocked(true);
@@ -313,11 +379,11 @@ const DoctorPatientDetails = () => {
                         if (pId) {
                             const histRes = await doctorAPI.getPatientHistory(pId, deptContext);
                             if (histRes.success) setHistory(histRes.history || histRes.data || []);
-                            
+
                             try {
                                 const fRes = await receptionAPI.getFollowupStatus(pId, 'auto');
                                 if (fRes.success) setCurrentFollowupStatus(fRes);
-                            } catch(e) { console.error("Error fetching follow-up", e); }
+                            } catch (e) { console.error("Error fetching follow-up", e); }
                         }
 
                         const loadedMeds = extractMedicinesFromAppt(res.appointment);
@@ -329,7 +395,7 @@ const DoctorPatientDetails = () => {
                             medicines: loadedMeds,
                             labTests: loadedLabs
                         });
-                        
+
                         if (res.departments) {
                             setHospitalDepartments(res.departments);
                         }
@@ -342,8 +408,8 @@ const DoctorPatientDetails = () => {
                 const targetPatientId = refObj?.patientId?._id || (typeof refObj?.patientId === 'string' ? refObj.patientId : null) || id;
                 if (targetPatientId) {
                     try {
-                        const profRes = await doctorAPI.getFullPatientProfile(targetPatientId).catch(() => null) || 
-                                        await patientAPI.getPatient(targetPatientId).catch(() => null);
+                        const profRes = await doctorAPI.getFullPatientProfile(targetPatientId).catch(() => null) ||
+                            await patientAPI.getPatient(targetPatientId).catch(() => null);
                         if (profRes && (profRes.patient || profRes.user)) {
                             const pt = profRes.patient || profRes.user;
                             const loggedUser = user || {};
@@ -386,7 +452,7 @@ const DoctorPatientDetails = () => {
                             setLoading(false);
                             return;
                         }
-                    } catch(e) { console.error("Error loading fallback profile", e); }
+                    } catch (e) { console.error("Error loading fallback profile", e); }
                 }
             } catch (err) { console.error(err); }
             finally {
@@ -396,25 +462,16 @@ const DoctorPatientDetails = () => {
 
         const fetchCatalogs = async () => {
             try {
-                const testRes = await labTestAPI.getLabTests();
-                if (testRes.success) {
-                    setCatalogTests(testRes.data || []);
+                const catalogs = await fetchDoctorCatalogsWithOffline();
+                if (catalogs) {
+                    if (Array.isArray(catalogs.labs)) setCatalogTests(catalogs.labs);
+                    if (Array.isArray(catalogs.medicines)) setCatalogMedicines(catalogs.medicines);
+                    if (catalogs.questionLibrary) setDynamicLibrary(catalogs.questionLibrary);
+                    if (catalogs.hospital) setHospitalContext(catalogs.hospital);
                 }
-            } catch (err) { console.error("Error fetching lab test catalog", err); }
-
-            try {
-                const medRes = await doctorAPI.getMedicines();
-                if (medRes.success) {
-                    setCatalogMedicines(medRes.medicines || []);
-                }
-            } catch (err) { console.error("Error fetching pharmacy inventory", err); }
-
-            try {
-                const libRes = await questionLibraryAPI.getLibrary();
-                if (libRes.success && libRes.data && libRes.data.data) {
-                    setDynamicLibrary(libRes.data.data);
-                }
-            } catch (err) { console.error("Error fetching dynamic question library", err); }
+            } catch (err) {
+                console.warn("[DoctorPatientDetails] fetchCatalogs error:", err);
+            }
         };
 
         fetchCatalogs();
@@ -542,13 +599,13 @@ const DoctorPatientDetails = () => {
     const handleCreateSurgeryPlan = async (e) => {
         if (e && e.preventDefault) e.preventDefault();
         try {
-            const resolvedPtId = appointment?.userId?._id || 
-                appointment?.clinicPatientId?._id || 
-                (typeof appointment?.clinicPatientId === 'string' ? appointment.clinicPatientId : null) || 
-                (typeof appointment?.userId === 'string' ? appointment.userId : null) || 
-                (typeof id === 'string' && id.match(/^[0-9a-fA-F]{24}$/) ? id : null) || 
-                appointment?.patientId || 
-                intakeData?.userId || 
+            const resolvedPtId = appointment?.userId?._id ||
+                appointment?.clinicPatientId?._id ||
+                (typeof appointment?.clinicPatientId === 'string' ? appointment.clinicPatientId : null) ||
+                (typeof appointment?.userId === 'string' ? appointment.userId : null) ||
+                (typeof id === 'string' && id.match(/^[0-9a-fA-F]{24}$/) ? id : null) ||
+                appointment?.patientId ||
+                intakeData?.userId ||
                 id;
 
             const resolvedSurgeonId = (typeof surgeryPlanData.surgeonId === 'object' && surgeryPlanData.surgeonId?._id)
@@ -593,9 +650,31 @@ const DoctorPatientDetails = () => {
             } else {
                 Alert.alert('Error', res?.message || 'Failed to create surgery plan');
             }
-        } catch(err) {
+        } catch (err) {
             console.error('Error creating surgery plan:', err);
             Alert.alert('Error', err.response?.data?.message || err.message || 'Error creating surgery plan');
+        }
+    };
+
+    const handleSaveConsultationDraft = async () => {
+        try {
+            setSaving(true);
+            const targetApptId = appointmentId || appointment?._id || id;
+            const res = await saveConsultationDraftWithOffline({
+                appointmentId: targetApptId,
+                patientId: id,
+                sessionData,
+                intakeData,
+            });
+            if (res.success) {
+                setIsDraftSaved(true);
+                toast.success("Consultation saved as local draft!");
+                Alert.alert("Draft Saved", "Consultation session notes, diagnosis, and prescription items have been saved locally as a draft.");
+            }
+        } catch (err) {
+            Alert.alert("Error", err.message || "Failed to save consultation draft");
+        } finally {
+            setSaving(false);
         }
     };
 
@@ -622,7 +701,7 @@ const DoctorPatientDetails = () => {
         setSaving(true);
         try {
             // 1. Resolve valid Patient MongoDB _id
-            const realPatientMongoId = 
+            const realPatientMongoId =
                 (appointment?.clinicPatientId?._id && isMongoId(appointment.clinicPatientId._id) ? appointment.clinicPatientId._id : null) ||
                 (isMongoId(appointment?.clinicPatientId) ? appointment.clinicPatientId : null) ||
                 (appointment?.userId?._id && isMongoId(appointment.userId._id) ? appointment.userId._id : null) ||
@@ -630,6 +709,25 @@ const DoctorPatientDetails = () => {
                 (route.params?.patient?._id && isMongoId(route.params.patient._id) ? route.params.patient._id : null) ||
                 (intakeData?._id && isMongoId(intakeData._id) ? intakeData._id : null) ||
                 (isMongoId(id) ? id : null);
+
+            // Clinical Safety Gate: Final prescription submission is strictly online-only
+            const isOnline = await checkOnlineStatus();
+            if (!isOnline) {
+                const draftApptId = appointmentId || appointment?._id || id;
+                await saveConsultationDraftWithOffline({
+                    appointmentId: draftApptId,
+                    patientId: realPatientMongoId || id,
+                    sessionData,
+                    intakeData,
+                });
+                setIsDraftSaved(true);
+                Alert.alert(
+                    "Offline Draft Saved",
+                    "You are currently offline. Your consultation notes, diagnosis, and prescription items have been securely saved as a local draft.\n\nFinal prescription generation and patient record completion require an active network connection for clinical safety.",
+                    [{ text: "OK" }]
+                );
+                return;
+            }
 
             // Update patient profile if ID exists
             const profileTargetId = realPatientMongoId || appointment?.clinicPatientId?._id || appointment?.userId?._id || id;
@@ -700,6 +798,15 @@ const DoctorPatientDetails = () => {
             // 4. Update session with payload via PATCH /api/doctor/appointments/:id/prescription
             await doctorAPI.updateSession(targetApptId, payload);
 
+            // Clear local consultation draft upon confirmed online save
+            try {
+                await clearConsultationDraft({
+                    appointmentId: targetApptId,
+                    patientId: realPatientMongoId || id,
+                });
+                setIsDraftSaved(false);
+            } catch (cErr) { }
+
             setIsLocked(true);
 
             setAppointment(prev => ({
@@ -722,7 +829,7 @@ const DoctorPatientDetails = () => {
                     rr: intakeData.respiratoryRate || intakeData.rr || prev?.vitals?.rr || ''
                 }
             }));
-            
+
             setPrescriptionMode('slip');
             setShowPrescriptionModal(true);
             toast.success("Prescription generated successfully!");
@@ -756,7 +863,7 @@ const DoctorPatientDetails = () => {
 
     const rawPatient = appointment.userId || {};
     const clinicPatient = appointment.clinicPatientId || {};
-    
+
     let calculatedAge = '';
     const dobVal = clinicPatient.dob || rawPatient.dob;
     if (dobVal) {
@@ -764,7 +871,7 @@ const DoctorPatientDetails = () => {
         const ageDate = new Date(ageDifMs);
         calculatedAge = Math.abs(ageDate.getUTCFullYear() - 1970).toString();
     }
-    
+
     const patient = {
         ...rawPatient,
         name: clinicPatient.name || rawPatient.name || 'Unknown Patient',
@@ -800,7 +907,7 @@ const DoctorPatientDetails = () => {
         const hName = hospitalContext?.name || 'TEAM MEDICAL 365 HOSPITAL';
         const hAddr = [hospitalContext?.address, hospitalContext?.city, hospitalContext?.state].filter(Boolean).join(', ');
         const hPhone = hospitalContext?.phone || '';
-        
+
         const rxItems = (sessionData.medicines || []).filter(m => m.medicineName?.trim() && !isDocumentFileName(m.medicineName)).length > 0
             ? sessionData.medicines.filter(m => m.medicineName?.trim() && !isDocumentFileName(m.medicineName))
             : (appointment?.pharmacy || []).filter(isValidMedicineRecord).map(p => ({
@@ -1132,7 +1239,7 @@ const DoctorPatientDetails = () => {
             if (exactMatch) {
                 allowedDepts.push(exactMatch);
             } else {
-                const partialMatch = Object.keys(dynamicLibrary).find(d => 
+                const partialMatch = Object.keys(dynamicLibrary).find(d =>
                     d.toLowerCase().includes(normalizedTarget) || normalizedTarget.includes(d.toLowerCase())
                 );
                 if (partialMatch) allowedDepts.push(partialMatch);
@@ -1142,15 +1249,15 @@ const DoctorPatientDetails = () => {
                 if (generalMatch) allowedDepts.push(generalMatch);
             }
         }
-        
+
         allowedDepts.forEach(dept => {
             if (dynamicLibrary[dept]) {
                 Object.keys(dynamicLibrary[dept]).forEach((catKey, i) => {
-                    dynamicTabs.push({ 
-                        id: `dyn_${dept.replace(/\s/g, '')}_${i}`, 
-                        label: `${dept} - ${catKey}`, 
-                        icon: '📋', 
-                        data: dynamicLibrary[dept][catKey] 
+                    dynamicTabs.push({
+                        id: `dyn_${dept.replace(/\s/g, '')}_${i}`,
+                        label: `${dept} - ${catKey}`,
+                        icon: '📋',
+                        data: dynamicLibrary[dept][catKey]
                     });
                 });
             }
@@ -1196,8 +1303,18 @@ const DoctorPatientDetails = () => {
     return (
         <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
             <ScrollView horizontal={false} style={styles.containerScroll}>
+                <OfflineBanner
+                    isOffline={offlineState.isOffline}
+                    fromCache={offlineState.fromCache}
+                    lastFetchedAt={offlineState.lastFetchedAt}
+                    moduleName="Doctor Consultation"
+                    onRetry={() => {
+                        const targetId = appointmentId || route.params?.appointmentId;
+                        if (targetId) fetchPatientDetailsWithOffline({ appointmentId: targetId });
+                    }}
+                />
                 <View style={isJrDoctor || isMobile ? styles.containerGridMobile : styles.containerGrid}>
-                    
+
                     {/* LEFT PANEL */}
                     <View style={[styles.leftPanel, isMobile && styles.leftPanelMobile]}>
                         {/* Patient Header Card */}
@@ -1266,11 +1383,11 @@ const DoctorPatientDetails = () => {
                                 <Text style={styles.tabScrollBtnText}>‹</Text>
                             </TouchableOpacity>
 
-                            <ScrollView 
-                                ref={tabsScrollViewRef} 
-                                horizontal 
-                                showsHorizontalScrollIndicator={false} 
-                                style={styles.tabsContainer} 
+                            <ScrollView
+                                ref={tabsScrollViewRef}
+                                horizontal
+                                showsHorizontalScrollIndicator={false}
+                                style={styles.tabsContainer}
                                 contentContainerStyle={styles.tabsNav}
                             >
                                 {allTabs.map(tab => (
@@ -1303,7 +1420,7 @@ const DoctorPatientDetails = () => {
                                         <View style={styles.ovCard}><Text style={styles.ovLabel}>Age</Text><Text style={styles.ovValue}>{profile.age || intakeData.age || '-'}</Text></View>
                                         <View style={styles.ovCard}><Text style={styles.ovLabel}>Gender</Text><Text style={styles.ovValue}>{profile.gender || intakeData.gender || '-'}</Text></View>
                                         <View style={styles.ovCard}><Text style={styles.ovLabel}>Blood Group</Text><Text style={styles.ovValue}>{profile.bloodGroup || intakeData.bloodGroup || '-'}</Text></View>
-                                        
+
                                         {/* Full Web Vitals & Clinical Cards */}
                                         {Boolean(isValAvailable(vitalsInfo.height)) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Height</Text><Text style={styles.ovValue}>{vitalsInfo.height} cm</Text></View>}
                                         {Boolean(isValAvailable(vitalsInfo.weight)) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Weight</Text><Text style={styles.ovValue}>{vitalsInfo.weight} kg</Text></View>}
@@ -1319,7 +1436,7 @@ const DoctorPatientDetails = () => {
                                         {Boolean(isValAvailable(vitalsInfo.allergies)) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Allergies</Text><Text style={styles.ovValue}>{vitalsInfo.allergies}</Text></View>}
                                         {Boolean(isValAvailable(vitalsInfo.medications)) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Current Medications</Text><Text style={styles.ovValue}>{vitalsInfo.medications}</Text></View>}
                                         {Boolean(isValAvailable(vitalsInfo.history)) && <View style={styles.ovCard}><Text style={styles.ovLabel}>Medical History</Text><Text style={styles.ovValue}>{vitalsInfo.history}</Text></View>}
-                                        
+
                                         <View style={styles.ovCard}><Text style={styles.ovLabel}>Address</Text><Text style={styles.ovValue}>{patient.address || profile.address || '-'}</Text></View>
                                         <View style={styles.ovCard}><Text style={styles.ovLabel}>Reason for Visit</Text><Text style={styles.ovValue}>{profile.reasonForVisit || intakeData.reasonForVisit || '-'}</Text></View>
                                     </View>
@@ -1352,7 +1469,7 @@ const DoctorPatientDetails = () => {
                                     )}
                                 </View>
                             )}
-                            
+
                             {/* PAST VISITS TAB */}
                             {activeTab === 'history' && (
                                 <View style={styles.tabPanel}>
@@ -1364,13 +1481,13 @@ const DoctorPatientDetails = () => {
                                     ) : (
                                         <View style={styles.historyList}>
                                             {filteredHistory.map(h => (
-                                                <TouchableOpacity 
-                                                    key={h._id} 
+                                                <TouchableOpacity
+                                                    key={h._id}
                                                     style={[
-                                                        styles.historyCard, 
-                                                        h._id === appointmentId && styles.historyCardCurrent, 
+                                                        styles.historyCard,
+                                                        h._id === appointmentId && styles.historyCardCurrent,
                                                         viewingPastSession?._id === h._id && styles.historyCardViewing
-                                                    ]} 
+                                                    ]}
                                                     onPress={() => {
                                                         if (h._id === appointmentId) setViewingPastSession(null);
                                                         else setViewingPastSession(viewingPastSession?._id === h._id ? null : h);
@@ -1449,9 +1566,9 @@ const DoctorPatientDetails = () => {
                                         readOnly={isLocked}
                                     />
                                     {!isLocked && (
-                                        <TouchableOpacity 
-                                            style={styles.saveSectionBtn} 
-                                            onPress={handleSaveProfile} 
+                                        <TouchableOpacity
+                                            style={styles.saveSectionBtn}
+                                            onPress={handleSaveProfile}
                                             disabled={saving}
                                         >
                                             <Text style={styles.saveSectionBtnText}>
@@ -1483,7 +1600,7 @@ const DoctorPatientDetails = () => {
                                             <Text style={styles.exitTmBtnText}>✕ Exit Time Machine</Text>
                                         </TouchableOpacity>
                                     </View>
-                                    
+
                                     <ScrollView style={styles.rightContent}>
                                         <View style={styles.sessionField}>
                                             <Text style={styles.fieldLabel}>🔍 Diagnosis at the time</Text>
@@ -1537,7 +1654,14 @@ const DoctorPatientDetails = () => {
                                 <>
                                     <View style={styles.rightHeader}>
                                         <View>
-                                            <Text style={styles.rightHeaderTitle}>📝 Current Session</Text>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                                <Text style={styles.rightHeaderTitle}>📝 Current Session</Text>
+                                                {isDraftSaved && (
+                                                    <View style={{ backgroundColor: '#fef3c7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: '#fde68a' }}>
+                                                        <Text style={{ fontSize: 11, color: '#92400e', fontWeight: '700' }}>LOCAL DRAFT</Text>
+                                                    </View>
+                                                )}
+                                            </View>
                                             <Text style={styles.rightSubtitle}>Record diagnosis, notes & prescription</Text>
                                         </View>
                                         <View style={[styles.apptStatus, styles[`status_${appointment.status}`] || styles.status_pending]}>
@@ -1585,7 +1709,7 @@ const DoctorPatientDetails = () => {
                                                                     <Text style={{ fontWeight: 'bold' }}>From: </Text>{ref.referringDoctorId?.name || 'Unknown'} &nbsp;|&nbsp;
                                                                     <Text style={{ fontWeight: 'bold' }}>Reason: </Text>{ref.reason}
                                                                 </Text>
-                                                                <TouchableOpacity 
+                                                                <TouchableOpacity
                                                                     style={styles.reviewReferralBtn}
                                                                     onPress={() => { setActiveReferralForReview(ref); setShowReferralReviewModal(true); }}
                                                                 >
@@ -1600,13 +1724,13 @@ const DoctorPatientDetails = () => {
                                                 <View style={styles.radioGroup}>
                                                     <TouchableOpacity style={styles.radioBtn} onPress={() => setOperationRequired(false)}>
                                                         <View style={[styles.radioOuter, !operationRequired && styles.radioOuterActive]}>
-                                                            {Boolean(!operationRequired) && <View style={styles.radioInner}/>}
+                                                            {Boolean(!operationRequired) && <View style={styles.radioInner} />}
                                                         </View>
                                                         <Text style={styles.radioText}>No</Text>
                                                     </TouchableOpacity>
                                                     <TouchableOpacity style={styles.radioBtn} onPress={() => setOperationRequired(true)}>
                                                         <View style={[styles.radioOuter, operationRequired && styles.radioOuterActive]}>
-                                                            {Boolean(operationRequired) && <View style={styles.radioInner}/>}
+                                                            {Boolean(operationRequired) && <View style={styles.radioInner} />}
                                                         </View>
                                                         <Text style={styles.radioText}>Yes</Text>
                                                     </TouchableOpacity>
@@ -1614,14 +1738,14 @@ const DoctorPatientDetails = () => {
 
                                                 {Boolean(operationRequired) && (
                                                     <View style={styles.surgeryActions}>
-                                                        <TouchableOpacity 
-                                                            style={styles.surgeryBtn} 
+                                                        <TouchableOpacity
+                                                            style={styles.surgeryBtn}
                                                             onPress={() => openCreateSurgeryModal()}
                                                         >
                                                             <Text style={styles.surgeryBtnText}>+ Create Surgery Plan (Self / Direct)</Text>
                                                         </TouchableOpacity>
-                                                        <TouchableOpacity 
-                                                            style={styles.referralBtn} 
+                                                        <TouchableOpacity
+                                                            style={styles.referralBtn}
                                                             onPress={() => {
                                                                 setReferralData(prev => ({ ...prev, reason: sessionData.diagnosis || '' }));
                                                                 setShowReferralModal(true);
@@ -1637,8 +1761,8 @@ const DoctorPatientDetails = () => {
                                         <View style={styles.sessionField}>
                                             {!isLocked && (
                                                 <>
-                                                    <TouchableOpacity 
-                                                        style={styles.prescribeBtn} 
+                                                    <TouchableOpacity
+                                                        style={styles.prescribeBtn}
                                                         onPress={() => setShowPrescribeModal(true)}
                                                         activeOpacity={0.8}
                                                     >
@@ -1682,8 +1806,17 @@ const DoctorPatientDetails = () => {
                                     <View style={styles.rightFooter}>
                                         {!isLocked ? (
                                             <>
+                                                <TouchableOpacity
+                                                    style={[styles.btnSaveDraft, isDraftSaved && { backgroundColor: '#f0fdf4', borderColor: '#86efac' }]}
+                                                    onPress={handleSaveConsultationDraft}
+                                                    disabled={saving}
+                                                >
+                                                    <Text style={[styles.btnSaveDraftText, isDraftSaved && { color: '#166534' }]}>
+                                                        {isDraftSaved ? '📝 Draft Saved ✓' : '💾 Save Draft'}
+                                                    </Text>
+                                                </TouchableOpacity>
                                                 <TouchableOpacity style={styles.btnSaveDraft} onPress={handleSaveProfile} disabled={saving}>
-                                                    <Text style={styles.btnSaveDraftText}>💾 Save Profile</Text>
+                                                    <Text style={styles.btnSaveDraftText}>👤 Save Profile</Text>
                                                 </TouchableOpacity>
                                                 <TouchableOpacity style={styles.btnFinish} onPress={handleSaveAndMerge} disabled={saving}>
                                                     <Text style={styles.btnFinishText}>{saving ? '⏳ Saving...' : '✅ Save & Generate Prescription'}</Text>
@@ -1730,20 +1863,20 @@ const DoctorPatientDetails = () => {
                             </TouchableOpacity>
                         </View>
                         <ScrollView style={styles.modalBody}>
-                            
+
                             {/* Medicines Section */}
                             <Text style={styles.modalSectionTitle}>💊 Medicines Prescribed</Text>
-                            
+
                             {/* Quick search from inventory */}
                             <Text style={styles.fieldSublabel}>Search Medicine From Inventory</Text>
-                            <TextInput 
-                                style={styles.input} 
-                                placeholder="Search medicine by name..." 
+                            <TextInput
+                                style={styles.input}
+                                placeholder="Search medicine by name..."
                                 placeholderTextColor="#94a3b8"
-                                value={medSearch} 
-                                onChangeText={setMedSearch} 
+                                value={medSearch}
+                                onChangeText={setMedSearch}
                             />
-                            
+
                             {Boolean(medSearch.trim().length > 0) && (
                                 <View style={styles.searchList}>
                                     {catalogMedicines
@@ -1751,14 +1884,14 @@ const DoctorPatientDetails = () => {
                                         .map(med => {
                                             const exists = sessionData.medicines.some(m => m.medicineName === med.name);
                                             return (
-                                                <TouchableOpacity 
-                                                    key={med._id || med.name} 
-                                                    style={styles.searchItem} 
+                                                <TouchableOpacity
+                                                    key={med._id || med.name}
+                                                    style={styles.searchItem}
                                                     onPress={() => {
                                                         if (!exists) {
-                                                            setSessionData(prev => ({ 
-                                                                ...prev, 
-                                                                medicines: [...prev.medicines, { medicineName: med.name, saltName: '', dose: '', days: '7' }] 
+                                                            setSessionData(prev => ({
+                                                                ...prev,
+                                                                medicines: [...prev.medicines, { medicineName: med.name, saltName: '', dose: '', days: '7' }]
                                                             }));
                                                         }
                                                         setMedSearch('');
@@ -1794,23 +1927,23 @@ const DoctorPatientDetails = () => {
                                         {sessionData.medicines.map((med, idx) => (
                                             <View key={idx} style={[styles.tableBodyRow, { backgroundColor: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }]}>
                                                 <View style={{ width: 220, paddingRight: 8 }}>
-                                                    <TextInput 
-                                                        style={styles.tableInput} 
-                                                        value={med.medicineName} 
+                                                    <TextInput
+                                                        style={styles.tableInput}
+                                                        value={med.medicineName}
                                                         placeholder="Paracetamol 500mg"
                                                         placeholderTextColor="#94a3b8"
                                                         onChangeText={text => {
                                                             const m = [...sessionData.medicines];
                                                             m[idx] = { ...m[idx], medicineName: text };
                                                             setSessionData(prev => ({ ...prev, medicines: m }));
-                                                        }} 
+                                                        }}
                                                     />
                                                 </View>
 
                                                 <View style={{ width: 170, paddingRight: 8 }}>
                                                     <View style={styles.tablePickerBox}>
-                                                        <Picker 
-                                                            selectedValue={med.dose} 
+                                                        <Picker
+                                                            selectedValue={med.dose}
                                                             onValueChange={val => {
                                                                 const m = [...sessionData.medicines];
                                                                 m[idx] = { ...m[idx], dose: val };
@@ -1826,8 +1959,8 @@ const DoctorPatientDetails = () => {
 
                                                 <View style={{ width: 190, paddingRight: 8 }}>
                                                     <View style={styles.tablePickerBox}>
-                                                        <Picker 
-                                                            selectedValue={med.saltName} 
+                                                        <Picker
+                                                            selectedValue={med.saltName}
                                                             onValueChange={val => {
                                                                 const m = [...sessionData.medicines];
                                                                 m[idx] = { ...m[idx], saltName: val };
@@ -1842,9 +1975,9 @@ const DoctorPatientDetails = () => {
                                                 </View>
 
                                                 <View style={{ width: 70, paddingRight: 8 }}>
-                                                    <TextInput 
-                                                        style={[styles.tableInput, { textAlign: 'center' }]} 
-                                                        value={med.days} 
+                                                    <TextInput
+                                                        style={[styles.tableInput, { textAlign: 'center' }]}
+                                                        value={med.days}
                                                         placeholder="e.g. 7"
                                                         placeholderTextColor="#94a3b8"
                                                         keyboardType="numeric"
@@ -1852,13 +1985,13 @@ const DoctorPatientDetails = () => {
                                                             const m = [...sessionData.medicines];
                                                             m[idx] = { ...m[idx], days: text };
                                                             setSessionData(prev => ({ ...prev, medicines: m }));
-                                                        }} 
+                                                        }}
                                                     />
                                                 </View>
 
                                                 <View style={{ width: 40, alignItems: 'center', justifyContent: 'center' }}>
-                                                    <TouchableOpacity 
-                                                        style={styles.tableDeleteBtn} 
+                                                    <TouchableOpacity
+                                                        style={styles.tableDeleteBtn}
                                                         onPress={() => setSessionData(prev => ({ ...prev, medicines: prev.medicines.filter((_, i) => i !== idx) }))}
                                                     >
                                                         <Text style={styles.tableDeleteBtnText}>✕</Text>
@@ -1876,11 +2009,11 @@ const DoctorPatientDetails = () => {
                                 </ScrollView>
                             </View>
 
-                            <TouchableOpacity 
-                                style={styles.addMedBtn} 
-                                onPress={() => setSessionData(prev => ({ 
-                                    ...prev, 
-                                    medicines: [...prev.medicines, { medicineName: '', saltName: '', dose: '', days: '' }] 
+                            <TouchableOpacity
+                                style={styles.addMedBtn}
+                                onPress={() => setSessionData(prev => ({
+                                    ...prev,
+                                    medicines: [...prev.medicines, { medicineName: '', saltName: '', dose: '', days: '' }]
                                 }))}
                             >
                                 <Text style={styles.addMedBtnText}>+ Add Row</Text>
@@ -1925,14 +2058,14 @@ const DoctorPatientDetails = () => {
                             </View>
 
                             <Text style={[styles.fieldSublabel, { marginTop: 14 }]}>Edit Final Lab Tests (Comma separated):</Text>
-                            <TextInput 
-                                style={styles.input} 
-                                placeholder="CBC, LFT, KFT..." 
+                            <TextInput
+                                style={styles.input}
+                                placeholder="CBC, LFT, KFT..."
                                 placeholderTextColor="#94a3b8"
-                                value={sessionData.labTests} 
-                                onChangeText={text => setSessionData(prev => ({ ...prev, labTests: text }))} 
+                                value={sessionData.labTests}
+                                onChangeText={text => setSessionData(prev => ({ ...prev, labTests: text }))}
                             />
-                            
+
                         </ScrollView>
 
                         <View style={styles.modalFooter}>
@@ -1975,32 +2108,32 @@ const DoctorPatientDetails = () => {
 
                             <View style={styles.sessionField}>
                                 <Text style={styles.fieldLabel}>Surgery / Procedure *</Text>
-                                <TextInput 
-                                    style={styles.input} 
-                                    placeholder="e.g. Laparoscopic Appendectomy" 
+                                <TextInput
+                                    style={styles.input}
+                                    placeholder="e.g. Laparoscopic Appendectomy"
                                     placeholderTextColor="#94a3b8"
-                                    value={surgeryPlanData.surgery} 
-                                    onChangeText={text => setSurgeryPlanData(prev => ({...prev, surgery: text}))} 
+                                    value={surgeryPlanData.surgery}
+                                    onChangeText={text => setSurgeryPlanData(prev => ({ ...prev, surgery: text }))}
                                 />
                             </View>
 
                             <View style={styles.sessionField}>
                                 <Text style={styles.fieldLabel}>Diagnosis / Reason</Text>
-                                <TextInput 
-                                    style={styles.input} 
+                                <TextInput
+                                    style={styles.input}
                                     placeholder="Diagnosis or indication"
                                     placeholderTextColor="#94a3b8"
-                                    value={surgeryPlanData.diagnosis} 
-                                    onChangeText={text => setSurgeryPlanData(prev => ({...prev, diagnosis: text}))} 
+                                    value={surgeryPlanData.diagnosis}
+                                    onChangeText={text => setSurgeryPlanData(prev => ({ ...prev, diagnosis: text }))}
                                 />
                             </View>
 
                             <View style={styles.sessionField}>
                                 <Text style={styles.fieldLabel}>Surgeon *</Text>
                                 {Platform.OS === 'web' ? (
-                                    <select 
-                                        value={typeof surgeryPlanData.surgeonId === 'object' ? surgeryPlanData.surgeonId?._id : surgeryPlanData.surgeonId} 
-                                        onChange={e => setSurgeryPlanData(prev => ({...prev, surgeonId: e.target.value}))}
+                                    <select
+                                        value={typeof surgeryPlanData.surgeonId === 'object' ? surgeryPlanData.surgeonId?._id : surgeryPlanData.surgeonId}
+                                        onChange={e => setSurgeryPlanData(prev => ({ ...prev, surgeonId: e.target.value }))}
                                         style={{
                                             width: '100%',
                                             padding: '10px 12px',
@@ -2026,9 +2159,9 @@ const DoctorPatientDetails = () => {
                                     </select>
                                 ) : (
                                     <View style={styles.pickerContainer}>
-                                        <Picker 
-                                            selectedValue={surgeryPlanData.surgeonId} 
-                                            onValueChange={val => setSurgeryPlanData(prev => ({...prev, surgeonId: val}))}
+                                        <Picker
+                                            selectedValue={surgeryPlanData.surgeonId}
+                                            onValueChange={val => setSurgeryPlanData(prev => ({ ...prev, surgeonId: val }))}
                                         >
                                             <Picker.Item label="-- Select Surgeon --" value="" />
                                             {surgeonsList.map(s => {
@@ -2047,23 +2180,23 @@ const DoctorPatientDetails = () => {
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', width: '100%', marginTop: '6px' }}>
                                     <div style={{ flex: '1 1 180px', minWidth: 0 }}>
                                         <label style={{ display: 'block', fontSize: '12.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>Preferred Date *</label>
-                                        <input 
-                                            type="date" 
-                                            required 
-                                            min={new Date().toISOString().split('T')[0]} 
-                                            value={surgeryPlanData.preferredDate} 
-                                            onChange={e => setSurgeryPlanData(prev => ({...prev, preferredDate: e.target.value}))} 
-                                            style={{ width: '100%', maxWidth: '100%', minWidth: 0, padding: '9px 12px', borderRadius: '8px', border: '1.5px solid #cbd5e1', boxSizing: 'border-box', fontSize: '13.5px', backgroundColor: '#ffffff', color: '#0f172a' }} 
+                                        <input
+                                            type="date"
+                                            required
+                                            min={new Date().toISOString().split('T')[0]}
+                                            value={surgeryPlanData.preferredDate}
+                                            onChange={e => setSurgeryPlanData(prev => ({ ...prev, preferredDate: e.target.value }))}
+                                            style={{ width: '100%', maxWidth: '100%', minWidth: 0, padding: '9px 12px', borderRadius: '8px', border: '1.5px solid #cbd5e1', boxSizing: 'border-box', fontSize: '13.5px', backgroundColor: '#ffffff', color: '#0f172a' }}
                                         />
                                     </div>
                                     <div style={{ flex: '1 1 180px', minWidth: 0 }}>
                                         <label style={{ display: 'block', fontSize: '12.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>Preferred Time *</label>
-                                        <input 
-                                            type="time" 
-                                            required 
-                                            value={surgeryPlanData.preferredTime} 
-                                            onChange={e => setSurgeryPlanData(prev => ({...prev, preferredTime: e.target.value}))} 
-                                            style={{ width: '100%', maxWidth: '100%', minWidth: 0, padding: '9px 12px', borderRadius: '8px', border: '1.5px solid #cbd5e1', boxSizing: 'border-box', fontSize: '13.5px', backgroundColor: '#ffffff', color: '#0f172a' }} 
+                                        <input
+                                            type="time"
+                                            required
+                                            value={surgeryPlanData.preferredTime}
+                                            onChange={e => setSurgeryPlanData(prev => ({ ...prev, preferredTime: e.target.value }))}
+                                            style={{ width: '100%', maxWidth: '100%', minWidth: 0, padding: '9px 12px', borderRadius: '8px', border: '1.5px solid #cbd5e1', boxSizing: 'border-box', fontSize: '13.5px', backgroundColor: '#ffffff', color: '#0f172a' }}
                                         />
                                     </div>
                                 </div>
@@ -2071,18 +2204,18 @@ const DoctorPatientDetails = () => {
                                 <View style={styles.formRow}>
                                     <View style={{ flex: 1 }}>
                                         <Text style={styles.fieldLabel}>Preferred Date *</Text>
-                                        <DatePickerInput 
-                                            value={surgeryPlanData.preferredDate} 
-                                            onChange={text => setSurgeryPlanData(prev => ({...prev, preferredDate: text}))} 
+                                        <DatePickerInput
+                                            value={surgeryPlanData.preferredDate}
+                                            onChange={text => setSurgeryPlanData(prev => ({ ...prev, preferredDate: text }))}
                                             placeholder="Select Date"
                                             title="Preferred Date"
                                         />
                                     </View>
                                     <View style={{ flex: 1 }}>
                                         <Text style={styles.fieldLabel}>Preferred Time *</Text>
-                                        <TimePickerInput 
-                                            value={surgeryPlanData.preferredTime} 
-                                            onChange={text => setSurgeryPlanData(prev => ({...prev, preferredTime: text}))} 
+                                        <TimePickerInput
+                                            value={surgeryPlanData.preferredTime}
+                                            onChange={text => setSurgeryPlanData(prev => ({ ...prev, preferredTime: text }))}
                                             placeholder="HH:mm"
                                             title="Preferred Time"
                                         />
@@ -2090,9 +2223,9 @@ const DoctorPatientDetails = () => {
                                 </View>
                             )}
 
-                            <TouchableOpacity 
-                                style={styles.checkboxRow} 
-                                onPress={() => setSurgeryPlanData(prev => ({...prev, admissionRequired: !prev.admissionRequired}))}
+                            <TouchableOpacity
+                                style={styles.checkboxRow}
+                                onPress={() => setSurgeryPlanData(prev => ({ ...prev, admissionRequired: !prev.admissionRequired }))}
                             >
                                 <View style={[styles.checkboxBox, surgeryPlanData.admissionRequired && styles.checkboxBoxActive]}>
                                     {Boolean(surgeryPlanData.admissionRequired) && <Text style={styles.checkboxCheck}>✓</Text>}
@@ -2105,33 +2238,33 @@ const DoctorPatientDetails = () => {
                                     {Platform.OS === 'web' ? (
                                         <div>
                                             <label style={{ display: 'block', fontSize: '12.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>Admission Date *</label>
-                                            <input 
-                                                type="date" 
-                                                required={surgeryPlanData.admissionRequired} 
-                                                min={new Date().toISOString().split('T')[0]} 
-                                                value={surgeryPlanData.admissionDate} 
-                                                onChange={e => setSurgeryPlanData(prev => ({...prev, admissionDate: e.target.value}))} 
-                                                style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1.5px solid #cbd5e1', boxSizing: 'border-box', fontSize: '13.5px', backgroundColor: '#ffffff', color: '#0f172a' }} 
+                                            <input
+                                                type="date"
+                                                required={surgeryPlanData.admissionRequired}
+                                                min={new Date().toISOString().split('T')[0]}
+                                                value={surgeryPlanData.admissionDate}
+                                                onChange={e => setSurgeryPlanData(prev => ({ ...prev, admissionDate: e.target.value }))}
+                                                style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1.5px solid #cbd5e1', boxSizing: 'border-box', fontSize: '13.5px', backgroundColor: '#ffffff', color: '#0f172a' }}
                                             />
                                         </div>
                                     ) : (
                                         <>
                                             <Text style={styles.fieldLabel}>Admission Date *</Text>
-                                            <DatePickerInput 
-                                                value={surgeryPlanData.admissionDate} 
-                                                onChange={text => setSurgeryPlanData(prev => ({...prev, admissionDate: text}))} 
+                                            <DatePickerInput
+                                                value={surgeryPlanData.admissionDate}
+                                                onChange={text => setSurgeryPlanData(prev => ({ ...prev, admissionDate: text }))}
                                                 placeholder="Select Date"
                                                 title="Admission Date"
-                                                min={new Date().toISOString().split('T')[0]} 
+                                                min={new Date().toISOString().split('T')[0]}
                                             />
                                         </>
                                     )}
                                 </View>
                             )}
 
-                            <TouchableOpacity 
-                                style={styles.checkboxRow} 
-                                onPress={() => setSurgeryPlanData(prev => ({...prev, preOpRequired: !prev.preOpRequired}))}
+                            <TouchableOpacity
+                                style={styles.checkboxRow}
+                                onPress={() => setSurgeryPlanData(prev => ({ ...prev, preOpRequired: !prev.preOpRequired }))}
                             >
                                 <View style={[styles.checkboxBox, surgeryPlanData.preOpRequired && styles.checkboxBoxActive]}>
                                     {Boolean(surgeryPlanData.preOpRequired) && <Text style={styles.checkboxCheck}>✓</Text>}
@@ -2141,13 +2274,13 @@ const DoctorPatientDetails = () => {
 
                             <View style={styles.sessionField}>
                                 <Text style={styles.fieldLabel}>Notes</Text>
-                                <TextInput 
-                                    style={[styles.input, { minHeight: 70, textAlignVertical: 'top' }]} 
-                                    placeholder="Any specific requirements..." 
+                                <TextInput
+                                    style={[styles.input, { minHeight: 70, textAlignVertical: 'top' }]}
+                                    placeholder="Any specific requirements..."
                                     placeholderTextColor="#94a3b8"
-                                    multiline 
-                                    value={surgeryPlanData.notes} 
-                                    onChangeText={text => setSurgeryPlanData(prev => ({...prev, notes: text}))} 
+                                    multiline
+                                    value={surgeryPlanData.notes}
+                                    onChangeText={text => setSurgeryPlanData(prev => ({ ...prev, notes: text }))}
                                 />
                             </View>
                         </ScrollView>
@@ -2189,9 +2322,9 @@ const DoctorPatientDetails = () => {
                             <View style={styles.sessionField}>
                                 <Text style={styles.fieldLabel}>Refer To Doctor / Surgeon *</Text>
                                 <View style={styles.pickerContainer}>
-                                    <Picker 
-                                        selectedValue={referralData.referredToDoctorId} 
-                                        onValueChange={val => setReferralData(prev => ({...prev, referredToDoctorId: val}))}
+                                    <Picker
+                                        selectedValue={referralData.referredToDoctorId}
+                                        onValueChange={val => setReferralData(prev => ({ ...prev, referredToDoctorId: val }))}
                                     >
                                         <Picker.Item label="-- Select Doctor --" value="" />
                                         {surgeonsList
@@ -2213,24 +2346,24 @@ const DoctorPatientDetails = () => {
 
                             <View style={styles.sessionField}>
                                 <Text style={styles.fieldLabel}>Reason for Referral *</Text>
-                                <TextInput 
-                                    style={styles.input} 
-                                    placeholder="e.g. Appendectomy required" 
+                                <TextInput
+                                    style={styles.input}
+                                    placeholder="e.g. Appendectomy required"
                                     placeholderTextColor="#94a3b8"
-                                    value={referralData.reason} 
-                                    onChangeText={text => setReferralData(prev => ({...prev, reason: text}))} 
+                                    value={referralData.reason}
+                                    onChangeText={text => setReferralData(prev => ({ ...prev, reason: text }))}
                                 />
                             </View>
 
                             <View style={styles.sessionField}>
                                 <Text style={styles.fieldLabel}>Notes (Optional)</Text>
-                                <TextInput 
-                                    style={[styles.input, { minHeight: 65, textAlignVertical: 'top' }]} 
-                                    placeholder="Any additional information..." 
+                                <TextInput
+                                    style={[styles.input, { minHeight: 65, textAlignVertical: 'top' }]}
+                                    placeholder="Any additional information..."
                                     placeholderTextColor="#94a3b8"
-                                    multiline 
-                                    value={referralData.notes} 
-                                    onChangeText={text => setReferralData(prev => ({...prev, notes: text}))} 
+                                    multiline
+                                    value={referralData.notes}
+                                    onChangeText={text => setReferralData(prev => ({ ...prev, notes: text }))}
                                 />
                             </View>
                         </ScrollView>
@@ -2253,8 +2386,8 @@ const DoctorPatientDetails = () => {
                         <View style={styles.modalContent}>
                             <View style={styles.modalHeader}>
                                 <Text style={styles.modalTitle}>📋 Review Referral</Text>
-                                <TouchableOpacity 
-                                    onPress={() => { setShowReferralReviewModal(false); setActiveReferralForReview(null); }} 
+                                <TouchableOpacity
+                                    onPress={() => { setShowReferralReviewModal(false); setActiveReferralForReview(null); }}
                                     style={styles.modalCloseBtn}
                                 >
                                     <Text style={styles.modalCloseText}>✕</Text>
@@ -2265,7 +2398,7 @@ const DoctorPatientDetails = () => {
                                     <Text style={styles.patientSummaryText}><Text style={{ fontWeight: 'bold' }}>Patient: </Text>{activeReferralForReview.patientId?.name || 'N/A'}</Text>
                                     <Text style={styles.patientSummaryText}><Text style={{ fontWeight: 'bold' }}>MRN: </Text>{activeReferralForReview.patientId?.patientId || activeReferralForReview.patientId?.mrn || '-'}</Text>
                                 </View>
-                                
+
                                 <View style={styles.referralReviewDetailsBox}>
                                     <Text style={styles.referralReviewDetailItem}><Text style={{ fontWeight: 'bold' }}>Referred By: </Text>{activeReferralForReview.referringDoctorId?.name || 'N/A'}</Text>
                                     <Text style={styles.referralReviewDetailItem}><Text style={{ fontWeight: 'bold' }}>Reason: </Text>{activeReferralForReview.reason}</Text>
@@ -2281,7 +2414,7 @@ const DoctorPatientDetails = () => {
                                     >
                                         <Text style={{ color: '#991b1b', fontWeight: 'bold', fontSize: 13 }}>❌ No — Not Required</Text>
                                     </TouchableOpacity>
-                                    
+
                                     <TouchableOpacity
                                         style={[styles.modalActionBtn, { flex: 1, backgroundColor: '#dcfce7', borderWidth: 2, borderColor: '#bbf7d0' }]}
                                         onPress={() => {
@@ -2404,13 +2537,13 @@ const styles = StyleSheet.create({
     loadingText: { marginTop: 16, color: '#64748b', fontSize: 16 },
     backBtn: { marginTop: 16, padding: 12, backgroundColor: '#3b82f6', borderRadius: 8 },
     backBtnText: { color: 'white', fontWeight: 'bold' },
-    
+
     leftPanel: { flex: 0.45, borderRightWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#f8fafc' },
     leftPanelMobile: { flex: undefined, width: '100%', borderRightWidth: 0, borderBottomWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#f8fafc' },
     rightPanel: { flex: 0.55, backgroundColor: '#ffffff' },
     rightPanelMobile: { flex: undefined, width: '100%', backgroundColor: '#ffffff' },
     rightPanelTimeMachine: { borderLeftWidth: 4, borderColor: '#3b82f6', backgroundColor: '#f8fafc' },
-    
+
     patientHeader: { padding: 20, backgroundColor: '#0f172a' },
     backLink: { paddingHorizontal: 14, paddingVertical: 6, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 8, alignSelf: 'flex-start', marginBottom: 12 },
     backLinkText: { color: '#94a3b8', fontWeight: '600', fontSize: 12 },
@@ -2426,7 +2559,7 @@ const styles = StyleSheet.create({
     tagAge: { backgroundColor: 'rgba(245, 158, 11, 0.15)' }, tagAgeText: { color: '#fbbf24', fontSize: 11, fontWeight: '600' },
     tagGender: { backgroundColor: 'rgba(236, 72, 153, 0.15)' }, tagGenderText: { color: '#f472b6', fontSize: 11, fontWeight: '600' },
     tagBlood: { backgroundColor: 'rgba(239, 68, 68, 0.15)' }, tagBloodText: { color: '#f87171', fontSize: 11, fontWeight: '600' },
-    
+
     apptInfo: { flexDirection: 'row', flexWrap: 'wrap', backgroundColor: '#f0f4ff', padding: 12, borderRadius: 12, gap: 10 },
     apptItem: { width: '48%', marginBottom: 6 },
     apptLabel: { fontSize: 10, color: '#94a3b8', fontWeight: 'bold', textTransform: 'uppercase' },
@@ -2538,7 +2671,7 @@ const styles = StyleSheet.create({
     includedSummaryTitle: { fontSize: 12.5, fontWeight: '700', color: '#334155', marginBottom: 3 },
     includedSummaryLink: { fontSize: 11.5, color: '#2563eb', fontWeight: '700', marginTop: 4 },
     includedSummaryHint: { fontSize: 11, color: '#64748b', marginTop: 4, fontStyle: 'italic' },
-    
+
     labGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
     labTestCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, padding: 10, minWidth: '47%', flex: 1 },
     labTestCardActive: { backgroundColor: '#eff6ff', borderColor: '#93c5fd' },
@@ -2572,7 +2705,7 @@ const styles = StyleSheet.create({
     searchItem: { padding: 10, borderBottomWidth: 1, borderColor: '#f1f5f9', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     searchItemTitle: { fontWeight: '600', color: '#1e293b', fontSize: 13 },
     searchItemSub: { fontSize: 11, color: '#94a3b8' },
-    
+
     // Web Table Styling
     webTableWrapper: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', marginBottom: 10, backgroundColor: '#ffffff' },
     webTableContent: { minWidth: 690 },

@@ -5,6 +5,14 @@ import { REHYDRATE } from 'redux-persist';
 import { authAPI, adminAPI, hospitalAdminAPI, setAuthHeader } from '../../utils/api';
 import { STORAGE_KEYS } from '../../utils/Constants';
 import { clearBrowserSessionMemoryCache } from '../../services/offline/offlineSuperAdminService';
+import { clearDoctorSessionMemoryCache } from '../../services/offline/offlineDoctorService';
+import { clearReceptionSessionMemoryCache } from '../../services/offline/offlineReceptionService';
+import { clearLabSessionMemoryCache } from '../../services/offline/offlineLabService';
+import { clearPharmacySessionMemoryCache } from '../../services/offline/offlinePharmacyService';
+import { clearIPDSessionMemoryCache } from '../../services/offline/offlineIPDService';
+import { clearNursingSessionMemoryCache } from '../../services/offline/offlineNursingService';
+import { clearOTSessionMemoryCache } from '../../services/offline/offlineOTService';
+import { clearHospitalAdminSessionMemoryCache } from '../../services/offline/offlineHospitalAdminService';
 import { clearMemoryCache, clearUserCache } from '../../services/offline/cacheRepository';
 
 // ── OTP-Based Login Thunks ────────────────────────────────────────────────────
@@ -42,7 +50,7 @@ export const verifyOtp = createAsyncThunk(
     console.log("🔥 [authSlice] Dispatching verifyOtp with preAuthToken:", !!preAuthToken);
     try {
       const response = await authAPI.verifyOtp(preAuthToken, otp);
-      
+
       // 🚀 SURGICAL FIX: Forcefully extract deeply nested user and token
       const actualData = response?.data || response;
       const extractedToken = actualData?.token || response?.token;
@@ -263,6 +271,14 @@ export async function performLogoutCleanup(currentUser) {
     // (Preserves persistent encrypted offline_outbox records in SQLite)
     try {
       clearBrowserSessionMemoryCache({ userId: exitingUserId, tenantId: exitingTenantId });
+      clearDoctorSessionMemoryCache({ userId: exitingUserId, tenantId: exitingTenantId });
+      clearReceptionSessionMemoryCache({ userId: exitingUserId, tenantId: exitingTenantId });
+      clearLabSessionMemoryCache({ userId: exitingUserId, tenantId: exitingTenantId });
+      clearPharmacySessionMemoryCache({ userId: exitingUserId, tenantId: exitingTenantId });
+      clearIPDSessionMemoryCache({ userId: exitingUserId, tenantId: exitingTenantId });
+      clearNursingSessionMemoryCache({ userId: exitingUserId, tenantId: exitingTenantId });
+      clearOTSessionMemoryCache({ userId: exitingUserId, tenantId: exitingTenantId });
+      clearHospitalAdminSessionMemoryCache({ userId: exitingUserId, tenantId: exitingTenantId });
       clearMemoryCache(exitingUserId, exitingTenantId);
     } catch (e) {}
 

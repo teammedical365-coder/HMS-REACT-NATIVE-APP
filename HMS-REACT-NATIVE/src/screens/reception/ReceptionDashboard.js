@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { 
-    View, Text, TouchableOpacity, ScrollView, StyleSheet, 
+import {
+    View, Text, TouchableOpacity, ScrollView, StyleSheet,
     TextInput, ActivityIndicator, Alert, Dimensions, Modal, Image,
-    useWindowDimensions 
+    useWindowDimensions
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSelector } from 'react-redux';
@@ -17,6 +17,26 @@ import { getSubdomain } from '../../utils/subdomain';
 import SlotPicker from '../../components/SlotPicker';
 import DatePickerInput from '../../components/common/DatePickerInput';
 import TimePickerInput from '../../components/common/TimePickerInput';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
+import {
+    fetchReceptionDashboardWithOffline,
+    fetchReceptionCatalogsWithOffline,
+    searchPatientsWithOffline,
+    saveRegistrationDraftWithOffline,
+    getRegistrationDraft,
+    clearRegistrationDraft,
+    saveReceptionVitalsWithOffline,
+    syncReceptionOutbox,
+    registerPatientOnlineOnly,
+    bookAppointmentOnlineOnly,
+    admitPatientOnlineOnly,
+    transferBedOnlineOnly,
+    dischargePatientOnlineOnly,
+    cancelAppointmentOnlineOnly,
+    confirmPaymentOnlineOnly,
+} from '../../services/offline/offlineReceptionService';
 
 // NOTE: Do NOT use Dimensions.get at module scope — it is static and
 // won't reflect orientation changes. Use useWindowDimensions() inside component.
@@ -65,13 +85,13 @@ const computeStayDurationAndCost = (startDateTime, endDateTime, dailyRate) => {
     const diffMs = Math.max(0, end - start);
     const totalHoursRaw = diffMs / (1000 * 60 * 60);
     const totalHours = Math.max(0.5, Math.round(totalHoursRaw * 10) / 10);
-    
+
     const ratePerDay = Number(dailyRate) || 0;
     const hourlyRate = Math.round((ratePerDay / 24) * 100) / 100;
-    
+
     const fullDays = Math.floor(totalHours / 24);
     const remainingHours = Math.round((totalHours % 24) * 10) / 10;
-    
+
     let durationText = '';
     let amount = 0;
 
@@ -89,7 +109,7 @@ const computeStayDurationAndCost = (startDateTime, endDateTime, dailyRate) => {
             amount = Math.round(fullDays * ratePerDay);
         }
     }
-    
+
     return {
         totalHours: Math.max(1, Math.round(totalHours)),
         fullDays,
@@ -124,7 +144,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
     const [loading, setLoading] = useState(false);
     const [viewMode, setViewMode] = useState('welcome'); // 'welcome', 'desk', 'intake'
     const [listTab, setListTab] = useState('queue'); // 'queue', 'hospitalized'
-    
+
     // Data states
     const [appointments, setAppointments] = useState([]);
     const [hospitalizedPatients, setHospitalizedPatients] = useState([]);
@@ -241,12 +261,33 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         open: false, appointment: null, method: 'Cash', amount: '', splitPayments: [{ method: 'Cash', amount: '' }]
     });
 
+    const [offlineState, setOfflineState] = useState({
+        isOffline: false,
+        fromCache: false,
+        lastFetchedAt: null,
+    });
+    const [hasActiveDraft, setHasActiveDraft] = useState(false);
+    const [savingDraft, setSavingDraft] = useState(false);
+
+    // Check for existing registration draft on mount
+    useEffect(() => {
+        let mounted = true;
+        const checkDraft = async () => {
+            try {
+                const savedDraft = await getRegistrationDraft();
+                if (mounted && savedDraft?.intakeForm) {
+                    setHasActiveDraft(true);
+                }
+            } catch (e) {}
+        };
+        checkDraft();
+        return () => { mounted = false; };
+    }, []);
 
     const isRebookingMode = Boolean(selectedPatientId && !isPatientPortal && !isEditingProfileOnly);
 
     const timeOfDay = new Date().getHours() < 12 ? 'Morning' : new Date().getHours() < 17 ? 'Afternoon' : 'Evening';
     const todayStr = new Date().toISOString().split('T')[0];
-
 
     // Handle view param from navigation
     useEffect(() => {
@@ -260,108 +301,103 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         }
     }, [route.params?.view]);
 
-    // Initial Data Fetch
+    // Initial Data Fetch & Catalogs (Offline-Aware)
     const fetchData = useCallback(async () => {
         setLoading(true);
         try {
-            let hosp = null;
-            try {
-                const myHospRes = await hospitalAPI.getMyHospital();
-                if (myHospRes?.success && myHospRes.hospital) {
-                    hosp = myHospRes.hospital;
-                }
-            } catch (e) {}
-
-            if (!hosp) {
-                const sub = getSubdomain();
-                if (sub && sub !== 'null') {
-                    const res = await hospitalAPI.resolveHospital(sub);
-                    if (res?.success && res.hospital) hosp = res.hospital;
-                }
-            }
-
-            if (hosp) {
-                setHospitalContext(hosp);
-                fetchDoctors(hosp._id);
-                try {
-                    const deptUpiRes = await hospitalAPI.getDepartmentUpiByRole('Reception');
-                    if (deptUpiRes?.success && deptUpiRes.departmentUpi) {
-                        setUpiOptions([{ label: deptUpiRes.departmentUpi.label, upiId: deptUpiRes.departmentUpi.upiId }]);
-                    } else {
-                        const upiRes = await hospitalAPI.getUpiIds();
-                        if (upiRes?.success && upiRes.upiIds) setUpiOptions(upiRes.upiIds);
+            const catRes = await fetchReceptionCatalogsWithOffline().catch(() => null);
+            if (catRes?.success) {
+                if (catRes.hospital) setHospitalContext(catRes.hospital);
+                if (catRes.doctors && catRes.doctors.length > 0) setDoctorsList(catRes.doctors);
+                if (catRes.availableBeds) setAvailableBeds(catRes.availableBeds);
+                if (catRes.upiOptions) {
+                    setUpiOptions(catRes.upiOptions);
+                    if (catRes.upiOptions.length && !selectedUpiId) {
+                        setSelectedUpiId(catRes.upiOptions[0].upiId);
                     }
-                } catch (e) {}
-            }
-        } catch (err) {
-            console.warn('Failed to resolve hospital:', err);
-        }
-
-        try {
-            const bedsRes = await bedAPI.getBeds({ status: 'AVAILABLE' });
-            if (bedsRes?.success) {
-                setAvailableBeds(bedsRes.beds || []);
-            }
-        } catch (err) {
-            console.warn('Failed to fetch beds:', err);
-        }
-
-        try {
-            const upiRes = await hospitalAPI.getUpiIds();
-            if (upiRes?.success) {
-                try {
-                    const deptUpiRes = await hospitalAPI.getDepartmentUpiByRole('Reception');
-                    if (deptUpiRes?.success && deptUpiRes.departmentUpi) {
-                        const du = deptUpiRes.departmentUpi;
-                        setUpiOptions([{ label: du.label, upiId: du.upiId }]);
-                        setSelectedUpiId(du.upiId);
-                    } else {
-                        setUpiOptions(upiRes.upiIds || []);
-                        if (upiRes.upiIds?.length) setSelectedUpiId(upiRes.upiIds[0].upiId);
-                    }
-                } catch {
-                    setUpiOptions(upiRes.upiIds || []);
-                    if (upiRes.upiIds?.length) setSelectedUpiId(upiRes.upiIds[0].upiId);
                 }
             }
+
+            // Sync outbox if connection is active
+            syncReceptionOutbox().catch(() => {});
         } catch (err) {
-            console.warn('Failed to fetch UPI config:', err);
+            console.warn('Failed to resolve catalogs:', err);
         }
 
         try {
-            const statsRes = await receptionAPI.getStats();
-            if (statsRes?.success) {
-                setStats(statsRes.stats || statsRes);
-            }
-        } catch (err) {
-            console.warn('Failed to fetch stats:', err);
-        }
+            const dashRes = await fetchReceptionDashboardWithOffline({
+                listTab,
+                departmentFilter,
+                debouncedSearch,
+                onCacheHit: (cached) => {
+                    if (cached.appointments) setAppointments(cached.appointments);
+                    if (cached.admissions) setHospitalizedPatients(cached.admissions);
+                    if (cached.stats) setStats(cached.stats);
+                    if (cached.transactions) setTransactions(cached.transactions);
+                    setOfflineState(prev => ({
+                        ...prev,
+                        fromCache: true,
+                        lastFetchedAt: cached.lastFetchedAt,
+                    }));
+                }
+            });
 
-        try {
-            const txRes = await receptionAPI.getTransactions();
-            if (txRes?.success && Array.isArray(txRes.transactions)) {
-                setTransactions(txRes.transactions);
+            if (dashRes?.success) {
+                setAppointments(dashRes.appointments || []);
+                setHospitalizedPatients(dashRes.admissions || []);
+                if (dashRes.stats) setStats(dashRes.stats);
+                if (dashRes.transactions) setTransactions(dashRes.transactions);
+                setOfflineState({
+                    isOffline: Boolean(dashRes.isOffline),
+                    fromCache: Boolean(dashRes.fromCache),
+                    lastFetchedAt: dashRes.lastFetchedAt || null,
+                });
             }
         } catch (err) {
-            console.warn('Failed to fetch transactions:', err);
+            console.warn('Failed to fetch dashboard data:', err);
+            const isOnline = await checkOnlineStatus();
+            setOfflineState(prev => ({ ...prev, isOffline: !isOnline }));
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
-    }, []);
+    }, [listTab, departmentFilter, debouncedSearch, selectedUpiId]);
 
     // ─── SERVER-SIDE FILTER PARITY (1:1 Web) ─────────────────────────────────
-    // Web: fetchAppointments() passes { all, department, search } params
     const fetchAppointments = useCallback(async () => {
         setLoading(true);
         try {
-            const params = {
-                all: listTab === 'all' ? 'true' : 'false',
-                department: departmentFilter,
-                search: debouncedSearch
-            };
-            const response = await receptionAPI.getAllAppointments(params);
-            if (response?.success) setAppointments(response.appointments || []);
+            const dashRes = await fetchReceptionDashboardWithOffline({
+                listTab,
+                departmentFilter,
+                debouncedSearch,
+                onCacheHit: (cached) => {
+                    if (cached.appointments) setAppointments(cached.appointments);
+                    if (cached.admissions) setHospitalizedPatients(cached.admissions);
+                    if (cached.stats) setStats(cached.stats);
+                    if (cached.transactions) setTransactions(cached.transactions);
+                    setOfflineState(prev => ({
+                        ...prev,
+                        fromCache: true,
+                        lastFetchedAt: cached.lastFetchedAt,
+                    }));
+                }
+            });
+
+            if (dashRes?.success) {
+                setAppointments(dashRes.appointments || []);
+                setHospitalizedPatients(dashRes.admissions || []);
+                if (dashRes.stats) setStats(dashRes.stats);
+                if (dashRes.transactions) setTransactions(dashRes.transactions);
+                setOfflineState({
+                    isOffline: Boolean(dashRes.isOffline),
+                    fromCache: Boolean(dashRes.fromCache),
+                    lastFetchedAt: dashRes.lastFetchedAt || null,
+                });
+            }
         } catch (err) {
             console.warn('Failed to fetch appointments:', err);
+            const isOnline = await checkOnlineStatus();
+            setOfflineState(prev => ({ ...prev, isOffline: !isOnline }));
         } finally {
             setLoading(false);
         }
@@ -370,13 +406,16 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
     // Web: fetchHospitalizedPatients() passes { department, search } params
     const fetchHospitalizedPatients = useCallback(async () => {
         try {
-            const params = {
-                department: departmentFilter,
-                search: debouncedSearch
-            };
-            const res = await admissionAPI.getActiveAdmissions(params);
-            if (res?.success) {
-                setHospitalizedPatients(res.admissions || []);
+            const isOnline = await checkOnlineStatus();
+            if (isOnline) {
+                const params = {
+                    department: departmentFilter,
+                    search: debouncedSearch
+                };
+                const res = await admissionAPI.getActiveAdmissions(params);
+                if (res?.success) {
+                    setHospitalizedPatients(res.admissions || []);
+                }
             }
         } catch (err) {
             console.warn('Failed to fetch hospitalized patients:', err);
@@ -502,14 +541,14 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                 if (res?.success) {
                     setFollowupStatus(res);
                     if (res.active) {
-                        setIntakeForm(prev => ({ 
-                            ...prev, 
+                        setIntakeForm(prev => ({
+                            ...prev,
                             consultationFee: '0',
                             splitPayments: [{ method: prev.splitPayments?.[0]?.method || 'Cash', amount: '0' }]
                         }));
                     } else if (res.fee !== undefined) {
-                        setIntakeForm(prev => ({ 
-                            ...prev, 
+                        setIntakeForm(prev => ({
+                            ...prev,
                             consultationFee: String(res.fee),
                             splitPayments: [{ method: prev.splitPayments?.[0]?.method || 'Cash', amount: String(res.fee) }]
                         }));
@@ -580,7 +619,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         setSearching(true);
         searchDebounceRef.current = setTimeout(async () => {
             try {
-                const res = await receptionAPI.searchPatients(text.trim());
+                const res = await searchPatientsWithOffline(text.trim());
                 if (res?.success) setSearchResults(res.patients || []);
             } catch (e) {
                 console.warn('Patient search error:', e);
@@ -990,6 +1029,25 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
 
         setSaving(true);
         try {
+            // Check connectivity before registration
+            const isOnline = await checkOnlineStatus();
+            if (!isOnline) {
+                await saveRegistrationDraftWithOffline({
+                    intakeForm,
+                    currentStep,
+                    selectedPatientId,
+                    isEditingProfileOnly,
+                    followupStatus,
+                });
+                setHasActiveDraft(true);
+                Alert.alert(
+                    "Saved as Local Draft",
+                    "You are currently offline. Patient registration and official appointment booking require active server connectivity to allocate an official MRN and token.\n\nAll details have been safely saved as a Local Draft. You can finalize with 1 tap once connection is restored."
+                );
+                setSaving(false);
+                return;
+            }
+
             let userId = selectedPatientId;
             if (isPatientPortal && !userId) {
                 userId = currentUser?._id;
@@ -1017,7 +1075,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                     bio: intakeForm.reasonForVisit || ''
                 };
 
-                const regRes = await receptionAPI.registerPatient(regPayload);
+                const regRes = await registerPatientOnlineOnly(regPayload);
                 userId = regRes.user?._id || regRes.patient?._id;
 
                 if (!userId) {
@@ -1113,7 +1171,9 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                 bankReference: intakePaymentData?.bankReference || ''
             };
 
-            const bookingRes = await receptionAPI.bookAppointment(bookPayload);
+            const bookingRes = await bookAppointmentOnlineOnly(bookPayload);
+            await clearRegistrationDraft();
+            setHasActiveDraft(false);
 
             // Record policy acceptance for appointment booking
             try {
@@ -1145,8 +1205,8 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                 `Patient ${pName} has been successfully registered and queued for Dr. ${docName}.${allocatedToken ? ` Allocated Token: #${allocatedToken}` : ''}`,
                 [
                     { text: "View Desk Queue", onPress: () => { setViewMode('desk'); fetchData(); } },
-                    { 
-                        text: "🖨️ Print Registration Slip", 
+                    {
+                        text: "🖨️ Print Registration Slip",
                         onPress: async () => {
                             try {
                                 const html = `
@@ -1220,7 +1280,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                             } catch (e) { console.warn('Registration slip print error', e); }
                             setViewMode('desk');
                             fetchData();
-                        } 
+                        }
                     }
                 ]
             );
@@ -1235,6 +1295,44 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         } finally {
             setSaving(false);
         }
+    };
+
+    const handleSaveDraftManually = async () => {
+        setSavingDraft(true);
+        try {
+            await saveRegistrationDraftWithOffline({
+                intakeForm,
+                currentStep,
+                selectedPatientId,
+                isEditingProfileOnly,
+                followupStatus,
+            });
+            setHasActiveDraft(true);
+            Alert.alert("Draft Saved", "Patient registration form has been safely saved locally as a draft.");
+        } catch (err) {
+            Alert.alert("Error", err.message || "Failed to save draft.");
+        } finally {
+            setSavingDraft(false);
+        }
+    };
+
+    const handleClearDraft = async () => {
+        Alert.alert(
+            "Clear Draft?",
+            "Are you sure you want to discard this local registration draft?",
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Discard",
+                    style: "destructive",
+                    onPress: async () => {
+                        await clearRegistrationDraft();
+                        setHasActiveDraft(false);
+                        Alert.alert("Draft Cleared", "Local registration draft was discarded.");
+                    }
+                }
+            ]
+        );
     };
 
     // Universal fail-safe invoice/receipt printing & downloading handler (1:1 Web Parity)
@@ -1295,18 +1393,18 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
             "Are you sure you want to cancel this appointment?",
             [
                 { text: "No", style: "cancel" },
-                { 
-                    text: "Yes, Cancel", 
+                {
+                    text: "Yes, Cancel",
                     style: "destructive",
                     onPress: async () => {
                         try {
-                            const res = await receptionAPI.cancelAppointment(aptId);
+                            const res = await cancelAppointmentOnlineOnly(aptId);
                             if (res.success) {
                                 Alert.alert("Cancelled", "Appointment has been cancelled.");
                                 fetchData();
                             }
                         } catch (err) {
-                            Alert.alert("Error", err.response?.data?.message || "Failed to cancel appointment.");
+                            Alert.alert("Error", err.response?.data?.message || err.message || "Failed to cancel appointment.");
                         }
                     }
                 }
@@ -1360,7 +1458,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
             const patientId = apt.userId?._id || apt.patientId?._id || apt.patientId;
             const doctorId = apt.doctorId?._id || apt.doctorId || (hospitalizeDoctorOrders.length > 0 ? (hospitalizeDoctorOrders[0].doctorId?._id || hospitalizeDoctorOrders[0].doctorId) : null);
 
-            await admissionAPI.createAdmission({
+            await admitPatientOnlineOnly({
                 patientId,
                 appointmentId: apt._id,
                 doctorId,
@@ -1375,7 +1473,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
             setHospitalizeModal({ open: false, appointment: null });
             fetchData();
         } catch (err) {
-            Alert.alert("Error", err.response?.data?.message || "Failed to hospitalize patient.");
+            Alert.alert("Error", err.response?.data?.message || err.message || "Failed to hospitalize patient.");
         } finally {
             setSaving(false);
         }
@@ -1384,7 +1482,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
     const openTransfer = (adm) => {
         let rate = Number(adm.wardRatePerDay) || 0;
         if (rate === 0) {
-            const matching = hospitalContext?.facilities?.find(f => 
+            const matching = hospitalContext?.facilities?.find(f =>
                 (f.name || '').toLowerCase().includes((adm.ward || '').toLowerCase()) ||
                 (adm.ward || '').toLowerCase().includes((f.name || '').toLowerCase())
             );
@@ -1412,7 +1510,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
         }
         try {
             setSaving(true);
-            await admissionAPI.transferBed(transferModal.admission._id, {
+            await transferBedOnlineOnly(transferModal.admission._id, {
                 newWard: transferModal.newWard,
                 newBedId: transferModal.newBedId,
                 transferDate: transferModal.transferDate,
@@ -1423,7 +1521,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
             setTransferModal({ open: false, admission: null, newWard: 'General', newBedId: '', transferDate: '', transferTime: '', notes: '' });
             fetchData();
         } catch (err) {
-            Alert.alert("Error", err.response?.data?.message || "Failed to transfer bed.");
+            Alert.alert("Error", err.response?.data?.message || err.message || "Failed to transfer bed.");
         } finally {
             setSaving(false);
         }
@@ -1433,7 +1531,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
     const openDischargeModal = (adm) => {
         let rate = Number(adm.wardRatePerDay) || 0;
         if (rate === 0) {
-            const matching = hospitalContext?.facilities?.find(f => 
+            const matching = hospitalContext?.facilities?.find(f =>
                 (f.name || '').toLowerCase().includes((adm.ward || '').toLowerCase()) ||
                 (adm.ward || '').toLowerCase().includes((f.name || '').toLowerCase())
             );
@@ -1573,7 +1671,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
 
         try {
             setSaving(true);
-            await admissionAPI.dischargePatient(dischargeModal.admission._id, {
+            await dischargePatientOnlineOnly(dischargeModal.admission._id, {
                 dischargeDate: dischargeModal.dischargeDate,
                 dischargeTime: dischargeModal.dischargeTime,
                 notes: dischargeModal.notes
@@ -1583,19 +1681,19 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                 'Patient discharged successfully! Inpatient Charges: Rs. ' + grandTotal.toLocaleString('en-IN') + '. Would you like to print the Discharge Bill?',
                 [
                     { text: "Later", style: "cancel" },
-                    { 
-                        text: "🖨️ Print Discharge Bill", 
+                    {
+                        text: "🖨️ Print Discharge Bill",
                         onPress: () => printDischargeBill(
                             { ...admToPrint, dischargeDate: dDate, dischargeTime: dTime },
                             { finalDurationText: finalCalc.durationText, finalAmount: finalCalc.amount, grandTotal }
-                        ) 
+                        )
                     }
                 ]
             );
             setDischargeModal({ open: false, admission: null, dischargeDate: '', dischargeTime: '', notes: '' });
             fetchData();
         } catch (err) {
-            Alert.alert("Error", err.response?.data?.message || "Failed to discharge patient.");
+            Alert.alert("Error", err.response?.data?.message || err.message || "Failed to discharge patient.");
         } finally {
             setSaving(false);
         }
@@ -1625,7 +1723,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
 
         try {
             setSaving(true);
-            await receptionAPI.confirmPayment(
+            await confirmPaymentOnlineOnly(
                 appointment._id,
                 splitPayments[0]?.method || 'Cash',
                 expectedAmt,
@@ -1635,7 +1733,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
             setPaymentModal({ open: false, appointment: null, method: 'Cash', amount: '', splitPayments: [] });
             fetchData();
         } catch (err) {
-            Alert.alert("Error", err.response?.data?.message || "Failed to record payment.");
+            Alert.alert("Error", err.response?.data?.message || err.message || "Failed to record payment.");
         } finally {
             setSaving(false);
         }
@@ -2175,7 +2273,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
 
                 {/* Hero Mini Action Chips */}
                 <View style={styles.miniChipsRow}>
-                    <TouchableOpacity 
+                    <TouchableOpacity
                         style={[styles.miniChip, { backgroundColor: '#f3e8ff', borderColor: '#d8b4fe' }]}
                         onPress={() => { fetchTransactions(); setViewMode('transactions'); }}
                     >
@@ -2188,7 +2286,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                         </View>
                     </TouchableOpacity>
 
-                    <TouchableOpacity 
+                    <TouchableOpacity
                         style={[styles.miniChip, { backgroundColor: '#ccfbf1', borderColor: '#99f6e4' }]}
                         onPress={() => navigation.navigate('PatientBillingProfile')}
                     >
@@ -2201,7 +2299,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                         </View>
                     </TouchableOpacity>
 
-                    <TouchableOpacity 
+                    <TouchableOpacity
                         style={[styles.miniChip, { backgroundColor: '#dbeafe', borderColor: '#bfdbfe' }]}
                         onPress={handleNewWalkIn}
                     >
@@ -2399,7 +2497,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                 {/* Queue Controls: Search & Dual Tabs */}
                 <View style={styles.queueControlHeader}>
                     <View style={styles.tabPillContainer}>
-                        <TouchableOpacity 
+                        <TouchableOpacity
                             style={[styles.tabPill, listTab === 'queue' && styles.tabPillActive]}
                             onPress={() => setListTab('queue')}
                         >
@@ -2409,7 +2507,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                             </Text>
                         </TouchableOpacity>
 
-                        <TouchableOpacity 
+                        <TouchableOpacity
                             style={[styles.tabPill, listTab === 'hospitalized' && styles.tabPillActiveHosp]}
                             onPress={() => setListTab('hospitalized')}
                         >
@@ -2422,8 +2520,8 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
 
                     <View style={styles.queueSearchBox}>
                         <Feather name="search" size={16} color="#94a3b8" />
-                        <TextInput 
-                            placeholder="Filter queue by name, phone, MRN..." 
+                        <TextInput
+                            placeholder="Filter queue by name, phone, MRN..."
                             placeholderTextColor="#94a3b8"
                             value={queueSearch}
                             onChangeText={setQueueSearch}
@@ -2438,10 +2536,18 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                         {loading ? (
                             <ActivityIndicator size="large" color="#0d9488" style={{ padding: 40 }} />
                         ) : filteredQueue.length === 0 ? (
-                            <View style={styles.emptyWrap}>
-                                <Text style={styles.emptyIcon}>📋</Text>
-                                <Text style={styles.emptyText}>No appointments in queue today.</Text>
-                            </View>
+                            offlineState.isOffline ? (
+                                <OfflineEmptyState
+                                    title="No Cached Appointments"
+                                    message="You are currently offline and no cached appointment queue is available for today. Please connect to the internet to synchronize."
+                                    onRetry={fetchData}
+                                />
+                            ) : (
+                                <View style={styles.emptyWrap}>
+                                    <Text style={styles.emptyIcon}>📋</Text>
+                                    <Text style={styles.emptyText}>No appointments in queue today.</Text>
+                                </View>
+                            )
                         ) : (
                             <ScrollView horizontal showsHorizontalScrollIndicator={true}>
                                 <View style={styles.tableWrap}>
@@ -2456,7 +2562,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                     </View>
 
                                     {filteredQueue.map((apt, idx) => {
-                                        const isHospitalized = hospitalizedPatients.some(adm => 
+                                        const isHospitalized = hospitalizedPatients.some(adm =>
                                             (adm.appointmentId?._id === apt._id || adm.appointmentId === apt._id) && adm.status === 'Admitted'
                                         );
                                         const pName = apt.userId?.name || apt.patientName || 'Patient';
@@ -2469,9 +2575,9 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                         return (
                                             <View key={apt._id || idx} style={styles.tr}>
                                                 <Text style={[styles.tdNum, { width: 40 }]}>{String(idx + 1).padStart(2, '0')}</Text>
-                                                
-                                                <TouchableOpacity 
-                                                    style={[styles.tdPatient, { width: 220 }]} 
+
+                                                <TouchableOpacity
+                                                    style={[styles.tdPatient, { width: 220 }]}
                                                     onPress={() => handleViewProfile(apt.userId || apt)}
                                                 >
                                                     <View style={[styles.avatarCircle, { backgroundColor: getInitialBgColor(pName) }]}>
@@ -2483,7 +2589,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                                     </View>
                                                 </TouchableOpacity>
 
-                                                <TouchableOpacity 
+                                                <TouchableOpacity
                                                     style={{ width: 130 }}
                                                     onPress={() => handleViewProfile(apt.userId || apt)}
                                                 >
@@ -2551,10 +2657,18 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                         {loading ? (
                             <ActivityIndicator size="large" color="#8b5cf6" style={{ padding: 40 }} />
                         ) : filteredHospitalized.length === 0 ? (
-                            <View style={styles.emptyWrap}>
-                                <Text style={styles.emptyIcon}>🛏️</Text>
-                                <Text style={styles.emptyText}>No hospitalized in-patients currently admitted.</Text>
-                            </View>
+                            offlineState.isOffline ? (
+                                <OfflineEmptyState
+                                    title="No Cached Inpatients"
+                                    message="You are currently offline and no inpatient admission records are cached. Please connect to the internet to synchronize."
+                                    onRetry={fetchData}
+                                />
+                            ) : (
+                                <View style={styles.emptyWrap}>
+                                    <Text style={styles.emptyIcon}>🛏️</Text>
+                                    <Text style={styles.emptyText}>No hospitalized in-patients currently admitted.</Text>
+                                </View>
+                            )
                         ) : (
                             <ScrollView horizontal showsHorizontalScrollIndicator={true}>
                                 <View style={styles.tableWrap}>
@@ -2578,7 +2692,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                         const dept = adm.appointmentId?.department || adm.appointmentId?.serviceName || 'General';
                                         const ward = adm.ward || 'General';
                                         const bedNum = adm.bedNumber || (adm.bedId?.bedNumber) || '#1';
-                                        
+
                                         const admDate = adm.admissionDate ? new Date(adm.admissionDate) : new Date(adm.createdAt || Date.now());
                                         const now = new Date();
                                         const diffMs = Math.max(0, now - admDate);
@@ -2591,8 +2705,8 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                             <View key={adm._id || idx} style={styles.tr}>
                                                 <Text style={[styles.tdNum, { width: 40 }]}>{String(idx + 1).padStart(2, '0')}</Text>
 
-                                                <TouchableOpacity 
-                                                    style={[styles.tdPatient, { width: 220 }]} 
+                                                <TouchableOpacity
+                                                    style={[styles.tdPatient, { width: 220 }]}
                                                     onPress={() => handleViewProfile(adm.patientId || adm)}
                                                 >
                                                     <View style={[styles.avatarCircle, { backgroundColor: getInitialBgColor(pName) }]}>
@@ -2604,7 +2718,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                                     </View>
                                                 </TouchableOpacity>
 
-                                                <TouchableOpacity 
+                                                <TouchableOpacity
                                                     style={{ width: 130 }}
                                                     onPress={() => handleViewProfile(adm.patientId || adm)}
                                                 >
@@ -2761,8 +2875,8 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                 <View key={idx} style={styles.splitRow}>
                                     <View style={styles.splitMethodCol}>
                                         {['Cash', 'UPI', 'Card', 'NetBanking'].map(m => (
-                                            <TouchableOpacity 
-                                                key={m} 
+                                            <TouchableOpacity
+                                                key={m}
                                                 style={[styles.miniPill, row.method === m && styles.miniPillActive]}
                                                 onPress={() => updateSplitRow(idx, 'method', m)}
                                             >
@@ -2770,12 +2884,12 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                             </TouchableOpacity>
                                         ))}
                                     </View>
-                                    <TextInput 
-                                        style={[styles.formInput, { width: 90, textAlign: 'right', fontWeight: '800' }]} 
-                                        keyboardType="numeric" 
-                                        placeholder="Amount" 
-                                        value={row.amount} 
-                                        onChangeText={t => updateSplitRow(idx, 'amount', t)} 
+                                    <TextInput
+                                        style={[styles.formInput, { width: 90, textAlign: 'right', fontWeight: '800' }]}
+                                        keyboardType="numeric"
+                                        placeholder="Amount"
+                                        value={row.amount}
+                                        onChangeText={t => updateSplitRow(idx, 'amount', t)}
                                     />
                                     {intakeForm.splitPayments.length > 1 && (
                                         <TouchableOpacity onPress={() => removeSplitRow(idx)} style={styles.removeSplitBtn}>
@@ -2883,7 +2997,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                     </View>
 
                     {/* Hospital Policy Acceptance Checkbox */}
-                    <TouchableOpacity 
+                    <TouchableOpacity
                         style={{
                             padding: 12,
                             backgroundColor: '#f8fafc',
@@ -2912,7 +3026,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                         </View>
                         <Text style={{ flex: 1, fontSize: 12, color: '#334155', lineHeight: 18 }}>
                             I confirm that the patient acknowledges and agrees to the{' '}
-                            <Text 
+                            <Text
                                 style={{ color: '#2563eb', fontWeight: '700', textDecorationLine: 'underline' }}
                                 onPress={() => setShowPolicyModal(true)}
                             >
@@ -2923,8 +3037,8 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                     </TouchableOpacity>
 
                     {/* Submit Action */}
-                    <TouchableOpacity 
-                        style={[styles.stepperSubmitBtn, saving && styles.stepperSubmitBtnDisabled]} 
+                    <TouchableOpacity
+                        style={[styles.stepperSubmitBtn, saving && styles.stepperSubmitBtnDisabled]}
                         onPress={handleRegisterAndBook}
                         disabled={saving}
                     >
@@ -2962,8 +3076,35 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                         </Text>
                         <ExpoLinearGradient colors={['#38bdf8', '#6366f1', '#a855f7']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.regTitleGlowAccent} />
                     </View>
-                    <View style={[styles.regHeadingRight, isMobile && styles.regHeadingRightMobile]}>
-                        <TouchableOpacity 
+                    <View style={[styles.regHeadingRight, isMobile && styles.regHeadingRightMobile, { flexDirection: 'row', alignItems: 'center', gap: 8, width: 'auto' }]}>
+                        {hasActiveDraft && (
+                            <View style={{ backgroundColor: '#fef3c7', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 6, borderWidth: 1, borderColor: '#fde68a', flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                <Feather name="file-text" size={12} color="#b45309" />
+                                <Text style={{ fontSize: 11, fontWeight: '700', color: '#b45309' }}>LOCAL DRAFT</Text>
+                            </View>
+                        )}
+                        <TouchableOpacity
+                            style={[styles.regBtnCloseProminent, { backgroundColor: '#3b82f6', borderColor: '#2563eb' }]}
+                            onPress={handleSaveDraftManually}
+                            activeOpacity={0.8}
+                            disabled={savingDraft}
+                        >
+                            {savingDraft ? (
+                                <ActivityIndicator size="small" color="#ffffff" />
+                            ) : (
+                                <Text style={styles.regBtnCloseText}>💾 Save Draft</Text>
+                            )}
+                        </TouchableOpacity>
+                        {hasActiveDraft && (
+                            <TouchableOpacity
+                                style={[styles.regBtnCloseProminent, { backgroundColor: '#fee2e2', borderColor: '#fca5a5' }]}
+                                onPress={handleClearDraft}
+                                activeOpacity={0.8}
+                            >
+                                <Text style={[styles.regBtnCloseText, { color: '#dc2626' }]}>Discard</Text>
+                            </TouchableOpacity>
+                        )}
+                        <TouchableOpacity
                             style={[styles.regBtnCloseProminent, isMobile && styles.regBtnCloseProminentMobile]}
                             onPress={handleCloseRegistration}
                             activeOpacity={0.8}
@@ -2987,8 +3128,8 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                             ].map(item => {
                                 const isActive = currentStep === item.step;
                                 return (
-                                    <TouchableOpacity 
-                                        key={item.step} 
+                                    <TouchableOpacity
+                                        key={item.step}
                                         style={[styles.regStepItem, isActive && styles.regStepItemActive]}
                                         onPress={() => setCurrentStep(item.step)}
                                         activeOpacity={0.8}
@@ -3025,8 +3166,8 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                 const isActive = currentStep === item.step;
                                 const isDone = currentStep > item.step;
                                 return (
-                                    <TouchableOpacity 
-                                        key={item.step} 
+                                    <TouchableOpacity
+                                        key={item.step}
                                         style={[styles.stepItem, isActive && styles.stepItemActive]}
                                         onPress={() => setCurrentStep(item.step)}
                                     >
@@ -3091,7 +3232,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                             <View style={styles.fieldBlock}>
                                 <Text style={styles.fieldLabel}>Aadhaar Number (12 Digits) *</Text>
                                 <View style={styles.aadhaarRow}>
-                                    <TextInput 
+                                    <TextInput
                                         style={[styles.formInput, { flex: 1 }]}
                                         keyboardType="numeric"
                                         maxLength={12}
@@ -3099,7 +3240,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                         value={intakeForm.aadhaar}
                                         onChangeText={t => handleFormChange('aadhaar', t.replace(/\D/g, ''))}
                                     />
-                                    <TouchableOpacity 
+                                    <TouchableOpacity
                                         style={[styles.otpBtn, (intakeForm.isAadhaarVerified || verifyingAadhaar) && styles.otpBtnDisabled]}
                                         onPress={handleSendAadhaarOTP}
                                         disabled={intakeForm.isAadhaarVerified || verifyingAadhaar}
@@ -3117,7 +3258,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                 <View style={styles.fieldBlock}>
                                     <Text style={styles.fieldLabel}>Enter Aadhaar Verification OTP</Text>
                                     <View style={styles.aadhaarRow}>
-                                        <TextInput 
+                                        <TextInput
                                             style={[styles.formInput, { flex: 1 }]}
                                             keyboardType="numeric"
                                             maxLength={6}
@@ -3125,7 +3266,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                             value={aadhaarOtp}
                                             onChangeText={setAadhaarOtp}
                                         />
-                                        <TouchableOpacity 
+                                        <TouchableOpacity
                                             style={[styles.otpBtn, { backgroundColor: '#10b981' }]}
                                             onPress={handleVerifyAadhaarOTP}
                                             disabled={verifyingAadhaar}
@@ -3142,8 +3283,8 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                     <Text style={styles.fieldLabel}>Title</Text>
                                     <View style={styles.pillSelector}>
                                         {['Mr.', 'Mrs.', 'Ms.', 'Dr.'].map(t => (
-                                            <TouchableOpacity 
-                                                key={t} 
+                                            <TouchableOpacity
+                                                key={t}
                                                 style={[styles.miniPill, intakeForm.title === t && styles.miniPillActive]}
                                                 onPress={() => handleFormChange('title', t)}
                                             >
@@ -3156,8 +3297,8 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                     <Text style={styles.fieldLabel}>Gender *</Text>
                                     <View style={styles.pillSelector}>
                                         {['Male', 'Female', 'Other'].map(g => (
-                                            <TouchableOpacity 
-                                                key={g} 
+                                            <TouchableOpacity
+                                                key={g}
                                                 style={[styles.miniPill, intakeForm.gender === g && styles.miniPillActive]}
                                                 onPress={() => handleFormChange('gender', g)}
                                             >
@@ -3171,20 +3312,20 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                             <View style={styles.formRow2}>
                                 <View style={styles.col1}>
                                     <Text style={styles.fieldLabel}>First Name *</Text>
-                                    <TextInput 
-                                        style={styles.formInput} 
-                                        placeholder="First Name" 
-                                        value={intakeForm.firstName} 
-                                        onChangeText={t => handleFormChange('firstName', t)} 
+                                    <TextInput
+                                        style={styles.formInput}
+                                        placeholder="First Name"
+                                        value={intakeForm.firstName}
+                                        onChangeText={t => handleFormChange('firstName', t)}
                                     />
                                 </View>
                                 <View style={styles.col2}>
                                     <Text style={styles.fieldLabel}>Last Name</Text>
-                                    <TextInput 
-                                        style={styles.formInput} 
-                                        placeholder="Last Name" 
-                                        value={intakeForm.lastName} 
-                                        onChangeText={t => handleFormChange('lastName', t)} 
+                                    <TextInput
+                                        style={styles.formInput}
+                                        placeholder="Last Name"
+                                        value={intakeForm.lastName}
+                                        onChangeText={t => handleFormChange('lastName', t)}
                                     />
                                 </View>
                             </View>
@@ -3192,35 +3333,35 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                             <View style={styles.formRow2}>
                                 <View style={styles.col1}>
                                     <Text style={styles.fieldLabel}>Mobile Number (10 Digits) *</Text>
-                                    <TextInput 
-                                        style={styles.formInput} 
-                                        keyboardType="numeric" 
-                                        maxLength={10} 
-                                        placeholder="Mobile" 
-                                        value={intakeForm.mobile} 
-                                        onChangeText={t => handleFormChange('mobile', t.replace(/\D/g, ''))} 
+                                    <TextInput
+                                        style={styles.formInput}
+                                        keyboardType="numeric"
+                                        maxLength={10}
+                                        placeholder="Mobile"
+                                        value={intakeForm.mobile}
+                                        onChangeText={t => handleFormChange('mobile', t.replace(/\D/g, ''))}
                                     />
                                 </View>
                                 <View style={styles.col2}>
                                     <Text style={styles.fieldLabel}>Age</Text>
-                                    <TextInput 
-                                        style={styles.formInput} 
-                                        keyboardType="numeric" 
-                                        placeholder="Age" 
-                                        value={intakeForm.age} 
-                                        onChangeText={t => handleFormChange('age', t)} 
+                                    <TextInput
+                                        style={styles.formInput}
+                                        keyboardType="numeric"
+                                        placeholder="Age"
+                                        value={intakeForm.age}
+                                        onChangeText={t => handleFormChange('age', t)}
                                     />
                                 </View>
                             </View>
 
                             <View style={styles.fieldBlock}>
                                 <Text style={styles.fieldLabel}>Email Address</Text>
-                                <TextInput 
-                                    style={styles.formInput} 
-                                    keyboardType="email-address" 
-                                    placeholder="patient@example.com" 
-                                    value={intakeForm.email} 
-                                    onChangeText={t => handleFormChange('email', t)} 
+                                <TextInput
+                                    style={styles.formInput}
+                                    keyboardType="email-address"
+                                    placeholder="patient@example.com"
+                                    value={intakeForm.email}
+                                    onChangeText={t => handleFormChange('email', t)}
                                 />
                             </View>
 
@@ -3229,8 +3370,8 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                 <Text style={styles.fieldLabel}>Relation To Patient</Text>
                                 <View style={styles.pillSelector}>
                                     {['Spouse', 'Father', 'Mother', 'Son', 'Daughter', 'Sibling', 'Other'].map(r => (
-                                        <TouchableOpacity 
-                                            key={r} 
+                                        <TouchableOpacity
+                                            key={r}
                                             style={[styles.miniPill, intakeForm.relationToPatient === r && styles.miniPillActive]}
                                             onPress={() => handleFormChange('relationToPatient', r)}
                                         >
@@ -3243,33 +3384,33 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                             <View style={styles.formRow2}>
                                 <View style={styles.col1}>
                                     <Text style={styles.fieldLabel}>Relative First Name</Text>
-                                    <TextInput 
-                                        style={styles.formInput} 
-                                        placeholder="First Name" 
-                                        value={intakeForm.partnerFirstName} 
-                                        onChangeText={t => handleFormChange('partnerFirstName', t)} 
+                                    <TextInput
+                                        style={styles.formInput}
+                                        placeholder="First Name"
+                                        value={intakeForm.partnerFirstName}
+                                        onChangeText={t => handleFormChange('partnerFirstName', t)}
                                     />
                                 </View>
                                 <View style={styles.col2}>
                                     <Text style={styles.fieldLabel}>Relative Last Name</Text>
-                                    <TextInput 
-                                        style={styles.formInput} 
-                                        placeholder="Last Name" 
-                                        value={intakeForm.partnerLastName} 
-                                        onChangeText={t => handleFormChange('partnerLastName', t)} 
+                                    <TextInput
+                                        style={styles.formInput}
+                                        placeholder="Last Name"
+                                        value={intakeForm.partnerLastName}
+                                        onChangeText={t => handleFormChange('partnerLastName', t)}
                                     />
                                 </View>
                             </View>
 
                             <View style={styles.fieldBlock}>
                                 <Text style={styles.fieldLabel}>Relative Contact Mobile (10 Digits)</Text>
-                                <TextInput 
-                                    style={styles.formInput} 
-                                    keyboardType="numeric" 
-                                    maxLength={10} 
-                                    placeholder="10-digit mobile number" 
-                                    value={intakeForm.partnerMobile} 
-                                    onChangeText={t => handleFormChange('partnerMobile', t.replace(/\D/g, ''))} 
+                                <TextInput
+                                    style={styles.formInput}
+                                    keyboardType="numeric"
+                                    maxLength={10}
+                                    placeholder="10-digit mobile number"
+                                    value={intakeForm.partnerMobile}
+                                    onChangeText={t => handleFormChange('partnerMobile', t.replace(/\D/g, ''))}
                                 />
                             </View>
                         </View>
@@ -3292,21 +3433,21 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
 
                             <View style={styles.fieldBlock}>
                                 <Text style={styles.fieldLabel}>House No / Flat / Building Name</Text>
-                                <TextInput 
-                                    style={styles.formInput} 
-                                    placeholder="House No / Flat / Building Name" 
-                                    value={intakeForm.houseNo} 
-                                    onChangeText={t => handleFormChange('houseNo', t)} 
+                                <TextInput
+                                    style={styles.formInput}
+                                    placeholder="House No / Flat / Building Name"
+                                    value={intakeForm.houseNo}
+                                    onChangeText={t => handleFormChange('houseNo', t)}
                                 />
                             </View>
 
                             <View style={styles.fieldBlock}>
                                 <Text style={styles.fieldLabel}>Street / Area / Locality</Text>
-                                <TextInput 
-                                    style={styles.formInput} 
-                                    placeholder="Street / Area / Locality" 
-                                    value={intakeForm.street} 
-                                    onChangeText={t => handleFormChange('street', t)} 
+                                <TextInput
+                                    style={styles.formInput}
+                                    placeholder="Street / Area / Locality"
+                                    value={intakeForm.street}
+                                    onChangeText={t => handleFormChange('street', t)}
                                 />
                             </View>
 
@@ -3329,8 +3470,8 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                 <Text style={styles.fieldLabel}>Patient Source / Referral Type</Text>
                                 <View style={styles.pillSelector}>
                                     {['Walk In', 'Doctor Referral', 'Hospital Referral', 'Online', 'Social Media', 'Google/Website', 'Friend/Relative', 'Other'].map(ref => (
-                                        <TouchableOpacity 
-                                            key={ref} 
+                                        <TouchableOpacity
+                                            key={ref}
                                             style={[styles.miniPill, intakeForm.referralType === ref && styles.miniPillActive]}
                                             onPress={() => handleFormChange('referralType', ref)}
                                         >
@@ -3363,22 +3504,22 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                             <View style={styles.formRow3}>
                                 <View style={styles.col3}>
                                     <Text style={styles.fieldLabel}>Height (cm)</Text>
-                                    <TextInput 
-                                        style={styles.formInput} 
-                                        keyboardType="numeric" 
-                                        placeholder="e.g. 172" 
-                                        value={intakeForm.height} 
-                                        onChangeText={t => handleFormChange('height', t)} 
+                                    <TextInput
+                                        style={styles.formInput}
+                                        keyboardType="numeric"
+                                        placeholder="e.g. 172"
+                                        value={intakeForm.height}
+                                        onChangeText={t => handleFormChange('height', t)}
                                     />
                                 </View>
                                 <View style={styles.col3}>
                                     <Text style={styles.fieldLabel}>Weight (kg)</Text>
-                                    <TextInput 
-                                        style={styles.formInput} 
-                                        keyboardType="numeric" 
-                                        placeholder="e.g. 68" 
-                                        value={intakeForm.weight} 
-                                        onChangeText={t => handleFormChange('weight', t)} 
+                                    <TextInput
+                                        style={styles.formInput}
+                                        keyboardType="numeric"
+                                        placeholder="e.g. 68"
+                                        value={intakeForm.weight}
+                                        onChangeText={t => handleFormChange('weight', t)}
                                     />
                                 </View>
                                 <View style={styles.col3}>
@@ -3393,8 +3534,8 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                 <Text style={styles.fieldLabel}>Blood Group</Text>
                                 <View style={styles.pillSelector}>
                                     {bloodGroups.map(bg => (
-                                        <TouchableOpacity 
-                                            key={bg} 
+                                        <TouchableOpacity
+                                            key={bg}
                                             style={[styles.miniPill, intakeForm.bloodGroup === bg && styles.miniPillActive]}
                                             onPress={() => handleFormChange('bloodGroup', bg)}
                                         >
@@ -3406,12 +3547,12 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
 
                             <View style={styles.fieldBlock}>
                                 <Text style={styles.fieldLabel}>Chief Complaint / Reason for Visit</Text>
-                                <TextInput 
-                                    style={[styles.formInput, { height: 70 }]} 
-                                    multiline 
-                                    placeholder="e.g. High fever, routine follow-up, consultation..." 
-                                    value={intakeForm.reasonForVisit} 
-                                    onChangeText={t => handleFormChange('reasonForVisit', t)} 
+                                <TextInput
+                                    style={[styles.formInput, { height: 70 }]}
+                                    multiline
+                                    placeholder="e.g. High fever, routine follow-up, consultation..."
+                                    value={intakeForm.reasonForVisit}
+                                    onChangeText={t => handleFormChange('reasonForVisit', t)}
                                 />
                             </View>
                         </View>
@@ -3444,11 +3585,11 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                     {deptsToDisplay.map(dept => {
                                         const isSel = intakeForm.department === dept;
                                         return (
-                                            <TouchableOpacity 
-                                                key={dept} 
+                                            <TouchableOpacity
+                                                key={dept}
                                                 disabled={followupStatus?.active}
                                                 style={[
-                                                    styles.chipPill, 
+                                                    styles.chipPill,
                                                     isSel && styles.chipPillActive,
                                                     followupStatus?.active && { opacity: 0.6 }
                                                 ]}
@@ -3482,11 +3623,11 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                         {filteredDocs.map(doc => {
                                             const isSel = intakeForm.doctor === doc._id;
                                             return (
-                                                <TouchableOpacity 
-                                                    key={doc._id} 
+                                                <TouchableOpacity
+                                                    key={doc._id}
                                                     disabled={followupStatus?.active}
                                                     style={[
-                                                        styles.doctorCardChip, 
+                                                        styles.doctorCardChip,
                                                         isSel && styles.doctorCardChipActive,
                                                         followupStatus?.active && { opacity: 0.6 }
                                                     ]}
@@ -3513,20 +3654,20 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                 <Text style={styles.fieldLabel}>Appointment Date *</Text>
                                 <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
                                     <View style={{ flex: 1 }}>
-                                        <DatePickerInput 
-                                            value={intakeForm.visitDate} 
-                                            onChange={t => handleFormChange('visitDate', t)} 
+                                        <DatePickerInput
+                                            value={intakeForm.visitDate}
+                                            onChange={t => handleFormChange('visitDate', t)}
                                             placeholder="Select Date"
                                             title="Appointment Date"
                                         />
                                     </View>
-                                    <TouchableOpacity 
+                                    <TouchableOpacity
                                         style={[styles.miniPill, intakeForm.visitDate === todayStr && styles.miniPillActive]}
                                         onPress={() => handleFormChange('visitDate', todayStr)}
                                     >
                                         <Text style={[styles.miniPillText, intakeForm.visitDate === todayStr && styles.miniPillTextActive]}>Today</Text>
                                     </TouchableOpacity>
-                                    <TouchableOpacity 
+                                    <TouchableOpacity
                                         style={[styles.miniPill, intakeForm.visitDate === (() => {
                                             const tom = new Date();
                                             tom.setDate(tom.getDate() + 1);
@@ -3622,8 +3763,8 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                 <View key={idx} style={styles.splitRow}>
                                     <View style={styles.splitMethodCol}>
                                         {['Cash', 'UPI', 'Card', 'NetBanking'].map(m => (
-                                            <TouchableOpacity 
-                                                key={m} 
+                                            <TouchableOpacity
+                                                key={m}
                                                 style={[styles.miniPill, row.method === m && styles.miniPillActive]}
                                                 onPress={() => updateSplitRow(idx, 'method', m)}
                                             >
@@ -3631,12 +3772,12 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                             </TouchableOpacity>
                                         ))}
                                     </View>
-                                    <TextInput 
-                                        style={[styles.formInput, { width: 100, textAlign: 'right', fontWeight: '800' }]} 
-                                        keyboardType="numeric" 
-                                        placeholder="Amount" 
-                                        value={row.amount} 
-                                        onChangeText={t => updateSplitRow(idx, 'amount', t)} 
+                                    <TextInput
+                                        style={[styles.formInput, { width: 100, textAlign: 'right', fontWeight: '800' }]}
+                                        keyboardType="numeric"
+                                        placeholder="Amount"
+                                        value={row.amount}
+                                        onChangeText={t => updateSplitRow(idx, 'amount', t)}
                                     />
                                     {intakeForm.splitPayments.length > 1 && (
                                         <TouchableOpacity onPress={() => removeSplitRow(idx)} style={styles.removeSplitBtn}>
@@ -3688,10 +3829,10 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                         )}
 
                                         <View style={{ alignItems: 'center', padding: 12, backgroundColor: '#ffffff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', marginVertical: 8 }}>
-                                            <Image 
-                                                source={{ uri: qrUrl }} 
-                                                style={{ width: 150, height: 150, borderRadius: 8 }} 
-                                                resizeMode="contain" 
+                                            <Image
+                                                source={{ uri: qrUrl }}
+                                                style={{ width: 150, height: 150, borderRadius: 8 }}
+                                                resizeMode="contain"
                                             />
                                             <Text style={[styles.upiIdText, { marginTop: 8, fontWeight: '700', color: '#0f766e' }]}>
                                                 UPI ID: {activeUpi}
@@ -3734,7 +3875,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                             </View>
 
                             {/* Hospital Policy Agreement Checkbox (1:1 Web) */}
-                            <TouchableOpacity 
+                            <TouchableOpacity
                                 style={{
                                     marginTop: 14,
                                     padding: 12,
@@ -3763,7 +3904,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                 </View>
                                 <Text style={{ flex: 1, fontSize: 12, color: '#334155', lineHeight: 18 }}>
                                     I have read, understood, and agree to the{' '}
-                                    <Text 
+                                    <Text
                                         style={{ color: '#2563eb', fontWeight: '700', textDecorationLine: 'underline' }}
                                         onPress={() => setShowPolicyModal(true)}
                                     >
@@ -3791,8 +3932,8 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                 <Feather name="arrow-right" size={16} color="#ffffff" />
                             </TouchableOpacity>
                         ) : (
-                            <TouchableOpacity 
-                                style={[styles.stepperSubmitBtn, saving && styles.stepperSubmitBtnDisabled]} 
+                            <TouchableOpacity
+                                style={[styles.stepperSubmitBtn, saving && styles.stepperSubmitBtnDisabled]}
                                 onPress={handleRegisterAndBook}
                                 disabled={saving}
                             >
@@ -3963,8 +4104,8 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                 {/* Search Box (1:1 Web Lines 2999-3004) */}
                 <View style={styles.deskSearchBox}>
                     <Feather name="search" size={16} color="#94a3b8" style={{ marginRight: 10 }} />
-                    <TextInput 
-                        style={styles.deskSearchInput} 
+                    <TextInput
+                        style={styles.deskSearchInput}
                         placeholder="Search by patient name..."
                         placeholderTextColor="#94a3b8"
                         value={transactionSearch}
@@ -4299,8 +4440,8 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                                 <Text style={styles.modalSectionLabel}>Select Ward *</Text>
                                                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
                                                     {displayWards.map(w => (
-                                                        <TouchableOpacity 
-                                                            key={w} 
+                                                        <TouchableOpacity
+                                                            key={w}
                                                             onPress={() => setHospitalizeForm(p => ({ ...p, ward: w, bedId: '' }))}
                                                             style={[styles.modalPill, hospitalizeForm.ward === w && styles.modalPillActive]}
                                                             disabled={!!existingActiveAdmission}
@@ -4313,8 +4454,8 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
                                                     {wardBeds.length > 0 ? (
                                                         wardBeds.map(b => (
-                                                            <TouchableOpacity 
-                                                                key={b._id} 
+                                                            <TouchableOpacity
+                                                                key={b._id}
                                                                 onPress={() => setHospitalizeForm(p => ({ ...p, bedId: b._id }))}
                                                                 style={[styles.bedChip, hospitalizeForm.bedId === b._id && styles.bedChipActive]}
                                                                 disabled={!!existingActiveAdmission}
@@ -4402,8 +4543,8 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
 
                                         {/* DYNAMIC WARD PRICING BANNER */}
                                         {Boolean(hospitalizeForm.ward) ? (() => {
-                                            const matchedFacility = hospitalContext?.facilities?.find(f => 
-                                                (f.name || '').toLowerCase().includes(hospitalizeForm.ward.toLowerCase()) || 
+                                            const matchedFacility = hospitalContext?.facilities?.find(f =>
+                                                (f.name || '').toLowerCase().includes(hospitalizeForm.ward.toLowerCase()) ||
                                                 hospitalizeForm.ward.toLowerCase().includes((f.name || '').toLowerCase())
                                             );
                                             const pricePerDay = matchedFacility?.pricePerDay || (hospitalizeForm.ward.toLowerCase().includes('icu') ? 20000 : 5000);
@@ -4464,7 +4605,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                             ) : (
                                 <View style={{ marginBottom: 16 }}>
                                     <Text style={styles.modalSectionLabel}>Admission Notes (Administrative):</Text>
-                                    <TextInput 
+                                    <TextInput
                                         placeholder="Any administrative observations, attendant info, or admission remarks..."
                                         style={[styles.modalInput, { minHeight: 64, textAlignVertical: 'top' }]}
                                         multiline
@@ -4491,9 +4632,9 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                             <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setHospitalizeModal({ open: false, appointment: null })}>
                                 <Text style={styles.modalCancelBtnText}>Cancel</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity 
-                                style={[styles.modalConfirmBtn, (saving || !!existingActiveAdmission) && { backgroundColor: '#94a3b8' }]} 
-                                onPress={submitHospitalize} 
+                            <TouchableOpacity
+                                style={[styles.modalConfirmBtn, (saving || !!existingActiveAdmission) && { backgroundColor: '#94a3b8' }]}
+                                onPress={submitHospitalize}
                                 disabled={saving || !!existingActiveAdmission}
                             >
                                 <Text style={styles.modalConfirmBtnText}>
@@ -4522,8 +4663,8 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                         <Text style={styles.modalSectionLabel}>Target Ward:</Text>
                         <View style={styles.modalRowSelector}>
                             {['General', 'Semi-Private', 'Private', 'ICU'].map(w => (
-                                <TouchableOpacity 
-                                    key={w} 
+                                <TouchableOpacity
+                                    key={w}
                                     onPress={() => setTransferModal(p => ({ ...p, newWard: w }))}
                                     style={[styles.modalPill, transferModal.newWard === w && styles.modalPillActive]}
                                 >
@@ -4535,8 +4676,8 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                         <Text style={styles.modalSectionLabel}>Select Target Available Bed:</Text>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
                             {availableBeds.map(b => (
-                                <TouchableOpacity 
-                                    key={b._id} 
+                                <TouchableOpacity
+                                    key={b._id}
                                     onPress={() => setTransferModal(p => ({ ...p, newBedId: b._id }))}
                                     style={[styles.bedChip, transferModal.newBedId === b._id && styles.bedChipActive]}
                                 >
@@ -4548,7 +4689,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                         </ScrollView>
 
                         <Text style={styles.modalSectionLabel}>Transfer Reason / Notes:</Text>
-                        <TextInput 
+                        <TextInput
                             placeholder="Reason for bed transfer..."
                             style={styles.modalInput}
                             value={transferModal.notes}
@@ -4576,7 +4717,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                 const currentStartDateTime = lastTransfer
                     ? combineDateTime(lastTransfer.transferDate, lastTransfer.transferTime)
                     : combineDateTime(adm.admissionDate, adm.admissionTime);
-                
+
                 const currentDischargeDateTime = combineDateTime(dischargeModal.dischargeDate, dischargeModal.dischargeTime);
                 const liveCalc = computeStayDurationAndCost(currentStartDateTime, currentDischargeDateTime, adm.wardRatePerDay || 1000);
 
@@ -4643,7 +4784,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                     <Text style={styles.modalSectionLabel}>Discharge Date & Time:</Text>
                                     <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
                                         <View style={{ flex: 1 }}>
-                                            <DatePickerInput 
+                                            <DatePickerInput
                                                 insideModal={true}
                                                 value={dischargeModal.dischargeDate}
                                                 onChange={t => setDischargeModal(p => ({ ...p, dischargeDate: t }))}
@@ -4652,7 +4793,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                             />
                                         </View>
                                         <View style={{ width: 130 }}>
-                                            <TimePickerInput 
+                                            <TimePickerInput
                                                 insideModal={true}
                                                 value={dischargeModal.dischargeTime}
                                                 onChange={t => setDischargeModal(p => ({ ...p, dischargeTime: t }))}
@@ -4663,7 +4804,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                     </View>
 
                                     <Text style={styles.modalSectionLabel}>Discharge Summary / Clinical Notes:</Text>
-                                    <TextInput 
+                                    <TextInput
                                         placeholder="Condition upon discharge, medications..."
                                         style={[styles.modalInput, { height: 60 }]}
                                         multiline
@@ -4675,9 +4816,9 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                         <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setDischargeModal({ open: false, admission: null })}>
                                             <Text style={styles.modalCancelBtnText}>Cancel</Text>
                                         </TouchableOpacity>
-                                        <TouchableOpacity 
-                                            style={[styles.modalConfirmBtn, { backgroundColor: '#dc2626' }]} 
-                                            onPress={() => submitDischarge(grandTotal)} 
+                                        <TouchableOpacity
+                                            style={[styles.modalConfirmBtn, { backgroundColor: '#dc2626' }]}
+                                            onPress={() => submitDischarge(grandTotal)}
                                             disabled={saving}
                                         >
                                             <Text style={styles.modalConfirmBtnText}>
@@ -4713,8 +4854,8 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                 <View key={index} style={{ flexDirection: 'row', gap: 6, alignItems: 'center', marginBottom: 8 }}>
                                     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
                                         {['Cash', 'UPI', 'Card', 'Cheque', 'NEFT/RTGS'].map(m => (
-                                            <TouchableOpacity 
-                                                key={m} 
+                                            <TouchableOpacity
+                                                key={m}
                                                 style={[styles.miniPill, split.method === m && styles.miniPillActive]}
                                                 onPress={() => updatePaymentModalSplit(index, 'method', m)}
                                             >
@@ -4722,7 +4863,7 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                                             </TouchableOpacity>
                                         ))}
                                     </ScrollView>
-                                    <TextInput 
+                                    <TextInput
                                         style={[styles.formInput, { width: 90, textAlign: 'right', fontWeight: '800' }]}
                                         keyboardType="numeric"
                                         placeholder="Amount"
@@ -4801,8 +4942,8 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
                             <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setShowPolicyModal(false)}>
                                 <Text style={styles.modalCancelBtnText}>Close</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity 
-                                style={[styles.modalConfirmBtn, { backgroundColor: '#2563eb' }]} 
+                            <TouchableOpacity
+                                style={[styles.modalConfirmBtn, { backgroundColor: '#2563eb' }]}
                                 onPress={() => {
                                     setIntakePolicyAgreed(true);
                                     setShowPolicyModal(false);
@@ -4821,10 +4962,17 @@ const ReceptionDashboard = ({ isPatientPortal = false }) => {
     // ─── RENDER MAIN VIEW ───────────────────────────────────────────────────
     return (
         <View style={styles.container}>
-            {viewMode === 'welcome' 
-                ? renderWelcome() 
-                : viewMode === 'intake' 
-                    ? renderIntake() 
+            <OfflineBanner
+                isOffline={offlineState.isOffline}
+                fromCache={offlineState.fromCache}
+                lastFetchedAt={offlineState.lastFetchedAt}
+                moduleName="Reception"
+                onRefresh={fetchData}
+            />
+            {viewMode === 'welcome'
+                ? renderWelcome()
+                : viewMode === 'intake'
+                    ? renderIntake()
                     : viewMode === 'transactions'
                         ? renderTransactions()
                         : renderDesk()}

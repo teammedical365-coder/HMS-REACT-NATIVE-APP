@@ -6,6 +6,10 @@ import { doctorAPI, otAPI } from '../../utils/api';
 import socket from '../../utils/socket';
 import OTHeader from './OTHeader';
 import { useOTResponsive } from './otResponsive';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
+import { fetchOTSurgeonsWithOffline } from '../../services/offline/offlineOTService';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
 
 const OTSurgeonsPage = () => {
     const navigation = useNavigation();
@@ -18,23 +22,42 @@ const OTSurgeonsPage = () => {
     const [lastUpdated, setLastUpdated] = useState(null);
     const [error, setError] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
+    const [offlineMeta, setOfflineMeta] = useState({
+        isOffline: false,
+        isStale: false,
+        lastSynced: null,
+        freshnessNote: null,
+        noCache: false,
+    });
 
-    const fetchSurgeonsData = useCallback(async () => {
+    const fetchSurgeonsData = useCallback(async (forceRefresh = false) => {
         setLoading(true);
         setError(null);
         try {
-            const [docsRes, schedRes] = await Promise.all([
-                doctorAPI.getDoctors(),
-                otAPI.getScheduledSurgeries()
-            ]);
+            const isOnline = await checkOnlineStatus();
+            const res = await fetchOTSurgeonsWithOffline(forceRefresh);
 
-            if (docsRes?.doctors) setDoctors(docsRes.doctors || []);
-            if (schedRes?.surgeries) setSurgeries(schedRes.surgeries || []);
+            if (res.data) {
+                if (res.data.doctors) setDoctors(res.data.doctors || []);
+                if (res.data.surgeries) setSurgeries(res.data.surgeries || []);
+            }
 
-            setLastUpdated(new Date());
+            setOfflineMeta({
+                isOffline: !isOnline,
+                isStale: !!res.isStale,
+                lastSynced: res.lastSynced,
+                freshnessNote: res.freshnessNote,
+                noCache: !!res.noCache,
+            });
+
+            if (res.lastSynced) {
+                setLastUpdated(new Date(res.lastSynced));
+            } else {
+                setLastUpdated(new Date());
+            }
         } catch (err) {
             console.error('Fetch surgeons error:', err);
-            setError(err.response?.data?.message || 'Unable to load surgeons roster. Please check connection and retry.');
+            setError(err.message || err.response?.data?.message || 'Unable to load surgeons roster.');
         } finally {
             setLoading(false);
         }
@@ -113,10 +136,29 @@ const OTSurgeonsPage = () => {
                 subtitle="Active operating surgeons, surgical assistants, caseload distribution, and individual daily schedules."
                 lastUpdated={lastUpdated}
                 loading={loading}
-                onRefresh={fetchSurgeonsData}
+                onRefresh={() => fetchSurgeonsData(true)}
                 searchQuery={searchQuery}
                 onSearchChange={setSearchQuery}
             />
+
+            {/* Offline Status & Stale Cache Warning Banner */}
+            {(offlineMeta.isOffline || offlineMeta.isStale) && (
+                <OfflineBanner
+                    isOffline={offlineMeta.isOffline}
+                    isStale={offlineMeta.isStale}
+                    lastSynced={offlineMeta.lastSynced}
+                    message={offlineMeta.freshnessNote || 'Notice: Offline Mode. Displaying cached surgical roster.'}
+                    onRetry={() => fetchSurgeonsData(true)}
+                />
+            )}
+
+            {offlineMeta.noCache && (
+                <OfflineEmptyState
+                    moduleName="OT Surgeons Roster"
+                    onRetry={() => fetchSurgeonsData(true)}
+                    customMessage="No cached surgical roster available. Connect to the network to view surgeon case assignments."
+                />
+            )}
 
             {error ? (
                 <View style={[styles.errorState, { padding: isSmallPhone ? 20 : 36 }]}>

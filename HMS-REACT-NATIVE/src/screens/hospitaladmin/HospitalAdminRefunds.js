@@ -17,6 +17,10 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { refundAdminAPI } from '../../utils/api';
 import socket from '../../utils/socket';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
+import { fetchHospitalRefundsWithOffline, assertHospitalAdminActionAllowed } from '../../services/offline/offlineHospitalAdminService';
 
 const formatCurrency = (amount) =>
     `₹${Number(amount || 0).toLocaleString('en-IN')}`;
@@ -31,6 +35,16 @@ const HospitalAdminRefunds = () => {
     const { width, height } = useWindowDimensions();
     const isMobile = width < 768;
     const isSmallMobile = width <= 400;
+
+    // Offline Resilience State
+    const [offlineMeta, setOfflineMeta] = useState({
+        isOffline: false,
+        isStale: false,
+        lastSynced: null,
+        freshnessNote: '',
+        noCache: false,
+    });
+
     const [refunds, setRefunds] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -55,15 +69,19 @@ const HospitalAdminRefunds = () => {
             if (statusFilter && statusFilter !== 'ALL') {
                 params.status = statusFilter;
             }
-            const res = await refundAdminAPI.getRefunds(params);
-            if (res.success && res.data) {
+            const isOnline = await checkOnlineStatus();
+            const res = await fetchHospitalRefundsWithOffline(params, isPull);
+            if (res && res.data) {
                 setRefunds(res.data.refunds || []);
                 setPagination(res.data.pagination || null);
-            } else if (Array.isArray(res)) {
-                setRefunds(res);
-            } else {
-                setRefunds(res.refunds || []);
             }
+            setOfflineMeta({
+                isOffline: !isOnline || Boolean(res?.isStale),
+                isStale: Boolean(res?.isStale),
+                lastSynced: res?.lastSynced,
+                freshnessNote: res?.freshnessNote || '',
+                noCache: Boolean(res?.noCache),
+            });
         } catch (err) {
             console.error('Error loading refunds for admin:', err);
             setError('Failed to load refund requests');
@@ -94,7 +112,12 @@ const HospitalAdminRefunds = () => {
         };
     }, [loadRefunds]);
 
-    const handleApprove = (id) => {
+    const handleApprove = async (id) => {
+        const guard = await assertHospitalAdminActionAllowed('AUTHORIZE_REFUND');
+        if (!guard.allowed) {
+            Alert.alert('Action Blocked (Offline)', guard.message);
+            return;
+        }
         Alert.alert(
             'Authorize Refund',
             'Are you sure you want to approve this refund request?',
@@ -130,6 +153,11 @@ const HospitalAdminRefunds = () => {
 
     const handleRejectSubmit = async () => {
         if (!rejectModal) return;
+        const guard = await assertHospitalAdminActionAllowed('REJECT_REFUND');
+        if (!guard.allowed) {
+            Alert.alert('Action Blocked (Offline)', guard.message);
+            return;
+        }
         if (!rejectionReason.trim()) {
             Alert.alert('Required', 'Please enter a rejection reason');
             return;
@@ -203,6 +231,17 @@ const HospitalAdminRefunds = () => {
                 <RefreshControl refreshing={refreshing} onRefresh={() => loadRefunds(true)} />
             }
         >
+            {/* Offline Status & Stale Cache Warning Banner */}
+            {(offlineMeta.isOffline || offlineMeta.isStale) && (
+                <OfflineBanner
+                    isOffline={offlineMeta.isOffline}
+                    isStale={offlineMeta.isStale}
+                    lastSynced={offlineMeta.lastSynced}
+                    customMessage={offlineMeta.freshnessNote || 'Notice: Offline Mode. Refund requests reflect cached records. Approvals require active server connection.'}
+                    onRefresh={() => loadRefunds(true)}
+                />
+            )}
+
             {/* Header */}
             <View style={styles.headerRow}>
                 <View style={{ flex: 1 }}>
@@ -279,6 +318,11 @@ const HospitalAdminRefunds = () => {
                     <ActivityIndicator size="large" color="#2563eb" />
                     <Text style={{ marginTop: 10, color: '#64748b' }}>Loading refund requests...</Text>
                 </View>
+            ) : offlineMeta.noCache && filteredRefunds.length === 0 ? (
+                <OfflineEmptyState
+                    message="You are currently offline and no refund requests are cached. Please connect to the internet to synchronize."
+                    onRetry={() => loadRefunds(true)}
+                />
             ) : filteredRefunds.length === 0 ? (
                 <View style={styles.emptyCard}>
                     <Ionicons name="alert-circle-outline" size={44} color="#94a3b8" />

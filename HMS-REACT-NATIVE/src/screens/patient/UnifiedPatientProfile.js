@@ -25,6 +25,7 @@ import * as DocumentPicker from 'expo-document-picker';
 // only when Platform.OS === 'web'. Native PDF uses expo-print + expo-sharing.
 import { Feather } from '@expo/vector-icons';
 import { patientAPI, receptionAPI, reportAPI, consentAPI } from '../../utils/api';
+import { fetchPatientProfileWithOffline } from '../../services/offline/offlineReceptionService';
 import { useAuth } from '../../store/hooks';
 import DoctorIPDOrdersPanel from '../../components/ipd/DoctorIPDOrdersPanel';
 import FamilyHealthTree from './FamilyHealthTree';
@@ -110,8 +111,13 @@ const UnifiedPatientProfile = () => {
         setError('');
 
         try {
-            // Full History
-            const res = await patientAPI.getFullHistory(patientId, departmentParam);
+            // Full History (Offline-aware)
+            const res = await fetchPatientProfileWithOffline({
+                patientId,
+                department: departmentParam,
+            }).catch(async () => {
+                return await patientAPI.getFullHistory(patientId, departmentParam);
+            });
             if (res && res.success && res.user) {
                 setPatientData(res.user);
                 setTimeline(Array.isArray(res.timeline) ? res.timeline : []);
@@ -693,12 +699,12 @@ const UnifiedPatientProfile = () => {
     const userRole = String(authUser?.role || '').toLowerCase();
     const dynRole = String(authUser?._roleData?.name || '').toLowerCase();
     const permissions = authUser?._roleData?.permissions || [];
-    const isReception = ['reception', 'receptionist', 'admin', 'hospitaladmin', 'superadmin', 'centraladmin', 'frontdesk'].includes(userRole) || 
-                        ['reception', 'receptionist', 'admin', 'hospitaladmin', 'superadmin', 'centraladmin', 'frontdesk'].includes(dynRole) || 
-                        permissions.includes('reception_access') || 
+    const isReception = ['reception', 'receptionist', 'admin', 'hospitaladmin', 'superadmin', 'centraladmin', 'frontdesk'].includes(userRole) ||
+                        ['reception', 'receptionist', 'admin', 'hospitaladmin', 'superadmin', 'centraladmin', 'frontdesk'].includes(dynRole) ||
+                        permissions.includes('reception_access') ||
                         permissions.includes('*');
 
-    const canViewVials = ['hospitaladmin', 'centraladmin', 'superadmin', 'reception', 'receptionist', 'doctor', 'clinicdoctor', 'clinic doctor', 'staff', 'frontdesk'].includes(userRole) || 
+    const canViewVials = ['hospitaladmin', 'centraladmin', 'superadmin', 'reception', 'receptionist', 'doctor', 'clinicdoctor', 'clinic doctor', 'staff', 'frontdesk'].includes(userRole) ||
                          ['hospitaladmin', 'centraladmin', 'superadmin', 'reception', 'receptionist', 'doctor', 'clinicdoctor', 'clinic doctor', 'staff', 'frontdesk'].includes(dynRole) ||
                          permissions.includes('reception_access') ||
                          permissions.includes('admin_manage_roles');
@@ -801,8 +807,8 @@ const UnifiedPatientProfile = () => {
 
                 {/* Identity Action Buttons (Back, Edit Profile for reception, Download PDF) */}
                 <View style={[styles.identityActionsRow, isNarrow && styles.identityActionsRowNarrow]}>
-                    <TouchableOpacity 
-                        style={[styles.headerActionBtn, styles.backBtn, isNarrow && styles.backBtnNarrow]} 
+                    <TouchableOpacity
+                        style={[styles.headerActionBtn, styles.backBtn, isNarrow && styles.backBtnNarrow]}
                         onPress={() => navigation.goBack()}
                         activeOpacity={0.8}
                     >
@@ -810,8 +816,8 @@ const UnifiedPatientProfile = () => {
                         <Text style={styles.backBtnText}>Back</Text>
                     </TouchableOpacity>
                     {isReception && (
-                        <TouchableOpacity 
-                            style={[styles.headerActionBtn, styles.editBtn, isNarrow && styles.editBtnNarrow]} 
+                        <TouchableOpacity
+                            style={[styles.headerActionBtn, styles.editBtn, isNarrow && styles.editBtnNarrow]}
                             onPress={() => setShowEditModal(true)}
                             activeOpacity={0.8}
                         >
@@ -819,8 +825,8 @@ const UnifiedPatientProfile = () => {
                             <Text style={styles.editBtnText}>Edit Profile</Text>
                         </TouchableOpacity>
                     )}
-                    <TouchableOpacity 
-                        style={[styles.headerActionBtn, styles.downloadPdfBtn, isNarrow && (isReception ? styles.downloadPdfBtnNarrowFull : styles.downloadPdfBtnNarrow)]} 
+                    <TouchableOpacity
+                        style={[styles.headerActionBtn, styles.downloadPdfBtn, isNarrow && (isReception ? styles.downloadPdfBtnNarrowFull : styles.downloadPdfBtnNarrow)]}
                         onPress={handleDownloadPDF}
                         activeOpacity={0.8}
                     >

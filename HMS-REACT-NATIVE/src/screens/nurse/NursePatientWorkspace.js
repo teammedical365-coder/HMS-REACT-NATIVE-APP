@@ -30,6 +30,39 @@ import {
     ipdNursingAPI,
     ipdCommandCenterAPI
 } from '../../utils/api';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
+import {
+    fetchNurseAdmissionDetailsWithOffline,
+    fetchNurseOrdersWithOffline,
+    fetchNurseVitalsWithOffline,
+    fetchNurseMARWithOffline,
+    fetchNurseNotesWithOffline,
+    fetchNurseTasksWithOffline,
+    fetchNurseIOWithOffline,
+    fetchNurseDevicesWithOffline,
+    fetchNurseWoundCareWithOffline,
+    fetchNurseInvestigationsWithOffline,
+    fetchNurseHandoversWithOffline,
+    fetchNurseOTPlansWithOffline,
+    fetchNurseTimelineWithOffline,
+    fetchNurseDischargeReadinessWithOffline,
+    fetchHospitalAlertsWithOffline,
+    fetchHospitalNursesWithOffline,
+    fetchNurseDischargeBlockersWithOffline,
+    recordInpatientVitalsWithOffline,
+    saveNursingNoteWithOffline,
+    recordIntakeOutputWithOffline,
+    saveShiftHandoverDraftWithOffline,
+    getShiftHandoverDraft,
+    clearShiftHandoverDraft,
+    administerMedicationOnlineOnly,
+    acknowledgeOrderOnlineOnly,
+    requestClarificationOnlineOnly,
+    assignNurseOnlineOnly,
+    signOffNursingClearanceOnlineOnly,
+} from '../../services/offline/offlineNursingService';
 
 // ── Tab definitions ──
 const TABS = [
@@ -112,6 +145,34 @@ const NursePatientWorkspace = () => {
     const [woundForm, setWoundForm] = useState(WOUND_INIT);
     const [handoverForm, setHandoverForm] = useState(HANDOVER_INIT);
 
+    // Offline state
+    const [offlineState, setOfflineState] = useState({
+        isOffline: false,
+        isCached: false,
+        lastSynced: null,
+        freshnessNote: null,
+    });
+
+    // Restore shift handover draft if previously saved locally
+    useEffect(() => {
+        let isMounted = true;
+        (async () => {
+            const draft = await getShiftHandoverDraft(admissionId);
+            if (isMounted && draft?.data) {
+                setHandoverForm(prev => ({
+                    ...prev,
+                    summary: draft.data.summary || prev.summary,
+                    importantObservations: draft.data.importantObservations || prev.importantObservations,
+                    pendingTasks: draft.data.pendingTasks || prev.pendingTasks,
+                    medicationConcerns: draft.data.medicationConcerns || prev.medicationConcerns,
+                    safetyConcerns: draft.data.safetyConcerns || prev.safetyConcerns,
+                    shift: draft.data.shift || prev.shift,
+                }));
+            }
+        })();
+        return () => { isMounted = false; };
+    }, [admissionId]);
+
     // Modal states
     const [marModal, setMarModal] = useState({
         open: false,
@@ -157,20 +218,21 @@ const NursePatientWorkspace = () => {
         setTimeout(() => setToast(null), 3500);
     }, []);
 
-    // ── Data Fetching ──
-    const fetchAdmission = useCallback(async () => {
+    // ── Data Fetching with SWR Offline Support ──
+    const fetchAdmission = useCallback(async (forceRefresh = false) => {
         try {
             setLoading(prev => ({ ...prev, admission: true }));
-            let adm = null;
-            try {
-                const singleRes = await admissionAPI.getAdmissionById(admissionId);
-                adm = singleRes?.admission || singleRes?.data || singleRes;
-            } catch (singleErr) {
-                const res = await admissionAPI.getActiveAdmissions();
-                const list = res.admissions || res.data || [];
-                adm = list.find(a => a._id === admissionId);
+            const result = await fetchNurseAdmissionDetailsWithOffline(admissionId, forceRefresh);
+            if (result?.data) {
+                setAdmission(result.data);
             }
-            if (adm) setAdmission(adm);
+            setOfflineState(prev => ({
+                ...prev,
+                isOffline: !!result.isOffline,
+                isCached: !!result.isCached,
+                lastSynced: result.lastSynced || prev.lastSynced,
+                freshnessNote: result.freshnessNote || prev.freshnessNote,
+            }));
         } catch (err) {
             console.error('Error fetching admission:', err);
         } finally {
@@ -178,11 +240,11 @@ const NursePatientWorkspace = () => {
         }
     }, [admissionId]);
 
-    const fetchOrders = useCallback(async () => {
+    const fetchOrders = useCallback(async (forceRefresh = false) => {
         try {
             setLoading(prev => ({ ...prev, orders: true }));
-            const res = await ipdClinicalAPI.getOrders(admissionId);
-            setOrders(res.orders || res.data || []);
+            const res = await fetchNurseOrdersWithOffline(admissionId, forceRefresh);
+            setOrders(res?.data || []);
         } catch (err) {
             console.error('Error fetching orders:', err);
         } finally {
@@ -190,25 +252,22 @@ const NursePatientWorkspace = () => {
         }
     }, [admissionId]);
 
-    const fetchDischargeBlockers = useCallback(async () => {
+    const fetchDischargeBlockers = useCallback(async (forceRefresh = false) => {
         if (!admissionId) return;
         try {
-            const res = await ipdCommandCenterAPI.getDischargeBlockers(admissionId);
-            if (res?.success || res?.blockers) setBlockersData(res);
+            const res = await fetchNurseDischargeBlockersWithOffline(admissionId, forceRefresh);
+            if (res?.data) setBlockersData(res.data);
         } catch (err) {
             console.warn('Error fetching discharge blockers:', err);
         }
     }, [admissionId]);
 
-    const fetchVitals = useCallback(async () => {
+    const fetchVitals = useCallback(async (forceRefresh = false) => {
         try {
             setLoading(prev => ({ ...prev, vitals: true }));
-            const [historyRes, latestRes] = await Promise.all([
-                ipdClinicalAPI.getVitalsHistory(admissionId).catch(() => ({ vitals: [] })),
-                ipdClinicalAPI.getLatestVitals(admissionId).catch(() => ({ vitals: null }))
-            ]);
-            setVitalsHistory(historyRes.vitals || []);
-            setLatestVitals(latestRes.vitals || null);
+            const res = await fetchNurseVitalsWithOffline(admissionId, forceRefresh);
+            setVitalsHistory(res?.data?.vitalsHistory || []);
+            setLatestVitals(res?.data?.latestVitals || null);
         } catch (err) {
             console.error('Error fetching vitals:', err);
         } finally {
@@ -216,11 +275,11 @@ const NursePatientWorkspace = () => {
         }
     }, [admissionId]);
 
-    const fetchMAR = useCallback(async () => {
+    const fetchMAR = useCallback(async (forceRefresh = false) => {
         try {
             setLoading(prev => ({ ...prev, mar: true }));
-            const res = await ipdClinicalAPI.getMARRecords(admissionId);
-            setMARRecords(res.marRecords || []);
+            const res = await fetchNurseMARWithOffline(admissionId, forceRefresh);
+            setMARRecords(res?.data || []);
         } catch (err) {
             console.error('Error fetching MAR:', err);
         } finally {
@@ -228,11 +287,11 @@ const NursePatientWorkspace = () => {
         }
     }, [admissionId]);
 
-    const fetchNotes = useCallback(async () => {
+    const fetchNotes = useCallback(async (forceRefresh = false) => {
         try {
             setLoading(prev => ({ ...prev, notes: true }));
-            const res = await nursingNoteAPI.getNotes(admissionId);
-            setNotes(res.notes || res.data || []);
+            const res = await fetchNurseNotesWithOffline(admissionId, forceRefresh);
+            setNotes(res?.data || []);
         } catch (err) {
             console.error('Error fetching notes:', err);
         } finally {
@@ -240,11 +299,11 @@ const NursePatientWorkspace = () => {
         }
     }, [admissionId]);
 
-    const fetchTasks = useCallback(async () => {
+    const fetchTasks = useCallback(async (forceRefresh = false) => {
         try {
             setLoading(prev => ({ ...prev, tasks: true }));
-            const res = await nursingTaskAPI.getTasks(admissionId);
-            setTasks(res.tasks || res.data || []);
+            const res = await fetchNurseTasksWithOffline(admissionId, forceRefresh);
+            setTasks(res?.data || []);
         } catch (err) {
             console.error('Error fetching tasks:', err);
         } finally {
@@ -252,15 +311,12 @@ const NursePatientWorkspace = () => {
         }
     }, [admissionId]);
 
-    const fetchIO = useCallback(async () => {
+    const fetchIO = useCallback(async (forceRefresh = false) => {
         try {
             setLoading(prev => ({ ...prev, io: true }));
-            const [historyRes, summaryRes] = await Promise.all([
-                intakeOutputAPI.getHistory(admissionId).catch(() => ({ records: [] })),
-                intakeOutputAPI.getSummary(admissionId).catch(() => ({ summary: null }))
-            ]);
-            setIoRecords(historyRes.records || historyRes.data || []);
-            setIoSummary(summaryRes.summary || summaryRes.data || null);
+            const res = await fetchNurseIOWithOffline(admissionId, forceRefresh);
+            setIoRecords(res?.data?.records || []);
+            setIoSummary(res?.data?.summary || null);
         } catch (err) {
             console.error('Error fetching I/O:', err);
         } finally {
@@ -268,15 +324,12 @@ const NursePatientWorkspace = () => {
         }
     }, [admissionId]);
 
-    const fetchDevices = useCallback(async () => {
+    const fetchDevices = useCallback(async (forceRefresh = false) => {
         try {
             setLoading(prev => ({ ...prev, lines: true }));
-            const [linesRes, cathsRes] = await Promise.all([
-                ipdLineAPI.getLines(admissionId).catch(() => ({ lines: [] })),
-                ipdCatheterAPI.getCatheters(admissionId).catch(() => ({ catheters: [] }))
-            ]);
-            setLines(linesRes.lines || linesRes.data || []);
-            setCatheters(cathsRes.catheters || cathsRes.data || []);
+            const res = await fetchNurseDevicesWithOffline(admissionId, forceRefresh);
+            setLines(res?.data?.lines || []);
+            setCatheters(res?.data?.catheters || []);
         } catch (err) {
             console.error('Error fetching devices:', err);
         } finally {
@@ -284,11 +337,11 @@ const NursePatientWorkspace = () => {
         }
     }, [admissionId]);
 
-    const fetchWoundCare = useCallback(async () => {
+    const fetchWoundCare = useCallback(async (forceRefresh = false) => {
         try {
             setLoading(prev => ({ ...prev, wound: true }));
-            const res = await woundCareAPI.getHistory(admissionId);
-            setWoundRecords(res.records || res.data || []);
+            const res = await fetchNurseWoundCareWithOffline(admissionId, forceRefresh);
+            setWoundRecords(res?.data || []);
         } catch (err) {
             console.error('Error fetching wound care:', err);
         } finally {
@@ -296,11 +349,11 @@ const NursePatientWorkspace = () => {
         }
     }, [admissionId]);
 
-    const fetchInvestigations = useCallback(async () => {
+    const fetchInvestigations = useCallback(async (forceRefresh = false) => {
         try {
             setLoading(prev => ({ ...prev, investigations: true }));
-            const res = await ipdNursingAPI.getInvestigations(admissionId);
-            setInvestigations(res.investigations || res.data?.investigations || []);
+            const res = await fetchNurseInvestigationsWithOffline(admissionId, forceRefresh);
+            setInvestigations(res?.data || []);
         } catch (err) {
             console.error('Error fetching investigations:', err);
         } finally {
@@ -308,11 +361,11 @@ const NursePatientWorkspace = () => {
         }
     }, [admissionId]);
 
-    const fetchHandovers = useCallback(async () => {
+    const fetchHandovers = useCallback(async (forceRefresh = false) => {
         try {
             setLoading(prev => ({ ...prev, handover: true }));
-            const res = await nurseHandoverAPI.getHandovers(admissionId);
-            setHandovers(res.handovers || res.data || []);
+            const res = await fetchNurseHandoversWithOffline(admissionId, forceRefresh);
+            setHandovers(res?.data || []);
         } catch (err) {
             console.error('Error fetching handovers:', err);
         } finally {
@@ -320,11 +373,11 @@ const NursePatientWorkspace = () => {
         }
     }, [admissionId]);
 
-    const fetchOTPlans = useCallback(async () => {
+    const fetchOTPlans = useCallback(async (forceRefresh = false) => {
         try {
             setLoading(prev => ({ ...prev, ot: true }));
-            const res = await ipdNursingAPI.getOTPlans(admissionId);
-            setOtPlans(res.surgeryPlans || res.data || []);
+            const res = await fetchNurseOTPlansWithOffline(admissionId, forceRefresh);
+            setOtPlans(res?.data || []);
         } catch (err) {
             console.error('Error fetching OT plans:', err);
         } finally {
@@ -332,11 +385,11 @@ const NursePatientWorkspace = () => {
         }
     }, [admissionId]);
 
-    const fetchTimeline = useCallback(async () => {
+    const fetchTimeline = useCallback(async (forceRefresh = false) => {
         try {
             setLoading(prev => ({ ...prev, timeline: true }));
-            const res = await ipdNursingAPI.getTimeline(admissionId);
-            setTimelineItems(res.timeline || res.data || []);
+            const res = await fetchNurseTimelineWithOffline(admissionId, forceRefresh);
+            setTimelineItems(res?.data || []);
         } catch (err) {
             console.error('Error fetching timeline:', err);
         } finally {
@@ -344,11 +397,11 @@ const NursePatientWorkspace = () => {
         }
     }, [admissionId]);
 
-    const fetchDischargeReadiness = useCallback(async () => {
+    const fetchDischargeReadiness = useCallback(async (forceRefresh = false) => {
         try {
             setLoading(prev => ({ ...prev, discharge: true }));
-            const res = await ipdNursingAPI.getDischargeReadiness(admissionId);
-            setDischargeReadiness(res.readiness || res.data || null);
+            const res = await fetchNurseDischargeReadinessWithOffline(admissionId, forceRefresh);
+            setDischargeReadiness(res?.data || null);
         } catch (err) {
             console.error('Error fetching discharge readiness:', err);
         } finally {
@@ -356,46 +409,46 @@ const NursePatientWorkspace = () => {
         }
     }, [admissionId]);
 
-    const fetchAlerts = useCallback(async () => {
+    const fetchAlerts = useCallback(async (forceRefresh = false) => {
         try {
-            const res = await ipdNursingAPI.getAdmissionAlerts(admissionId);
-            setAlerts(res.alerts || res.data || []);
+            const res = await fetchHospitalAlertsWithOffline(admissionId, forceRefresh);
+            setAlerts(res?.data || []);
         } catch (err) {
             console.error('Error fetching alerts:', err);
         }
     }, [admissionId]);
 
-    const fetchHospitalNurses = useCallback(async () => {
+    const fetchHospitalNurses = useCallback(async (forceRefresh = false) => {
         try {
-            const res = await ipdNursingAPI.getHospitalNurses();
-            setHospitalNurses(res.nurses || res.data || []);
+            const res = await fetchHospitalNursesWithOffline(forceRefresh);
+            setHospitalNurses(res?.data || []);
         } catch (err) {
             console.error('Error fetching hospital nurses:', err);
         }
     }, []);
 
-    const fetchAllData = useCallback(() => {
-        fetchAdmission();
-        fetchOrders();
-        fetchVitals();
-        fetchMAR();
-        fetchNotes();
-        fetchTasks();
-        fetchIO();
-        fetchDevices();
-        fetchWoundCare();
-        fetchInvestigations();
-        fetchHandovers();
-        fetchOTPlans();
-        fetchTimeline();
-        fetchDischargeReadiness();
-        fetchAlerts();
-        fetchHospitalNurses();
-        fetchDischargeBlockers();
+    const fetchAllData = useCallback((forceRefresh = false) => {
+        fetchAdmission(forceRefresh);
+        fetchOrders(forceRefresh);
+        fetchVitals(forceRefresh);
+        fetchMAR(forceRefresh);
+        fetchNotes(forceRefresh);
+        fetchTasks(forceRefresh);
+        fetchIO(forceRefresh);
+        fetchDevices(forceRefresh);
+        fetchWoundCare(forceRefresh);
+        fetchInvestigations(forceRefresh);
+        fetchHandovers(forceRefresh);
+        fetchOTPlans(forceRefresh);
+        fetchTimeline(forceRefresh);
+        fetchDischargeReadiness(forceRefresh);
+        fetchAlerts(forceRefresh);
+        fetchHospitalNurses(forceRefresh);
+        fetchDischargeBlockers(forceRefresh);
     }, [fetchAdmission, fetchOrders, fetchVitals, fetchMAR, fetchNotes, fetchTasks, fetchIO, fetchDevices, fetchWoundCare, fetchInvestigations, fetchHandovers, fetchOTPlans, fetchTimeline, fetchDischargeReadiness, fetchAlerts, fetchHospitalNurses, fetchDischargeBlockers]);
 
     useEffect(() => {
-        fetchAllData();
+        fetchAllData(false);
     }, [fetchAllData]);
 
     // Socket.io sync
@@ -442,7 +495,7 @@ const NursePatientWorkspace = () => {
     });
 
     // ── Action Handlers ──
-    // 1. Record Vitals
+    // 1. Record Vitals (with safe offline outbox draft)
     const handleRecordVitals = async () => {
         try {
             setSubmitting(true);
@@ -456,20 +509,20 @@ const NursePatientWorkspace = () => {
                 painScore: vitalsForm.painScore !== '' ? Number(vitalsForm.painScore) : undefined,
                 notes: vitalsForm.notes.trim() || undefined,
             };
-            await ipdClinicalAPI.recordVitals(admissionId, payload);
+            const result = await recordInpatientVitalsWithOffline({ admissionId, payload });
             setVitalsForm(VITALS_INIT);
-            showToast('Vitals recorded successfully');
-            fetchVitals();
-            fetchTimeline();
-            fetchAlerts();
+            showToast(result.message || 'Vitals recorded successfully');
+            fetchVitals(true);
+            fetchTimeline(true);
+            fetchAlerts(true);
         } catch (err) {
-            showToast(err.response?.data?.message || 'Error recording vitals', 'error');
+            showToast(err.response?.data?.message || err.message || 'Error recording vitals', 'error');
         } finally {
             setSubmitting(false);
         }
     };
 
-    // 2. Add Note
+    // 2. Add Note (with safe offline draft)
     const handleAddNote = async () => {
         if (!noteForm.note.trim()) {
             showToast('Note content is required', 'error');
@@ -477,13 +530,13 @@ const NursePatientWorkspace = () => {
         }
         try {
             setSubmitting(true);
-            await nursingNoteAPI.createNote(admissionId, noteForm);
+            const result = await saveNursingNoteWithOffline({ admissionId, noteData: noteForm });
             setNoteForm(NOTE_INIT);
-            showToast('Nursing note saved');
-            fetchNotes();
-            fetchTimeline();
+            showToast(result.message || 'Nursing note saved');
+            fetchNotes(true);
+            fetchTimeline(true);
         } catch (err) {
-            showToast(err.response?.data?.message || 'Error saving note', 'error');
+            showToast(err.response?.data?.message || err.message || 'Error saving note', 'error');
         } finally {
             setSubmitting(false);
         }
@@ -530,7 +583,7 @@ const NursePatientWorkspace = () => {
         }
     };
 
-    // 5. Record I/O
+    // 5. Record I/O (with safe offline outbox draft)
     const handleRecordIO = async () => {
         if (!ioForm.amount || Number(ioForm.amount) <= 0) {
             showToast('Please enter a valid amount', 'error');
@@ -538,20 +591,23 @@ const NursePatientWorkspace = () => {
         }
         try {
             setSubmitting(true);
-            await intakeOutputAPI.recordIO(admissionId, {
-                category: ioForm.category,
-                type: ioForm.type,
-                amount: Number(ioForm.amount),
-                unit: ioForm.unit,
-                source: ioForm.source.trim() || undefined,
-                notes: ioForm.notes.trim() || undefined,
+            const result = await recordIntakeOutputWithOffline({
+                admissionId,
+                ioData: {
+                    category: ioForm.category,
+                    type: ioForm.type,
+                    amount: Number(ioForm.amount),
+                    unit: ioForm.unit,
+                    source: ioForm.source.trim() || undefined,
+                    notes: ioForm.notes.trim() || undefined,
+                }
             });
             setIoForm(IO_INIT);
-            showToast('Fluid intake/output recorded');
-            fetchIO();
-            fetchTimeline();
+            showToast(result.message || 'Fluid intake/output recorded');
+            fetchIO(true);
+            fetchTimeline(true);
         } catch (err) {
-            showToast(err.response?.data?.message || 'Error recording I/O', 'error');
+            showToast(err.response?.data?.message || err.message || 'Error recording I/O', 'error');
         } finally {
             setSubmitting(false);
         }
@@ -638,7 +694,7 @@ const NursePatientWorkspace = () => {
         }
     };
 
-    // 10. Submit Shift Handover
+    // 10. Submit Shift Handover (supports offline local draft restoration)
     const handleSaveHandover = async () => {
         if (!handoverForm.summary.trim()) {
             showToast('Handover clinical summary is required', 'error');
@@ -646,19 +702,26 @@ const NursePatientWorkspace = () => {
         }
         try {
             setSubmitting(true);
+            const isOnline = await checkOnlineStatus();
+            if (!isOnline) {
+                await saveShiftHandoverDraftWithOffline(admissionId, handoverForm);
+                showToast('Device is offline. Handover saved as local draft.', 'info');
+                return;
+            }
             await nurseHandoverAPI.createHandover(admissionId, handoverForm);
+            await clearShiftHandoverDraft(admissionId);
             setHandoverForm(HANDOVER_INIT);
             showToast('Shift handover recorded');
-            fetchHandovers();
-            fetchTimeline();
+            fetchHandovers(true);
+            fetchTimeline(true);
         } catch (err) {
-            showToast(err.response?.data?.message || 'Error saving handover', 'error');
+            showToast(err.response?.data?.message || err.message || 'Error saving handover', 'error');
         } finally {
             setSubmitting(false);
         }
     };
 
-    // 11. MAR Actions
+    // 11. MAR Actions (Strict Online-Only Clinical Safety Gate)
     const openMARModal = (record, initialAction = 'GIVE') => {
         const order = typeof record?.orderId === 'object' ? record.orderId : {};
         const prescribedVal = order?.dosageValue !== undefined
@@ -709,11 +772,11 @@ const NursePatientWorkspace = () => {
 
         try {
             setSubmitting(true);
-            await ipdClinicalAPI.updateMARRecord(record._id, payload);
+            await administerMedicationOnlineOnly(record._id, payload);
             setMarModal({ open: false, record: null, action: 'GIVE', actualDoseValue: '', actualDoseUnit: 'mg', reason: '', notes: '', errorMsg: '' });
             showToast(`Medication record updated to ${finalStatus}`);
-            fetchMAR();
-            fetchTimeline();
+            fetchMAR(true);
+            fetchTimeline(true);
         } catch (err) {
             const msg = err.response?.data?.message || err.message || 'Error updating MAR';
             setMarModal(p => ({ ...p, errorMsg: msg }));
@@ -727,45 +790,45 @@ const NursePatientWorkspace = () => {
         openMARModal(record, 'GIVE');
     };
 
-    // 12. Acknowledge Order
+    // 12. Acknowledge Order (Online-Only Gate)
     const handleAcknowledgeOrder = async (orderId) => {
         try {
             setSubmitting(true);
-            await ipdClinicalAPI.acknowledgeOrder(admissionId, orderId, {
+            await acknowledgeOrderOnlineOnly(admissionId, orderId, {
                 shift: 'General',
                 notes: 'Acknowledged by bedside nurse'
             });
             showToast('Order acknowledged by nursing station');
-            fetchOrders();
-            fetchTimeline();
+            fetchOrders(true);
+            fetchTimeline(true);
         } catch (err) {
-            showToast(err.response?.data?.message || 'Failed to acknowledge order', 'error');
+            showToast(err.response?.data?.message || err.message || 'Failed to acknowledge order', 'error');
         } finally {
             setSubmitting(false);
         }
     };
 
-    // 13. Submit Clarification
+    // 13. Submit Clarification (Online-Only Gate)
     const handleSubmitClarification = async () => {
         if (!clarificationModal.question.trim() || !clarificationModal.order) return;
         try {
             setSubmitting(true);
-            await ipdClinicalAPI.requestClarification(admissionId, clarificationModal.order._id, {
+            await requestClarificationOnlineOnly(admissionId, clarificationModal.order._id, {
                 issueType: clarificationModal.issueType,
                 question: clarificationModal.question.trim()
             });
             showToast('Clarification request sent to attending doctor');
             setClarificationModal({ open: false, order: null, issueType: 'DOSAGE_CONFIRMATION', question: '' });
-            fetchOrders();
-            fetchTimeline();
+            fetchOrders(true);
+            fetchTimeline(true);
         } catch (err) {
-            showToast(err.response?.data?.message || 'Failed to submit clarification', 'error');
+            showToast(err.response?.data?.message || err.message || 'Failed to submit clarification', 'error');
         } finally {
             setSubmitting(false);
         }
     };
 
-    // 14. Assign Nurse
+    // 14. Assign Nurse (Online-Only Gate)
     const handleAssignNurseSubmit = async () => {
         if (!assignForm.nurseId) {
             showToast('Please select a nurse to assign', 'error');
@@ -773,34 +836,34 @@ const NursePatientWorkspace = () => {
         }
         try {
             setSubmitting(true);
-            await ipdNursingAPI.assignNurse(admissionId, assignForm);
+            await assignNurseOnlineOnly(admissionId, assignForm);
             setAssignModalOpen(false);
             setAssignForm({ nurseId: '', shift: 'Morning', notes: '' });
             showToast('Nurse assigned successfully');
-            fetchAdmission();
-            fetchTimeline();
+            fetchAdmission(true);
+            fetchTimeline(true);
         } catch (err) {
-            showToast(err.response?.data?.message || 'Error assigning nurse', 'error');
+            showToast(err.response?.data?.message || err.message || 'Error assigning nurse', 'error');
         } finally {
             setSubmitting(false);
         }
     };
 
-    // 15. Sign-off Nursing Clearance
+    // 15. Sign-off Nursing Clearance (Online-Only Gate)
     const handleSignOffClearance = async () => {
         try {
             setSubmitting(true);
-            const res = await ipdNursingAPI.signOffNursingClearance(admissionId, {
+            const res = await signOffNursingClearanceOnlineOnly(admissionId, {
                 nursingNotes: clearanceNotes
             });
             setClearanceModalOpen(false);
             setClearanceNotes('');
-            showToast(res.message || 'Nursing clinical clearance signed off successfully');
-            fetchAdmission();
-            fetchDischargeReadiness();
-            fetchTimeline();
+            showToast(res?.message || 'Nursing clinical clearance signed off successfully');
+            fetchAdmission(true);
+            fetchDischargeReadiness(true);
+            fetchTimeline(true);
         } catch (err) {
-            showToast(err.response?.data?.message || 'Error signing clearance', 'error');
+            showToast(err.response?.data?.message || err.message || 'Error signing clearance', 'error');
         } finally {
             setSubmitting(false);
         }
@@ -1584,6 +1647,25 @@ const NursePatientWorkspace = () => {
     }
 
     if (!admission && !loading.admission) {
+        if (offlineState.isOffline) {
+            return (
+                <View style={styles.loadingContainer}>
+                    <OfflineBanner
+                        isOffline={true}
+                        isCached={false}
+                        message="Device is offline. This inpatient admission is not stored in local cache."
+                    />
+                    <OfflineEmptyState
+                        title="Inpatient Record Not Cached"
+                        message="This patient admission has not been loaded previously while connected. Please connect to hospital Wi-Fi to synchronize admission details."
+                        onRetry={() => fetchAllData(true)}
+                    />
+                    <TouchableOpacity style={[styles.btnPrimary, { marginTop: 16 }]} onPress={() => navigation.goBack()}>
+                        <Text style={styles.btnPrimaryText}>Return to Command Center</Text>
+                    </TouchableOpacity>
+                </View>
+            );
+        }
         return (
             <View style={styles.loadingContainer}>
                 <Feather name="alert-circle" size={48} color="#94a3b8" />
@@ -1604,6 +1686,17 @@ const NursePatientWorkspace = () => {
                     <Feather name={toast.type === 'error' ? 'alert-circle' : 'check-circle'} size={16} color="#ffffff" />
                     <Text style={styles.toastText}>{toast.message}</Text>
                 </View>
+            )}
+
+            {/* Offline Clinical State Banner */}
+            {offlineState.isOffline && (
+                <OfflineBanner
+                    isOffline={true}
+                    isCached={offlineState.isCached}
+                    lastSynced={offlineState.lastSynced}
+                    message={offlineState.freshnessNote || "Offline Mode: Inpatient records are read-only cached data. MAR administration, nurse assignment, and clearance require live server connectivity."}
+                    onSync={() => fetchAllData(true)}
+                />
             )}
 
             {/* Top Bar Banner */}

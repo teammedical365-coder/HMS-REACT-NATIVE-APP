@@ -16,8 +16,16 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as DocumentPicker from 'expo-document-picker';
 import { doctorAPI, reportAPI } from '../../utils/api';
+import {
+    fetchNurseOPDQueueWithOffline,
+    saveNurseOPDVitalsWithOffline,
+    uploadDiagnosticReportOnlineOnly,
+    syncQueuedNursingOperations,
+} from '../../services/offline/offlineNursingService';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
 
 const NurseOPDQueue = () => {
     const navigation = useNavigation();
@@ -30,6 +38,14 @@ const NurseOPDQueue = () => {
     const [activeTab, setActiveTab] = useState('today'); // 'today', 'waiting', 'in_consultation', 'completed', 'all'
     const [selectedDoctorFilter, setSelectedDoctorFilter] = useState('ALL');
     const [doctorModalOpen, setDoctorModalOpen] = useState(false);
+
+    // Offline state
+    const [offlineState, setOfflineState] = useState({
+        isOffline: false,
+        isStale: false,
+        lastSynced: null,
+        noCache: false,
+    });
 
     // Modals
     const [vitalsModal, setVitalsModal] = useState({ open: false, appt: null });
@@ -87,13 +103,23 @@ const NurseOPDQueue = () => {
             setLoading(true);
         }
         try {
-            const res = await doctorAPI.getAllAppointments();
-            if (res && res.success) {
-                setAppointments(res.appointments || []);
-            } else if (res && Array.isArray(res)) {
-                setAppointments(res);
-            } else {
-                showToast(res?.message || 'Error loading appointments', 'error');
+            const isOnline = await checkOnlineStatus();
+            if (isOnline) {
+                syncQueuedNursingOperations().catch(() => {});
+            }
+
+            const result = await fetchNurseOPDQueueWithOffline(isRefresh);
+            setOfflineState({
+                isOffline: !!result.fromCache,
+                isStale: !!result.isStale,
+                lastSynced: result.lastSynced,
+                noCache: !!result.noCache,
+            });
+
+            if (result.data) {
+                setAppointments(result.data);
+            } else if (result.noCache) {
+                setAppointments([]);
             }
         } catch (err) {
             console.error('Queue fetch error:', err);
@@ -176,8 +202,16 @@ const NurseOPDQueue = () => {
                 triageNotes: vitalsForm.notes
             };
 
-            await doctorAPI.updatePatientProfile(patientId, profileData);
-            showToast('OPD triage vitals recorded successfully');
+            const res = await saveNurseOPDVitalsWithOffline({
+                patientId,
+                profileData,
+            });
+
+            if (res.queued) {
+                showToast('Saved as offline draft. Will sync automatically once connected.');
+            } else {
+                showToast('OPD triage vitals recorded successfully');
+            }
             setVitalsModal({ open: false, appt: null });
             fetchQueue(true);
         } catch (err) {
@@ -206,6 +240,11 @@ const NurseOPDQueue = () => {
     // ── Upload Diagnostic Report ──
     const handleUploadReportSubmit = async () => {
         if (!uploadFile || !uploadModal.appt) return;
+        const isOnline = await checkOnlineStatus();
+        if (!isOnline) {
+            showToast('Action Blocked: Uploading diagnostic reports requires active server connectivity.', 'error');
+            return;
+        }
         setUploadingReport(true);
         try {
             const formData = new FormData();
@@ -220,7 +259,7 @@ const NurseOPDQueue = () => {
             }
             formData.append('appointmentId', uploadModal.appt._id);
 
-            const res = await reportAPI.uploadReport(formData);
+            const res = await uploadDiagnosticReportOnlineOnly(formData);
             if (res && (res.success || res.report)) {
                 const uploadedFile = res.report || res;
                 const patientId = uploadModal.appt.userId?._id || uploadModal.appt.clinicPatientId?._id || uploadModal.appt.patientId;
@@ -360,6 +399,19 @@ const NurseOPDQueue = () => {
 
     return (
         <ScrollView style={styles.container} contentContainerStyle={[styles.contentContainer, width < 380 && { padding: 12 }]}>
+            <OfflineBanner
+                isOffline={offlineState.isOffline}
+                isStale={offlineState.isStale}
+                lastSynced={offlineState.lastSynced}
+                onRetry={() => fetchQueue(true)}
+            />
+            {offlineState.noCache && appointments.length === 0 ? (
+                <OfflineEmptyState
+                    message="No cached OPD patient queue available. Connect to the internet to load clinic appointments."
+                    onRetry={() => fetchQueue(true)}
+                />
+            ) : (
+                <>
             {/* ── Toast Notification ── */}
             {toast && (
                 <View style={[styles.toastBox, toast.type === 'error' ? styles.toastError : styles.toastSuccess]}>
@@ -698,6 +750,8 @@ const NurseOPDQueue = () => {
                     </ScrollView>
                 )}
             </View>
+                </>
+            )}
 
             {/* ── Doctor Filter Picker Modal ── */}
             <Modal

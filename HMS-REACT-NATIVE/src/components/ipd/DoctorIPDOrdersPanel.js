@@ -12,6 +12,21 @@ import {
 } from 'react-native';
 import { ipdClinicalAPI, admissionAPI } from '../../utils/api';
 import { useAuth } from '../../store/hooks';
+import {
+    fetchActiveAdmissionsWithOffline,
+    fetchIPDOrdersWithOffline,
+    fetchIPDDischargeSummaryWithOffline,
+    saveIPDClinicalOrderDraftWithOffline,
+    getIPDClinicalOrderDraft,
+    clearIPDClinicalOrderDraft,
+    saveDischargeSummaryDraftWithOffline,
+    getDischargeSummaryDraft,
+    clearDischargeSummaryDraft,
+    cancelIPDOrderOnlineOnly,
+    finalizeDischargeOrderOnlineOnly
+} from '../../services/offline/offlineIPDService';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
+import OfflineBanner from '../common/OfflineBanner';
 
 const COMMON_UNITS = [
     'mg', 'g', 'mcg', 'ml', 'tablet', 'capsule', 'vial', 'ampoule', 'drop', 'puff', 'patch', 'other'
@@ -76,6 +91,13 @@ const DoctorIPDOrdersPanel = ({
     // Active sub-tab: 'orders', 'clarifications', 'discharge'
     const [activeTab, setActiveTab] = useState('orders');
 
+    // Offline banner state
+    const [offlineState, setOfflineState] = useState({
+        isOffline: false,
+        isStale: false,
+        lastSynced: null,
+    });
+
     // Active admission state
     const [activeAdmission, setActiveAdmission] = useState(null);
     const [loadingAdmission, setLoadingAdmission] = useState(true);
@@ -125,7 +147,7 @@ const DoctorIPDOrdersPanel = ({
     const [savingSummary, setSavingSummary] = useState(false);
 
     // Fetch active admission
-    const fetchAdmission = useCallback(async () => {
+    const fetchAdmission = useCallback(async (forceRefresh = false) => {
         if (!patientId || patientId === 'undefined' || patientId === 'null') return;
         setLoadingAdmission(true);
         try {
@@ -136,13 +158,19 @@ const DoctorIPDOrdersPanel = ({
                     list = ptRes.admissions || ptRes.data || (Array.isArray(ptRes) ? ptRes : []);
                 }
             } catch (ptErr) {
-                // Fallback to active admissions
+                // Fallback to offline active admissions
             }
             if (!list || list.length === 0) {
-                const res = typeof admissionAPI.getActiveAdmissions === 'function' 
-                    ? await admissionAPI.getActiveAdmissions() 
-                    : await admissionAPI.getAdmissions({ status: 'ADMITTED' });
-                list = res.admissions || res.data || (Array.isArray(res) ? res : []);
+                const res = await fetchActiveAdmissionsWithOffline({}, forceRefresh);
+                if (res && res.data) {
+                    list = res.data.admissions || res.data.data || (Array.isArray(res.data) ? res.data : []);
+                    setOfflineState(prev => ({
+                        ...prev,
+                        isOffline: !!res.fromCache,
+                        isStale: !!res.isStale,
+                        lastSynced: res.lastSynced || prev.lastSynced
+                    }));
+                }
             }
             const active = list.find(a => {
                 const p = a.patientId?._id || a.patientId;
@@ -160,13 +188,20 @@ const DoctorIPDOrdersPanel = ({
     }, [patientId]);
 
     // Fetch existing orders
-    const fetchOrders = useCallback(async () => {
+    const fetchOrders = useCallback(async (forceRefresh = false) => {
         if (!patientId) return;
         setLoadingOrders(true);
         try {
-            const res = await ipdClinicalAPI.getPatientOrders(patientId);
-            if (res && res.success) {
-                setExistingOrders(res.data || []);
+            const res = await fetchIPDOrdersWithOffline(patientId, forceRefresh);
+            if (res && res.data) {
+                const orderData = res.data.data || (Array.isArray(res.data) ? res.data : []);
+                setExistingOrders(orderData);
+                setOfflineState(prev => ({
+                    ...prev,
+                    isOffline: !!res.fromCache,
+                    isStale: !!res.isStale,
+                    lastSynced: res.lastSynced || prev.lastSynced
+                }));
             } else {
                 setExistingOrders([]);
             }
@@ -198,29 +233,31 @@ const DoctorIPDOrdersPanel = ({
     }, [activeAdmission]);
 
     // Fetch discharge summary
-    const fetchDischargeSummary = useCallback(async () => {
+    const fetchDischargeSummary = useCallback(async (forceRefresh = false) => {
         if (!activeAdmission?._id) return;
         setLoadingSummary(true);
         try {
-            const res = await ipdClinicalAPI.getDischargeSummary(activeAdmission._id);
-            if (res && res.success && res.dischargeSummary) {
-                const s = res.dischargeSummary;
-                setDischargeSummary({
-                    diagnosis: s.diagnosis || '',
-                    admissionReason: s.admissionReason || '',
-                    hospitalCourse: s.hospitalCourse || '',
-                    proceduresSummary: s.proceduresSummary || '',
-                    keyInvestigationsSummary: s.keyInvestigationsSummary || '',
-                    treatmentSummary: s.treatmentSummary || '',
-                    conditionAtDischarge: s.conditionAtDischarge || 'STABLE',
-                    dischargeMedications: s.dischargeMedications?.length > 0
-                        ? s.dischargeMedications
-                        : [createEmptyDischargeMedRow()],
-                    followUpInstructions: s.followUpInstructions || '',
-                    returnPrecautions: s.returnPrecautions || '',
-                    followUpDate: s.followUpDate ? s.followUpDate.split('T')[0] : '',
-                    status: s.status || 'DRAFT'
-                });
+            const res = await fetchIPDDischargeSummaryWithOffline(activeAdmission._id, forceRefresh);
+            if (res && res.data) {
+                const s = res.data.dischargeSummary || res.data;
+                if (s && (s.diagnosis || s.treatmentSummary || s.conditionAtDischarge)) {
+                    setDischargeSummary({
+                        diagnosis: s.diagnosis || '',
+                        admissionReason: s.admissionReason || '',
+                        hospitalCourse: s.hospitalCourse || '',
+                        proceduresSummary: s.proceduresSummary || '',
+                        keyInvestigationsSummary: s.keyInvestigationsSummary || '',
+                        treatmentSummary: s.treatmentSummary || '',
+                        conditionAtDischarge: s.conditionAtDischarge || 'STABLE',
+                        dischargeMedications: s.dischargeMedications?.length > 0
+                            ? s.dischargeMedications
+                            : [createEmptyDischargeMedRow()],
+                        followUpInstructions: s.followUpInstructions || '',
+                        returnPrecautions: s.returnPrecautions || '',
+                        followUpDate: s.followUpDate ? s.followUpDate.split('T')[0] : '',
+                        status: s.status || 'DRAFT'
+                    });
+                }
             }
         } catch (err) {
             console.warn('Could not fetch discharge summary:', err);
@@ -228,6 +265,48 @@ const DoctorIPDOrdersPanel = ({
             setLoadingSummary(false);
         }
     }, [activeAdmission]);
+
+    // Check and restore local drafts
+    useEffect(() => {
+        const loadDraft = async () => {
+            if (!patientId) return;
+            try {
+                const draft = await getIPDClinicalOrderDraft(patientId);
+                if (draft && draft.data) {
+                    const d = draft.data;
+                    if (d.diagnosis && !diagnosis) setDiagnosis(d.diagnosis);
+                    if (d.admissionReason) setAdmissionReason(d.admissionReason);
+                    if (d.clinicalNotes) setClinicalNotes(d.clinicalNotes);
+                    if (d.medications && d.medications.length > 0) setMedicationRows(d.medications);
+                }
+            } catch (e) {
+                // Ignore draft read errors
+            }
+        };
+        loadDraft();
+    }, [patientId]);
+
+    useEffect(() => {
+        const loadSummaryDraft = async () => {
+            if (!activeAdmission?._id) return;
+            try {
+                const draft = await getDischargeSummaryDraft(activeAdmission._id);
+                if (draft && draft.data) {
+                    const s = draft.data;
+                    setDischargeSummary(prev => ({
+                        ...prev,
+                        ...s,
+                        dischargeMedications: s.dischargeMedications?.length > 0 ? s.dischargeMedications : prev.dischargeMedications
+                    }));
+                }
+            } catch (e) {
+                // Ignore draft read errors
+            }
+        };
+        if (activeTab === 'discharge') {
+            loadSummaryDraft();
+        }
+    }, [activeAdmission, activeTab]);
 
     useEffect(() => {
         fetchAdmission();
@@ -288,7 +367,7 @@ const DoctorIPDOrdersPanel = ({
 
         if (!activeAdmission?._id) {
             Alert.alert(
-                'Patient Not Admitted', 
+                'Patient Not Admitted',
                 'Patient is not currently hospitalized / admitted to an IPD bed. Please admit the patient with ward and bed allocation before placing IPD orders.'
             );
             return;
@@ -317,6 +396,25 @@ const DoctorIPDOrdersPanel = ({
         if (investigationNotes.trim()) compiledNotes += `\n[Lab Advice]: ${investigationNotes.trim()}`;
         if (procedureNotes.trim()) compiledNotes += `\n[Procedure Advice]: ${procedureNotes.trim()}`;
         if (anesthesiaNotes.trim()) compiledNotes += `\n[Anesthesia Advice]: ${anesthesiaNotes.trim()}`;
+
+        const isOnline = await checkOnlineStatus();
+        if (!isOnline) {
+            await saveIPDClinicalOrderDraftWithOffline({
+                patientId,
+                admissionId: activeAdmission?._id || null,
+                appointmentId: appointment?._id || null,
+                diagnosis: diagnosis.trim(),
+                admissionReason: admissionReason || 'Observation & Monitoring',
+                clinicalNotes: compiledNotes.trim(),
+                medications: validMeds,
+                savedAt: new Date().toISOString()
+            });
+            Alert.alert(
+                'Saved as Offline Draft',
+                'Device is offline. Your clinical order draft has been saved locally. Inpatient pharmacy dispensing and nursing administration require an active connection.'
+            );
+            return;
+        }
 
         setSubmitting(true);
         try {
@@ -355,17 +453,34 @@ const DoctorIPDOrdersPanel = ({
                 }
             }
 
+            // Clear draft after successful creation
+            await clearIPDClinicalOrderDraft(patientId);
+
             Alert.alert('Success', 'Inpatient clinical orders placed successfully!');
             setClinicalNotes('');
             setInvestigationNotes('');
             setProcedureNotes('');
             setAnesthesiaNotes('');
             setMedicationRows([createEmptyMedRow()]);
-            fetchOrders();
-            fetchAdmission();
+            fetchOrders(true);
+            fetchAdmission(true);
             if (onOrderCreated) onOrderCreated();
         } catch (err) {
             console.error('Order creation error:', err);
+            if (!err.response || err.message?.includes('Network')) {
+                await saveIPDClinicalOrderDraftWithOffline({
+                    patientId,
+                    admissionId: activeAdmission?._id || null,
+                    appointmentId: appointment?._id || null,
+                    diagnosis: diagnosis.trim(),
+                    admissionReason: admissionReason || 'Observation & Monitoring',
+                    clinicalNotes: compiledNotes.trim(),
+                    medications: validMeds,
+                    savedAt: new Date().toISOString()
+                });
+                Alert.alert('Saved as Offline Draft', 'Network connection interrupted. Your clinical order draft has been saved locally.');
+                return;
+            }
             Alert.alert('Error', err?.response?.data?.message || err.message || 'Failed to submit order.');
         } finally {
             setSubmitting(false);
@@ -375,17 +490,20 @@ const DoctorIPDOrdersPanel = ({
     // Cancel Order
     const handleConfirmCancelOrder = async () => {
         if (!orderToCancel) return;
+        const isOnline = await checkOnlineStatus();
+        if (!isOnline) {
+            Alert.alert('Action Blocked (Offline)', 'Cancelling an inpatient medication order requires an active server connection to alert the nursing station and pharmacy immediately.');
+            return;
+        }
+
         setCancelling(true);
         try {
-            const res = await ipdClinicalAPI.updateOrder(orderToCancel._id, {
-                status: 'CANCELLED',
-                cancellationReason: cancelReason.trim() || 'Cancelled by physician'
-            });
+            const res = await cancelIPDOrderOnlineOnly(orderToCancel._id, cancelReason.trim() || 'Cancelled by physician');
             if (res && res.success) {
                 Alert.alert('Success', 'Order cancelled successfully.');
                 setOrderToCancel(null);
                 setCancelReason('');
-                fetchOrders();
+                fetchOrders(true);
             } else {
                 Alert.alert('Error', res?.message || 'Failed to cancel order.');
             }
@@ -400,6 +518,11 @@ const DoctorIPDOrdersPanel = ({
     const handleRespondClarification = async (clarification) => {
         if (!doctorResponseText.trim()) {
             Alert.alert('Required', 'Please type a response to the nursing clarification.');
+            return;
+        }
+        const isOnline = await checkOnlineStatus();
+        if (!isOnline) {
+            Alert.alert('Action Blocked (Offline)', 'Responding to nursing clarification requires an active server connection to alert on-duty nurses.');
             return;
         }
         setSubmittingResponse(true);
@@ -431,30 +554,53 @@ const DoctorIPDOrdersPanel = ({
             return;
         }
 
+        const isOnline = await checkOnlineStatus();
+        if (isFinalize && !isOnline) {
+            Alert.alert(
+                'Action Blocked (Offline)',
+                'Discharge order finalization and official bed release require active server connectivity to prevent conflicting bed assignments and billing discrepancies.'
+            );
+            return;
+        }
+
+        const payload = {
+            ...dischargeSummary,
+            status: isFinalize ? 'FINALIZED' : 'DRAFT'
+        };
+
+        if (!isOnline) {
+            await saveDischargeSummaryDraftWithOffline(activeAdmission._id, payload);
+            Alert.alert('Saved as Offline Draft', 'Discharge summary draft saved in local offline storage.');
+            return;
+        }
+
         setSavingSummary(true);
         try {
-            const payload = {
-                ...dischargeSummary,
-                status: isFinalize ? 'FINALIZED' : 'DRAFT'
-            };
-
-            const res = await ipdClinicalAPI.saveDischargeSummary(activeAdmission._id, payload);
-            if (res && res.success) {
-                if (isFinalize) {
-                    await ipdClinicalAPI.createDischargeOrder(activeAdmission._id, {
-                        conditionAtDischarge: dischargeSummary.conditionAtDischarge,
-                        dischargeNotes: dischargeSummary.treatmentSummary,
-                        followUpDate: dischargeSummary.followUpDate
-                    });
-                    Alert.alert('Success', 'Discharge order finalized and clinical summary signed!');
-                } else {
-                    Alert.alert('Success', 'Discharge summary draft saved.');
-                }
-                fetchDischargeSummary();
+            if (isFinalize) {
+                await finalizeDischargeOrderOnlineOnly(activeAdmission._id, {
+                    conditionAtDischarge: dischargeSummary.conditionAtDischarge,
+                    dischargeNotes: dischargeSummary.treatmentSummary,
+                    followUpDate: dischargeSummary.followUpDate
+                });
+                await clearDischargeSummaryDraft(activeAdmission._id);
+                Alert.alert('Success', 'Discharge order finalized and clinical summary signed!');
             } else {
-                Alert.alert('Error', res?.message || 'Failed to save discharge summary.');
+                const res = await ipdClinicalAPI.saveDischargeSummary(activeAdmission._id, payload);
+                if (res && res.success) {
+                    await clearDischargeSummaryDraft(activeAdmission._id);
+                    Alert.alert('Success', 'Discharge summary draft saved.');
+                } else {
+                    throw new Error(res?.message || 'Failed to save discharge summary.');
+                }
             }
+            fetchDischargeSummary(true);
         } catch (err) {
+            console.error('Save discharge summary error:', err);
+            if (!err.response || err.message?.includes('Network')) {
+                await saveDischargeSummaryDraftWithOffline(activeAdmission._id, payload);
+                Alert.alert('Saved as Offline Draft', 'Network connection interrupted. Discharge summary draft saved locally.');
+                return;
+            }
             Alert.alert('Error', err?.response?.data?.message || err.message || 'Failed to save discharge summary.');
         } finally {
             setSavingSummary(false);
@@ -463,6 +609,12 @@ const DoctorIPDOrdersPanel = ({
 
     return (
         <View style={styles.container}>
+            <OfflineBanner
+                isOffline={offlineState.isOffline}
+                isStale={offlineState.isStale}
+                lastSynced={offlineState.lastSynced}
+                onRetry={() => { fetchAdmission(true); fetchOrders(true); }}
+            />
             {/* Header Admission Banner */}
             <View style={styles.admissionBanner}>
                 <View style={styles.bannerLeft}>

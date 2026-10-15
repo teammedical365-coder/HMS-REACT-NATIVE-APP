@@ -17,6 +17,13 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { receptionAPI, reportAPI, consentAPI } from '../../utils/api';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
+import {
+    fetchReceptionPatientsWithOffline,
+    cancelAppointmentOnlineOnly,
+} from '../../services/offline/offlineReceptionService';
 import * as DocumentPicker from 'expo-document-picker';
 import Svg, { Circle, Path, Defs, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
 import { MaterialCommunityIcons, Ionicons, Feather } from '@expo/vector-icons';
@@ -40,6 +47,11 @@ const ReceptionPatients = () => {
     const [loadingAppts, setLoadingAppts] = useState(true);
     const [loadingPatients, setLoadingPatients] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [offlineState, setOfflineState] = useState({
+        isOffline: false,
+        fromCache: false,
+        lastFetchedAt: null,
+    });
 
     // Search and tab states
     const [searchText, setSearchText] = useState('');
@@ -82,43 +94,50 @@ const ReceptionPatients = () => {
     const [consentModal, setConsentModal] = useState({ open: false, patientId: null, patientName: '', consents: [], loading: false, uploading: false });
     const [selectedConsentFile, setSelectedConsentFile] = useState(null);
 
-    // Data Fetching
-    const fetchAppointments = useCallback(async () => {
+    // Data Fetching (Offline-Aware)
+    const loadData = useCallback(async () => {
+        setLoadingAppts(true);
+        setLoadingPatients(true);
         try {
-            const res = await receptionAPI.getAllAppointments({ all: 'true' });
+            const res = await fetchReceptionPatientsWithOffline({
+                onCacheHit: (cached) => {
+                    if (cached.appointments) setAppointments(cached.appointments);
+                    if (cached.patients) setPatients(cached.patients);
+                    setOfflineState(prev => ({
+                        ...prev,
+                        fromCache: true,
+                        lastFetchedAt: cached.lastFetchedAt,
+                    }));
+                }
+            });
             if (res?.success) {
                 setAppointments(res.appointments || []);
+                setPatients(res.patients || []);
+                setOfflineState({
+                    isOffline: Boolean(res.isOffline),
+                    fromCache: Boolean(res.fromCache),
+                    lastFetchedAt: res.lastFetchedAt || null,
+                });
             }
         } catch (error) {
-            console.error("Error fetching appointments:", error);
+            console.warn("[ReceptionPatients] Error fetching records:", error.message);
+            const isOnline = await checkOnlineStatus();
+            setOfflineState(prev => ({ ...prev, isOffline: !isOnline }));
         } finally {
             setLoadingAppts(false);
-        }
-    }, []);
-
-    const fetchRecentPatients = useCallback(async () => {
-        try {
-            const res = await receptionAPI.getAllPatients();
-            if (res?.success) {
-                setPatients(res.patients || []);
-            }
-        } catch (error) {
-            console.error("Error fetching patients:", error);
-        } finally {
             setLoadingPatients(false);
         }
     }, []);
 
     useEffect(() => {
-        fetchAppointments();
-        fetchRecentPatients();
-    }, [fetchAppointments, fetchRecentPatients]);
+        loadData();
+    }, [loadData]);
 
     const handleManualRefresh = async () => {
         setIsRefreshing(true);
         startSpin();
         try {
-            await Promise.all([fetchAppointments(), fetchRecentPatients()]);
+            await loadData();
             Alert.alert('Refreshed', 'Queue refreshed with the latest records.');
         } catch (e) {
             Alert.alert('Error', 'Failed to refresh records.');
@@ -288,6 +307,11 @@ const ReceptionPatients = () => {
             Alert.alert('Missing Info', 'Please select a document to upload.');
             return;
         }
+        const isOnline = await checkOnlineStatus();
+        if (!isOnline) {
+            Alert.alert('Offline', 'Uploading medical reports requires an active internet connection.');
+            return;
+        }
         setUploadingReport(true);
         try {
             const formData = new FormData();
@@ -353,6 +377,11 @@ const ReceptionPatients = () => {
             Alert.alert('Missing File', 'Please select a signed consent document.');
             return;
         }
+        const isOnline = await checkOnlineStatus();
+        if (!isOnline) {
+            Alert.alert('Offline', 'Uploading signed consents requires an active internet connection.');
+            return;
+        }
         setConsentModal(prev => ({ ...prev, uploading: true }));
         try {
             const formData = new FormData();
@@ -398,15 +427,15 @@ const ReceptionPatients = () => {
                     style: 'destructive',
                     onPress: async () => {
                         try {
-                            const res = await receptionAPI.cancelAppointment(apptId);
+                            const res = await cancelAppointmentOnlineOnly(apptId);
                             if (res?.success) {
                                 Alert.alert('Cancelled', 'Appointment has been cancelled.');
-                                fetchAppointments();
+                                loadData();
                             } else {
                                 Alert.alert('Error', res?.message || 'Failed to cancel appointment.');
                             }
                         } catch (err) {
-                            Alert.alert('Error', 'Failed to cancel appointment.');
+                            Alert.alert('Error', err?.message || 'Failed to cancel appointment.');
                         }
                     }
                 }
@@ -416,6 +445,13 @@ const ReceptionPatients = () => {
 
     return (
         <ScrollView style={styles.container} contentContainerStyle={[styles.contentContainer, isMobile && { padding: 12, paddingBottom: 60 }]} showsVerticalScrollIndicator={false}>
+            <OfflineBanner
+                isOffline={offlineState.isOffline}
+                fromCache={offlineState.fromCache}
+                lastFetchedAt={offlineState.lastFetchedAt}
+                moduleName="Reception"
+                onRefresh={handleManualRefresh}
+            />
             {/* 1. TOP HEADER & LIVE DIGITAL CLOCK & INDICATOR */}
             <View style={[styles.pageHeader, isMobile && styles.pageHeaderMobile]}>
                 <View style={isMobile ? { width: '100%' } : { flex: 1 }}>
@@ -735,19 +771,27 @@ const ReceptionPatients = () => {
                         <Text style={styles.loadingText}>Loading patient records...</Text>
                     </View>
                 ) : filteredAppointments.length === 0 ? (
-                    <View style={styles.emptyFilterState}>
-                        <View style={styles.emptyFilterIconCircle}>
-                            <Feather name="sliders" size={28} color="#94a3b8" />
+                    offlineState.isOffline && appointments.length === 0 ? (
+                        <OfflineEmptyState
+                            title="No Cached Appointments"
+                            message="You are currently offline and no appointment records are available in the local cache. Please reconnect to synchronize."
+                            onRetry={handleManualRefresh}
+                        />
+                    ) : (
+                        <View style={styles.emptyFilterState}>
+                            <View style={styles.emptyFilterIconCircle}>
+                                <Feather name="sliders" size={28} color="#94a3b8" />
+                            </View>
+                            <Text style={styles.emptyFilterTitle}>No Appointments Matching Filter</Text>
+                            <Text style={styles.emptyFilterSubtitle}>
+                                We couldn't find any appointment records matching your current search or filter criteria.
+                            </Text>
+                            <TouchableOpacity style={styles.emptyFilterResetBtn} onPress={handleResetFilters}>
+                                <Feather name="refresh-cw" size={14} color="#ffffff" style={{ marginRight: 6 }} />
+                                <Text style={styles.emptyFilterResetBtnText}>Reset Filters & Show All Records</Text>
+                            </TouchableOpacity>
                         </View>
-                        <Text style={styles.emptyFilterTitle}>No Appointments Matching Filter</Text>
-                        <Text style={styles.emptyFilterSubtitle}>
-                            We couldn't find any appointment records matching your current search or filter criteria.
-                        </Text>
-                        <TouchableOpacity style={styles.emptyFilterResetBtn} onPress={handleResetFilters}>
-                            <Feather name="refresh-cw" size={14} color="#ffffff" style={{ marginRight: 6 }} />
-                            <Text style={styles.emptyFilterResetBtnText}>Reset Filters & Show All Records</Text>
-                        </TouchableOpacity>
-                    </View>
+                    )
                 ) : (
                     <ScrollView horizontal showsHorizontalScrollIndicator={true}>
                         <View style={styles.tableWrapper}>

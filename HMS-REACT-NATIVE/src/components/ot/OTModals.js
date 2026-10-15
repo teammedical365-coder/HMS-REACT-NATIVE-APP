@@ -10,6 +10,13 @@ import DatePickerInput from '../common/DatePickerInput';
 import TimePickerInput from '../common/TimePickerInput';
 import DropdownSelect from '../common/DropdownSelect';
 import { useOTResponsive } from '../../screens/ot/otResponsive';
+import {
+    saveSurgeryScheduleDraftWithOffline,
+    getSurgeryScheduleDraft,
+    scheduleSurgeryOnlineOnly,
+    admitPatientForSurgeryOnlineOnly,
+    transferBedForSurgeryOnlineOnly
+} from '../../services/offline/offlineOTService';
 
 export const getStatusStyle = (status) => {
     switch(status) {
@@ -319,17 +326,39 @@ export const ScheduleSurgeryModal = ({
                 ? activePlan.assistantSurgeonIds.map(as => typeof as === 'object' ? as._id : as).filter(Boolean)
                 : [];
 
-            setForm({
-                otRoomId: activePlan.otRoomId ? (typeof activePlan.otRoomId === 'object' ? activePlan.otRoomId._id : activePlan.otRoomId) : '',
-                surgeryDate: activePlan.preferredDate ? new Date(activePlan.preferredDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-                startTime: '10:00',
-                endTime: '12:00',
-                surgeonId: initialSurgeonId,
-                assistantSurgeonIds: initialAssistants,
-                surgeryCost: activePlan.surgeryCost ? String(activePlan.surgeryCost) : '',
-                priority: activePlan.priority || 'Normal',
-                notes: activePlan.notes || ''
-            });
+            // Attempt to restore any local draft
+            (async () => {
+                try {
+                    const draft = await getSurgeryScheduleDraft(activePlan._id);
+                    if (draft) {
+                        setForm({
+                            otRoomId: draft.otRoomId || '',
+                            surgeryDate: draft.surgeryDate || new Date().toISOString().split('T')[0],
+                            startTime: draft.startTime || '10:00',
+                            endTime: draft.endTime || '12:00',
+                            surgeonId: draft.surgeonId || initialSurgeonId,
+                            assistantSurgeonIds: draft.assistantSurgeonIds || initialAssistants,
+                            surgeryCost: draft.surgeryCost || (activePlan.surgeryCost ? String(activePlan.surgeryCost) : ''),
+                            priority: draft.priority || activePlan.priority || 'Normal',
+                            notes: draft.notes || activePlan.notes || ''
+                        });
+                        return;
+                    }
+                } catch (e) {}
+
+                setForm({
+                    otRoomId: activePlan.otRoomId ? (typeof activePlan.otRoomId === 'object' ? activePlan.otRoomId._id : activePlan.otRoomId) : '',
+                    surgeryDate: activePlan.preferredDate ? new Date(activePlan.preferredDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+                    startTime: '10:00',
+                    endTime: '12:00',
+                    surgeonId: initialSurgeonId,
+                    assistantSurgeonIds: initialAssistants,
+                    surgeryCost: activePlan.surgeryCost ? String(activePlan.surgeryCost) : '',
+                    priority: activePlan.priority || 'Normal',
+                    notes: activePlan.notes || ''
+                });
+            })();
+
             setSelectedAssistantToAdd('');
             setScheduleError('');
             setScheduling(false);
@@ -363,6 +392,15 @@ export const ScheduleSurgeryModal = ({
         }));
     };
 
+    const handleSaveDraft = async () => {
+        try {
+            await saveSurgeryScheduleDraftWithOffline(activePlan._id, form);
+            Alert.alert('Draft Saved', 'Surgery schedule draft saved locally. Form entries preserved.');
+        } catch (e) {
+            Alert.alert('Draft Error', e.message || 'Failed to save draft locally');
+        }
+    };
+
     const handleSubmit = async () => {
         if (!form.otRoomId || !form.surgeryDate || !form.startTime || !form.endTime || !form.surgeonId) {
             setScheduleError('Please fill all required fields (OT Room, Date, Time, Operating Surgeon)');
@@ -375,7 +413,7 @@ export const ScheduleSurgeryModal = ({
         setScheduling(true);
         setScheduleError('');
         try {
-            const res = await otAPI.scheduleSurgery(activePlan._id, form);
+            const res = await scheduleSurgeryOnlineOnly(activePlan._id, form);
             if (res.success) {
                 Alert.alert('Success', 'Surgery scheduled successfully');
                 onClose();
@@ -383,7 +421,7 @@ export const ScheduleSurgeryModal = ({
             }
         } catch (err) {
             console.error('Scheduling error:', err);
-            setScheduleError(err.response?.data?.message || 'Failed to schedule surgery');
+            setScheduleError(err.message || err.response?.data?.message || 'Failed to schedule surgery');
         } finally {
             setScheduling(false);
         }
@@ -609,13 +647,16 @@ export const ScheduleSurgeryModal = ({
                                 <TouchableOpacity onPress={onClose} style={[styles.btnSecondary, isMobile && styles.btnMobile]} activeOpacity={0.7}>
                                     <Text style={styles.btnSecondaryText}>Cancel</Text>
                                 </TouchableOpacity>
+                                <TouchableOpacity onPress={handleSaveDraft} style={[styles.btnSecondary, isMobile && styles.btnMobile, { borderColor: '#cbd5e1' }]} activeOpacity={0.7}>
+                                    <Text style={[styles.btnSecondaryText, { color: '#0284c7' }]}>💾 Save Draft</Text>
+                                </TouchableOpacity>
                                 <TouchableOpacity
                                     onPress={handleSubmit}
                                     disabled={scheduling}
                                     style={[styles.btnPrimary, isMobile && styles.btnMobile]}
                                     activeOpacity={0.7}
                                 >
-                                    <Text style={styles.btnPrimaryText}>{scheduling ? 'Scheduling...' : '✓ Confirm & Schedule Surgery'}</Text>
+                                    <Text style={styles.btnPrimaryText}>{scheduling ? 'Scheduling...' : '✓ Confirm & Schedule'}</Text>
                                 </TouchableOpacity>
                             </View>
                         </ScrollView>
@@ -672,38 +713,26 @@ export const WorkflowBedModal = ({ open, actionType, patientId, surgeryId, onClo
         try {
             const targetBed = beds.find(b => b._id === selectedBedId);
             if (actionType === 'ADMIT') {
-                await admissionAPI.createAdmission({
+                await admitPatientForSurgeryOnlineOnly({
                     patientId,
                     bedId: selectedBedId,
                     ward: targetBed?.ward,
-                    admissionDate: new Date().toISOString().split('T')[0],
-                    admissionTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
-                    notes: 'Pre-Op Admission for Surgery'
+                    surgeryId
                 });
-                await otAPI.updateSurgeryWorkflow(surgeryId, { status: 'ADMITTED' });
                 Alert.alert('Success', 'Patient admitted for surgery');
             } else if (actionType === 'TRANSFER') {
-                const actAdmRes = await admissionAPI.getPatientAdmissions(patientId);
-                const activeAdm = actAdmRes.admissions?.find(a => a.status === 'Admitted');
-                if (activeAdm) {
-                    await admissionAPI.transferBed(activeAdm._id, {
-                        newWard: targetBed?.ward,
-                        newBedId: selectedBedId,
-                        transferDate: new Date().toISOString().split('T')[0],
-                        transferTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
-                        notes: 'Post-Op Ward Transfer'
-                    });
-                    await otAPI.updateSurgeryWorkflow(surgeryId, { status: 'POST_OP' });
-                    Alert.alert('Success', 'Patient transferred to Post-Op');
-                } else {
-                    Alert.alert('Error', 'No active admission found for this patient to transfer');
-                    return;
-                }
+                await transferBedForSurgeryOnlineOnly({
+                    patientId,
+                    newBedId: selectedBedId,
+                    newWard: targetBed?.ward,
+                    surgeryId
+                });
+                Alert.alert('Success', 'Patient transferred to Post-Op');
             }
             onClose();
             if (onSuccess) onSuccess();
         } catch (err) {
-            Alert.alert('Error', err.response?.data?.message || 'Action failed');
+            Alert.alert('Action Error', err.message || err.response?.data?.message || 'Action failed');
         } finally {
             setSubmitting(false);
         }

@@ -16,6 +16,13 @@ import { useNavigation } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 import { billingAPI, hospitalAPI } from '../../utils/api';
 import DropdownSelect from '../../components/common/DropdownSelect';
+import OfflineBanner from '../../components/common/OfflineBanner';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
+import {
+    fetchCashierDashboardWithOffline,
+    fetchPatientBillsWithOffline,
+    assertHospitalAdminActionAllowed
+} from '../../services/offline/offlineHospitalAdminService';
 
 const DEFAULT_FACILITIES = [
     { name: 'General Ward Bed', pricePerDay: 1000 },
@@ -42,6 +49,8 @@ const CashierDashboard = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
+    const [offlineMeta, setOfflineMeta] = useState(null);
+    const [patientBillsOfflineMeta, setPatientBillsOfflineMeta] = useState(null);
 
     const [patientInfo, setPatientInfo] = useState(null);
     const [billingData, setBillingData] = useState({
@@ -117,10 +126,21 @@ const CashierDashboard = () => {
         setLoading(true);
         setError('');
         try {
-            const res = await billingAPI.getPatients();
-            if (res.success) {
-                setPatients(res.patients || []);
-                setFilteredPatients(res.patients || []);
+            const res = await fetchCashierDashboardWithOffline();
+            if (res.success && res.data) {
+                setPatients(res.data.patients || []);
+                setFilteredPatients(res.data.patients || []);
+                if (res.data.facilities?.length > 0) {
+                    setHospitalFacilities(res.data.facilities);
+                }
+                setOfflineMeta(res.offlineMeta || (res.fromCache ? {
+                    isOffline: true,
+                    isStale: res.isStale,
+                    cachedAt: res.cachedAt,
+                    freshnessNote: res.freshnessNote
+                } : null));
+            } else {
+                setError(res.message || res.error || 'Error fetching patients list');
             }
         } catch (err) {
             console.error('Error fetching patients:', err);
@@ -148,14 +168,23 @@ const CashierDashboard = () => {
         setSuccess('');
         try {
             const identifier = p.mrn || p.patientId || p.phone || p._id;
-            const res = await billingAPI.getPatientBills(identifier);
-            if (res.success) {
-                setPatientInfo(res.patient || p);
-                setBillingData(res.billing || { appointments: [], labReports: [], pharmacyOrders: [], facilityCharges: [], admissions: [] });
+            const res = await fetchPatientBillsWithOffline(identifier);
+            if (res.success && res.data) {
+                setPatientInfo(res.data.patient || p);
+                setBillingData(res.data.billing || { appointments: [], labReports: [], pharmacyOrders: [], facilityCharges: [], admissions: [] });
+                setPatientBillsOfflineMeta(res.offlineMeta || (res.fromCache ? {
+                    isOffline: true,
+                    isStale: res.isStale,
+                    cachedAt: res.cachedAt,
+                    freshnessNote: res.freshnessNote
+                } : null));
+            } else {
+                setPatientInfo(p);
+                setBillingData({ appointments: [], labReports: [], pharmacyOrders: [], facilityCharges: [], admissions: [] });
             }
         } catch (err) {
             console.error('Error fetching patient bills:', err);
-            setError(err.response?.data?.message || 'Error finding patient or bills');
+            setError(err.response?.data?.message || err.message || 'Error finding patient or bills');
             setPatientInfo(p);
             setBillingData({ appointments: [], labReports: [], pharmacyOrders: [], facilityCharges: [], admissions: [] });
         } finally {
@@ -178,6 +207,13 @@ const CashierDashboard = () => {
             Alert.alert('Validation Error', 'Please select a facility and enter the number of days.');
             return;
         }
+
+        const actionCheck = await assertHospitalAdminActionAllowed('ADD_FACILITY_CHARGE');
+        if (!actionCheck.allowed) {
+            Alert.alert('Action Blocked', actionCheck.message);
+            return;
+        }
+
         setAddingFacility(true);
         setError('');
 
@@ -206,6 +242,13 @@ const CashierDashboard = () => {
 
     const handlePayment = async () => {
         if (!patientInfo) return;
+
+        const actionCheck = await assertHospitalAdminActionAllowed('PROCESS_PAYMENT');
+        if (!actionCheck.allowed) {
+            Alert.alert('Action Blocked', actionCheck.message);
+            return;
+        }
+
         setProcessingPayment(true);
         setError('');
 
@@ -368,8 +411,8 @@ const CashierDashboard = () => {
                             </TouchableOpacity>
                         </View>
                         <Text style={styles.patientInfoMeta}>
-                            <Text style={{ fontWeight: '700' }}>MRN:</Text> {patientInfo.mrn || patientInfo.patientId || 'N/A'}  •  
-                            <Text style={{ fontWeight: '700' }}> Phone:</Text> {patientInfo.phone || 'N/A'}  •  
+                            <Text style={{ fontWeight: '700' }}>MRN:</Text> {patientInfo.mrn || patientInfo.patientId || 'N/A'}  •
+                            <Text style={{ fontWeight: '700' }}> Phone:</Text> {patientInfo.phone || 'N/A'}  •
                             <Text style={{ fontWeight: '700' }}> Gender:</Text> {patientInfo.gender || 'N/A'}
                         </Text>
                     </View>
@@ -563,7 +606,7 @@ const CashierDashboard = () => {
                         <View style={styles.billingSummary}>
                             <View style={styles.summaryCard}>
                                 <Text style={styles.summaryCardTitle}>Settle Bill Payment</Text>
-                                
+
                                 <View style={styles.summaryRow}>
                                     <Text style={styles.summaryLabel}>Consultations:</Text>
                                     <Text style={styles.summaryVal}>{formatCurrency(totalAppointments)}</Text>
@@ -739,6 +782,7 @@ const CashierDashboard = () => {
 
     return (
         <ScrollView style={styles.screenScroll} contentContainerStyle={styles.container}>
+            <OfflineBanner offlineMeta={patientBillsOfflineMeta || offlineMeta} />
             {/* Header */}
             <View style={styles.headerRow}>
                 <View>

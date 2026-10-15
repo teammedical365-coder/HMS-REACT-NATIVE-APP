@@ -6,11 +6,22 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import api from '../../utils/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import OfflineBanner from '../../components/OfflineBanner';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
+import { fetchAdminMainDashboardWithOffline } from '../../services/offline/offlineHospitalAdminService';
 
 const { width } = Dimensions.get('window');
 
 const AdminMainDashboard = () => {
     const navigation = useNavigation();
+
+    // Offline Resilience State
+    const [offlineMeta, setOfflineMeta] = useState({
+        isOffline: false,
+        isStale: false,
+        lastSynced: null,
+        freshnessNote: '',
+    });
 
     const [stats, setStats] = useState({
         totalUsers: 0,
@@ -25,27 +36,24 @@ const AdminMainDashboard = () => {
         const init = async () => {
             const userStr = await AsyncStorage.getItem('user');
             if (userStr) setUserName(JSON.parse(userStr).name || 'Admin');
-            fetchStats();
+            fetchStats(false);
         };
         init();
     }, []);
 
-    const fetchStats = async () => {
+    const fetchStats = async (forceRefresh = false) => {
         try {
             setLoading(true);
-            const [usersRes, rolesRes] = await Promise.all([
-                api.get('/api/admin/users').catch(() => ({ data: { success: false, users: [] } })),
-                api.get('/api/admin/roles').catch(() => ({ data: { success: false, data: [] } }))
-            ]);
-
-            const users = usersRes.data?.success ? usersRes.data.users : [];
-            const roles = rolesRes.data?.success ? rolesRes.data.data : [];
-
-            setStats({
-                totalUsers: users.length,
-                totalRoles: roles.length,
-                totalDoctors: users.filter(u => (u.role || '').toLowerCase().includes('doctor')).length,
-                totalPatients: users.filter(u => (u.role || '').toLowerCase() === 'patient').length,
+            const isOnline = await checkOnlineStatus();
+            const res = await fetchAdminMainDashboardWithOffline(forceRefresh);
+            if (res && res.data) {
+                setStats(res.data);
+            }
+            setOfflineMeta({
+                isOffline: !isOnline || Boolean(res?.isStale),
+                isStale: Boolean(res?.isStale),
+                lastSynced: res?.lastSynced,
+                freshnessNote: res?.freshnessNote || '',
             });
         } catch (err) {
             console.error('Error fetching stats:', err);
@@ -88,6 +96,17 @@ const AdminMainDashboard = () => {
 
     return (
         <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
+
+            {/* Offline Status & Stale Cache Warning Banner */}
+            {(offlineMeta.isOffline || offlineMeta.isStale) && (
+                <OfflineBanner
+                    isOffline={offlineMeta.isOffline}
+                    isStale={offlineMeta.isStale}
+                    lastSynced={offlineMeta.lastSynced}
+                    customMessage={offlineMeta.freshnessNote || 'Notice: Offline Mode. System metrics reflect cached overview.'}
+                    onRefresh={() => fetchStats(true)}
+                />
+            )}
 
             {/* Header */}
             <View style={styles.header}>

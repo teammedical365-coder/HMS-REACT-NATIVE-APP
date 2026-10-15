@@ -11,6 +11,13 @@ import {
     ScheduleSurgeryModal
 } from '../../components/ot/OTModals';
 import { useOTResponsive } from './otResponsive';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
+import {
+    fetchOTPlannedSurgeriesWithOffline,
+    cancelSurgeryOnlineOnly
+} from '../../services/offline/offlineOTService';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
 
 const OTPlannedSurgeries = () => {
     const { isSmallPhone, isPhone, isTablet, pagePadding, cardPadding, gap } = useOTResponsive();
@@ -19,6 +26,13 @@ const OTPlannedSurgeries = () => {
     const [otRoomsList, setOtRoomsList] = useState([]);
     const [loading, setLoading] = useState(true);
     const [lastUpdated, setLastUpdated] = useState(null);
+    const [offlineMeta, setOfflineMeta] = useState({
+        isOffline: false,
+        isStale: false,
+        lastSynced: null,
+        freshnessNote: null,
+        noCache: false,
+    });
 
     // Filters & Search
     const [searchQuery, setSearchQuery] = useState('');
@@ -30,22 +44,31 @@ const OTPlannedSurgeries = () => {
     const [activePlanToSchedule, setActivePlanToSchedule] = useState(null);
     const [showScheduleModal, setShowScheduleModal] = useState(false);
 
-    const fetchPlannedData = useCallback(async () => {
+    const fetchPlannedData = useCallback(async (forceRefresh = false) => {
         setLoading(true);
         try {
-            const [plannedRes, docsRes, roomsRes] = await Promise.all([
-                otAPI.getPlannedSurgeries(),
-                doctorAPI.getDoctors().catch(() => ({ doctors: [] })),
-                otAPI.getRooms().catch(() => ({ rooms: [] }))
-            ]);
+            const isOnline = await checkOnlineStatus();
+            const res = await fetchOTPlannedSurgeriesWithOffline(forceRefresh);
 
-            if (plannedRes.success) {
-                setPlannedSurgeries(plannedRes.surgeries || []);
+            if (res.data) {
+                setPlannedSurgeries(res.data.surgeries || []);
+                if (res.data.doctors) setDoctorsList(res.data.doctors);
+                if (res.data.rooms) setOtRoomsList(res.data.rooms);
             }
-            if (docsRes.doctors) setDoctorsList(docsRes.doctors);
-            if (roomsRes.rooms) setOtRoomsList(roomsRes.rooms);
 
-            setLastUpdated(new Date());
+            setOfflineMeta({
+                isOffline: !isOnline,
+                isStale: !!res.isStale,
+                lastSynced: res.lastSynced,
+                freshnessNote: res.freshnessNote,
+                noCache: !!res.noCache,
+            });
+
+            if (res.lastSynced) {
+                setLastUpdated(new Date(res.lastSynced));
+            } else {
+                setLastUpdated(new Date());
+            }
         } catch (err) {
             console.error('Fetch planned error:', err);
         } finally {
@@ -98,13 +121,13 @@ const OTPlannedSurgeries = () => {
                     style: 'destructive',
                     onPress: async () => {
                         try {
-                            const res = await otAPI.cancelSurgery(planId);
+                            const res = await cancelSurgeryOnlineOnly(planId);
                             if (res.success) {
                                 Alert.alert('Success', 'Surgery plan cancelled successfully');
-                                fetchPlannedData();
+                                fetchPlannedData(true);
                             }
                         } catch (err) {
-                            Alert.alert('Error', err.response?.data?.message || 'Failed to cancel surgery plan');
+                            Alert.alert('Cancellation Error', err.message || err.response?.data?.message || 'Failed to cancel surgery plan');
                         }
                     }
                 }
@@ -284,11 +307,30 @@ const OTPlannedSurgeries = () => {
                             subtitle="Review consultation surgery plans and schedule OT suites."
                             lastUpdated={lastUpdated}
                             loading={loading}
-                            onRefresh={fetchPlannedData}
+                            onRefresh={() => fetchPlannedData(true)}
                             searchQuery={searchQuery}
                             onSearchChange={setSearchQuery}
                             badgeCounts={{ planned: plannedSurgeries.length }}
                         />
+
+                        {/* Offline Status & Stale Cache Warning Banner */}
+                        {(offlineMeta.isOffline || offlineMeta.isStale) && (
+                            <OfflineBanner
+                                isOffline={offlineMeta.isOffline}
+                                isStale={offlineMeta.isStale}
+                                lastSynced={offlineMeta.lastSynced}
+                                message={offlineMeta.freshnessNote || 'Notice: Offline Mode. Planned surgeries must be confirmed live.'}
+                                onRetry={() => fetchPlannedData(true)}
+                            />
+                        )}
+
+                        {offlineMeta.noCache && (
+                            <OfflineEmptyState
+                                moduleName="Planned Surgeries"
+                                onRetry={() => fetchPlannedData(true)}
+                                customMessage="No cached surgery plans available offline. Please reconnect to access surgical schedules."
+                            />
+                        )}
 
                         {/* Filter Bar */}
                         <View style={[styles.filterBar, { paddingHorizontal: isSmallPhone ? 12 : 16 }]}>

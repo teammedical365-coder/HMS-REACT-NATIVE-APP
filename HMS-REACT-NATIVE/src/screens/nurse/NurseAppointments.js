@@ -18,6 +18,14 @@ import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { doctorAPI } from '../../utils/api';
 import DatePickerInput, { formatToDisplay } from '../../components/common/DatePickerInput';
+import {
+    fetchNurseAppointmentsWithOffline,
+    saveNurseOPDVitalsWithOffline,
+    syncQueuedNursingOperations,
+} from '../../services/offline/offlineNursingService';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
 
 const NurseAppointments = () => {
     const navigation = useNavigation();
@@ -32,6 +40,14 @@ const NurseAppointments = () => {
     const [doctorModalOpen, setDoctorModalOpen] = useState(false);
     const [dateModalOpen, setDateModalOpen] = useState(false);
     const [activeTab, setActiveTab] = useState('all_day'); // 'all_day', 'confirmed', 'pending', 'completed'
+
+    // Offline state
+    const [offlineState, setOfflineState] = useState({
+        isOffline: false,
+        isStale: false,
+        lastSynced: null,
+        noCache: false,
+    });
 
     // Triage Vitals Modal
     const [vitalsModal, setVitalsModal] = useState({ open: false, appt: null });
@@ -83,13 +99,23 @@ const NurseAppointments = () => {
             setLoading(true);
         }
         try {
-            const res = await doctorAPI.getAllAppointments();
-            if (res && res.success) {
-                setAppointments(res.appointments || []);
-            } else if (res && Array.isArray(res)) {
-                setAppointments(res);
-            } else {
-                showToast(res?.message || 'Error loading appointments', 'error');
+            const isOnline = await checkOnlineStatus();
+            if (isOnline) {
+                syncQueuedNursingOperations().catch(() => {});
+            }
+
+            const result = await fetchNurseAppointmentsWithOffline(selectedDate, isRefresh);
+            setOfflineState({
+                isOffline: !!result.fromCache,
+                isStale: !!result.isStale,
+                lastSynced: result.lastSynced,
+                noCache: !!result.noCache,
+            });
+
+            if (result.data) {
+                setAppointments(result.data);
+            } else if (result.noCache) {
+                setAppointments([]);
             }
         } catch (err) {
             console.error('Fetch appointments error:', err);
@@ -98,7 +124,7 @@ const NurseAppointments = () => {
             setLoading(false);
             setRefreshing(false);
         }
-    }, [showToast]);
+    }, [showToast, selectedDate]);
 
     useEffect(() => {
         fetchAppointments();
@@ -170,8 +196,16 @@ const NurseAppointments = () => {
                 triageNotes: vitalsForm.notes
             };
 
-            await doctorAPI.updatePatientProfile(patientId, profileData);
-            showToast('Pre-consultation vitals recorded');
+            const res = await saveNurseOPDVitalsWithOffline({
+                patientId,
+                profileData,
+            });
+
+            if (res.queued) {
+                showToast('Saved as offline draft. Will sync automatically once connected.');
+            } else {
+                showToast('Pre-consultation vitals recorded');
+            }
             setVitalsModal({ open: false, appt: null });
             fetchAppointments(true);
         } catch (err) {
@@ -289,6 +323,19 @@ const NurseAppointments = () => {
 
     return (
         <ScrollView style={styles.container} contentContainerStyle={[styles.contentContainer, width < 380 && { padding: 12 }]}>
+            <OfflineBanner
+                isOffline={offlineState.isOffline}
+                isStale={offlineState.isStale}
+                lastSynced={offlineState.lastSynced}
+                onRetry={() => fetchAppointments(true)}
+            />
+            {offlineState.noCache && appointments.length === 0 ? (
+                <OfflineEmptyState
+                    message="No cached appointments schedule available. Connect to the internet to load clinic roster."
+                    onRetry={() => fetchAppointments(true)}
+                />
+            ) : (
+                <>
             {/* ── Toast Notification ── */}
             {toast && (
                 <View style={[styles.toastBox, toast.type === 'error' ? styles.toastError : styles.toastSuccess]}>
@@ -634,6 +681,8 @@ const NurseAppointments = () => {
                     </ScrollView>
                 )}
             </View>
+                </>
+            )}
 
             {/* ── Date Manual Input / Picker Modal ── */}
             <Modal

@@ -1,6 +1,12 @@
-// client/src/store/slices/labSlice.js
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { labAPI } from '../../utils/api';
+import {
+  fetchLabDashboardWithOffline,
+  fetchLabAssignedRequestsWithOffline,
+  fetchLabCompletedReportsWithOffline,
+  uploadLabReportOnlineOnly,
+  updateLabPaymentOnlineOnly,
+} from '../../services/offline/offlineLabService';
 
 // --- Thunks ---
 
@@ -10,6 +16,12 @@ export const fetchLabStats = createAsyncThunk(
     try {
       return await labAPI.getStats();
     } catch (error) {
+      try {
+        const offlineRes = await fetchLabDashboardWithOffline();
+        if (offlineRes && offlineRes.stats) {
+          return { success: true, stats: offlineRes.stats, fromCache: true, isOffline: true };
+        }
+      } catch (offlineErr) {}
       return rejectWithValue(error.response?.data?.message || 'Failed to fetch stats');
     }
   }
@@ -21,6 +33,14 @@ export const fetchLabRequests = createAsyncThunk(
     try {
       return await labAPI.getRequests(status);
     } catch (error) {
+      try {
+        const offlineRes = status === 'completed'
+          ? await fetchLabCompletedReportsWithOffline()
+          : await fetchLabAssignedRequestsWithOffline({ status: status || 'pending' });
+        if (offlineRes && Array.isArray(offlineRes.requests)) {
+          return { success: true, requests: offlineRes.requests, fromCache: true, isOffline: true };
+        }
+      } catch (offlineErr) {}
       return rejectWithValue(error.response?.data?.message || 'Failed to fetch requests');
     }
   }
@@ -30,9 +50,9 @@ export const updateLabPayment = createAsyncThunk(
   'lab/updatePayment',
   async ({ id, paymentData }, { rejectWithValue }) => {
     try {
-      return await labAPI.updatePayment(id, paymentData);
+      return await updateLabPaymentOnlineOnly(id, paymentData);
     } catch (error) {
-      return rejectWithValue(error.response?.data?.message || 'Payment update failed');
+      return rejectWithValue(error.response?.data?.message || error.message || 'Payment update failed');
     }
   }
 );
@@ -41,9 +61,9 @@ export const uploadLabReport = createAsyncThunk(
   'lab/uploadReport',
   async ({ id, formData }, { rejectWithValue }) => {
     try {
-      return await labAPI.uploadReport(id, formData);
+      return await uploadLabReportOnlineOnly(id, formData);
     } catch (error) {
-      return rejectWithValue(error.response?.data?.message || 'Upload failed');
+      return rejectWithValue(error.response?.data?.message || error.message || 'Upload failed');
     }
   }
 );
@@ -88,7 +108,7 @@ const labSlice = createSlice({
         state.loading = false;
         state.error = action.payload;
       })
-      
+
       // Fetch Requests (Technician view)
       .addCase(fetchLabRequests.pending, (state) => { state.loading = true; })
       .addCase(fetchLabRequests.fulfilled, (state, action) => {

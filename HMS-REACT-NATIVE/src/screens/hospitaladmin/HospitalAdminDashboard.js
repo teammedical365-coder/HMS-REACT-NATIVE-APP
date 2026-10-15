@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { 
-    View, Text, TextInput, TouchableOpacity, ScrollView, Image, 
+import {
+    View, Text, TextInput, TouchableOpacity, ScrollView, Image,
     StyleSheet, ActivityIndicator, Alert, Modal, Platform, Dimensions, useWindowDimensions,
-    Animated, Easing 
+    Animated, Easing
 } from 'react-native';
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import { Feather, MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
@@ -19,6 +19,23 @@ import DatePickerInput from '../../components/common/DatePickerInput';
 import * as DocumentPicker from 'expo-document-picker';
 
 import DropdownSelect from '../../components/common/DropdownSelect';
+import OfflineBanner from '../../components/OfflineBanner';
+import OfflineEmptyState from '../../components/OfflineEmptyState';
+import { checkOnlineStatus } from '../../services/offline/networkStatus';
+import {
+    fetchHospitalAdminDashboardWithOffline,
+    fetchHospitalStatsWithOffline,
+    fetchHospitalInventoryWithOffline,
+    fetchHospitalLabTestsWithOffline,
+    fetchDepartmentUpisWithOffline,
+    saveStaffDraftWithOffline,
+    getStaffDraftWithOffline,
+    clearStaffDraftWithOffline,
+    saveInventoryDraftWithOffline,
+    getInventoryDraftWithOffline,
+    clearInventoryDraftWithOffline,
+    assertHospitalAdminActionAllowed,
+} from '../../services/offline/offlineHospitalAdminService';
 
 // --- Universal Dropdown Select Wrapper ---
 const CustomSelect = (props) => <DropdownSelect {...props} />;
@@ -61,6 +78,34 @@ const HospitalAdminDashboard = () => {
     const [staffRoleFilter, setStaffRoleFilter] = useState('all');
 
     const [stats, setStats] = useState({ totalUsers: 0, totalDoctors: 0, totalPatients: 0, totalRoles: 0 });
+
+    // Offline Resilience State
+    const [offlineMeta, setOfflineMeta] = useState({
+        isOffline: false,
+        isStale: false,
+        lastSynced: null,
+        freshnessNote: ''
+    });
+
+    useEffect(() => {
+        if (showCreateForm) {
+            getStaffDraftWithOffline().then(draft => {
+                if (draft && draft.name) {
+                    setCreateForm(prev => ({ ...prev, ...draft }));
+                }
+            }).catch(() => {});
+        }
+    }, [showCreateForm]);
+
+    useEffect(() => {
+        if (showInventoryForm) {
+            getInventoryDraftWithOffline().then(draft => {
+                if (draft && draft.name) {
+                    setInventoryForm(prev => ({ ...prev, ...draft }));
+                }
+            }).catch(() => {});
+        }
+    }, [showInventoryForm]);
 
     const { user: authUser, isAuthenticated } = useAuth();
     const [datePreset, setDatePreset] = useState('all');
@@ -251,20 +296,54 @@ const HospitalAdminDashboard = () => {
     }, [authUser, dispatch]);
 
     useEffect(() => {
-        const initDashboard = async () => {
-            try {
-                await Promise.all([
-                    fetchMyHospital(),
-                    fetchUsers(),
-                    fetchRoles(),
-                    fetchAIWallet()
-                ]);
-            } catch (err) {
-                console.error('Failed to initialize dashboard:', err);
-            }
-        };
         initDashboard();
     }, []);
+
+    const initDashboard = async () => {
+        try {
+            await loadDashboardOverview(false);
+        } catch (err) {
+            console.error('Failed to initialize dashboard:', err);
+        }
+    };
+
+    const loadDashboardOverview = async (forceRefresh = false) => {
+        try {
+            const isOnline = await checkOnlineStatus();
+            const dashRes = await fetchHospitalAdminDashboardWithOffline(forceRefresh);
+            if (dashRes && dashRes.data) {
+                const { hospital, users: uList, roles: rList, wallet, transactions, doctorBreakdown, stats: sObj } = dashRes.data;
+                if (hospital) {
+                    setHospitalInfo(hospital);
+                    fetchHospitalStats(hospital._id, datePreset, customStartDate, customEndDate);
+                }
+                if (uList) {
+                    setUsers(uList);
+                    setStats(sObj || {
+                        totalUsers: uList.length,
+                        totalDoctors: uList.filter(u => (u.role || u.roleName || '').toLowerCase().includes('doctor')).length,
+                        totalPatients: uList.filter(u => (u.role || u.roleName || '').toLowerCase() === 'patient').length,
+                        totalRoles: rList ? rList.length : 0
+                    });
+                }
+                if (rList) setRoles(rList);
+                if (wallet) setAiWallet(wallet);
+                if (transactions) {
+                    setAiTransactions(transactions);
+                    setAiDoctorBreakdown(doctorBreakdown || []);
+                    setVisibleLogCount(10);
+                }
+            }
+            setOfflineMeta({
+                isOffline: !isOnline || Boolean(dashRes?.isStale),
+                isStale: Boolean(dashRes?.isStale),
+                lastSynced: dashRes?.lastSynced,
+                freshnessNote: dashRes?.freshnessNote || ''
+            });
+        } catch (err) {
+            console.error('Failed to load dashboard overview:', err);
+        }
+    };
 
     useEffect(() => {
         if (activeTab === 'inventory' && inventory.length === 0) fetchInventory();
@@ -276,20 +355,21 @@ const HospitalAdminDashboard = () => {
     const fetchDepartmentUpis = async () => {
         try {
             setLoadingDeptUpis(true);
-            const [upiRes, staffRes] = await Promise.all([
-                hospitalAPI.getDepartmentUpis(),
-                hospitalAPI.getStaffForUpi()
-            ]);
-            if (upiRes && upiRes.success) setDeptUpis(upiRes.departmentUpis || []);
-            if (staffRes && staffRes.success) {
-                const staffList = staffRes.staff || staffRes.data || [];
-                setUpiStaffOptions(staffList.filter(s => !s.hasUpiAssigned));
+            const res = await fetchDepartmentUpisWithOffline();
+            if (res && res.data) {
+                setDeptUpis(res.data.departmentUpis || []);
+                setUpiStaffOptions(res.data.staffOptions || []);
             }
         } catch (err) { console.error('Failed to fetch department UPIs', err); }
         finally { setLoadingDeptUpis(false); }
     };
 
     const handleAddDeptUpi = async () => {
+        const guard = await assertHospitalAdminActionAllowed('MANAGE_UPI');
+        if (!guard.allowed) {
+            Alert.alert('Action Blocked (Offline)', guard.message);
+            return;
+        }
         if (!newDeptUpi.staffUserId || !newDeptUpi.label?.trim() || !newDeptUpi.upiId?.trim()) {
             Alert.alert('Validation Error', 'Please select a staff member and enter both Account Label and UPI ID.');
             return;
@@ -312,6 +392,11 @@ const HospitalAdminDashboard = () => {
 
 
     const handleDeleteDeptUpi = async (id) => {
+        const guard = await assertHospitalAdminActionAllowed('MANAGE_UPI');
+        if (!guard.allowed) {
+            Alert.alert('Action Blocked (Offline)', guard.message);
+            return;
+        }
         Alert.alert('Confirm Delete', 'Are you sure you want to delete this UPI account?', [
             { text: 'Cancel', style: 'cancel' },
             { text: 'Delete', style: 'destructive', onPress: async () => {
@@ -324,8 +409,13 @@ const HospitalAdminDashboard = () => {
             }}
         ]);
     };
-    
+
     const handleToggleDeptUpi = async (upiDoc) => {
+        const guard = await assertHospitalAdminActionAllowed('MANAGE_UPI');
+        if (!guard.allowed) {
+            Alert.alert('Action Blocked (Offline)', guard.message);
+            return;
+        }
         try {
             const res = await hospitalAPI.updateDepartmentUpi(upiDoc._id, { isActive: !upiDoc.isActive });
             if (res.success) {
@@ -379,8 +469,8 @@ const HospitalAdminDashboard = () => {
                 if (end) queryEnd = new Date(end).toISOString();
             }
 
-            const res = await hospitalAPI.getHospitalStats(hospitalId, queryStart, queryEnd);
-            if (res.success) setHospitalStats(res);
+            const res = await fetchHospitalStatsWithOffline(hospitalId, queryStart, queryEnd);
+            if (res && res.data) setHospitalStats(res.data);
         } catch (err) {
             console.error('Stats error:', err);
             setHospitalStats(null);
@@ -421,12 +511,10 @@ const HospitalAdminDashboard = () => {
     const handleRefreshData = async () => {
         try {
             setIsRefreshing(true);
-            await Promise.all([
-                fetchMyHospital(),
-                fetchUsers(),
-                fetchRoles(),
-                fetchAIWallet()
-            ]);
+            await loadDashboardOverview(true);
+            if (activeTab === 'inventory') fetchInventory();
+            if (activeTab === 'labpricing') fetchLabTests();
+            if (activeTab === 'accounts') fetchDepartmentUpis();
         } catch (err) {
             console.error('Failed to refresh data:', err);
         } finally {
@@ -500,6 +588,14 @@ const HospitalAdminDashboard = () => {
         setError('');
         setSuccess('');
 
+        const guard = await assertHospitalAdminActionAllowed('CREATE_STAFF');
+        if (!guard.allowed) {
+            await saveStaffDraftWithOffline(createForm);
+            Alert.alert('Action Blocked (Offline)', `${guard.message}\n\nYour inputs have been safely saved as a Local Draft. You can complete staff creation when reconnected.`);
+            setCreating(false);
+            return;
+        }
+
         if (createForm.phone && createForm.phone.length !== 10) {
             setError('Mobile number must be exactly 10 digits.');
             setCreating(false);
@@ -524,6 +620,7 @@ const HospitalAdminDashboard = () => {
             const userData = { ...createForm, avatar: avatarUrl, departments: createForm.department ? [createForm.department] : [] };
             const res = await adminAPI.createUser(userData);
             if (res.success) {
+                await clearStaffDraftWithOffline();
                 setSuccess(`✅ ${res.user?.role || 'Staff'} account created! Login: ${createForm.email}`);
                 setCreateForm({ name: '', email: '', password: '', phone: '', roleId: '', file: null, department: '' });
                 setShowCreateForm(false);
@@ -540,6 +637,13 @@ const HospitalAdminDashboard = () => {
         setUpdating(true);
         setError('');
         setSuccess('');
+
+        const guard = await assertHospitalAdminActionAllowed('UPDATE_STAFF');
+        if (!guard.allowed) {
+            Alert.alert('Action Blocked (Offline)', guard.message);
+            setUpdating(false);
+            return;
+        }
 
         if (editForm.phone && editForm.phone.length !== 10) {
             setError('Mobile number must be exactly 10 digits.');
@@ -574,6 +678,11 @@ const HospitalAdminDashboard = () => {
     };
 
     const handleDeleteUser = async (userId) => {
+        const guard = await assertHospitalAdminActionAllowed('DELETE_STAFF');
+        if (!guard.allowed) {
+            Alert.alert('Action Blocked (Offline)', guard.message);
+            return;
+        }
         try {
             const res = await adminAPI.deleteUser(userId);
             if (res.success || res.status === 200) {
@@ -604,8 +713,8 @@ const HospitalAdminDashboard = () => {
     const fetchInventory = async () => {
         setLoadingInventory(true);
         try {
-            const res = await hospitalAPI.getInventory();
-            if (res.success) setInventory(res.data);
+            const res = await fetchHospitalInventoryWithOffline();
+            if (res && res.data) setInventory(res.data);
         } catch (err) { console.error(err); } finally { setLoadingInventory(false); }
     };
 
@@ -617,17 +726,25 @@ const HospitalAdminDashboard = () => {
 
     const handleInventorySubmit = async () => {
         setSavingInventory(true); setError(''); setSuccess('');
+        const guard = await assertHospitalAdminActionAllowed('MANAGE_INVENTORY');
+        if (!guard.allowed) {
+            await saveInventoryDraftWithOffline(inventoryForm);
+            Alert.alert('Action Blocked (Offline)', `${guard.message}\n\nYour item details have been saved as a Local Draft.`);
+            setSavingInventory(false);
+            return;
+        }
+
         try {
             const p2s = Number(inventoryForm.unitConfig?.purchaseToSaleMultiplier) || 1;
             const s2b = Number(inventoryForm.unitConfig?.saleToBaseMultiplier) || 1;
             const opStock = Number(inventoryForm.inventoryConfig?.openingStock) || 0;
             const calculatedStock = opStock * p2s * s2b;
 
-            const data = { 
-                ...inventoryForm, 
-                stock: calculatedStock, 
-                buyingPrice: Number(inventoryForm.pricingConfig?.purchasePrice || 0), 
-                sellingPrice: Number(inventoryForm.pricingConfig?.sellingPrice || 0) 
+            const data = {
+                ...inventoryForm,
+                stock: calculatedStock,
+                buyingPrice: Number(inventoryForm.pricingConfig?.purchasePrice || 0),
+                sellingPrice: Number(inventoryForm.pricingConfig?.sellingPrice || 0)
             };
 
             if (editingInventoryId) {
@@ -637,6 +754,7 @@ const HospitalAdminDashboard = () => {
                 await hospitalAPI.addInventory(data);
                 setSuccess('Item added!');
             }
+            await clearInventoryDraftWithOffline();
             resetInventoryForm();
             fetchInventory();
         } catch (err) { setError(err.response?.data?.message || 'Error saving item.'); }
@@ -658,6 +776,11 @@ const HospitalAdminDashboard = () => {
     };
 
     const handleDeleteInventory = async (id) => {
+        const guard = await assertHospitalAdminActionAllowed('MANAGE_INVENTORY');
+        if (!guard.allowed) {
+            Alert.alert('Action Blocked (Offline)', guard.message);
+            return;
+        }
         Alert.alert('Confirm Delete', 'Delete this inventory item?', [
             { text: 'Cancel', style: 'cancel' },
             { text: 'Delete', style: 'destructive', onPress: async () => {
@@ -674,8 +797,8 @@ const HospitalAdminDashboard = () => {
     const fetchLabTests = async () => {
         setLoadingLabTests(true);
         try {
-            const res = await hospitalAPI.getHospitalLabTests();
-            if (res.success) {
+            const res = await fetchHospitalLabTestsWithOffline();
+            if (res && res.data) {
                 setLabTests(res.data);
                 const inputs = {};
                 res.data.forEach(t => { inputs[t._id] = t.hospitalPrice !== null ? String(t.hospitalPrice) : ''; });
@@ -685,6 +808,11 @@ const HospitalAdminDashboard = () => {
     };
 
     const handleSaveLabPrice = async (testId) => {
+        const guard = await assertHospitalAdminActionAllowed('MANAGE_LAB_PRICE');
+        if (!guard.allowed) {
+            Alert.alert('Action Blocked (Offline)', guard.message);
+            return;
+        }
         setSavingLabPrice(testId); setError('');
         try {
             const val = labPriceInputs[testId];
@@ -696,6 +824,11 @@ const HospitalAdminDashboard = () => {
     };
 
     const handleCreateLabTest = async () => {
+        const guard = await assertHospitalAdminActionAllowed('MANAGE_LAB_PRICE');
+        if (!guard.allowed) {
+            Alert.alert('Action Blocked (Offline)', guard.message);
+            return;
+        }
         if (!labTestForm.name.trim()) return setError('Test name is required.');
         setSavingLabTest(true); setError('');
         try {
@@ -715,6 +848,11 @@ const HospitalAdminDashboard = () => {
     };
 
     const handleDeleteLabTest = async (testId) => {
+        const guard = await assertHospitalAdminActionAllowed('MANAGE_LAB_PRICE');
+        if (!guard.allowed) {
+            Alert.alert('Action Blocked (Offline)', guard.message);
+            return;
+        }
         Alert.alert('Confirm Delete', 'Delete this lab test? This cannot be undone.', [
             { text: 'Cancel', style: 'cancel' },
             { text: 'Delete', style: 'destructive', onPress: async () => {
@@ -1217,6 +1355,17 @@ const HospitalAdminDashboard = () => {
             contentContainerStyle={styles.hospitaladminContainer}
             nestedScrollEnabled={true}
         >
+            {/* Offline Status & Stale Cache Warning Banner */}
+            {(offlineMeta.isOffline || offlineMeta.isStale) && (
+                <OfflineBanner
+                    isOffline={offlineMeta.isOffline}
+                    isStale={offlineMeta.isStale}
+                    lastSynced={offlineMeta.lastSynced}
+                    customMessage={offlineMeta.freshnessNote || 'Notice: Offline Mode. Staff rosters, inventory counts, and financial stats reflect cached records.'}
+                    onRefresh={handleRefreshData}
+                />
+            )}
+
             {/* 1. Modern Hero Header Banner (Matching Web ha-ai-hero-banner) */}
             <View style={styles.haAiHeroBannerWrapper}>
                 <ExpoLinearGradient
@@ -1258,10 +1407,10 @@ const HospitalAdminDashboard = () => {
                     {/* Right: High-Definition Realistic Modern Hospital Campus Visual */}
                     {!isMobile && (
                         <View style={styles.haAiRightBuilding}>
-                            <Image 
-                                source={require('../../assets/realistic_hospital_banner_art.png')} 
+                            <Image
+                                source={require('../../assets/realistic_hospital_banner_art.png')}
                                 style={styles.haAiHospitalImg}
-                                resizeMode="cover" 
+                                resizeMode="cover"
                             />
                             <ExpoLinearGradient
                                 colors={['#f0fdfa', 'rgba(240, 253, 250, 0.6)', 'transparent']}
@@ -1387,22 +1536,22 @@ const HospitalAdminDashboard = () => {
                                 <View style={{ width: '100%', gap: 8, marginTop: 4 }}>
                                     {/* Row 1: All Time, Today, 30 Days */}
                                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, width: '100%' }}>
-                                        <TouchableOpacity 
-                                            style={[styles.haAiPresetBtn, { flex: 1, justifyContent: 'center', paddingHorizontal: 4 }, datePreset === 'all' && styles.haAiPresetBtnActive]} 
+                                        <TouchableOpacity
+                                            style={[styles.haAiPresetBtn, { flex: 1, justifyContent: 'center', paddingHorizontal: 4 }, datePreset === 'all' && styles.haAiPresetBtnActive]}
                                             onPress={() => handleDatePresetChange('all')}
                                             activeOpacity={0.7}
                                         >
                                             <Text style={[styles.haAiPresetBtnText, datePreset === 'all' && styles.haAiPresetBtnTextActive]}>All Time</Text>
                                         </TouchableOpacity>
-                                        <TouchableOpacity 
-                                            style={[styles.haAiPresetBtn, { flex: 1, justifyContent: 'center', paddingHorizontal: 4 }, datePreset === 'today' && styles.haAiPresetBtnActive]} 
+                                        <TouchableOpacity
+                                            style={[styles.haAiPresetBtn, { flex: 1, justifyContent: 'center', paddingHorizontal: 4 }, datePreset === 'today' && styles.haAiPresetBtnActive]}
                                             onPress={() => handleDatePresetChange('today')}
                                             activeOpacity={0.7}
                                         >
                                             <Text style={[styles.haAiPresetBtnText, datePreset === 'today' && styles.haAiPresetBtnTextActive]}>Today</Text>
                                         </TouchableOpacity>
-                                        <TouchableOpacity 
-                                            style={[styles.haAiPresetBtn, { flex: 1, justifyContent: 'center', paddingHorizontal: 4 }, datePreset === '30' && styles.haAiPresetBtnActive]} 
+                                        <TouchableOpacity
+                                            style={[styles.haAiPresetBtn, { flex: 1, justifyContent: 'center', paddingHorizontal: 4 }, datePreset === '30' && styles.haAiPresetBtnActive]}
                                             onPress={() => handleDatePresetChange('30')}
                                             activeOpacity={0.7}
                                         >
@@ -1412,8 +1561,8 @@ const HospitalAdminDashboard = () => {
 
                                     {/* Row 2: Apply Custom Date + Refresh */}
                                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, width: '100%' }}>
-                                        <TouchableOpacity 
-                                            style={[styles.haAiPresetBtn, styles.haAiApplyCustomBtn, { flex: 1, justifyContent: 'center' }, datePreset === 'custom' && styles.haAiPresetBtnActive]} 
+                                        <TouchableOpacity
+                                            style={[styles.haAiPresetBtn, styles.haAiApplyCustomBtn, { flex: 1, justifyContent: 'center' }, datePreset === 'custom' && styles.haAiPresetBtnActive]}
                                             onPress={() => setShowCustomDateModal(true)}
                                             activeOpacity={0.7}
                                         >
@@ -1426,17 +1575,17 @@ const HospitalAdminDashboard = () => {
                                             {datePreset === 'custom' && <View style={styles.haAiCustomBadgeDot} />}
                                         </TouchableOpacity>
 
-                                        <TouchableOpacity 
-                                            style={[styles.haAiRefreshBtn, isRefreshing && styles.haAiRefreshBtnActive, { justifyContent: 'center', paddingHorizontal: 12 }]} 
+                                        <TouchableOpacity
+                                            style={[styles.haAiRefreshBtn, isRefreshing && styles.haAiRefreshBtnActive, { justifyContent: 'center', paddingHorizontal: 12 }]}
                                             onPress={handleRefreshData}
                                             disabled={isRefreshing}
                                             activeOpacity={0.7}
                                         >
                                             <Animated.View style={{ transform: [{ rotate: spinInterpolate }] }}>
-                                                <Feather 
-                                                    name="refresh-cw" 
-                                                    size={13} 
-                                                    color={isRefreshing ? '#94a3b8' : '#334155'} 
+                                                <Feather
+                                                    name="refresh-cw"
+                                                    size={13}
+                                                    color={isRefreshing ? '#94a3b8' : '#334155'}
                                                 />
                                             </Animated.View>
                                             <Text style={styles.haAiRefreshBtnText}>
@@ -1448,29 +1597,29 @@ const HospitalAdminDashboard = () => {
                             ) : (
                                 <>
                                     <View style={styles.haAiPresetPills}>
-                                        <TouchableOpacity 
-                                            style={[styles.haAiPresetBtn, datePreset === 'all' && styles.haAiPresetBtnActive]} 
+                                        <TouchableOpacity
+                                            style={[styles.haAiPresetBtn, datePreset === 'all' && styles.haAiPresetBtnActive]}
                                             onPress={() => handleDatePresetChange('all')}
                                             activeOpacity={0.7}
                                         >
                                             <Text style={[styles.haAiPresetBtnText, datePreset === 'all' && styles.haAiPresetBtnTextActive]}>All Time</Text>
                                         </TouchableOpacity>
-                                        <TouchableOpacity 
-                                            style={[styles.haAiPresetBtn, datePreset === 'today' && styles.haAiPresetBtnActive]} 
+                                        <TouchableOpacity
+                                            style={[styles.haAiPresetBtn, datePreset === 'today' && styles.haAiPresetBtnActive]}
                                             onPress={() => handleDatePresetChange('today')}
                                             activeOpacity={0.7}
                                         >
                                             <Text style={[styles.haAiPresetBtnText, datePreset === 'today' && styles.haAiPresetBtnTextActive]}>Today</Text>
                                         </TouchableOpacity>
-                                        <TouchableOpacity 
-                                            style={[styles.haAiPresetBtn, datePreset === '30' && styles.haAiPresetBtnActive]} 
+                                        <TouchableOpacity
+                                            style={[styles.haAiPresetBtn, datePreset === '30' && styles.haAiPresetBtnActive]}
                                             onPress={() => handleDatePresetChange('30')}
                                             activeOpacity={0.7}
                                         >
                                             <Text style={[styles.haAiPresetBtnText, datePreset === '30' && styles.haAiPresetBtnTextActive]}>30 Days</Text>
                                         </TouchableOpacity>
-                                        <TouchableOpacity 
-                                            style={[styles.haAiPresetBtn, styles.haAiApplyCustomBtn, datePreset === 'custom' && styles.haAiPresetBtnActive]} 
+                                        <TouchableOpacity
+                                            style={[styles.haAiPresetBtn, styles.haAiApplyCustomBtn, datePreset === 'custom' && styles.haAiPresetBtnActive]}
                                             onPress={() => setShowCustomDateModal(true)}
                                             activeOpacity={0.7}
                                         >
@@ -1485,17 +1634,17 @@ const HospitalAdminDashboard = () => {
                                     </View>
 
                                     {/* Refresh Button */}
-                                    <TouchableOpacity 
-                                        style={[styles.haAiRefreshBtn, isRefreshing && styles.haAiRefreshBtnActive]} 
+                                    <TouchableOpacity
+                                        style={[styles.haAiRefreshBtn, isRefreshing && styles.haAiRefreshBtnActive]}
                                         onPress={handleRefreshData}
                                         disabled={isRefreshing}
                                         activeOpacity={0.7}
                                     >
                                         <Animated.View style={{ transform: [{ rotate: spinInterpolate }] }}>
-                                            <Feather 
-                                                name="refresh-cw" 
-                                                size={13} 
-                                                color={isRefreshing ? '#94a3b8' : '#334155'} 
+                                            <Feather
+                                                name="refresh-cw"
+                                                size={13}
+                                                color={isRefreshing ? '#94a3b8' : '#334155'}
                                             />
                                         </Animated.View>
                                         <Text style={styles.haAiRefreshBtnText}>
@@ -1514,14 +1663,14 @@ const HospitalAdminDashboard = () => {
                         animationType="fade"
                         onRequestClose={() => setShowCustomDateModal(false)}
                     >
-                        <TouchableOpacity 
-                            style={styles.haCustomDateModalBackdrop} 
-                            activeOpacity={1} 
+                        <TouchableOpacity
+                            style={styles.haCustomDateModalBackdrop}
+                            activeOpacity={1}
                             onPress={() => setShowCustomDateModal(false)}
                         >
-                            <TouchableOpacity 
-                                style={styles.haCustomDateModalCard} 
-                                activeOpacity={1} 
+                            <TouchableOpacity
+                                style={styles.haCustomDateModalCard}
+                                activeOpacity={1}
                                 onPress={(e) => e.stopPropagation()}
                             >
                                 <View style={styles.haCustomModalHeader}>
@@ -1534,7 +1683,7 @@ const HospitalAdminDashboard = () => {
                                             <Text style={styles.haCustomModalSubtitle}>Select start and end dates to filter hospital analytics</Text>
                                         </View>
                                     </View>
-                                    <TouchableOpacity 
+                                    <TouchableOpacity
                                         onPress={() => setShowCustomDateModal(false)}
                                         style={styles.haCustomModalClose}
                                     >
@@ -1832,7 +1981,7 @@ const HospitalAdminDashboard = () => {
                                 end={{ x: 1, y: 0 }}
                                 style={styles.haAiCreditsTopBar}
                             />
-                            
+
                             <View style={styles.haAiCreditsContent}>
                                 <View style={styles.haAiCreditsLeft}>
                                     <View style={styles.haAiCreditsHeader}>
@@ -1882,7 +2031,7 @@ const HospitalAdminDashboard = () => {
                         const now = new Date();
                         const curM = monthNames[now.getMonth()];
                         const prevM = monthNames[(now.getMonth() - 1 + 12) % 12];
-                        const dateLabels = chartRange === 'last_month' 
+                        const dateLabels = chartRange === 'last_month'
                             ? [`01 ${prevM}`, `05 ${prevM}`, `10 ${prevM}`, `15 ${prevM}`, `20 ${prevM}`, `25 ${prevM}`, `30 ${prevM}`]
                             : chartRange === 'this_year'
                                 ? ['Jan', 'Mar', 'May', 'Jul', 'Sep', 'Nov', 'Dec']
@@ -1917,7 +2066,7 @@ const HospitalAdminDashboard = () => {
                                                 { id: 'last_month', label: 'Last Month' },
                                                 { id: 'this_year', label: 'This Year' },
                                             ].map((r) => (
-                                                <TouchableOpacity 
+                                                <TouchableOpacity
                                                     key={r.id}
                                                     style={[styles.haRangePill, chartRange === r.id && styles.haRangePillActive]}
                                                     onPress={() => setChartRange(r.id)}
@@ -2054,8 +2203,8 @@ const HospitalAdminDashboard = () => {
                                         <Text style={styles.haAvatarInitialsText}>{(currentUser?.name || 'A').charAt(0).toUpperCase()}</Text>
                                     </View>
                                 )}
-                                <TouchableOpacity 
-                                    style={styles.haAvatarEditBadge} 
+                                <TouchableOpacity
+                                    style={styles.haAvatarEditBadge}
                                     onPress={handlePickProfilePhoto}
                                     activeOpacity={0.8}
                                 >
@@ -2067,17 +2216,17 @@ const HospitalAdminDashboard = () => {
                             <View style={styles.haProfileInfoBlock}>
                                 <Text style={styles.haProfileName}>{currentUser?.name || 'Hospital Admin'}</Text>
                                 <Text style={styles.haProfileEmail}>{currentUser?.email || ''}</Text>
-                                
+
                                 <View style={styles.haProfileActions}>
                                     <TouchableOpacity style={styles.haChoosePhotoBtn} onPress={handlePickProfilePhoto}>
                                         <Feather name="camera" size={14} color="#334155" />
                                         <Text style={styles.haChoosePhotoBtnText}>Choose Photo</Text>
                                     </TouchableOpacity>
-                                    
+
                                     {profileFile && (
-                                        <TouchableOpacity 
-                                            onPress={handleSaveProfilePhoto} 
-                                            disabled={savingProfile} 
+                                        <TouchableOpacity
+                                            onPress={handleSaveProfilePhoto}
+                                            disabled={savingProfile}
                                             style={styles.haSavePhotoBtn}
                                         >
                                             <Text style={styles.haSavePhotoBtnText}>{savingProfile ? 'Saving...' : 'Save Photo'}</Text>
@@ -2305,7 +2454,7 @@ const HospitalAdminDashboard = () => {
                                         const isCurrentUser = (userItem.id || userItem._id) === currentUser.id;
                                         const isSuperUser = ['centraladmin', 'superadmin'].includes(userItem.role?.toLowerCase());
                                         const roleStr = (userItem.role || '').toLowerCase();
-                                        
+
                                         let roleBg = '#f1f5f9', roleColor = '#64748b', roleBorder = '#e2e8f0';
                                         if (roleStr.includes('admin') || roleStr.includes('superadmin')) { roleBg = '#fee2e2'; roleColor = '#dc2626'; roleBorder = '#fecaca'; }
                                         else if (roleStr.includes('doctor')) { roleBg = '#dbeafe'; roleColor = '#2563eb'; roleBorder = '#bfdbfe'; }
@@ -2361,9 +2510,9 @@ const HospitalAdminDashboard = () => {
                         <TouchableOpacity style={styles.btnSave} onPress={async () => {
                             try {
                                 setError('');
-                                await hospitalAPI.updateDepartmentFees({ 
+                                await hospitalAPI.updateDepartmentFees({
                                     departmentFees: hospitalInfo.departmentFees,
-                                    departmentValidity: hospitalInfo.departmentValidity 
+                                    departmentValidity: hospitalInfo.departmentValidity
                                 });
                                 setSuccess('All department fees and validity saved!');
                                 setTimeout(() => setSuccess(''), 3000);
@@ -2414,7 +2563,7 @@ const HospitalAdminDashboard = () => {
                 <View style={styles.adminCard}>
                     <Text style={styles.cardTitle}>🛏️ Manage Facilities & Rooms</Text>
                     <Text style={styles.cardSubtitle}>Add facilities like ICU, NCU, Deluxe Rooms, and their per-day pricing.</Text>
-                    
+
                     <View style={{ backgroundColor: '#f8fafc', padding: 16, borderRadius: 8, marginBottom: 20 }}>
                         <View style={{ flexDirection: 'row', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                             <View style={{ flex: 1, minWidth: 150 }}>
@@ -2471,10 +2620,10 @@ const HospitalAdminDashboard = () => {
 
             {/* ===================== BEDS TAB ===================== */}
             {activeTab === 'beds' && <BedManagement />}
-            
+
             {/* ===================== OT TAB ===================== */}
             {activeTab === 'ot' && <OTDashboard />}
-            
+
             {/* ===================== INVENTORY TAB ===================== */}
             {activeTab === 'inventory' && (
                 <View>
@@ -2546,7 +2695,7 @@ const HospitalAdminDashboard = () => {
                                             <CustomSelect options={[{label:'Tablet',value:'Tablet'},{label:'Capsule',value:'Capsule'},{label:'ml',value:'ml'},{label:'mg',value:'mg'}]} value={inventoryForm.unitConfig.baseUnit} onChange={v => setInventoryForm({ ...inventoryForm, unitConfig: { ...inventoryForm.unitConfig, baseUnit: v }})} placeholder="Select" />
                                         </View>
                                     </View>
-                                    
+
                                     <View style={{ borderWidth: 1, borderColor: '#cbd5e1', borderStyle: 'dashed', padding: 16, borderRadius: 8, backgroundColor: '#f8fafc', marginBottom: 16 }}>
                                         <Text style={{ fontSize: 13, color: '#64748b', marginBottom: 12, fontWeight: '600' }}>Conversion Builder</Text>
                                         <View style={{ flexDirection: 'row', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -2753,7 +2902,7 @@ const HospitalAdminDashboard = () => {
                     <View style={styles.adminCard}>
                         <Text style={styles.cardTitle}>🏦 Accounts & Payments Configuration</Text>
                         <Text style={styles.cardSubtitle}>Manage payment options, banking integrations, and gateways.</Text>
-                        
+
                         <View style={{ flexDirection: 'row', gap: 15, marginBottom: 20, borderBottomWidth: 2, borderBottomColor: '#e2e8f0', paddingBottom: 10, flexWrap: 'wrap' }}>
                             <TouchableOpacity onPress={() => setAccountsSubTab('upi')} style={[styles.haTab, accountsSubTab === 'upi' && styles.haTabActive]}><Text style={[styles.haTabText, accountsSubTab === 'upi' && styles.haTabTextActive]}>UPI Settings</Text></TouchableOpacity>
                             <TouchableOpacity onPress={() => setAccountsSubTab('bank')} style={[styles.haTab, accountsSubTab === 'bank' && styles.haTabActive]}><Text style={[styles.haTabText, accountsSubTab === 'bank' && styles.haTabTextActive]}>Bank Details</Text></TouchableOpacity>
@@ -2885,14 +3034,14 @@ const HospitalAdminDashboard = () => {
                 animationType="fade"
                 onRequestClose={() => setShowAIDoctorModal(false)}
             >
-                <TouchableOpacity 
-                    style={styles.modalOverlay} 
-                    activeOpacity={1} 
+                <TouchableOpacity
+                    style={styles.modalOverlay}
+                    activeOpacity={1}
                     onPress={() => setShowAIDoctorModal(false)}
                 >
-                    <TouchableOpacity 
-                        activeOpacity={1} 
-                        onPress={e => e.stopPropagation()} 
+                    <TouchableOpacity
+                        activeOpacity={1}
+                        onPress={e => e.stopPropagation()}
                         style={styles.haAiModalWrapper}
                     >
                         <ScrollView showsVerticalScrollIndicator={false}>
