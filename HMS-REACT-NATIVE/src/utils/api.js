@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL, STORAGE_KEYS } from './Constants';
 import { getStoreRef, dispatchLogout } from '../store/storeRef';
+import { HARDCODED_TENANT } from '../tenant';
 
 export const baseURL = API_BASE_URL;
 
@@ -226,11 +227,12 @@ export const authAPI = {
   sendOtp: async (email, password, hospitalId, hospitalSlug, loginType) => {
     try {
       const payload = { email, password, loginType };
-      
-      const idToUse = hospitalId || (loginType !== 'admin' ? process.env.EXPO_PUBLIC_TENANT_ID : null);
+
+      const idToUse = hospitalId || (loginType !== 'admin' ? (process.env.EXPO_PUBLIC_TENANT_ID || HARDCODED_TENANT?.tenantId) : null);
       if (idToUse) payload.hospitalId = idToUse;
-      
-      if (hospitalSlug) payload.hospitalSlug = hospitalSlug;
+
+      const slugToUse = hospitalSlug || (loginType !== 'admin' ? (process.env.EXPO_PUBLIC_TENANT_SLUG || HARDCODED_TENANT?.slug) : null);
+      if (slugToUse) payload.hospitalSlug = slugToUse;
 
       const response = await apiClient.post('/api/auth/otp/send', payload);
       return response.data;

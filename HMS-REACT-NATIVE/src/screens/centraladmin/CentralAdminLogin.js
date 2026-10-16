@@ -5,12 +5,17 @@ import { useAppDispatch, useAuth } from '../../store/hooks';
 import { sendOtp, verifyOtp, resendOtp, forceLogin, clearError, resetOtpFlow } from '../../store/slices/authSlice';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NeuralAuthPortal from '../../components/auth/NeuralAuthPortal';
+import { isCentralPlatform } from '../../utils/subdomain';
 
 const CentralAdminLogin = () => {
     const navigation = useNavigation();
     const dispatch = useAppDispatch();
     const { loading, error, isAuthenticated, user, otpStep, preAuthToken, otpEmail, activeSession, otpSuccessMsg } = useAuth();
     const [sessionBanner, setSessionBanner] = useState(null);
+
+    // On the central platform (Vercel deployment, localhost, or platform root),
+    // omit the staff switch link to prevent navigating into a tenantless Clinical Portal.
+    const showStaffSwitch = !isCentralPlatform();
 
     useEffect(() => {
         const checkSessionBanner = async () => {
@@ -88,7 +93,7 @@ const CentralAdminLogin = () => {
             error={error}
             successMsg={otpSuccessMsg}
             sessionBanner={sessionBanner}
-            extraFooter={(
+            extraFooter={showStaffSwitch ? (
                 <View style={{ alignItems: 'center', marginTop: 14 }}>
                     <TouchableOpacity
                         onPress={() => navigation.navigate('Login')}
@@ -100,7 +105,7 @@ const CentralAdminLogin = () => {
                         </Text>
                     </TouchableOpacity>
                 </View>
-            )}
+            ) : null}
         />
     );
 };

@@ -7,7 +7,7 @@ import Login from '../screens/user/Login';
 import Signup from '../screens/user/Signup';
 import OTPVerificationScreen from '../screens/Auth/OTPVerificationScreen';
 import { HARDCODED_TENANT } from '../tenant';
-import { getSubdomain } from '../utils/subdomain';
+import { getSubdomain, isCentralPlatformDomain } from '../utils/subdomain';
 
 // Central Admin Auth
 import CentralAdminLogin from '../screens/centraladmin/CentralAdminLogin';
@@ -31,6 +31,24 @@ import AppointmentSuccess from '../screens/user/AppointmentSuccess';
 
 const Stack = createNativeStackNavigator();
 
+// Synchronously resolve build/environment configured tenant
+const BUILD_TENANT_ID = process.env.EXPO_PUBLIC_TENANT_ID || HARDCODED_TENANT?.tenantId || null;
+const BUILD_TENANT_SLUG = process.env.EXPO_PUBLIC_TENANT_SLUG || HARDCODED_TENANT?.slug || null;
+const BUILD_TENANT_IDENTIFIER = BUILD_TENANT_SLUG || BUILD_TENANT_ID || null;
+
+// A valid, explicitly configured hospital tenant in environment/build configuration:
+// Excludes neutral platform identifiers ('medical365', 'admin') and empty strings.
+const HAS_EXPLICIT_HOSPITAL_TENANT_CONFIG = Boolean(
+    BUILD_TENANT_IDENTIFIER &&
+    BUILD_TENANT_IDENTIFIER !== 'medical365' &&
+    BUILD_TENANT_IDENTIFIER !== 'admin'
+);
+
+// Fixed-tenant white-label builds apply strictly to native mobile APK contexts.
+// On Web (Platform.OS === 'web'), the app serves the central platform & web portals,
+// so Central Admin screens MUST ALWAYS remain registered in AuthStack.
+const IS_FIXED_NATIVE_WHITE_LABEL_BUILD = Platform.OS !== 'web' && HAS_EXPLICIT_HOSPITAL_TENANT_CONFIG;
+
 /**
  * Authoritative initial route resolver:
  * - Detects web URLs (hash/pathname/hostname/subdomain/query) for direct portal mapping
@@ -38,64 +56,86 @@ const Stack = createNativeStackNavigator();
  * - Falls back to original prior committed default: CentralAdminLogin (Super Admin)
  */
 const resolveInitialRoute = () => {
-    // 1. Web environment: inspect pathname, hash, query params, and subdomain
+    // 1. Web environment: inspect pathname, hash, query params, hostname, and subdomain
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
         const hash = (window.location.hash || '').toLowerCase();
         const path = (window.location.pathname || '').toLowerCase();
         const search = (window.location.search || '').toLowerCase();
         const host = (window.location.hostname || '').toLowerCase();
 
-        // Supreme / Central Admin explicit routes
+        // 1a. Explicit Central Admin / Super Admin routes take precedence across all hosts
         if (
             hash.includes('supremeadmin') ||
             hash.includes('centraladmin') ||
             path.includes('supremeadmin') ||
+            path.includes('centraladmin') ||
+            path === '/admin' ||
+            path.startsWith('/admin/') ||
             host === 'admin.medical365.in' ||
             host.startsWith('admin.')
         ) {
             return 'CentralAdminLogin';
         }
 
-        // Hospital Admin explicit routes
+        // 1b. Explicit Hospital Admin routes
         if (hash.includes('hospitaladmin') || path.includes('hospitaladmin')) {
             return 'HospitalAdminLogin';
         }
 
-        // Patient Portal explicit routes
+        // 1c. Explicit Patient Portal routes
         if (hash.includes('patient') || path.includes('patient')) {
             return 'PatientPortalLogin';
         }
 
-        // Hospital Staff / User Login explicit routes
-        if (hash.includes('login') || path.includes('login')) {
+        // 1d. Explicit tenant in search query (e.g. ?tenant=xyz, ?slug=xyz, ?hospital=xyz)
+        if (
+            search.includes('tenant=') ||
+            search.includes('slug=') ||
+            search.includes('hospital=') ||
+            search.includes('hospitalid=')
+        ) {
             return 'Login';
         }
 
-        // Subdomain / query tenant resolution
+        // 1e. Subdomain-based hospital tenant resolution (e.g. apollo.medical365.in or custom domain)
         const sub = getSubdomain();
         if (sub && sub !== 'admin' && sub !== 'www' && sub !== 'api') {
             return 'Login';
         }
-        if (search.includes('tenant=') || search.includes('slug=') || search.includes('hospital=')) {
+
+        // 1f. Valid explicitly configured hospital Tenant ID or Slug for Web
+        // When running web with an explicitly configured hospital tenant (e.g. EXPO_PUBLIC_TENANT_ID or SLUG),
+        // resolve to that hospital's Clinical Portal (Login), even on localhost or Vercel host.
+        if (HAS_EXPLICIT_HOSPITAL_TENANT_CONFIG) {
             return 'Login';
         }
 
-        // Saved tenant in local storage
+        // 1g. Central Platform & Vercel deployment detection:
+        // Main Vercel deployment (hms-react-native-app.vercel.app), platform root, or default local dev
+        // with NO explicitly configured hospital tenant.
+        // Stale localStorage.tenantSlug alone MUST NOT turn central platform into hospital portal.
+        if (isCentralPlatformDomain(host)) {
+            return 'CentralAdminLogin';
+        }
+
+        // 1h. Custom hospital domains: inspect saved tenant in local storage
         try {
             if (localStorage.getItem('tenantSlug')) {
                 return 'Login';
             }
         } catch (_) {}
+
+        // 1i. Explicit staff login on custom hospital domain
+        if (hash.includes('login') || path.includes('login')) {
+            return 'Login';
+        }
+
+        // Web fallback: Central Admin
+        return 'CentralAdminLogin';
     }
 
-    // 2. Pre-configured tenant (Build environment / White-label APK / Hardcoded config)
-    const hasConfiguredTenant = Boolean(
-        process.env.EXPO_PUBLIC_TENANT_ID ||
-        process.env.EXPO_PUBLIC_TENANT_SLUG ||
-        HARDCODED_TENANT?.tenantId ||
-        HARDCODED_TENANT?.slug
-    );
-    if (hasConfiguredTenant) {
+    // 2. Native fixed-tenant hospital APK
+    if (IS_FIXED_NATIVE_WHITE_LABEL_BUILD) {
         return 'Login';
     }
 
@@ -125,10 +165,14 @@ const AuthStack = () => {
             <Stack.Screen name="Appointment" component={Appointment} />
             <Stack.Screen name="AppointmentSuccess" component={AppointmentSuccess} />
 
-            {/* Central Admin (Independent of Workspace usually, but part of public stack) */}
-            <Stack.Screen name="CentralAdminLogin" component={CentralAdminLogin} />
-            <Stack.Screen name="CentralAdminSignup" component={CentralAdminSignup} />
-            <Stack.Screen name="AdminSignup" component={AdminSignup} />
+            {/* Central Admin (Omitted ONLY in fixed-tenant native white-label builds to enforce portal isolation) */}
+            {!IS_FIXED_NATIVE_WHITE_LABEL_BUILD && (
+                <>
+                    <Stack.Screen name="CentralAdminLogin" component={CentralAdminLogin} />
+                    <Stack.Screen name="CentralAdminSignup" component={CentralAdminSignup} />
+                    <Stack.Screen name="AdminSignup" component={AdminSignup} />
+                </>
+            )}
 
             {/* Hospital Admin Portal */}
             <Stack.Screen name="HospitalAdminLogin" component={HospitalAdminLogin} />

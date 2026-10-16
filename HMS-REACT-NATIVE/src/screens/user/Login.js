@@ -10,10 +10,14 @@ import { HARDCODED_TENANT } from '../../tenant';
 
 import NeuralAuthPortal from '../../components/auth/NeuralAuthPortal';
 
-// Synchronously resolve build-configured tenant
+// Synchronously resolve build-configured tenant for native white-label APKs
+const BUILD_TENANT_ID = process.env.EXPO_PUBLIC_TENANT_ID || HARDCODED_TENANT?.tenantId || null;
 const BUILD_TENANT_SLUG = process.env.EXPO_PUBLIC_TENANT_SLUG || HARDCODED_TENANT?.slug || null;
-const IS_FIXED_WHITE_LABEL_BUILD = Boolean(
-    BUILD_TENANT_SLUG && BUILD_TENANT_SLUG !== 'medical365'
+const BUILD_TENANT_IDENTIFIER = BUILD_TENANT_SLUG || BUILD_TENANT_ID || null;
+const IS_FIXED_NATIVE_WHITE_LABEL_BUILD = Platform.OS !== 'web' && Boolean(
+    BUILD_TENANT_IDENTIFIER &&
+    BUILD_TENANT_IDENTIFIER !== 'medical365' &&
+    BUILD_TENANT_IDENTIFIER !== 'admin'
 );
 
 const Login = () => {
@@ -31,9 +35,14 @@ const Login = () => {
         dispatch(clearError());
         dispatch(resetOtpFlow());
 
-        // For white-label APK, ensure authoritative slug is recorded in storage
-        if (BUILD_TENANT_SLUG) {
-            AsyncStorage.setItem('tenantSlug', BUILD_TENANT_SLUG).catch(() => {});
+        // For native white-label APK, ensure authoritative tenant identity is recorded in storage
+        if (IS_FIXED_NATIVE_WHITE_LABEL_BUILD) {
+            if (BUILD_TENANT_SLUG) {
+                AsyncStorage.setItem('tenantSlug', BUILD_TENANT_SLUG).catch(() => {});
+            }
+            if (BUILD_TENANT_ID) {
+                AsyncStorage.setItem('hospitalId', String(BUILD_TENANT_ID)).catch(() => {});
+            }
         }
     }, [dispatch]);
 
@@ -104,20 +113,23 @@ const Login = () => {
         if (!creds.id || !creds.password) return;
 
         let slug;
-        if (IS_FIXED_WHITE_LABEL_BUILD) {
+        if (IS_FIXED_NATIVE_WHITE_LABEL_BUILD) {
             // For a hospital-specific white-label APK, the build tenant is strictly authoritative.
             // Stale AsyncStorage, deep-link query params, or form fields cannot redirect to another hospital.
-            slug = BUILD_TENANT_SLUG;
+            slug = BUILD_TENANT_SLUG || undefined;
         } else {
             // Dynamic multi-tenant workflow: resolve from form input, route params, or stored session
             const storedSlug = await AsyncStorage.getItem('tenantSlug').catch(() => null);
-            slug = formData.hospitalSlug || searchParams.slug || searchParams.tenantId || storedSlug || undefined;
+            slug = formData.hospitalSlug || searchParams.slug || searchParams.tenantId || storedSlug || BUILD_TENANT_SLUG || undefined;
         }
+
+        const effectiveHospitalId = BUILD_TENANT_ID || searchParams.hospitalId || searchParams.tenantId || undefined;
 
         try {
             await dispatch(sendOtp({
                 email: creds.id,
                 password: creds.password,
+                hospitalId: effectiveHospitalId,
                 hospitalSlug: slug,
                 loginType: 'staff',
             })).unwrap();
@@ -161,7 +173,7 @@ const Login = () => {
                 loading={loading}
                 error={error || localError}
                 successMsg={otpSuccessMsg}
-                extraFooter={(
+                extraFooter={!IS_FIXED_NATIVE_WHITE_LABEL_BUILD ? (
                     <View style={{ alignItems: 'center', marginTop: 14 }}>
                         <TouchableOpacity
                             onPress={() => navigation.navigate('CentralAdminLogin')}
@@ -173,7 +185,7 @@ const Login = () => {
                             </Text>
                         </TouchableOpacity>
                     </View>
-                )}
+                ) : null}
             />
         </View>
     );

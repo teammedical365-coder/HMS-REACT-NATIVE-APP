@@ -1,11 +1,36 @@
 import { Platform } from 'react-native';
 
+export const isCentralPlatformDomain = (hostname) => {
+    if (!hostname || typeof hostname !== 'string') return false;
+    const h = hostname.toLowerCase();
+    return (
+        h.endsWith('.vercel.app') ||
+        h === 'medical365.in' ||
+        h === 'www.medical365.in' ||
+        h === 'admin.medical365.in' ||
+        h.startsWith('admin.') ||
+        h === 'localhost' ||
+        h === '127.0.0.1' ||
+        /^192\.168\./.test(h)
+    );
+};
+
+export const isCentralPlatform = () => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return false;
+    return isCentralPlatformDomain(window.location.hostname);
+};
+
 export const getSubdomain = () => {
     // 1. Check for explicit tenant override via query parameters (useful for Electron/Testing)
     if (Platform.OS !== 'web' || typeof window === 'undefined') return null;
 
     const urlParams = new URLSearchParams(window.location.search);
-    const tenantOverride = urlParams.get('tenant');
+    const tenantOverride =
+        urlParams.get('tenant') ||
+        urlParams.get('slug') ||
+        urlParams.get('hospital') ||
+        urlParams.get('hospitalId') ||
+        urlParams.get('tenantId');
     if (tenantOverride) {
         return tenantOverride;
     }
