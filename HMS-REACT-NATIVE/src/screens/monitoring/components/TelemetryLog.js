@@ -29,7 +29,6 @@ export default function TelemetryLog({ history = [] }) {
         };
     }
   };
-
   return (
     <View style={styles.container}>
       <View style={styles.header}>
