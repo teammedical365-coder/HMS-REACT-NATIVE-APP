@@ -1,13 +1,13 @@
 import React from 'react';
+import { Platform } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 // Auth Screens
-// WorkspaceLoginScreen is the tenant resolution gateway when no tenant is pre-configured
-import WorkspaceLoginScreen from '../screens/Auth/WorkspaceLoginScreen';
 import Login from '../screens/user/Login';
 import Signup from '../screens/user/Signup';
 import OTPVerificationScreen from '../screens/Auth/OTPVerificationScreen';
 import { HARDCODED_TENANT } from '../tenant';
+import { getSubdomain } from '../utils/subdomain';
 
 // Central Admin Auth
 import CentralAdminLogin from '../screens/centraladmin/CentralAdminLogin';
@@ -31,16 +31,80 @@ import AppointmentSuccess from '../screens/user/AppointmentSuccess';
 
 const Stack = createNativeStackNavigator();
 
-const AuthStack = () => {
-    // If a tenant is pre-configured via build env or hardcoded config, route directly to Login.
-    // Otherwise, route to WorkspaceLogin for tenant resolution before login.
-    const hasTenant = Boolean(
+/**
+ * Authoritative initial route resolver:
+ * - Detects web URLs (hash/pathname/hostname/subdomain/query) for direct portal mapping
+ * - Detects configured hospital build tenants for white-label APK / fixed deployments
+ * - Falls back to original prior committed default: CentralAdminLogin (Super Admin)
+ */
+const resolveInitialRoute = () => {
+    // 1. Web environment: inspect pathname, hash, query params, and subdomain
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        const hash = (window.location.hash || '').toLowerCase();
+        const path = (window.location.pathname || '').toLowerCase();
+        const search = (window.location.search || '').toLowerCase();
+        const host = (window.location.hostname || '').toLowerCase();
+
+        // Supreme / Central Admin explicit routes
+        if (
+            hash.includes('supremeadmin') ||
+            hash.includes('centraladmin') ||
+            path.includes('supremeadmin') ||
+            host === 'admin.medical365.in' ||
+            host.startsWith('admin.')
+        ) {
+            return 'CentralAdminLogin';
+        }
+
+        // Hospital Admin explicit routes
+        if (hash.includes('hospitaladmin') || path.includes('hospitaladmin')) {
+            return 'HospitalAdminLogin';
+        }
+
+        // Patient Portal explicit routes
+        if (hash.includes('patient') || path.includes('patient')) {
+            return 'PatientPortalLogin';
+        }
+
+        // Hospital Staff / User Login explicit routes
+        if (hash.includes('login') || path.includes('login')) {
+            return 'Login';
+        }
+
+        // Subdomain / query tenant resolution
+        const sub = getSubdomain();
+        if (sub && sub !== 'admin' && sub !== 'www' && sub !== 'api') {
+            return 'Login';
+        }
+        if (search.includes('tenant=') || search.includes('slug=') || search.includes('hospital=')) {
+            return 'Login';
+        }
+
+        // Saved tenant in local storage
+        try {
+            if (localStorage.getItem('tenantSlug')) {
+                return 'Login';
+            }
+        } catch (_) {}
+    }
+
+    // 2. Pre-configured tenant (Build environment / White-label APK / Hardcoded config)
+    const hasConfiguredTenant = Boolean(
         process.env.EXPO_PUBLIC_TENANT_ID ||
         process.env.EXPO_PUBLIC_TENANT_SLUG ||
         HARDCODED_TENANT?.tenantId ||
         HARDCODED_TENANT?.slug
     );
-    const initialRoute = hasTenant ? "Login" : "WorkspaceLogin";
+    if (hasConfiguredTenant) {
+        return 'Login';
+    }
+
+    // 3. Fallback based on original prior committed code: CentralAdminLogin
+    return 'CentralAdminLogin';
+};
+
+const AuthStack = () => {
+    const initialRoute = resolveInitialRoute();
 
     return (
         <Stack.Navigator 
@@ -50,8 +114,7 @@ const AuthStack = () => {
                 animation: 'slide_from_right'
             }}
         >
-            {/* Multi-Tenant Workflow */}
-            <Stack.Screen name="WorkspaceLogin" component={WorkspaceLoginScreen} />
+            {/* Hospital User Auth & Workflow */}
             <Stack.Screen name="Login" component={Login} />
             <Stack.Screen name="Signup" component={Signup} />
             <Stack.Screen name="OTP" component={OTPVerificationScreen} />

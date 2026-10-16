@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { View, Text, TouchableOpacity } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useAppDispatch, useAuth } from '../../store/hooks';
 import { sendOtp, verifyOtp, resendOtp, forceLogin, clearError, resetOtpFlow } from '../../store/slices/authSlice';
@@ -87,6 +88,19 @@ const CentralAdminLogin = () => {
             error={error}
             successMsg={otpSuccessMsg}
             sessionBanner={sessionBanner}
+            extraFooter={(
+                <View style={{ alignItems: 'center', marginTop: 14 }}>
+                    <TouchableOpacity
+                        onPress={() => navigation.navigate('Login')}
+                        activeOpacity={0.7}
+                        style={{ paddingVertical: 8, paddingHorizontal: 12 }}
+                    >
+                        <Text style={{ color: '#0ea5e9', fontSize: 13, fontWeight: '600' }}>
+                            Hospital Staff / Practitioner Login →
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+            )}
         />
     );
 };

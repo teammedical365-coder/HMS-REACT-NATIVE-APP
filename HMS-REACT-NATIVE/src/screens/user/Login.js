@@ -161,6 +161,19 @@ const Login = () => {
                 loading={loading}
                 error={error || localError}
                 successMsg={otpSuccessMsg}
+                extraFooter={(
+                    <View style={{ alignItems: 'center', marginTop: 14 }}>
+                        <TouchableOpacity
+                            onPress={() => navigation.navigate('CentralAdminLogin')}
+                            activeOpacity={0.7}
+                            style={{ paddingVertical: 8, paddingHorizontal: 12 }}
+                        >
+                            <Text style={{ color: '#0ea5e9', fontSize: 13, fontWeight: '600' }}>
+                                Supreme / Central Admin Portal →
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
             />
         </View>
     );
