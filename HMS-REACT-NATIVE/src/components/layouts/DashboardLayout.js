@@ -121,11 +121,6 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
                 { label: 'Planned Surgeries', path: 'OTPlannedSurgeries', icon: <Feather name="clock" size={18} /> },
                 { label: 'OT Schedule', path: 'OTSchedulePage', icon: <Feather name="calendar" size={18} /> },
                 { label: 'OT Rooms', path: 'OTRoomsPage', icon: <Feather name="box" size={18} /> },
-                { label: 'Pre-Op Patients', path: 'OTPreOpPage', icon: <Feather name="user-check" size={18} /> },
-                { label: 'In OT', path: 'OTInProgressPage', icon: <Feather name="activity" size={18} /> },
-                { label: 'Post-Op', path: 'OTPostOpPage', icon: <Feather name="heart" size={18} /> },
-                { label: 'Completed Surgeries', path: 'OTCompletedPage', icon: <Feather name="check-circle" size={18} /> },
-                { label: 'Surgeons', path: 'OTSurgeonsPage', icon: <Feather name="user" size={18} /> },
                 { label: 'OT Reports', path: 'OTReportsPage', icon: <Feather name="file-text" size={18} /> },
             ];
         }
@@ -138,6 +133,7 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
                     { label: 'Billing & Payments', path: 'PatientBillingProfile', icon: <Feather name="file-text" size={18} /> },
                     { label: 'Refund Approvals', path: 'HospitalAdminRefunds', icon: <Feather name="dollar-sign" size={18} /> },
                     { label: 'Vial Management', path: 'VialManagement', icon: <Feather name="box" size={18} /> },
+                    { label: 'Package Management', path: 'PackageManagement', icon: <Feather name="grid" size={18} /> },
                 ];
             }
             return [
@@ -149,6 +145,7 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
                 { label: 'Pharma Inventory', path: 'PharmacyInventory', icon: <Feather name="package" size={18} /> },
                 { label: 'Billing & Payments', path: 'PatientBillingProfile', icon: <Feather name="file-text" size={18} /> },
                 { label: 'Refund Approvals', path: 'HospitalAdminRefunds', icon: <Feather name="dollar-sign" size={18} /> },
+                { label: 'Package Management', path: 'PackageManagement', icon: <Feather name="grid" size={18} /> },
             ];
         }
 
@@ -184,11 +181,20 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
             ];
         }
 
-        const isAccountantRoute = currentPath && (currentPath === 'AccountantDashboard' || (currentPath === 'PatientBillingProfile' && role === 'accountant'));
+        const isAccountantRoute = currentPath && (
+            currentPath === 'AccountantDashboard' ||
+            currentPath === 'AccountantFinancialRecords' ||
+            currentPath === 'AccountantRefunds' ||
+            currentPath === 'AccountantHistory' ||
+            (currentPath === 'PatientBillingProfile' && role === 'accountant')
+        );
         if (role === 'accountant' || isAccountantRoute) {
             return [
                 { label: 'Finance Dashboard', path: 'AccountantDashboard', icon: <Feather name="pie-chart" size={18} /> },
-                { label: 'Patient Billing', path: 'PatientBillingProfile', icon: <Feather name="file-text" size={18} /> },
+                { label: 'Financial Records', path: 'AccountantFinancialRecords', icon: <Feather name="file-text" size={18} /> },
+                { label: 'Refunds', path: 'AccountantRefunds', icon: <Feather name="dollar-sign" size={18} /> },
+                { label: 'History', path: 'AccountantHistory', icon: <Feather name="clock" size={18} /> },
+                { label: 'Patient Billing', path: 'PatientBillingProfile', icon: <Feather name="credit-card" size={18} /> },
             ];
         }
 
@@ -227,28 +233,27 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
             currentPath === 'AIAssistant' || 
             currentPath === 'SurgeryReferrals' || 
             currentPath === 'MySurgeryPlans' || 
+            currentPath === 'DoctorSurgeries' ||
+            (currentPath === 'RealTimeMonitoringDashboard' && isDoctor) ||
             (currentPath === 'LabReports' && isDoctor)
         );
         if (isDoctor || (isDoctorRoute && !role)) {
             return [
                 { label: 'Dashboard', path: 'DoctorDashboard', icon: <Feather name="home" size={18} /> },
                 { label: 'My Patients', path: 'DoctorPatients', icon: <Feather name="users" size={18} /> },
-                { label: 'IPD Command Center', path: 'IPDCommandCenter', icon: <Feather name="activity" size={18} /> },
                 { label: 'AI Assistant', path: 'AIAssistant', icon: <Feather name="cpu" size={18} /> },
-                { label: 'Surgery Referrals', path: 'SurgeryReferrals', icon: <Feather name="scissors" size={18} /> },
-                { label: 'My Surgery Plans', path: 'MySurgeryPlans', icon: <Feather name="file-text" size={18} /> },
+                { label: 'Surgeries', path: 'DoctorSurgeries', icon: <Feather name="scissors" size={18} /> },
+                { label: 'Real-Time Monitoring', path: 'RealTimeMonitoringDashboard', icon: <Feather name="activity" size={18} /> },
             ];
         }
 
         const isNurse = role === 'nurse' || role === 'staffnurse' || role === 'headnurse' || roleClean === 'nurse' || roleClean === 'staffnurse' || roleClean === 'headnurse';
-        const isNurseRoute = currentPath && (currentPath === 'NurseDashboard' || currentPath === 'NurseOPDQueue' || currentPath === 'NurseAppointments' || currentPath === 'NursePatientDocuments' || (currentPath === 'NursePatientWorkspace' && isNurse));
+        const isNurseRoute = currentPath && (currentPath === 'NurseDashboard' || currentPath === 'NurseOPDQueue' || currentPath === 'NurseAppointments' || currentPath === 'NursePatientDocuments' || (currentPath === 'NursePatientWorkspace' && isNurse) || (currentPath === 'RealTimeMonitoringDashboard' && isNurse));
         if (isNurse || (isNurseRoute && !isDoctor)) {
             return [
-                { label: 'Nurse Command Center', path: 'NurseDashboard', icon: <Feather name="home" size={18} /> },
+                { label: 'Nurse IPD Care', path: 'NurseDashboard', icon: <Feather name="home" size={18} /> },
                 { label: 'Patient Reports & Consents', path: 'NursePatientDocuments', icon: <Feather name="file-text" size={18} /> },
-                { label: 'OPD Patient Queue', path: 'NurseOPDQueue', icon: <Feather name="users" size={18} /> },
-                { label: 'Appointments', path: 'NurseAppointments', icon: <Feather name="calendar" size={18} /> },
-                { label: 'IPD Command Center', path: 'IPDCommandCenter', icon: <Feather name="activity" size={18} /> },
+                { label: 'Real-Time Monitoring', path: 'RealTimeMonitoringDashboard', icon: <Feather name="activity" size={18} /> },
             ];
         }
 
@@ -297,7 +302,9 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
                 {menuItems.map((item, idx) => {
                     const isActive = currentPath === item.path ||
                         (item.path === 'HospitalAdminDashboard' && (currentPath === 'RoleDashboard' || currentPath === 'HospitalAdminDashboard')) ||
-                        (item.path === 'Admin' && currentPath === 'AdminUsers');
+                        (item.path === 'Admin' && currentPath === 'AdminUsers') ||
+                        (item.path === 'DoctorSurgeries' && (currentPath === 'SurgeryReferrals' || currentPath === 'MySurgeryPlans' || currentPath === 'DoctorSurgeries')) ||
+                        (item.path === 'OTDashboard' && currentPath && currentPath.startsWith('OT') && !['OTPlannedSurgeries', 'OTSchedulePage', 'OTRoomsPage', 'OTReportsPage'].includes(currentPath));
 
                     const caThemes = [
                         { bg: styles.themeGreenActive, text: styles.themeGreenTextActive },
@@ -477,6 +484,7 @@ const TopBar = ({ toggleSidebar, sidebarOpen, isMobile }) => {
         if (name === 'AdminServices') return 'Services';
         if (name === 'HospitalAdminDashboard') return 'Hospital Overview';
         if (name === 'ClinicDashboard') return 'Clinic Hub';
+        if (name === 'PackageManagement') return 'Package Management';
         if (name === 'HospitalAdminRefunds') return 'Refund Authorizations';
         if (name === 'VialManagement') return 'Vial Management';
         if (name === 'HospitalAdminQuestionLibrary') return 'Clinical Questions';
@@ -494,6 +502,9 @@ const TopBar = ({ toggleSidebar, sidebarOpen, isMobile }) => {
         if (name === 'CompletedReports') return 'Past Records';
         if (name === 'AdminRoles') return 'Roles & Permissions';
         if (name === 'AccountantDashboard') return 'Finance Dashboard';
+        if (name === 'AccountantFinancialRecords') return 'Financial Records';
+        if (name === 'AccountantRefunds') return 'Refund Management';
+        if (name === 'AccountantHistory') return 'Refund History';
         if (name === 'PatientBillingProfile') return role === 'hospitaladmin' ? 'Billing & Payments' : 'Patient Billing';
         if (name === 'CashierDashboard') return role === 'billing' ? 'Patient Billing' : 'Billing/Payments';
         if (name === 'NurseDashboard') return 'Nurse Command Center';
@@ -509,6 +520,7 @@ const TopBar = ({ toggleSidebar, sidebarOpen, isMobile }) => {
         if (name === 'SurgeryReferrals') return 'Surgery Referrals';
         if (name === 'MySurgeryPlans') return 'My Surgery Plans';
         if (name === 'LabReports') return 'Reports';
+        if (name === 'RealTimeMonitoringDashboard') return 'Real-Time Monitoring';
         return name.replace(/([A-Z])/g, ' $1').trim();
     };
 

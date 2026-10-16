@@ -14,6 +14,7 @@ import { clearNursingSessionMemoryCache } from '../../services/offline/offlineNu
 import { clearOTSessionMemoryCache } from '../../services/offline/offlineOTService';
 import { clearHospitalAdminSessionMemoryCache } from '../../services/offline/offlineHospitalAdminService';
 import { clearAssistantSessionMemoryCache } from '../../services/offline/offlineAssistantService';
+import { clearMonitoringSessionMemoryCache } from '../../services/offline/offlineMonitoringService';
 import { clearMemoryCache, clearUserCache } from '../../services/offline/cacheRepository';
 
 // ── OTP-Based Login Thunks ────────────────────────────────────────────────────
@@ -281,6 +282,7 @@ export async function performLogoutCleanup(currentUser) {
       clearOTSessionMemoryCache({ userId: exitingUserId, tenantId: exitingTenantId });
       clearHospitalAdminSessionMemoryCache({ userId: exitingUserId, tenantId: exitingTenantId });
       clearAssistantSessionMemoryCache({ userId: exitingUserId, tenantId: exitingTenantId });
+      clearMonitoringSessionMemoryCache({ userId: exitingUserId, tenantId: exitingTenantId });
       clearMemoryCache(exitingUserId, exitingTenantId);
     } catch (e) {}
 

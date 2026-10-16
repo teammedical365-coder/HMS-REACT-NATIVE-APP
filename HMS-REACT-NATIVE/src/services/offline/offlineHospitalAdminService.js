@@ -41,7 +41,8 @@ import {
   financeAPI,
   billingAPI,
   patientAuthAPI,
-  accountantAPI
+  accountantAPI,
+  packageAPI
 } from '../../utils/api';
 import api from '../../utils/api';
 import { getStoreRef } from '../../store/storeRef';
@@ -68,6 +69,9 @@ export const RESOURCE_TYPES = {
   HOSPITAL_REFUNDS: 'hospital_refunds',
   ADMIN_MAIN_DASHBOARD: 'admin_main_dashboard',
   ACCOUNTANT_STATS: 'accountant_stats',
+  ACCOUNTANT_FINANCIAL_RECORDS: 'accountant_financial_records',
+  ACCOUNTANT_REFUNDS: 'accountant_refunds',
+  ACCOUNTANT_HISTORY: 'accountant_history',
   CASHIER_PATIENTS: 'cashier_patients',
   CASHIER_FACILITIES: 'cashier_facilities',
   PATIENT_BILLS: 'patient_bills',
@@ -78,6 +82,11 @@ export const RESOURCE_TYPES = {
   STAFF_DRAFT: 'hospital_staff_draft',
   INVENTORY_DRAFT: 'hospital_inventory_draft',
   BED_DRAFT: 'hospital_bed_draft',
+  PACKAGE_DRAFT: 'hospital_package_draft',
+  // Hospital Packages
+  HOSPITAL_PACKAGES: 'hospital_packages',
+  HOSPITAL_PACKAGE_ASSIGNMENTS: 'hospital_package_assignments',
+  HOSPITAL_PACKAGE_STATS: 'hospital_package_stats',
 };
 
 // ── Volatile Session Memory Cache (RAM Only) ─────────────────────────────────
@@ -639,6 +648,199 @@ export async function fetchAccountantDashboardWithOffline(queryStart = '', query
   });
 }
 
+/**
+ * Fetches Financial Records (Transactions ledger) with SWR cache.
+ */
+export async function fetchAccountantFinancialRecordsWithOffline(params = {}, forceRefresh = false) {
+  const resourceKey = `acct_fin_${JSON.stringify(params)}`;
+  return safeHospitalAdminSWRFetch({
+    resourceType: RESOURCE_TYPES.ACCOUNTANT_FINANCIAL_RECORDS,
+    resourceKey,
+    forceRefresh,
+    freshnessNote: 'Notice: Cached transaction ledger. Payment reconciliations must be verified online.',
+    apiFetcher: async () => {
+      const res = await accountantAPI.getFinancialRecords(params);
+      return res?.success ? res.data : null;
+    },
+  });
+}
+
+/**
+ * Fetches Accountant Refunds with SWR cache.
+ */
+export async function fetchAccountantRefundsWithOffline(params = {}, forceRefresh = false) {
+  const resourceKey = `acct_ref_${JSON.stringify(params)}`;
+  return safeHospitalAdminSWRFetch({
+    resourceType: RESOURCE_TYPES.ACCOUNTANT_REFUNDS,
+    resourceKey,
+    forceRefresh,
+    freshnessNote: 'Notice: Cached refund list. Live approval status and balances must be verified online.',
+    apiFetcher: async () => {
+      const res = await accountantAPI.getRefunds(params);
+      return res?.success ? res.data : null;
+    },
+  });
+}
+
+/**
+ * Fetches Accountant Refund History (Audit Trail) with SWR cache.
+ */
+export async function fetchAccountantHistoryWithOffline(params = {}, forceRefresh = false) {
+  const resourceKey = `acct_hist_${JSON.stringify(params)}`;
+  return safeHospitalAdminSWRFetch({
+    resourceType: RESOURCE_TYPES.ACCOUNTANT_HISTORY,
+    resourceKey,
+    forceRefresh,
+    freshnessNote: 'Notice: Cached audit trail. Finalized settlement receipts must be verified online.',
+    apiFetcher: async () => {
+      const res = await accountantAPI.getHistory(params);
+      return res?.success ? res.data : null;
+    },
+  });
+}
+
+/**
+ * Consequential Action Online Gate: Create Refund Request.
+ * Strictly requires online connectivity. Throws descriptive error if offline.
+ */
+export async function createAccountantRefundRequestOnlineOnly(data) {
+  const isOnline = await checkOnlineStatus();
+  if (!isOnline) {
+    throw new Error('Creating refund requests requires an active server connection to verify refundable balance and avoid ledger conflict.');
+  }
+  return await accountantAPI.createRefundRequest(data);
+}
+
+/**
+ * Consequential Action Online Gate: Process Approved Refund (UPI/Bank Transfer).
+ * Strictly requires online connectivity. Throws descriptive error if offline.
+ */
+export async function processAccountantRefundOnlineOnly(id, data) {
+  const isOnline = await checkOnlineStatus();
+  if (!isOnline) {
+    throw new Error('Processing refund with transaction reference / UTR requires an active server connection to update financial ledgers.');
+  }
+  return await accountantAPI.processRefund(id, data);
+}
+
+// ── Hospital Admin Package Management SWR Fetchers ───────────────────────────
+
+/**
+ * Fetches Hospital Packages with SWR cache.
+ */
+export async function fetchHospitalPackagesWithOffline(params = {}, forceRefresh = false) {
+  const resourceKey = `pkg_${JSON.stringify(params)}`;
+  return safeHospitalAdminSWRFetch({
+    resourceType: RESOURCE_TYPES.HOSPITAL_PACKAGES,
+    resourceKey,
+    forceRefresh,
+    freshnessNote: 'Notice: Cached clinical packages. Rates and inclusions must be verified online.',
+    apiFetcher: async () => {
+      const res = await packageAPI.getPackages(params);
+      return res?.success ? (res.packages || []) : [];
+    },
+  });
+}
+
+/**
+ * Fetches Patient Package Assignments with SWR cache.
+ */
+export async function fetchHospitalPackageAssignmentsWithOffline(params = {}, forceRefresh = false) {
+  const resourceKey = `pkg_assign_${JSON.stringify(params)}`;
+  return safeHospitalAdminSWRFetch({
+    resourceType: RESOURCE_TYPES.HOSPITAL_PACKAGE_ASSIGNMENTS,
+    resourceKey,
+    forceRefresh,
+    freshnessNote: 'Notice: Cached patient package assignments. Real-time usage must be verified online.',
+    apiFetcher: async () => {
+      const res = await packageAPI.getAssignments(params);
+      return res?.success ? (res.assignments || []) : [];
+    },
+  });
+}
+
+/**
+ * Fetches Hospital Package Dashboard Stats with SWR cache.
+ */
+export async function fetchHospitalPackageStatsWithOffline(forceRefresh = false) {
+  return safeHospitalAdminSWRFetch({
+    resourceType: RESOURCE_TYPES.HOSPITAL_PACKAGE_STATS,
+    resourceKey: 'pkg_stats_overview',
+    forceRefresh,
+    freshnessNote: 'Notice: Cached package statistics. Live revenues and counts reflect last sync.',
+    apiFetcher: async () => {
+      const res = await packageAPI.getDashboardStats();
+      return res?.success ? res.stats : null;
+    },
+  });
+}
+
+/**
+ * Consequential Action Online Gate: Create Hospital Package.
+ */
+export async function createPackageOnlineOnly(data) {
+  const isOnline = await checkOnlineStatus();
+  if (!isOnline) {
+    throw new Error('Creating service packages requires an active server connection to enforce unique naming and billing codes.');
+  }
+  return await packageAPI.createPackage(data);
+}
+
+/**
+ * Consequential Action Online Gate: Update Hospital Package.
+ */
+export async function updatePackageOnlineOnly(id, data) {
+  const isOnline = await checkOnlineStatus();
+  if (!isOnline) {
+    throw new Error('Updating service packages requires an active server connection to protect frozen assignment snapshots.');
+  }
+  return await packageAPI.updatePackage(id, data);
+}
+
+/**
+ * Consequential Action Online Gate: Toggle Package Status.
+ */
+export async function togglePackageOnlineOnly(id) {
+  const isOnline = await checkOnlineStatus();
+  if (!isOnline) {
+    throw new Error('Toggling package status requires an active server connection.');
+  }
+  return await packageAPI.togglePackage(id);
+}
+
+/**
+ * Consequential Action Online Gate: Delete Hospital Package.
+ */
+export async function deletePackageOnlineOnly(id) {
+  const isOnline = await checkOnlineStatus();
+  if (!isOnline) {
+    throw new Error('Deleting packages requires live connectivity to verify zero active patient assignments.');
+  }
+  return await packageAPI.deletePackage(id);
+}
+
+/**
+ * Consequential Action Online Gate: Assign Package to Patient.
+ */
+export async function assignPackageOnlineOnly(data) {
+  const isOnline = await checkOnlineStatus();
+  if (!isOnline) {
+    throw new Error('Assigning packages to patients requires an active server connection to freeze service snapshots.');
+  }
+  return await packageAPI.assignPackage(data);
+}
+
+/**
+ * Consequential Action Online Gate: Cancel Patient Package Assignment.
+ */
+export async function cancelPackageAssignmentOnlineOnly(id, data) {
+  const isOnline = await checkOnlineStatus();
+  if (!isOnline) {
+    throw new Error('Cancelling package assignments requires an active server connection.');
+  }
+  return await packageAPI.cancelAssignment(id, data);
+}
+
 // ── Cashier & Billing Dashboard SWR Fetchers ──────────────────────────────────
 
 /**
@@ -1052,6 +1254,117 @@ export async function clearBedDraftWithOffline() {
   } catch (e) {}
 }
 
+/**
+ * Saves Package creation/edit form as local draft.
+ */
+export async function savePackageDraftWithOffline(draftData) {
+  const authCtx = await getHospitalAdminAuthContext();
+  if (!authCtx.isValid) return { success: false, reason: 'unauthenticated' };
+  const { tenantId, userId } = authCtx;
+
+  const memKey = buildHospitalAdminCacheKey({
+    tenantId,
+    userId,
+    resourceType: RESOURCE_TYPES.PACKAGE_DRAFT,
+    resourceKey: 'active_draft',
+  });
+
+  const payload = { ...draftData, savedAt: Date.now() };
+
+  if (memKey) {
+    _hospitalAdminSessionMemoryCache.set(memKey, {
+      payload,
+      lastFetchedAt: Date.now(),
+      tenantId,
+      userId,
+    });
+  }
+
+  await setCacheEntry({
+    tenantId,
+    userId,
+    resourceType: RESOURCE_TYPES.PACKAGE_DRAFT,
+    resourceKey: 'active_draft',
+    payload,
+    isSynthetic: true,
+  });
+
+  return { success: true, savedAt: payload.savedAt };
+}
+
+/**
+ * Retrieves saved Package draft.
+ */
+export async function getPackageDraftWithOffline() {
+  const authCtx = await getHospitalAdminAuthContext();
+  if (!authCtx.isValid) return null;
+  const { tenantId, userId } = authCtx;
+
+  const memKey = buildHospitalAdminCacheKey({
+    tenantId,
+    userId,
+    resourceType: RESOURCE_TYPES.PACKAGE_DRAFT,
+    resourceKey: 'active_draft',
+  });
+
+  if (memKey && _hospitalAdminSessionMemoryCache.has(memKey)) {
+    return _hospitalAdminSessionMemoryCache.get(memKey).payload;
+  }
+
+  try {
+    const dbEntry = await getCacheEntry({
+      tenantId,
+      userId,
+      resourceType: RESOURCE_TYPES.PACKAGE_DRAFT,
+      resourceKey: 'active_draft',
+    });
+    if (dbEntry.found && dbEntry.payload) {
+      if (memKey) {
+        _hospitalAdminSessionMemoryCache.set(memKey, {
+          payload: dbEntry.payload,
+          lastFetchedAt: dbEntry.lastFetchedAt,
+          tenantId,
+          userId,
+        });
+      }
+      return dbEntry.payload;
+    }
+  } catch (e) {}
+
+  return null;
+}
+
+/**
+ * Clears saved Package draft.
+ */
+export async function clearPackageDraftWithOffline() {
+  const authCtx = await getHospitalAdminAuthContext();
+  if (!authCtx.isValid) return;
+  const { tenantId, userId } = authCtx;
+
+  const memKey = buildHospitalAdminCacheKey({
+    tenantId,
+    userId,
+    resourceType: RESOURCE_TYPES.PACKAGE_DRAFT,
+    resourceKey: 'active_draft',
+  });
+
+  if (memKey) {
+    _hospitalAdminSessionMemoryCache.delete(memKey);
+  }
+
+  try {
+    await setCacheEntry({
+      tenantId,
+      userId,
+      resourceType: RESOURCE_TYPES.PACKAGE_DRAFT,
+      resourceKey: 'active_draft',
+      payload: null,
+      isSynthetic: false,
+    });
+  } catch (e) {}
+}
+
 // ── Consequential Actions Safety Gate ─────────────────────────────────────────
 
 /**
@@ -1090,7 +1403,9 @@ export async function assertHospitalAdminActionAllowed(actionName) {
       break;
     case 'AUTHORIZE_REFUND':
     case 'REJECT_REFUND':
-      message = 'Action Blocked (Offline): Approving or rejecting refund requests modifies financial ledgers and must be processed authoritatively online.';
+    case 'REQUEST_REFUND':
+    case 'PROCESS_REFUND':
+      message = 'Action Blocked (Offline): Approving, requesting, or processing refunds modifies financial ledgers and must be processed authoritatively online.';
       break;
     case 'PROCESS_PAYMENT':
     case 'ADD_FACILITY_CHARGE':
@@ -1098,6 +1413,14 @@ export async function assertHospitalAdminActionAllowed(actionName) {
       break;
     case 'UPDATE_PROFILE':
       message = 'Action Blocked (Offline): Profile updates require an active server connection to synchronize personal health records.';
+      break;
+    case 'CREATE_PACKAGE':
+    case 'UPDATE_PACKAGE':
+    case 'TOGGLE_PACKAGE':
+    case 'DELETE_PACKAGE':
+    case 'ASSIGN_PACKAGE':
+    case 'CANCEL_ASSIGNMENT':
+      message = 'Action Blocked (Offline): Creating, updating, toggling, assigning, or deleting clinical packages requires live server synchronization to prevent billing and service discrepancies.';
       break;
   }
 

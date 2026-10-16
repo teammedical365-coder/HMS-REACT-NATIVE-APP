@@ -25,8 +25,8 @@ const Signup = () => {
     const [localError, setLocalError] = useState('');
 
     useEffect(() => {
-        if (isAuthenticated) navigation.replace('Dashboard');
-    }, [isAuthenticated, navigation]);
+        // When authenticated, AppNavigator automatically switches from AuthStack to the target RoleStack
+    }, [isAuthenticated]);
 
     useEffect(() => {
         dispatch(clearError());
@@ -47,6 +47,16 @@ const Signup = () => {
         dispatch(clearError());
         setLocalError('');
 
+        if (!formData.name?.trim() || !formData.email?.trim() || !formData.password) {
+            setLocalError('Please fill in all required fields.');
+            return;
+        }
+
+        if (formData.password.length < 6) {
+            setLocalError('Password must be at least 6 characters.');
+            return;
+        }
+
         if (formData.password !== formData.confirmPassword) {
             setLocalError('Passwords do not match.');
             return;
@@ -58,8 +68,8 @@ const Signup = () => {
         }
 
         await dispatch(signupUser({
-            name: formData.name,
-            email: formData.email,
+            name: formData.name.trim(),
+            email: formData.email.trim(),
             password: formData.password,
             phone: formData.phone
         }));

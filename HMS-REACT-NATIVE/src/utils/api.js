@@ -342,7 +342,7 @@ export const receptionAPI = {
   registerPatient: async (data) => (await apiClient.post('/api/reception/register', data)).data,
   getTransactions: async () => (await apiClient.get('/api/reception/transactions')).data,
   searchPatients: async (query) =>
-    (await apiClient.get(`/api/reception/search-patients?query=${query}`)).data,
+    (await apiClient.get(`/api/reception/search-patients?query=${encodeURIComponent(query)}`)).data,
   updateIntake: async (userId, data) =>
     (await apiClient.put(`/api/reception/intake/${userId}`, data)).data,
   getFollowupStatus: async (patientId, department, date = '') => {
@@ -470,8 +470,22 @@ export const publicAPI = {
     if (params.length) url += '?' + params.join('&');
     return (await apiClient.get(url)).data;
   },
-  getTenantConfig: async (domain) =>
-    (await apiClient.get(`/api/public/tenant-config?domain=${encodeURIComponent(domain)}`)).data,
+  getTenantConfig: async (queryOrDomain) => {
+    let param;
+    if (typeof queryOrDomain === 'object' && queryOrDomain !== null) {
+      const { domain, slug } = queryOrDomain;
+      param = slug ? `slug=${encodeURIComponent(slug)}` : `domain=${encodeURIComponent(domain || '')}`;
+    } else {
+      const val = String(queryOrDomain || '').trim();
+      const valLower = val.toLowerCase();
+      if (valLower === 'admin' || valLower === 'admin.medical365.in') {
+        param = 'domain=admin.medical365.in';
+      } else {
+        param = val.includes('.') ? `domain=${encodeURIComponent(val)}` : `slug=${encodeURIComponent(val)}`;
+      }
+    }
+    return (await apiClient.get(`/api/public/tenant-config?${param}`)).data;
+  },
   getBookedSlots: async (doctorId, date, hospitalId = '') => {
     let url = `/api/doctor/${doctorId}/booked-slots?date=${date}`;
     if (hospitalId) url += `&hospitalId=${encodeURIComponent(hospitalId)}`;
@@ -1415,6 +1429,7 @@ export const accountantAPI = {
   },
 };
 
+
 // ─── Refund Reception API ────────────────────────────────────────────────────
 export const refundReceptionAPI = {
   getCashRefunds: async (showCompleted = false) => (await apiClient.get(`/api/refunds/reception/refunds?showCompleted=${showCompleted}`)).data,
@@ -1442,6 +1457,31 @@ export const assistantAPI = {
   updateInvestigations: async (appointmentId, data) => (await apiClient.put(`/api/assistant/preparation/${appointmentId}/investigations`, data)).data,
   updateNotes: async (appointmentId, data) => (await apiClient.put(`/api/assistant/preparation/${appointmentId}/notes`, data)).data,
   markReady: async (appointmentId) => (await apiClient.post(`/api/assistant/preparation/${appointmentId}/mark-ready`)).data,
+};
+
+// ─── Package Management API (Hospital Admin) ──────────────────────────────────
+export const packageAPI = {
+  getPackages: async (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return (await apiClient.get(`/api/packages${query ? '?' + query : ''}`)).data;
+  },
+  getPackage: async (id) => (await apiClient.get(`/api/packages/${id}`)).data,
+  createPackage: async (data) => (await apiClient.post('/api/packages', data)).data,
+  updatePackage: async (id, data) => (await apiClient.put(`/api/packages/${id}`, data)).data,
+  togglePackage: async (id) => (await apiClient.patch(`/api/packages/${id}/toggle`)).data,
+  deletePackage: async (id) => (await apiClient.delete(`/api/packages/${id}`)).data,
+
+  assignPackage: async (data) => (await apiClient.post('/api/packages/assign', data)).data,
+  getAssignments: async (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return (await apiClient.get(`/api/packages/assignments/all${query ? '?' + query : ''}`)).data;
+  },
+  getPatientAssignments: async (patientId) => (await apiClient.get(`/api/packages/assignments/patient/${patientId}`)).data,
+  getAssignment: async (assignmentId) => (await apiClient.get(`/api/packages/assignments/${assignmentId}`)).data,
+  logUsage: async (assignmentId, data) => (await apiClient.post(`/api/packages/assignments/${assignmentId}/usage`, data)).data,
+  cancelAssignment: async (assignmentId, data) => (await apiClient.patch(`/api/packages/assignments/${assignmentId}/cancel`, data)).data,
+
+  getDashboardStats: async () => (await apiClient.get('/api/packages/stats/dashboard')).data,
 };
 
 export default apiClient;

@@ -31,6 +31,7 @@ import VialManagement from '../screens/hospitaladmin/VialManagement';
 import HospitalAdminQuestionLibrary from '../screens/hospitaladmin/HospitalAdminQuestionLibrary';
 import BedManagement from '../screens/hospitaladmin/BedManagement'; // Based on audit
 import HospitalAdminRefunds from '../screens/hospitaladmin/HospitalAdminRefunds';
+import PackageManagement from '../screens/hospitaladmin/PackageManagement';
 
 // -- Doctor Pages --
 import DoctorDashboard from '../screens/doctors/DoctorDashboard';
@@ -84,6 +85,9 @@ import IPDCommandCenter from '../screens/nurse/IPDCommandCenter';
 
 // -- Accountant Pages --
 import AccountantDashboard from '../screens/accountant/AccountantDashboard';
+import AccountantFinancialRecords from '../screens/accountant/AccountantFinancialRecords';
+import AccountantRefunds from '../screens/accountant/AccountantRefunds';
+import AccountantHistory from '../screens/accountant/AccountantHistory';
 
 // -- Cashier & Billing Pages --
 import CashierDashboard from '../screens/cashier/CashierDashboard';
@@ -98,6 +102,9 @@ import DoctorAssistantDashboard from '../screens/assistant/DoctorAssistantDashbo
 import DoctorAssistantQueue from '../screens/assistant/DoctorAssistantQueue';
 import DoctorAssistantQuestionLibrary from '../screens/assistant/DoctorAssistantQuestionLibrary';
 import DoctorAssistantPreparation from '../screens/assistant/DoctorAssistantPreparation';
+
+// -- Telemetry & Real-Time Monitoring Pages --
+import RealTimeMonitoringDashboard from '../screens/monitoring/RealTimeMonitoringDashboard';
 
 const Stack = createNativeStackNavigator();
 
@@ -133,6 +140,7 @@ export const CentralAdminApp = () => (
         <Stack.Screen name="HospitalAdminDashboard" component={withLayout(HospitalAdminDashboard)} />
         <Stack.Screen name="ClinicDashboard" component={withLayout(ClinicDashboard)} />
         <Stack.Screen name="SuperAdmin" component={withLayout(SuperAdmin)} />
+        <Stack.Screen name="RealTimeMonitoringDashboard" component={withLayout(RealTimeMonitoringDashboard)} />
     </Stack.Navigator>
 );
 
@@ -156,6 +164,7 @@ export const HospitalAdminApp = () => {
             <Stack.Screen name="HospitalAdminQuestionLibrary" component={withLayout(HospitalAdminQuestionLibrary)} />
             <Stack.Screen name="BedManagement" component={withLayout(BedManagement)} />
             <Stack.Screen name="HospitalAdminRefunds" component={withLayout(HospitalAdminRefunds)} />
+            <Stack.Screen name="PackageManagement" component={withLayout(PackageManagement)} />
 
             {/* Admin Management Modules */}
             <Stack.Screen name="AdminMainDashboard" component={withLayout(AdminMainDashboard)} />
@@ -229,6 +238,9 @@ export const HospitalAdminApp = () => {
             <Stack.Screen name="LabDashboard" component={withLayout(LabDashboard)} />
             <Stack.Screen name="AssignedTests" component={withLayout(AssignedTests)} />
             <Stack.Screen name="CompletedReports" component={withLayout(CompletedReports)} />
+
+            {/* Real-Time Telemetry & Monitoring */}
+            <Stack.Screen name="RealTimeMonitoringDashboard" component={withLayout(RealTimeMonitoringDashboard)} />
         </Stack.Navigator>
     );
 };
@@ -259,6 +271,7 @@ export const DoctorApp = () => (
         <Stack.Screen name="OTCompletedPage" component={withLayout(OTCompletedPage)} />
         <Stack.Screen name="OTSurgeonsPage" component={withLayout(OTSurgeonsPage)} />
         <Stack.Screen name="OTReportsPage" component={withLayout(OTReportsPage)} />
+        <Stack.Screen name="RealTimeMonitoringDashboard" component={withLayout(RealTimeMonitoringDashboard)} />
     </Stack.Navigator>
 );
 
@@ -311,6 +324,9 @@ export const ReceptionApp = () => (
 export const AccountantApp = () => (
     <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
         <Stack.Screen name="AccountantDashboard" component={withLayout(AccountantDashboard)} />
+        <Stack.Screen name="AccountantFinancialRecords" component={withLayout(AccountantFinancialRecords)} />
+        <Stack.Screen name="AccountantRefunds" component={withLayout(AccountantRefunds)} />
+        <Stack.Screen name="AccountantHistory" component={withLayout(AccountantHistory)} />
         <Stack.Screen name="PatientBillingProfile" component={withLayout(PatientBillingProfile)} />
         <Stack.Screen name="CashierDashboard" component={withLayout(CashierDashboard)} />
     </Stack.Navigator>
@@ -334,6 +350,7 @@ export const NurseApp = () => (
         <Stack.Screen name="IPDCommandCenter" component={withLayout(IPDCommandCenter)} />
         <Stack.Screen name="DoctorPatientDetails" component={withLayout(DoctorPatientDetails)} />
         <Stack.Screen name="UnifiedPatientProfile" component={withLayout(UnifiedPatientProfile)} />
+        <Stack.Screen name="RealTimeMonitoringDashboard" component={withLayout(RealTimeMonitoringDashboard)} />
     </Stack.Navigator>
 );
 

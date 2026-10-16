@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
+import { Feather } from '@expo/vector-icons';
 import { financeAPI, billingAPI } from '../../utils/api';
 import DatePickerInput from '../../components/common/DatePickerInput';
 import OfflineBanner from '../../components/common/OfflineBanner';
 import { checkOnlineStatus } from '../../services/offline/networkStatus';
 import { fetchAccountantDashboardWithOffline } from '../../services/offline/offlineHospitalAdminService';
+import socket from '../../utils/socket';
 
 const AccountantDashboard = () => {
     const navigation = useNavigation();
@@ -40,6 +42,22 @@ const AccountantDashboard = () => {
         };
         checkAuth();
     }, []);
+
+    // Real-time socket updates matching web AccountantDashboard
+    useEffect(() => {
+        if (!socket || !socket.on) return;
+        const handleRefundUpdate = () => fetchStats(datePreset, customStartDate, customEndDate);
+        socket.on('refund_requested', handleRefundUpdate);
+        socket.on('refund_approved', handleRefundUpdate);
+        socket.on('refund_completed', handleRefundUpdate);
+        socket.on('refund_rejected', handleRefundUpdate);
+        return () => {
+            socket.off('refund_requested', handleRefundUpdate);
+            socket.off('refund_approved', handleRefundUpdate);
+            socket.off('refund_completed', handleRefundUpdate);
+            socket.off('refund_rejected', handleRefundUpdate);
+        };
+    }, [datePreset, customStartDate, customEndDate]);
 
     const fetchStats = async (preset = datePreset, start = customStartDate, end = customEndDate) => {
         setLoading(true);
@@ -114,6 +132,33 @@ const AccountantDashboard = () => {
             <View style={styles.header}>
                 <Text style={styles.title}>Finance & Accounting</Text>
                 <Text style={styles.subtitle}>Track revenues, costs, and profits</Text>
+            </View>
+
+            {/* Quick Financial Shortcuts */}
+            <View style={styles.quickNavRow}>
+                <TouchableOpacity
+                    style={[styles.quickNavBtn, { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' }]}
+                    onPress={() => navigation.navigate('AccountantFinancialRecords')}
+                >
+                    <Feather name="file-text" size={15} color="#15803d" />
+                    <Text style={[styles.quickNavBtnText, { color: '#15803d' }]}>Records</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                    style={[styles.quickNavBtn, { backgroundColor: '#fef2f2', borderColor: '#fecaca' }]}
+                    onPress={() => navigation.navigate('AccountantRefunds')}
+                >
+                    <Feather name="dollar-sign" size={15} color="#dc2626" />
+                    <Text style={[styles.quickNavBtnText, { color: '#dc2626' }]}>Refunds</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                    style={[styles.quickNavBtn, { backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }]}
+                    onPress={() => navigation.navigate('AccountantHistory')}
+                >
+                    <Feather name="clock" size={15} color="#2563eb" />
+                    <Text style={[styles.quickNavBtnText, { color: '#2563eb' }]}>History</Text>
+                </TouchableOpacity>
             </View>
 
             <View style={styles.card}>
@@ -287,7 +332,20 @@ const styles = StyleSheet.create({
     statBox: { backgroundColor: 'white', width: '48%', padding: 16, borderRadius: 12, elevation: 1, borderLeftWidth: 4, marginBottom: 10 },
     statLabel: { fontSize: 12, color: '#64748b', fontWeight: 'bold', marginBottom: 4 },
     statValue: { fontSize: 20, fontWeight: '900', color: '#0f172a' },
-    statSub: { fontSize: 10, color: '#94a3b8', marginTop: 4 }
+    statSub: { fontSize: 10, color: '#94a3b8', marginTop: 4 },
+    quickNavRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
+    quickNavBtn: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        paddingVertical: 10,
+        paddingHorizontal: 8,
+        borderRadius: 8,
+        borderWidth: 1
+    },
+    quickNavBtnText: { fontSize: 12, fontWeight: '700' }
 });
 
 export default AccountantDashboard;

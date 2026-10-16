@@ -2,11 +2,12 @@ import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 // Auth Screens
-// We assume WorkspaceLoginScreen is created for the multi-tenant ID entry
+// WorkspaceLoginScreen is the tenant resolution gateway when no tenant is pre-configured
 import WorkspaceLoginScreen from '../screens/Auth/WorkspaceLoginScreen';
 import Login from '../screens/user/Login';
-import SignupScreen from '../screens/Auth/SignupScreen';
+import Signup from '../screens/user/Signup';
 import OTPVerificationScreen from '../screens/Auth/OTPVerificationScreen';
+import { HARDCODED_TENANT } from '../tenant';
 
 // Central Admin Auth
 import CentralAdminLogin from '../screens/centraladmin/CentralAdminLogin';
@@ -31,10 +32,15 @@ import AppointmentSuccess from '../screens/user/AppointmentSuccess';
 const Stack = createNativeStackNavigator();
 
 const AuthStack = () => {
-    // If EXPO_PUBLIC_TENANT_ID is injected, route directly to the Hospital Login.
-    // Otherwise, fallback to WorkspaceLogin (or CentralAdminLogin).
-    const hasTenant = !!process.env.EXPO_PUBLIC_TENANT_ID;
-    const initialRoute = hasTenant ? "Login" : "CentralAdminLogin";
+    // If a tenant is pre-configured via build env or hardcoded config, route directly to Login.
+    // Otherwise, route to WorkspaceLogin for tenant resolution before login.
+    const hasTenant = Boolean(
+        process.env.EXPO_PUBLIC_TENANT_ID ||
+        process.env.EXPO_PUBLIC_TENANT_SLUG ||
+        HARDCODED_TENANT?.tenantId ||
+        HARDCODED_TENANT?.slug
+    );
+    const initialRoute = hasTenant ? "Login" : "WorkspaceLogin";
 
     return (
         <Stack.Navigator 
@@ -47,7 +53,7 @@ const AuthStack = () => {
             {/* Multi-Tenant Workflow */}
             <Stack.Screen name="WorkspaceLogin" component={WorkspaceLoginScreen} />
             <Stack.Screen name="Login" component={Login} />
-            <Stack.Screen name="Signup" component={SignupScreen} />
+            <Stack.Screen name="Signup" component={Signup} />
             <Stack.Screen name="OTP" component={OTPVerificationScreen} />
 
             {/* Public Booking Workflow */}

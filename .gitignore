@@ -1,3 +1,7 @@
 server/
 .env /
 .expo/
+dist/
+**/dist/
+scratch/
+**/scratch/
