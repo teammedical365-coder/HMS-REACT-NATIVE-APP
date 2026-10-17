@@ -728,7 +728,12 @@ export const hospitalAPI = {
   createHospital: async (data) => (await apiClient.post('/api/hospitals', data)).data,
   updateHospital: async (id, data) =>
     (await apiClient.put(`/api/hospitals/${id}`, data)).data,
-  deleteHospital: async (id) => (await apiClient.delete(`/api/hospitals/${id}`)).data,
+  deleteHospital: async (id) => {
+    if (!id || id === 'undefined' || id === 'null') {
+      return { success: false, message: 'Invalid or missing hospital ID' };
+    }
+    return (await apiClient.delete(`/api/hospitals/${id}`)).data;
+  },
   getMyHospital: async () => (await apiClient.get('/api/hospitals/my-hospital')).data,
   getUpiIds: async () =>
     (await apiClient.get('/api/hospitals/my-hospital/upi-ids')).data,
@@ -953,17 +958,37 @@ export const clinicAPI = {
 };
 
 // ─── Simple Clinic API ────────────────────────────────────────────────────────
+const isValidClinicId = (id) => {
+  if (!id) return false;
+  const str = typeof id === 'string' ? id.trim() : String(id).trim();
+  return str.length > 0 && str !== 'undefined' && str !== 'null' && str !== '[object Object]';
+};
+
 export const simpleClinicAPI = {
   getClinics: async (plan) => {
     let url = '/api/simple-clinics';
-    if (plan && plan !== 'all') url += `?plan=${encodeURIComponent(plan)}`;
+    if (plan && plan !== 'all' && plan !== 'undefined' && plan !== 'null') {
+      url += `?plan=${encodeURIComponent(plan)}`;
+    }
     return (await apiClient.get(url)).data;
   },
   createClinic: async (data) => (await apiClient.post('/api/simple-clinics', data)).data,
-  updateClinic: async (id, data) =>
-    (await apiClient.put(`/api/simple-clinics/${id}`, data)).data,
-  deleteClinic: async (id) => (await apiClient.delete(`/api/simple-clinics/${id}`)).data,
+  updateClinic: async (id, data) => {
+    if (!isValidClinicId(id)) {
+      return { success: false, message: 'Invalid or missing clinic ID' };
+    }
+    return (await apiClient.put(`/api/simple-clinics/${id}`, data)).data;
+  },
+  deleteClinic: async (id) => {
+    if (!isValidClinicId(id)) {
+      return { success: false, message: 'Invalid or missing clinic ID' };
+    }
+    return (await apiClient.delete(`/api/simple-clinics/${id}`)).data;
+  },
   getStats: async (id, startDate, endDate) => {
+    if (!isValidClinicId(id)) {
+      return { success: false, message: 'Invalid or missing clinic ID' };
+    }
     let url = `/api/simple-clinics/${id}/stats`;
     const params = new URLSearchParams();
     if (startDate) params.append('startDate', startDate);
@@ -972,23 +997,60 @@ export const simpleClinicAPI = {
     if (qs) url += `?${qs}`;
     return (await apiClient.get(url)).data;
   },
-  createManager: async (id, data) =>
-    (await apiClient.post(`/api/simple-clinics/${id}/manager`, data)).data,
-  getStaff: async (id) => (await apiClient.get(`/api/simple-clinics/${id}/staff`)).data,
-  createStaff: async (id, data) =>
-    (await apiClient.post(`/api/simple-clinics/${id}/staff`, data)).data,
-  deleteStaff: async (clinicId, userId) =>
-    (await apiClient.delete(`/api/simple-clinics/${clinicId}/staff/${userId}`)).data,
-  updateTier: async (id, data) =>
-    (await apiClient.put(`/api/simple-clinics/${id}`, data)).data,
-  getSubscriptions: async (id) =>
-    (await apiClient.get(`/api/simple-clinics/${id}/subscriptions`)).data,
-  setRate: async (id, data) =>
-    (await apiClient.put(`/api/simple-clinics/${id}/subscriptions/rate`, data)).data,
-  updateSubscription: async (clinicId, subId, data) =>
-    (await apiClient.put(`/api/simple-clinics/${clinicId}/subscriptions/${subId}`, data)).data,
-  updateAppointmentMode: async (id, appointmentMode) =>
-    (await apiClient.put(`/api/simple-clinics/${id}`, { appointmentMode })).data,
+  createManager: async (id, data) => {
+    if (!isValidClinicId(id)) {
+      return { success: false, message: 'Invalid or missing clinic ID' };
+    }
+    return (await apiClient.post(`/api/simple-clinics/${id}/manager`, data)).data;
+  },
+  getStaff: async (id) => {
+    if (!isValidClinicId(id)) {
+      return { success: false, message: 'Invalid or missing clinic ID', staff: [] };
+    }
+    return (await apiClient.get(`/api/simple-clinics/${id}/staff`)).data;
+  },
+  createStaff: async (id, data) => {
+    if (!isValidClinicId(id)) {
+      return { success: false, message: 'Invalid or missing clinic ID' };
+    }
+    return (await apiClient.post(`/api/simple-clinics/${id}/staff`, data)).data;
+  },
+  deleteStaff: async (clinicId, userId) => {
+    if (!isValidClinicId(clinicId) || !isValidClinicId(userId)) {
+      return { success: false, message: 'Invalid or missing clinic or staff ID' };
+    }
+    return (await apiClient.delete(`/api/simple-clinics/${clinicId}/staff/${userId}`)).data;
+  },
+  updateTier: async (id, data) => {
+    if (!isValidClinicId(id)) {
+      return { success: false, message: 'Invalid or missing clinic ID' };
+    }
+    return (await apiClient.put(`/api/simple-clinics/${id}`, data)).data;
+  },
+  getSubscriptions: async (id) => {
+    if (!isValidClinicId(id)) {
+      return { success: false, message: 'Invalid or missing clinic ID', subscriptions: [] };
+    }
+    return (await apiClient.get(`/api/simple-clinics/${id}/subscriptions`)).data;
+  },
+  setRate: async (id, data) => {
+    if (!isValidClinicId(id)) {
+      return { success: false, message: 'Invalid or missing clinic ID' };
+    }
+    return (await apiClient.put(`/api/simple-clinics/${id}/subscriptions/rate`, data)).data;
+  },
+  updateSubscription: async (clinicId, subId, data) => {
+    if (!isValidClinicId(clinicId) || !isValidClinicId(subId)) {
+      return { success: false, message: 'Invalid or missing ID' };
+    }
+    return (await apiClient.put(`/api/simple-clinics/${clinicId}/subscriptions/${subId}`, data)).data;
+  },
+  updateAppointmentMode: async (id, appointmentMode) => {
+    if (!isValidClinicId(id)) {
+      return { success: false, message: 'Invalid or missing clinic ID' };
+    }
+    return (await apiClient.put(`/api/simple-clinics/${id}`, { appointmentMode })).data;
+  },
 };
 
 // ─── Revenue API ──────────────────────────────────────────────────────────────

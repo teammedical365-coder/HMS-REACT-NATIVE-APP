@@ -19,6 +19,7 @@ import AdminPharmacy from '../admin/AdminPharmacy';
 import { fetchSuperAdminHospitals, fetchSuperAdminQuestionLibrary } from '../../services/offline/offlineSuperAdminService';
 import { subscribeNetworkStatus } from '../../services/offline/networkStatus';
 import OfflineBanner from '../../components/OfflineBanner';
+import { confirmToast } from '../../utils/confirmToast';
 import { 
   hospitalAPI, 
   simpleClinicAPI, 
@@ -55,6 +56,7 @@ export default function CentralAdminDashboard() {
   const [activeTab, setActiveTab] = useState('hospitals');
   const [loading, setLoading] = useState(false);
   const [hospitals, setHospitals] = useState([]);
+  const [deletingId, setDeletingId] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [revenueData, setRevenueData] = useState(null);
@@ -195,28 +197,44 @@ export default function CentralAdminDashboard() {
     }
   };
 
+  const isClinicDoc = (item) => {
+    if (!item) return false;
+    const rawPlan = String(item.plan || item.planName || item.subscriptionPlan || item.clinicPlan || '').trim().toLowerCase().replace(/[\s-]/g, '_');
+    return item.clinicType === 'clinic' || item.isSimpleClinic === true || (rawPlan.includes('starter') && !rawPlan.includes('multi'));
+  };
+
   const fetchHospitals = async () => {
     setLoading(true);
     try {
       const hospitalsRes = await fetchSuperAdminHospitals({
         onCacheHit: (cached) => {
-          if (Array.isArray(cached?.data)) {
-            const rawHospitals = cached.data;
-            const normalizedHospitals = rawHospitals.map(item => ({
-              ...item,
-              brandingSchema: item.brandingSchema ? {
-                ...item.brandingSchema,
-                logoUrl: isSafeUrl(item.brandingSchema.logoUrl) ? item.brandingSchema.logoUrl : '',
-              } : item.brandingSchema,
-              branding: item.branding ? {
-                ...item.branding,
-                logoUrl: isSafeUrl(item.branding.logoUrl) ? item.branding.logoUrl : '',
-              } : item.branding,
-              isSimpleClinic: item.clinicType === 'clinic',
-              clinicType: item.clinicType === 'clinic' ? 'clinic' : (item.clinicType || 'hospital'),
-              plan: (item.plan || item.planName || item.subscriptionPlan || 'enterprise').toLowerCase().replace(/[\s-]/g, '_')
-            }));
-            setHospitals(normalizedHospitals);
+          const payload = cached?.data;
+          const cachedList = Array.isArray(payload) ? payload : (payload?.combined || payload?.hospitals || []);
+          if (Array.isArray(cachedList) && cachedList.length > 0) {
+            const map = new Map();
+            for (const item of cachedList) {
+              const isClinic = isClinicDoc(item);
+              const id = item._id || item.id;
+              const normItem = {
+                ...item,
+                brandingSchema: item.brandingSchema ? {
+                  ...item.brandingSchema,
+                  logoUrl: isSafeUrl(item.brandingSchema.logoUrl) ? item.brandingSchema.logoUrl : '',
+                } : item.brandingSchema,
+                branding: item.branding ? {
+                  ...item.branding,
+                  logoUrl: isSafeUrl(item.branding.logoUrl) ? item.branding.logoUrl : '',
+                } : item.branding,
+                isSimpleClinic: isClinic,
+                clinicType: isClinic ? 'clinic' : 'hospital',
+                plan: isClinic ? 'starter' : (item.plan || item.planName || item.subscriptionPlan || 'enterprise').toLowerCase().replace(/[\s-]/g, '_')
+              };
+              if (id) {
+                const existing = map.get(String(id));
+                map.set(String(id), existing ? { ...existing, ...normItem } : normItem);
+              }
+            }
+            setHospitals(Array.from(map.values()));
             setOfflineState(prev => ({
               ...prev,
               fromCache: true,
@@ -246,20 +264,24 @@ export default function CentralAdminDashboard() {
         ? clinData
         : (clinData?.clinics || clinData?.simpleClinics || clinData?.data || []);
 
-      const normalizedHospitals = rawHospitals.map(item => ({
-        ...item,
-        brandingSchema: item.brandingSchema ? {
-          ...item.brandingSchema,
-          logoUrl: isSafeUrl(item.brandingSchema.logoUrl) ? item.brandingSchema.logoUrl : '',
-        } : item.brandingSchema,
-        branding: item.branding ? {
-          ...item.branding,
-          logoUrl: isSafeUrl(item.branding.logoUrl) ? item.branding.logoUrl : '',
-        } : item.branding,
-        isSimpleClinic: item.clinicType === 'clinic',
-        clinicType: item.clinicType === 'clinic' ? 'clinic' : (item.clinicType || 'hospital'),
-        plan: (item.plan || item.planName || item.subscriptionPlan || 'enterprise').toLowerCase().replace(/[\s-]/g, '_')
-      }));
+      const normalizedHospitals = rawHospitals.map(item => {
+        const isClinic = isClinicDoc(item);
+        const rawPlan = (item.plan || item.planName || item.subscriptionPlan || (isClinic ? 'starter' : 'enterprise')).toLowerCase().replace(/[\s-]/g, '_');
+        return {
+          ...item,
+          brandingSchema: item.brandingSchema ? {
+            ...item.brandingSchema,
+            logoUrl: isSafeUrl(item.brandingSchema.logoUrl) ? item.brandingSchema.logoUrl : '',
+          } : item.brandingSchema,
+          branding: item.branding ? {
+            ...item.branding,
+            logoUrl: isSafeUrl(item.branding.logoUrl) ? item.branding.logoUrl : '',
+          } : item.branding,
+          isSimpleClinic: isClinic,
+          clinicType: isClinic ? 'clinic' : 'hospital',
+          plan: isClinic ? 'starter' : rawPlan,
+        };
+      });
 
       const normalizedClinics = rawClinics.map(item => ({
         ...item,
@@ -274,10 +296,28 @@ export default function CentralAdminDashboard() {
         isSimpleClinic: true,
         clinicType: 'clinic',
         name: item.name || item.clinicName || item.hospitalName || 'Clinic',
-        plan: (item.plan || item.planName || item.subscriptionPlan || item.clinicPlan || 'starter').toLowerCase().replace(/[\s-]/g, '_')
+        plan: 'starter',
       }));
 
-      const unifiedList = [...normalizedHospitals, ...normalizedClinics];
+      // Deduplicate unifiedList by stable record ID (_id || id)
+      // When an ID is present in both rawHospitals and rawClinics, merge them, preserving clinic-specific attributes
+      const entityMap = new Map();
+      for (const item of normalizedHospitals) {
+        const id = item._id || item.id;
+        if (id) {
+          entityMap.set(String(id), item);
+        }
+      }
+      for (const item of normalizedClinics) {
+        const id = item._id || item.id;
+        if (id) {
+          const existing = entityMap.get(String(id));
+          entityMap.set(String(id), { ...existing, ...item, isSimpleClinic: true, clinicType: 'clinic', plan: 'starter' });
+        } else {
+          entityMap.set(`clinic-${item.name}-${item.slug || ''}`, item);
+        }
+      }
+      const unifiedList = Array.from(entityMap.values());
       setHospitals(unifiedList);
       setOfflineState({
         isOffline: Boolean(hospitalsRes.isOffline),
@@ -326,6 +366,24 @@ export default function CentralAdminDashboard() {
   };
 
   const handleSaveHospital = async () => {
+    if (savingHospital) return;
+    if (!hospitalForm.name.trim()) {
+      setError('Hospital name is required');
+      return;
+    }
+    if (hospitalForm.phone && !/^\d{10}$/.test(hospitalForm.phone.trim())) {
+      setError('Phone number must be a valid 10-digit number');
+      return;
+    }
+    if (hospitalForm.email && !/^\S+@\S+\.\S+$/.test(hospitalForm.email.trim())) {
+      setError('Please provide a valid email address');
+      return;
+    }
+    const editId = editHospital?._id || editHospital?.id;
+    if (editHospital && (!editId || editId === 'undefined' || editId === 'null')) {
+      setError('Cannot update hospital: Invalid hospital ID.');
+      return;
+    }
     setSavingHospital(true);
     try {
       const payload = {
@@ -337,7 +395,7 @@ export default function CentralAdminDashboard() {
         plan: activeTab === 'multi-speciality' ? 'multi_speciality_starter' : activeTab === 'clinic-basic' ? 'clinic_basic' : 'enterprise',
       };
       if (editHospital) {
-        await hospitalAPI.updateHospital(editHospital._id, payload);
+        await hospitalAPI.updateHospital(editId, payload);
       } else {
         await hospitalAPI.createHospital(payload);
       }
@@ -354,8 +412,22 @@ export default function CentralAdminDashboard() {
 
   // Starter Clinic CRUD (1:1 Web Parity)
   const handleSaveClinic = async () => {
+    if (savingClinic) return;
     if (!clinicForm.name.trim()) {
       setError('Clinic name is required');
+      return;
+    }
+    if (clinicForm.phone && !/^\d{10}$/.test(clinicForm.phone.trim())) {
+      setError('Phone number must be a valid 10-digit number');
+      return;
+    }
+    if (clinicForm.email && !/^\S+@\S+\.\S+$/.test(clinicForm.email.trim())) {
+      setError('Please provide a valid email address');
+      return;
+    }
+    const clinicId = editClinic?._id || editClinic?.id;
+    if (editClinic && (!clinicId || clinicId === 'undefined' || clinicId === 'null')) {
+      setError('Cannot update clinic: Invalid clinic ID.');
       return;
     }
     setSavingClinic(true);
@@ -367,7 +439,6 @@ export default function CentralAdminDashboard() {
         plan: 'starter',
       };
       if (editClinic) {
-        const clinicId = editClinic._id || editClinic.id;
         const res = await simpleClinicAPI.updateClinic(clinicId, payload);
         if (res?.success !== false) {
           setSuccess('Clinic updated successfully.');
@@ -396,29 +467,80 @@ export default function CentralAdminDashboard() {
   };
 
   const handleDeleteClinic = (id) => {
-    Alert.alert(
-      'Delete Clinic?',
+    if (deletingId) return;
+    if (!id || id === 'undefined' || id === 'null') {
+      setError('Cannot delete clinic: Invalid clinic ID.');
+      return;
+    }
+    confirmToast(
       'WARNING: This will permanently delete this clinic and its records. This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const res = await simpleClinicAPI.deleteClinic(id);
-              if (res?.success !== false) {
-                setSuccess('Clinic deleted successfully.');
-                await fetchHospitals();
-              } else {
-                setError(res?.message || 'Failed to delete clinic');
+      {
+        title: 'Delete Clinic?',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        onConfirm: async () => {
+          setDeletingId(id);
+          setError('');
+          setSuccess('');
+          try {
+            const res = await simpleClinicAPI.deleteClinic(id);
+            if (res?.success !== false) {
+              setSuccess('Clinic deleted successfully.');
+              setHospitals(prev => prev.filter(h => (h._id || h.id) !== id));
+              if (selectedHospital && (selectedHospital._id || selectedHospital.id) === id) {
+                setSelectedHospital(null);
               }
-            } catch (err) {
-              setError(err?.response?.data?.message || 'Failed to delete clinic');
+              await fetchHospitals();
+            } else {
+              setError(res?.message || 'Failed to delete clinic');
             }
-          },
+          } catch (err) {
+            setError(err?.response?.data?.message || err?.message || 'Failed to delete clinic');
+          } finally {
+            setDeletingId(null);
+          }
         },
-      ]
+      }
+    );
+  };
+
+  const handleDeleteHospital = (id) => {
+    if (deletingId) return;
+    if (!id || id === 'undefined' || id === 'null') {
+      setError('Cannot delete hospital: Invalid hospital ID.');
+      return;
+    }
+    confirmToast(
+      'WARNING: This will permanently delete the hospital and ALL related data including doctors, staff, patients, appointments, lab records, pharmacy records, inventory, and the entire hospital database. This action CANNOT be undone.',
+      {
+        title: 'Delete Hospital',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        onConfirm: async () => {
+          setDeletingId(id);
+          setError('');
+          setSuccess('');
+          try {
+            const res = await hospitalAPI.deleteHospital(id);
+            if (res?.success !== false) {
+              const log = res?.deletionLog || {};
+              const total = (log.users || 0) + (log.doctors || 0) + (log.appointments || 0) + (log.labs || 0) + (log.pharmacies || 0) + (log.receptions || 0) + (log.inventory || 0) + (log.roles || 0);
+              setSuccess(`Hospital deleted successfully.${total > 0 ? ` ${total} related records removed.` : ''}`);
+              setHospitals(prev => prev.filter(h => (h._id || h.id) !== id));
+              if (selectedHospital && (selectedHospital._id || selectedHospital.id) === id) {
+                setSelectedHospital(null);
+              }
+              await fetchHospitals();
+            } else {
+              setError(res?.message || 'Failed to delete hospital');
+            }
+          } catch (error) {
+            setError(error?.response?.data?.message || error?.message || 'Failed to delete hospital');
+          } finally {
+            setDeletingId(null);
+          }
+        },
+      }
     );
   };
 
@@ -672,28 +794,7 @@ export default function CentralAdminDashboard() {
               });
               setShowHospitalForm(true);
             }}
-            onDeleteHospital={async (id) => {
-              Alert.alert(
-                'Delete Hospital',
-                'WARNING: This will permanently delete the hospital and ALL related data. This action CANNOT be undone.',
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Delete',
-                    style: 'destructive',
-                    onPress: async () => {
-                      try {
-                        await hospitalAPI.deleteHospital(id);
-                        setSuccess('Hospital deleted successfully');
-                        await fetchHospitals();
-                      } catch (error) {
-                        setError(error?.response?.data?.message || 'Failed to delete hospital');
-                      }
-                    },
-                  },
-                ]
-              );
-            }}
+            onDeleteHospital={handleDeleteHospital}
             onEditClinic={(c) => {
               setEditClinic(c);
               setClinicForm({
@@ -710,6 +811,7 @@ export default function CentralAdminDashboard() {
               setShowClinicForm(true);
             }}
             onDeleteClinic={handleDeleteClinic}
+            deletingId={deletingId}
             onBrandingHospital={(h) => setBrandingHospital(h)}
             brandingVersions={brandingVersions}
           />

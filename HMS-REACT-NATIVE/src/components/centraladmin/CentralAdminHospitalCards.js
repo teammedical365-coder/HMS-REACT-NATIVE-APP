@@ -15,6 +15,12 @@ const isValidLogoUrl = (url) => {
   return true;
 };
 
+export const isClinicEntity = (h) => {
+  if (!h) return false;
+  const rawPlan = String(h.subscriptionPlan || h.clinicPlan || h.plan || '').trim().toLowerCase().replace(/[\s-]/g, '_');
+  return h.clinicType === 'clinic' || h.isSimpleClinic === true || (rawPlan.includes('starter') && !rawPlan.includes('multi'));
+};
+
 const normalizePlan = (value) => {
   const plan = String(value || '').trim().toLowerCase().replace(/[\s-]/g, '_');
   if (!plan || plan === 'none' || plan === 'enterprise') return 'enterprise';
@@ -40,6 +46,7 @@ export default function CentralAdminHospitalCards({
   onDeleteClinic,
   showClinicForm,
   editClinic,
+  deletingId = null,
   // Controlled version counter per hospital: { [hospitalId]: number }
   // Incremented by dashboard on every successful branding save.
   // Allows cache-bust even when the logoUrl string is identical between saves.
@@ -66,21 +73,24 @@ export default function CentralAdminHospitalCards({
   if (showHospitalForm || showHospitalAdminForm || editHospital || showClinicForm || editClinic) return null;
 
   const planEntities = (hospitals || []).filter((h) => {
-    const isClinic = h.clinicType === 'clinic';
+    const isClinic = isClinicEntity(h);
+    const plan = normalizePlan(h.subscriptionPlan || h.clinicPlan || h.plan);
+
     if (activeTab === 'all') return true;
-    if (activeTab === 'simple-clinics') {
+
+    // Starter Plan / Simple Clinics tab
+    if (activeTab === 'simple-clinics' || activeTab === 'starter') {
       return isClinic;
     }
-    // All other tabs are for hospitals only (hospitals cannot appear in simple-clinics, clinics cannot appear in hospital tabs)
+
+    // All hospital plan tabs: Simple Clinics must NEVER appear here
     if (isClinic) return false;
 
-    const plan = normalizePlan(h.subscriptionPlan || h.clinicPlan || h.plan);
     if (activeTab === 'multi-speciality') return plan === 'multi-speciality';
     if (activeTab === 'clinic-basic') return plan === 'clinic-basic';
-    if (activeTab === 'hospitals') {
-      return plan !== 'multi-speciality' && plan !== 'clinic-basic';
-    }
-    return true;
+    if (activeTab === 'hospitals') return plan === 'enterprise';
+
+    return false;
   });
 
   // Apply search filter (1:1 Web Parity)
@@ -220,7 +230,7 @@ export default function CentralAdminHospitalCards({
       ) : (
         <View style={styles.hospitalsGrid}>
           {filteredHospitals.map((hospital) => {
-            const isClinicCard = hospital.clinicType === 'clinic';
+            const isClinicCard = isClinicEntity(hospital);
             const rawLogo = hospital.brandingSchema?.logoUrl || hospital.branding?.logoUrl;
             const logoUrl = isValidLogoUrl(rawLogo) ? rawLogo : null;
             const hospitalId = hospital._id || hospital.id;
@@ -391,9 +401,12 @@ export default function CentralAdminHospitalCards({
                         Platform.select({ web: { transitionProperty: 'all', transitionDuration: '0.15s', transitionTimingFunction: 'ease', cursor: 'pointer' } }),
                         hovered && { backgroundColor: '#fee2e2', borderColor: '#f87171', transform: [{ translateY: -1 }] },
                         pressed && { transform: [{ scale: 0.96 }] },
+                        (deletingId === hospitalId || !hospitalId) && { opacity: 0.5 },
                       ]} 
+                      disabled={deletingId === hospitalId || !hospitalId}
                       onPress={(e) => { 
                         e.stopPropagation?.(); 
+                        if (deletingId || !hospitalId || hospitalId === 'undefined' || hospitalId === 'null') return;
                         if (isClinicCard && onDeleteClinic) {
                           onDeleteClinic(hospitalId);
                         } else {
@@ -401,7 +414,9 @@ export default function CentralAdminHospitalCards({
                         }
                       }}
                     >
-                      <Text style={styles.btnSmDeleteText}>Delete</Text>
+                      <Text style={styles.btnSmDeleteText}>
+                        {deletingId === hospitalId ? 'Deleting...' : 'Delete'}
+                      </Text>
                     </Pressable>
                   </View>
                 </View>

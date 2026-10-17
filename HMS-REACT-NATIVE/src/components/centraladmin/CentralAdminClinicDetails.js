@@ -473,10 +473,15 @@ const CentralAdminClinicDetails = ({ clinic, onBack, onDeleteSuccess }) => {
 
     // Handle Delete Simple Clinic
     const handleDeleteClinic = async () => {
+        if (!clinicId || clinicId === 'undefined' || clinicId === 'null') {
+            setError('Cannot delete clinic: Invalid or missing clinic ID.');
+            setDeleteModalVisible(false);
+            return;
+        }
         setDeletingClinic(true);
         try {
             const res = await simpleClinicAPI.deleteClinic(clinicId);
-            if (res && res.success) {
+            if (res && res.success !== false) {
                 setDeleteModalVisible(false);
                 if (onDeleteSuccess) {
                     onDeleteSuccess();
