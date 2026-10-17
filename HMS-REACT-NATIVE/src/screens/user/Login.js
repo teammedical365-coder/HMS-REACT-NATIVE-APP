@@ -6,19 +6,13 @@ import { sendOtp, verifyOtp, resendOtp, forceLogin, clearError, resetOtpFlow } f
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { baseURL } from '../../utils/api';
 import { useBranding } from '../../context/BrandingContext';
-import { HARDCODED_TENANT } from '../../tenant';
-
 import NeuralAuthPortal from '../../components/auth/NeuralAuthPortal';
-
-// Synchronously resolve build-configured tenant for native white-label APKs
-const BUILD_TENANT_ID = process.env.EXPO_PUBLIC_TENANT_ID || HARDCODED_TENANT?.tenantId || null;
-const BUILD_TENANT_SLUG = process.env.EXPO_PUBLIC_TENANT_SLUG || HARDCODED_TENANT?.slug || null;
-const BUILD_TENANT_IDENTIFIER = BUILD_TENANT_SLUG || BUILD_TENANT_ID || null;
-const IS_FIXED_NATIVE_WHITE_LABEL_BUILD = Platform.OS !== 'web' && Boolean(
-    BUILD_TENANT_IDENTIFIER &&
-    BUILD_TENANT_IDENTIFIER !== 'medical365' &&
-    BUILD_TENANT_IDENTIFIER !== 'admin'
-);
+import {
+    BUILD_TENANT_ID,
+    BUILD_TENANT_SLUG,
+    IS_FIXED_NATIVE_WHITE_LABEL_BUILD,
+    isHospitalTenantContext,
+} from '../../utils/subdomain';
 
 const Login = () => {
     const navigation = useNavigation();
@@ -30,6 +24,11 @@ const Login = () => {
     const [formData, setFormData] = useState({ email: '', password: '', hospitalSlug: '' });
     const [localError, setLocalError] = useState(null);
     const searchParams = route.params || {};
+    const isHospitalTenant = isHospitalTenantContext({
+        routeParams: searchParams,
+        branding,
+        tenant,
+    });
 
     useEffect(() => {
         dispatch(clearError());
@@ -173,7 +172,7 @@ const Login = () => {
                 loading={loading}
                 error={error || localError}
                 successMsg={otpSuccessMsg}
-                extraFooter={!IS_FIXED_NATIVE_WHITE_LABEL_BUILD ? (
+                extraFooter={!isHospitalTenant ? (
                     <View style={{ alignItems: 'center', marginTop: 14 }}>
                         <TouchableOpacity
                             onPress={() => navigation.navigate('CentralAdminLogin')}

@@ -66,8 +66,19 @@ const formatDate = (d) => {
 };
 
 const PackageManagement = () => {
-    const { width: windowWidth } = useWindowDimensions();
-    const isTablet = windowWidth >= 768;
+    const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+    const isSmallMobile = windowWidth < 380;
+    const isMobile = windowWidth < 640;
+    const isTablet = windowWidth >= 640 && windowWidth < 1024;
+    const isDesktop = windowWidth >= 1024;
+    const isLargeDesktop = windowWidth >= 1440;
+
+    const getCardColStyle = () => {
+        if (isLargeDesktop) return styles.cardColQuarter;
+        if (isDesktop) return styles.cardColThird;
+        if (isTablet) return styles.cardColHalf;
+        return styles.cardColFull;
+    };
 
     // ── State ──────────────────────────────────────────────────────────
     const [activeTab, setActiveTab] = useState('packages'); // 'packages' | 'assignments'
@@ -493,32 +504,32 @@ const PackageManagement = () => {
     return (
         <ScrollView
             style={styles.container}
-            contentContainerStyle={styles.contentContainer}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefreshAll} colors={['#3b82f6']} />}
+            contentContainerStyle={[styles.contentContainer, isMobile && { padding: 12, paddingBottom: 32 }]}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefreshAll} colors={['#2563eb']} tintColor="#2563eb" />}
             keyboardShouldPersistTaps="handled"
         >
             {offlineMeta && <OfflineBanner {...offlineMeta} />}
 
             {/* ── Header ─────────────────────────────────────────────── */}
-            <View style={styles.header}>
-                <View style={styles.headerLeft}>
+            <View style={[styles.header, isMobile && styles.headerMobile]}>
+                <View style={[styles.headerLeft, isMobile && { minWidth: '100%', marginBottom: 4 }]}>
                     <View style={styles.headerTitleRow}>
-                        <Feather name="package" size={24} color="#1e293b" style={{ marginRight: 8 }} />
-                        <Text style={styles.headerTitle}>Package Management</Text>
+                        <Feather name="package" size={isMobile ? 22 : 24} color="#1e293b" style={{ marginRight: 8 }} />
+                        <Text style={[styles.headerTitle, isMobile && { fontSize: 19 }]}>Package Management</Text>
                     </View>
-                    <Text style={styles.headerSubtitle}>Create, manage, and assign clinical service packages to patients</Text>
+                    <Text style={[styles.headerSubtitle, isMobile && { fontSize: 12 }]}>Create, manage, and assign clinical service packages to patients</Text>
                 </View>
 
-                <View style={styles.headerActions}>
-                    <TouchableOpacity style={styles.btnSecondary} onPress={handleRefreshAll}>
-                        <Feather name="refresh-cw" size={15} color="#475569" />
+                <View style={[styles.headerActions, isMobile && styles.headerActionsMobile]}>
+                    <TouchableOpacity style={[styles.btnSecondary, isMobile && { flex: 1, minWidth: 80, justifyContent: 'center' }]} onPress={handleRefreshAll}>
+                        <Feather name="refresh-cw" size={14} color="#475569" />
                         <Text style={styles.btnSecondaryText}>Refresh</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.btnPrimary} onPress={() => openAssignModal()}>
-                        <Feather name="user-plus" size={15} color="#ffffff" />
+                    <TouchableOpacity style={[styles.btnPrimary, isMobile && { flex: 1.2, minWidth: 120, justifyContent: 'center' }]} onPress={() => openAssignModal()}>
+                        <Feather name="user-plus" size={14} color="#ffffff" />
                         <Text style={styles.btnPrimaryText}>Assign Package</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={[styles.btnPrimary, { backgroundColor: '#2563eb' }]} onPress={openCreateModal}>
+                    <TouchableOpacity style={[styles.btnPrimary, { backgroundColor: '#2563eb' }, isMobile && { width: '100%', justifyContent: 'center' }]} onPress={openCreateModal}>
                         <Feather name="plus" size={15} color="#ffffff" />
                         <Text style={styles.btnPrimaryText}>Create Package</Text>
                     </TouchableOpacity>
@@ -526,67 +537,67 @@ const PackageManagement = () => {
             </View>
 
             {/* ── Stats Grid ─────────────────────────────────────────── */}
-            <View style={styles.statsGrid}>
-                <View style={styles.statCard}>
+            <View style={[styles.statsGrid, isMobile && styles.statsGridMobile]}>
+                <View style={[styles.statCard, isSmallMobile ? styles.statCardFull : (isMobile || isTablet) ? styles.statCardHalf : styles.statCardQuarter]}>
                     <View style={[styles.statIcon, { backgroundColor: '#eff6ff' }]}>
-                        <Feather name="package" size={20} color="#2563eb" />
+                        <Feather name="package" size={isMobile ? 18 : 20} color="#2563eb" />
                     </View>
                     <View style={styles.statContent}>
-                        <Text style={styles.statNumber}>{statsLoading ? '—' : stats?.totalPackages || 0}</Text>
-                        <Text style={styles.statLabel}>Total Packages</Text>
+                        <Text style={[styles.statNumber, isMobile && { fontSize: 16 }]}>{statsLoading ? '—' : stats?.totalPackages || 0}</Text>
+                        <Text style={styles.statLabel} numberOfLines={1}>Total Packages</Text>
                     </View>
                 </View>
 
-                <View style={styles.statCard}>
+                <View style={[styles.statCard, isSmallMobile ? styles.statCardFull : (isMobile || isTablet) ? styles.statCardHalf : styles.statCardQuarter]}>
                     <View style={[styles.statIcon, { backgroundColor: '#ecfdf5' }]}>
-                        <Feather name="check" size={20} color="#059669" />
+                        <Feather name="check" size={isMobile ? 18 : 20} color="#059669" />
                     </View>
                     <View style={styles.statContent}>
-                        <Text style={styles.statNumber}>{statsLoading ? '—' : stats?.activePackages || 0}</Text>
-                        <Text style={styles.statLabel}>Active Packages</Text>
+                        <Text style={[styles.statNumber, isMobile && { fontSize: 16 }]}>{statsLoading ? '—' : stats?.activePackages || 0}</Text>
+                        <Text style={styles.statLabel} numberOfLines={1}>Active Packages</Text>
                     </View>
                 </View>
 
-                <View style={styles.statCard}>
+                <View style={[styles.statCard, isSmallMobile ? styles.statCardFull : (isMobile || isTablet) ? styles.statCardHalf : styles.statCardQuarter]}>
                     <View style={[styles.statIcon, { backgroundColor: '#f0fdf4' }]}>
-                        <Feather name="users" size={20} color="#16a34a" />
+                        <Feather name="users" size={isMobile ? 18 : 20} color="#16a34a" />
                     </View>
                     <View style={styles.statContent}>
-                        <Text style={styles.statNumber}>{statsLoading ? '—' : stats?.activeAssignments || 0}</Text>
-                        <Text style={styles.statLabel}>Active Assignments</Text>
+                        <Text style={[styles.statNumber, isMobile && { fontSize: 16 }]}>{statsLoading ? '—' : stats?.activeAssignments || 0}</Text>
+                        <Text style={styles.statLabel} numberOfLines={1}>Active Assignments</Text>
                     </View>
                 </View>
 
-                <View style={styles.statCard}>
+                <View style={[styles.statCard, isSmallMobile ? styles.statCardFull : (isMobile || isTablet) ? styles.statCardHalf : styles.statCardQuarter]}>
                     <View style={[styles.statIcon, { backgroundColor: '#fffbeb' }]}>
-                        <Feather name="trending-up" size={20} color="#d97706" />
+                        <Feather name="trending-up" size={isMobile ? 18 : 20} color="#d97706" />
                     </View>
                     <View style={styles.statContent}>
-                        <Text style={styles.statNumber}>{statsLoading ? '—' : formatCurrency(stats?.totalRevenue)}</Text>
-                        <Text style={styles.statLabel}>Total Package Revenue</Text>
+                        <Text style={[styles.statNumber, isMobile && { fontSize: 16 }]}>{statsLoading ? '—' : formatCurrency(stats?.totalRevenue)}</Text>
+                        <Text style={styles.statLabel} numberOfLines={1}>Total Revenue</Text>
                     </View>
                 </View>
             </View>
 
             {/* ── Tabs ───────────────────────────────────────────────── */}
-            <View style={styles.tabsContainer}>
+            <View style={[styles.tabsContainer, isMobile && styles.tabsContainerMobile]}>
                 <TouchableOpacity
-                    style={[styles.tabButton, activeTab === 'packages' && styles.tabButtonActive]}
+                    style={[styles.tabButton, isMobile && styles.tabButtonMobile, activeTab === 'packages' && styles.tabButtonActive]}
                     onPress={() => setActiveTab('packages')}
                 >
                     <Feather name="package" size={15} color={activeTab === 'packages' ? '#2563eb' : '#64748b'} />
-                    <Text style={[styles.tabText, activeTab === 'packages' && styles.tabTextActive]}>Packages</Text>
+                    <Text style={[styles.tabText, isMobile && { fontSize: 13 }, activeTab === 'packages' && styles.tabTextActive]}>Packages</Text>
                     <View style={[styles.tabBadge, activeTab === 'packages' && styles.tabBadgeActive]}>
                         <Text style={[styles.tabBadgeText, activeTab === 'packages' && styles.tabBadgeTextActive]}>{packages.length}</Text>
                     </View>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                    style={[styles.tabButton, activeTab === 'assignments' && styles.tabButtonActive]}
+                    style={[styles.tabButton, isMobile && styles.tabButtonMobile, activeTab === 'assignments' && styles.tabButtonActive]}
                     onPress={() => setActiveTab('assignments')}
                 >
                     <Feather name="users" size={15} color={activeTab === 'assignments' ? '#2563eb' : '#64748b'} />
-                    <Text style={[styles.tabText, activeTab === 'assignments' && styles.tabTextActive]}>Patient Assignments</Text>
+                    <Text style={[styles.tabText, isMobile && { fontSize: 13 }, activeTab === 'assignments' && styles.tabTextActive]}>Patient Assignments</Text>
                     <View style={[styles.tabBadge, activeTab === 'assignments' && styles.tabBadgeActive]}>
                         <Text style={[styles.tabBadgeText, activeTab === 'assignments' && styles.tabBadgeTextActive]}>{assignments.length}</Text>
                     </View>
@@ -594,8 +605,8 @@ const PackageManagement = () => {
             </View>
 
             {/* ── Toolbar ────────────────────────────────────────────── */}
-            <View style={styles.toolbar}>
-                <View style={styles.searchContainer}>
+            <View style={[styles.toolbar, isMobile && styles.toolbarMobile]}>
+                <View style={[styles.searchContainer, isMobile && styles.searchContainerMobile]}>
                     <Feather name="search" size={16} color="#94a3b8" style={{ marginRight: 8 }} />
                     <TextInput
                         style={styles.searchInput}
@@ -612,14 +623,14 @@ const PackageManagement = () => {
                 </View>
 
                 {activeTab === 'packages' && (
-                    <TouchableOpacity style={styles.filterDropdownBtn} onPress={() => setShowCategoryPicker(true)}>
+                    <TouchableOpacity style={[styles.filterDropdownBtn, isMobile && styles.filterDropdownBtnMobile]} onPress={() => setShowCategoryPicker(true)}>
                         <Text style={styles.filterDropdownText}>{categoryFilter || 'All Categories'}</Text>
                         <Feather name="chevron-down" size={14} color="#64748b" />
                     </TouchableOpacity>
                 )}
 
                 {activeTab === 'assignments' && (
-                    <TouchableOpacity style={styles.filterDropdownBtn} onPress={() => setShowStatusPicker(true)}>
+                    <TouchableOpacity style={[styles.filterDropdownBtn, isMobile && styles.filterDropdownBtnMobile]} onPress={() => setShowStatusPicker(true)}>
                         <Text style={styles.filterDropdownText}>{statusFilter || 'All Status'}</Text>
                         <Feather name="chevron-down" size={14} color="#64748b" />
                     </TouchableOpacity>
@@ -647,10 +658,10 @@ const PackageManagement = () => {
                             const discount = pkg.discountedPrice != null && pkg.totalPrice > 0
                                 ? Math.round(((pkg.totalPrice - pkg.discountedPrice) / pkg.totalPrice) * 100) : 0;
                             return (
-                                <View key={pkg._id} style={[styles.pkgCard, !pkg.isActive && styles.pkgCardInactive]}>
+                                <View key={pkg._id} style={[styles.pkgCard, getCardColStyle(), !pkg.isActive && styles.pkgCardInactive]}>
                                     <View style={styles.pkgCardHeader}>
-                                        <View style={{ flex: 1, marginRight: 8 }}>
-                                            <Text style={styles.pkgCardTitle}>{pkg.name}</Text>
+                                        <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
+                                            <Text style={styles.pkgCardTitle} numberOfLines={2}>{pkg.name}</Text>
                                             {pkg.code ? <Text style={styles.pkgCardCode}>{pkg.code}</Text> : null}
                                         </View>
                                         <View style={[styles.statusBadge, pkg.isActive ? styles.statusBadgeActive : styles.statusBadgeInactive]}>
@@ -674,7 +685,7 @@ const PackageManagement = () => {
                                         <View style={styles.servicesChipsRow}>
                                             {(pkg.services || []).slice(0, 5).map((s, idx) => (
                                                 <View key={idx} style={styles.serviceChip}>
-                                                    <Text style={styles.serviceChipText} numberOfLines={1}>{s.serviceName}</Text>
+                                                    <Text style={[styles.serviceChipText, { maxWidth: isMobile ? 120 : 160 }]} numberOfLines={1}>{s.serviceName}</Text>
                                                 </View>
                                             ))}
                                             {(pkg.services?.length || 0) > 5 && (
@@ -708,20 +719,21 @@ const PackageManagement = () => {
                                         </View>
                                     </View>
 
-                                    <View style={styles.pkgCardFooter}>
+                                    <View style={[styles.pkgCardFooter, isSmallMobile && { flexWrap: 'wrap' }]}>
                                         {pkg.isActive && (
                                             <TouchableOpacity style={styles.btnAssignQuick} onPress={() => openAssignModal(pkg)}>
                                                 <Feather name="user-plus" size={13} color="#ffffff" style={{ marginRight: 4 }} />
                                                 <Text style={styles.btnAssignQuickText}>Assign</Text>
                                             </TouchableOpacity>
                                         )}
-                                        <TouchableOpacity style={styles.btnIconAction} onPress={() => openEditModal(pkg)}>
+                                        <TouchableOpacity style={styles.btnIconAction} onPress={() => openEditModal(pkg)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
                                             <Feather name="edit-2" size={15} color="#475569" />
                                         </TouchableOpacity>
                                         <TouchableOpacity
                                             style={styles.btnIconAction}
                                             onPress={() => handleTogglePackage(pkg)}
                                             disabled={togglingId === pkg._id}
+                                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                                         >
                                             {togglingId === pkg._id ? (
                                                 <ActivityIndicator size="small" color="#16a34a" />
@@ -733,7 +745,7 @@ const PackageManagement = () => {
                                                 />
                                             )}
                                         </TouchableOpacity>
-                                        <TouchableOpacity style={styles.btnIconAction} onPress={() => setShowConfirmModal({ type: 'delete', item: pkg })}>
+                                        <TouchableOpacity style={styles.btnIconAction} onPress={() => setShowConfirmModal({ type: 'delete', item: pkg })} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
                                             <Feather name="trash-2" size={15} color="#dc2626" />
                                         </TouchableOpacity>
                                     </View>
@@ -755,10 +767,10 @@ const PackageManagement = () => {
                         {filteredAssignments.map(a => {
                             const usagePct = getUsagePercent(a);
                             return (
-                                <View key={a._id} style={styles.assignCard}>
+                                <View key={a._id} style={[styles.assignCard, getCardColStyle()]}>
                                     <View style={styles.assignCardHeader}>
-                                        <View style={{ flex: 1, marginRight: 8 }}>
-                                            <Text style={styles.assignPatientName}>{a.patientName || 'Unknown Patient'}</Text>
+                                        <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
+                                            <Text style={styles.assignPatientName} numberOfLines={1}>{a.patientName || 'Unknown Patient'}</Text>
                                             <Text style={styles.assignPatientMRN}>MRN: {a.patientMRN || '—'}</Text>
                                         </View>
                                         {(() => {
@@ -773,9 +785,9 @@ const PackageManagement = () => {
                                         })()}
                                     </View>
 
-                                    <View style={styles.assignPkgRow}>
+                                    <View style={[styles.assignPkgRow, { flexWrap: 'wrap' }]}>
                                         <Feather name="package" size={13} color="#2563eb" style={{ marginRight: 6 }} />
-                                        <Text style={styles.assignPkgName}>{a.packageName}</Text>
+                                        <Text style={[styles.assignPkgName, { flexShrink: 1 }]} numberOfLines={1}>{a.packageName}</Text>
                                         {a.packageCode ? <Text style={styles.assignPkgCode}>({a.packageCode})</Text> : null}
                                     </View>
 
@@ -799,29 +811,29 @@ const PackageManagement = () => {
 
                                     {/* 4 Details Grid */}
                                     <View style={styles.assignDetailsGrid}>
-                                        <View style={styles.assignDetailItem}>
+                                        <View style={[styles.assignDetailItem, isMobile && { width: '47%' }]}>
                                             <Text style={styles.assignDetailLabel}>Package Price</Text>
                                             <Text style={styles.assignDetailValue}>{formatCurrency(a.effectivePrice)}</Text>
                                         </View>
-                                        <View style={styles.assignDetailItem}>
+                                        <View style={[styles.assignDetailItem, isMobile && { width: '47%' }]}>
                                             <Text style={styles.assignDetailLabel}>Extra Charges</Text>
                                             <Text style={[styles.assignDetailValue, a.totalExtraCharges > 0 && { color: '#d97706' }]}>
                                                 {formatCurrency(a.totalExtraCharges)}
                                             </Text>
                                         </View>
-                                        <View style={styles.assignDetailItem}>
+                                        <View style={[styles.assignDetailItem, isMobile && { width: '47%' }]}>
                                             <Text style={styles.assignDetailLabel}>Assigned</Text>
                                             <Text style={styles.assignDetailValue}>{formatDate(a.assignedDate)}</Text>
                                         </View>
-                                        <View style={styles.assignDetailItem}>
+                                        <View style={[styles.assignDetailItem, isMobile && { width: '47%' }]}>
                                             <Text style={styles.assignDetailLabel}>Expires</Text>
                                             <Text style={styles.assignDetailValue}>{formatDate(a.expiryDate)}</Text>
                                         </View>
                                     </View>
 
-                                    <View style={styles.assignCardFooter}>
+                                    <View style={[styles.assignCardFooter, isSmallMobile && { flexWrap: 'wrap' }]}>
                                         <TouchableOpacity
-                                            style={styles.btnSecondarySm}
+                                            style={[styles.btnSecondarySm, isSmallMobile && { flex: 1, justifyContent: 'center' }]}
                                             onPress={() => { setSelectedAssignment(a); setShowDetailModal(true); }}
                                         >
                                             <Feather name="eye" size={13} color="#475569" style={{ marginRight: 4 }} />
@@ -830,7 +842,7 @@ const PackageManagement = () => {
 
                                         {a.status === 'ACTIVE' && (
                                             <TouchableOpacity
-                                                style={styles.btnDangerSm}
+                                                style={[styles.btnDangerSm, isSmallMobile && { flex: 1, justifyContent: 'center' }]}
                                                 onPress={() => setShowConfirmModal({ type: 'cancelAssignment', item: a })}
                                             >
                                                 <Feather name="x-circle" size={13} color="#dc2626" style={{ marginRight: 4 }} />
@@ -849,21 +861,21 @@ const PackageManagement = () => {
             {/* CREATE / EDIT PACKAGE MODAL                                */}
             {/* ════════════════════════════════════════════════════════════ */}
             <Modal visible={showCreateModal} animationType="slide" transparent={true} onRequestClose={() => setShowCreateModal(false)}>
-                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalOverlay}>
-                    <View style={[styles.modalBox, { maxWidth: 640 }]}>
+                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[styles.modalOverlay, isMobile && { padding: 8 }]}>
+                    <View style={[styles.modalBox, { maxWidth: 640 }, isMobile && { width: '100%', maxHeight: '96%', borderRadius: 12 }]}>
                         <View style={styles.modalHeader}>
                             <View style={styles.modalHeaderTitleRow}>
                                 <Feather name="package" size={20} color="#1e293b" style={{ marginRight: 8 }} />
-                                <Text style={styles.modalTitle}>{editingPackage ? 'Edit Package' : 'Create Package'}</Text>
+                                <Text style={styles.modalTitle} numberOfLines={1}>{editingPackage ? 'Edit Package' : 'Create Package'}</Text>
                             </View>
-                            <TouchableOpacity onPress={() => setShowCreateModal(false)}>
+                            <TouchableOpacity onPress={() => setShowCreateModal(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                                 <Feather name="x" size={20} color="#64748b" />
                             </TouchableOpacity>
                         </View>
 
-                        <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-                            <View style={styles.formRow}>
-                                <View style={[styles.formGroup, { flex: 2, marginRight: 8 }]}>
+                        <ScrollView style={[styles.modalBody, isMobile && { padding: 12 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                            <View style={[styles.formRow, isMobile && styles.formRowStacked]}>
+                                <View style={[styles.formGroup, isMobile ? styles.formGroupFull : { flex: 2, marginRight: 8 }]}>
                                     <Text style={styles.formLabel}>Package Name <Text style={styles.required}>*</Text></Text>
                                     <TextInput
                                         style={styles.formInput}
@@ -873,7 +885,7 @@ const PackageManagement = () => {
                                         placeholderTextColor="#94a3b8"
                                     />
                                 </View>
-                                <View style={[styles.formGroup, { flex: 1 }]}>
+                                <View style={[styles.formGroup, isMobile ? styles.formGroupFull : { flex: 1 }]}>
                                     <Text style={styles.formLabel}>Code</Text>
                                     <TextInput
                                         style={styles.formInput}
@@ -898,15 +910,15 @@ const PackageManagement = () => {
                                 />
                             </View>
 
-                            <View style={styles.formRow}>
-                                <View style={[styles.formGroup, { flex: 1, marginRight: 8 }]}>
+                            <View style={[styles.formRow, isMobile && styles.formRowStacked]}>
+                                <View style={[styles.formGroup, isMobile ? styles.formGroupFull : { flex: 1, marginRight: 8 }]}>
                                     <Text style={styles.formLabel}>Category</Text>
                                     <TouchableOpacity style={styles.formSelectTrigger} onPress={() => setShowFormCategoryPicker(true)}>
                                         <Text style={styles.formSelectText}>{formData.category}</Text>
                                         <Feather name="chevron-down" size={14} color="#64748b" />
                                     </TouchableOpacity>
                                 </View>
-                                <View style={[styles.formGroup, { flex: 1 }]}>
+                                <View style={[styles.formGroup, isMobile ? styles.formGroupFull : { flex: 1 }]}>
                                     <Text style={styles.formLabel}>Total Price (₹) <Text style={styles.required}>*</Text></Text>
                                     <TextInput
                                         style={styles.formInput}
@@ -919,8 +931,8 @@ const PackageManagement = () => {
                                 </View>
                             </View>
 
-                            <View style={styles.formRow}>
-                                <View style={[styles.formGroup, { flex: 1, marginRight: 8 }]}>
+                            <View style={[styles.formRow, isMobile && styles.formRowStacked]}>
+                                <View style={[styles.formGroup, isMobile ? styles.formGroupFull : { flex: 1, marginRight: 8 }]}>
                                     <Text style={styles.formLabel}>Discounted Price (₹)</Text>
                                     <TextInput
                                         style={styles.formInput}
@@ -931,7 +943,7 @@ const PackageManagement = () => {
                                         keyboardType="numeric"
                                     />
                                 </View>
-                                <View style={[styles.formGroup, { flex: 1 }]}>
+                                <View style={[styles.formGroup, isMobile ? styles.formGroupFull : { flex: 1 }]}>
                                     <Text style={styles.formLabel}>Validity (Days)</Text>
                                     <TextInput
                                         style={styles.formInput}
@@ -956,84 +968,187 @@ const PackageManagement = () => {
 
                                 {formData.services.map((svc, idx) => (
                                     <View key={idx} style={styles.serviceItemCard}>
-                                        <View style={styles.serviceItemTopRow}>
-                                            <View style={{ flex: 2, marginRight: 8 }}>
-                                                <Text style={styles.serviceFieldLabel}>Service Name <Text style={styles.required}>*</Text></Text>
-                                                <TextInput
-                                                    style={styles.serviceInput}
-                                                    value={svc.serviceName}
-                                                    onChangeText={(val) => updateService(idx, 'serviceName', val)}
-                                                    placeholder="e.g., Consultation"
-                                                    placeholderTextColor="#94a3b8"
-                                                />
-                                            </View>
-                                            <View style={{ flex: 1.5, marginRight: 8 }}>
-                                                <Text style={styles.serviceFieldLabel}>Category</Text>
-                                                <TouchableOpacity
-                                                    style={styles.serviceSelectTrigger}
-                                                    onPress={() => setActiveServiceCategoryPickerIdx(idx)}
-                                                >
-                                                    <Text style={styles.serviceSelectText} numberOfLines={1}>{svc.serviceCategory}</Text>
-                                                    <Feather name="chevron-down" size={12} color="#64748b" />
-                                                </TouchableOpacity>
-                                            </View>
-                                            <TouchableOpacity style={styles.btnRemoveService} onPress={() => removeService(idx)}>
-                                                <Feather name="trash-2" size={16} color="#dc2626" />
-                                            </TouchableOpacity>
-                                        </View>
+                                        {isMobile ? (
+                                            /* Mobile 3-Tier Layout */
+                                            <View>
+                                                <View style={styles.serviceItemMobileHeader}>
+                                                    <View style={{ flex: 1, marginRight: 8 }}>
+                                                        <Text style={styles.serviceFieldLabel}>Service Name <Text style={styles.required}>*</Text></Text>
+                                                        <TextInput
+                                                            style={styles.serviceInput}
+                                                            value={svc.serviceName}
+                                                            onChangeText={(val) => updateService(idx, 'serviceName', val)}
+                                                            placeholder="e.g., Consultation"
+                                                            placeholderTextColor="#94a3b8"
+                                                        />
+                                                    </View>
+                                                    <TouchableOpacity style={styles.btnRemoveService} onPress={() => removeService(idx)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                                                        <Feather name="trash-2" size={16} color="#dc2626" />
+                                                    </TouchableOpacity>
+                                                </View>
 
-                                        <View style={styles.serviceItemBottomRow}>
-                                            <View style={[styles.serviceCol, { marginRight: 6 }]}>
-                                                <Text style={styles.serviceFieldLabel}>Qty (-1=∞)</Text>
-                                                <TextInput
-                                                    style={styles.serviceInputSm}
-                                                    value={svc.includedQuantity.toString()}
-                                                    onChangeText={(val) => updateService(idx, 'includedQuantity', val)}
-                                                    keyboardType="numeric"
-                                                />
+                                                <View style={{ marginBottom: 8 }}>
+                                                    <Text style={styles.serviceFieldLabel}>Category</Text>
+                                                    <TouchableOpacity
+                                                        style={styles.serviceSelectTrigger}
+                                                        onPress={() => setActiveServiceCategoryPickerIdx(idx)}
+                                                    >
+                                                        <Text style={styles.serviceSelectText} numberOfLines={1}>{svc.serviceCategory}</Text>
+                                                        <Feather name="chevron-down" size={12} color="#64748b" />
+                                                    </TouchableOpacity>
+                                                </View>
+
+                                                <View style={styles.serviceItemBottomRow}>
+                                                    <View style={[styles.serviceCol, { marginRight: 6 }]}>
+                                                        <Text style={styles.serviceFieldLabel}>Qty (-1=∞)</Text>
+                                                        <TextInput
+                                                            style={styles.serviceInputSm}
+                                                            value={svc.includedQuantity.toString()}
+                                                            onChangeText={(val) => updateService(idx, 'includedQuantity', val)}
+                                                            keyboardType="numeric"
+                                                        />
+                                                    </View>
+                                                    <View style={[styles.serviceCol, { marginRight: 6 }]}>
+                                                        <Text style={styles.serviceFieldLabel}>Extra/Unit (₹)</Text>
+                                                        <TextInput
+                                                            style={styles.serviceInputSm}
+                                                            value={svc.extraChargePerUnit.toString()}
+                                                            onChangeText={(val) => updateService(idx, 'extraChargePerUnit', val)}
+                                                            keyboardType="numeric"
+                                                        />
+                                                    </View>
+                                                    <View style={styles.serviceCol}>
+                                                        <Text style={styles.serviceFieldLabel}>Unit Price (₹)</Text>
+                                                        <TextInput
+                                                            style={styles.serviceInputSm}
+                                                            value={svc.unitPrice.toString()}
+                                                            onChangeText={(val) => updateService(idx, 'unitPrice', val)}
+                                                            keyboardType="numeric"
+                                                        />
+                                                    </View>
+                                                </View>
                                             </View>
-                                            <View style={[styles.serviceCol, { marginRight: 6 }]}>
-                                                <Text style={styles.serviceFieldLabel}>Extra/Unit (₹)</Text>
-                                                <TextInput
-                                                    style={styles.serviceInputSm}
-                                                    value={svc.extraChargePerUnit.toString()}
-                                                    onChangeText={(val) => updateService(idx, 'extraChargePerUnit', val)}
-                                                    keyboardType="numeric"
-                                                />
+                                        ) : (
+                                            /* Desktop / Tablet Layout */
+                                            <View>
+                                                <View style={styles.serviceItemTopRow}>
+                                                    <View style={{ flex: 2, marginRight: 8 }}>
+                                                        <Text style={styles.serviceFieldLabel}>Service Name <Text style={styles.required}>*</Text></Text>
+                                                        <TextInput
+                                                            style={styles.serviceInput}
+                                                            value={svc.serviceName}
+                                                            onChangeText={(val) => updateService(idx, 'serviceName', val)}
+                                                            placeholder="e.g., Consultation"
+                                                            placeholderTextColor="#94a3b8"
+                                                        />
+                                                    </View>
+                                                    <View style={{ flex: 1.5, marginRight: 8 }}>
+                                                        <Text style={styles.serviceFieldLabel}>Category</Text>
+                                                        <TouchableOpacity
+                                                            style={styles.serviceSelectTrigger}
+                                                            onPress={() => setActiveServiceCategoryPickerIdx(idx)}
+                                                        >
+                                                            <Text style={styles.serviceSelectText} numberOfLines={1}>{svc.serviceCategory}</Text>
+                                                            <Feather name="chevron-down" size={12} color="#64748b" />
+                                                        </TouchableOpacity>
+                                                    </View>
+                                                    <TouchableOpacity style={styles.btnRemoveService} onPress={() => removeService(idx)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                                                        <Feather name="trash-2" size={16} color="#dc2626" />
+                                                    </TouchableOpacity>
+                                                </View>
+
+                                                <View style={styles.serviceItemBottomRow}>
+                                                    <View style={[styles.serviceCol, { marginRight: 6 }]}>
+                                                        <Text style={styles.serviceFieldLabel}>Qty (-1=∞)</Text>
+                                                        <TextInput
+                                                            style={styles.serviceInputSm}
+                                                            value={svc.includedQuantity.toString()}
+                                                            onChangeText={(val) => updateService(idx, 'includedQuantity', val)}
+                                                            keyboardType="numeric"
+                                                        />
+                                                    </View>
+                                                    <View style={[styles.serviceCol, { marginRight: 6 }]}>
+                                                        <Text style={styles.serviceFieldLabel}>Extra/Unit (₹)</Text>
+                                                        <TextInput
+                                                            style={styles.serviceInputSm}
+                                                            value={svc.extraChargePerUnit.toString()}
+                                                            onChangeText={(val) => updateService(idx, 'extraChargePerUnit', val)}
+                                                            keyboardType="numeric"
+                                                        />
+                                                    </View>
+                                                    <View style={styles.serviceCol}>
+                                                        <Text style={styles.serviceFieldLabel}>Unit Price (₹)</Text>
+                                                        <TextInput
+                                                            style={styles.serviceInputSm}
+                                                            value={svc.unitPrice.toString()}
+                                                            onChangeText={(val) => updateService(idx, 'unitPrice', val)}
+                                                            keyboardType="numeric"
+                                                        />
+                                                    </View>
+                                                </View>
                                             </View>
-                                            <View style={styles.serviceCol}>
-                                                <Text style={styles.serviceFieldLabel}>Unit Price (₹)</Text>
-                                                <TextInput
-                                                    style={styles.serviceInputSm}
-                                                    value={svc.unitPrice.toString()}
-                                                    onChangeText={(val) => updateService(idx, 'unitPrice', val)}
-                                                    keyboardType="numeric"
-                                                />
-                                            </View>
-                                        </View>
+                                        )}
                                     </View>
                                 ))}
                             </View>
                         </ScrollView>
 
-                        <View style={styles.modalFooter}>
-                            <TouchableOpacity style={styles.btnSecondary} onPress={() => setShowCreateModal(false)}>
-                                <Text style={styles.btnSecondaryText}>Cancel</Text>
-                            </TouchableOpacity>
-                            {!editingPackage && (
-                                <TouchableOpacity style={[styles.btnSecondary, { borderColor: '#93c5fd', backgroundColor: '#eff6ff' }]} onPress={handleSaveDraft}>
-                                    <Feather name="save" size={14} color="#1d4ed8" style={{ marginRight: 4 }} />
-                                    <Text style={[styles.btnSecondaryText, { color: '#1d4ed8' }]}>Save Draft</Text>
-                                </TouchableOpacity>
+                        <View style={[styles.modalFooter, isMobile && styles.modalFooterMobile]}>
+                            {isMobile ? (
+                                <View style={{ width: '100%', gap: 8 }}>
+                                    <TouchableOpacity
+                                        style={[styles.btnPrimary, { width: '100%', justifyContent: 'center' }, saving && { opacity: 0.7 }]}
+                                        onPress={handleSavePackage}
+                                        disabled={saving}
+                                    >
+                                        {saving ? (
+                                            <ActivityIndicator size="small" color="#ffffff" style={{ marginRight: 6 }} />
+                                        ) : (
+                                            <Feather name="check" size={15} color="#ffffff" style={{ marginRight: 6 }} />
+                                        )}
+                                        <Text style={styles.btnPrimaryText}>{saving ? 'Saving...' : editingPackage ? 'Update Package' : 'Create Package'}</Text>
+                                    </TouchableOpacity>
+
+                                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                                        <TouchableOpacity
+                                            style={[styles.btnSecondary, { flex: 1, justifyContent: 'center' }]}
+                                            onPress={() => setShowCreateModal(false)}
+                                        >
+                                            <Text style={styles.btnSecondaryText}>Cancel</Text>
+                                        </TouchableOpacity>
+
+                                        {!editingPackage && (
+                                            <TouchableOpacity
+                                                style={[styles.btnSecondary, { flex: 1, justifyContent: 'center', borderColor: '#93c5fd', backgroundColor: '#eff6ff' }]}
+                                                onPress={handleSaveDraft}
+                                            >
+                                                <Feather name="save" size={14} color="#1d4ed8" style={{ marginRight: 4 }} />
+                                                <Text style={[styles.btnSecondaryText, { color: '#1d4ed8' }]}>Save Draft</Text>
+                                            </TouchableOpacity>
+                                        )}
+                                    </View>
+                                </View>
+                            ) : (
+                                <>
+                                    <TouchableOpacity style={styles.btnSecondary} onPress={() => setShowCreateModal(false)}>
+                                        <Text style={styles.btnSecondaryText}>Cancel</Text>
+                                    </TouchableOpacity>
+                                    {!editingPackage && (
+                                        <TouchableOpacity style={[styles.btnSecondary, { borderColor: '#93c5fd', backgroundColor: '#eff6ff' }]} onPress={handleSaveDraft}>
+                                            <Feather name="save" size={14} color="#1d4ed8" style={{ marginRight: 4 }} />
+                                            <Text style={[styles.btnSecondaryText, { color: '#1d4ed8' }]}>Save Draft</Text>
+                                        </TouchableOpacity>
+                                    )}
+                                    <TouchableOpacity style={[styles.btnPrimary, saving && { opacity: 0.7 }]} onPress={handleSavePackage} disabled={saving}>
+                                        {saving ? (
+                                            <ActivityIndicator size="small" color="#ffffff" style={{ marginRight: 6 }} />
+                                        ) : (
+                                            <Feather name="check" size={15} color="#ffffff" style={{ marginRight: 6 }} />
+                                        )}
+                                        <Text style={styles.btnPrimaryText}>{saving ? 'Saving...' : editingPackage ? 'Update Package' : 'Create Package'}</Text>
+                                    </TouchableOpacity>
+                                </>
                             )}
-                            <TouchableOpacity style={[styles.btnPrimary, saving && { opacity: 0.7 }]} onPress={handleSavePackage} disabled={saving}>
-                                {saving ? (
-                                    <ActivityIndicator size="small" color="#ffffff" style={{ marginRight: 6 }} />
-                                ) : (
-                                    <Feather name="check" size={15} color="#ffffff" style={{ marginRight: 6 }} />
-                                )}
-                                <Text style={styles.btnPrimaryText}>{saving ? 'Saving...' : editingPackage ? 'Update Package' : 'Create Package'}</Text>
-                            </TouchableOpacity>
                         </View>
                     </View>
                 </KeyboardAvoidingView>
@@ -1043,23 +1158,23 @@ const PackageManagement = () => {
             {/* ASSIGN PACKAGE MODAL                                       */}
             {/* ════════════════════════════════════════════════════════════ */}
             <Modal visible={showAssignModal} animationType="slide" transparent={true} onRequestClose={() => setShowAssignModal(false)}>
-                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalOverlay}>
-                    <View style={[styles.modalBox, { maxWidth: 540 }]}>
+                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[styles.modalOverlay, isMobile && { padding: 8 }]}>
+                    <View style={[styles.modalBox, { maxWidth: 540 }, isMobile && { width: '100%', maxHeight: '96%', borderRadius: 12 }]}>
                         <View style={styles.modalHeader}>
                             <View style={styles.modalHeaderTitleRow}>
                                 <Feather name="user-plus" size={20} color="#1e293b" style={{ marginRight: 8 }} />
-                                <Text style={styles.modalTitle}>Assign Package to Patient</Text>
+                                <Text style={styles.modalTitle} numberOfLines={1}>Assign Package to Patient</Text>
                             </View>
-                            <TouchableOpacity onPress={() => setShowAssignModal(false)}>
+                            <TouchableOpacity onPress={() => setShowAssignModal(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                                 <Feather name="x" size={20} color="#64748b" />
                             </TouchableOpacity>
                         </View>
 
-                        <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                        <ScrollView style={[styles.modalBody, isMobile && { padding: 12 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                             <View style={styles.formGroup}>
                                 <Text style={styles.formLabel}>Select Package <Text style={styles.required}>*</Text></Text>
                                 <TouchableOpacity style={styles.formSelectTrigger} onPress={() => setShowPackagePicker(true)}>
-                                    <Text style={styles.formSelectText}>
+                                    <Text style={[styles.formSelectText, { flex: 1, minWidth: 0, marginRight: 8 }]} numberOfLines={1}>
                                         {assignFormData.packageId
                                             ? (() => {
                                                 const p = packages.find(pkg => pkg._id === assignFormData.packageId);
@@ -1087,12 +1202,40 @@ const PackageManagement = () => {
                                         }}
                                     />
                                     {searchingPatients && <ActivityIndicator size="small" color="#2563eb" />}
+                                    {patientSearch.length > 0 && (
+                                        <TouchableOpacity
+                                            onPress={() => {
+                                                setPatientSearch('');
+                                                setAssignFormData(p => ({ ...p, patientId: '' }));
+                                                setPatientResults([]);
+                                            }}
+                                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                        >
+                                            <Feather name="x" size={16} color="#94a3b8" style={{ marginLeft: 6 }} />
+                                        </TouchableOpacity>
+                                    )}
                                 </View>
 
                                 {assignFormData.patientId ? (
-                                    <View style={styles.patientSelectedNotice}>
-                                        <Feather name="check" size={14} color="#16a34a" style={{ marginRight: 4 }} />
-                                        <Text style={styles.patientSelectedText}>Patient selected</Text>
+                                    <View style={styles.patientSelectedCard}>
+                                        <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                                <Feather name="check-circle" size={14} color="#16a34a" style={{ marginRight: 6 }} />
+                                                <Text style={styles.patientSelectedName} numberOfLines={1}>{patientSearch}</Text>
+                                            </View>
+                                            <Text style={styles.patientSelectedSub}>Patient confirmed for assignment</Text>
+                                        </View>
+                                        <TouchableOpacity
+                                            style={styles.patientChangeBtn}
+                                            onPress={() => {
+                                                setAssignFormData(p => ({ ...p, patientId: '' }));
+                                                setPatientSearch('');
+                                            }}
+                                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                        >
+                                            <Feather name="x" size={12} color="#dc2626" style={{ marginRight: 4 }} />
+                                            <Text style={styles.patientChangeBtnText}>Change</Text>
+                                        </TouchableOpacity>
                                     </View>
                                 ) : null}
 
@@ -1131,25 +1274,55 @@ const PackageManagement = () => {
                             </View>
                         </ScrollView>
 
-                        <View style={styles.modalFooter}>
-                            <TouchableOpacity style={styles.btnSecondary} onPress={() => setShowAssignModal(false)}>
-                                <Text style={styles.btnSecondaryText}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[
-                                    styles.btnPrimary,
-                                    (saving || !assignFormData.packageId || !assignFormData.patientId) && { opacity: 0.6 }
-                                ]}
-                                onPress={handleAssignPackage}
-                                disabled={saving || !assignFormData.packageId || !assignFormData.patientId}
-                            >
-                                {saving ? (
-                                    <ActivityIndicator size="small" color="#ffffff" style={{ marginRight: 6 }} />
-                                ) : (
-                                    <Feather name="user-check" size={15} color="#ffffff" style={{ marginRight: 6 }} />
-                                )}
-                                <Text style={styles.btnPrimaryText}>{saving ? 'Assigning...' : 'Assign Package'}</Text>
-                            </TouchableOpacity>
+                        <View style={[styles.modalFooter, isMobile && styles.modalFooterMobile]}>
+                            {isMobile ? (
+                                <View style={{ width: '100%', gap: 8 }}>
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.btnPrimary,
+                                            { width: '100%', justifyContent: 'center' },
+                                            (saving || !assignFormData.packageId || !assignFormData.patientId) && { opacity: 0.6 }
+                                        ]}
+                                        onPress={handleAssignPackage}
+                                        disabled={saving || !assignFormData.packageId || !assignFormData.patientId}
+                                    >
+                                        {saving ? (
+                                            <ActivityIndicator size="small" color="#ffffff" style={{ marginRight: 6 }} />
+                                        ) : (
+                                            <Feather name="user-check" size={15} color="#ffffff" style={{ marginRight: 6 }} />
+                                        )}
+                                        <Text style={styles.btnPrimaryText}>{saving ? 'Assigning...' : 'Assign Package'}</Text>
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                        style={[styles.btnSecondary, { width: '100%', justifyContent: 'center' }]}
+                                        onPress={() => setShowAssignModal(false)}
+                                    >
+                                        <Text style={styles.btnSecondaryText}>Cancel</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            ) : (
+                                <>
+                                    <TouchableOpacity style={styles.btnSecondary} onPress={() => setShowAssignModal(false)}>
+                                        <Text style={styles.btnSecondaryText}>Cancel</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.btnPrimary,
+                                            (saving || !assignFormData.packageId || !assignFormData.patientId) && { opacity: 0.6 }
+                                        ]}
+                                        onPress={handleAssignPackage}
+                                        disabled={saving || !assignFormData.packageId || !assignFormData.patientId}
+                                    >
+                                        {saving ? (
+                                            <ActivityIndicator size="small" color="#ffffff" style={{ marginRight: 6 }} />
+                                        ) : (
+                                            <Feather name="user-check" size={15} color="#ffffff" style={{ marginRight: 6 }} />
+                                        )}
+                                        <Text style={styles.btnPrimaryText}>{saving ? 'Assigning...' : 'Assign Package'}</Text>
+                                    </TouchableOpacity>
+                                </>
+                            )}
                         </View>
                     </View>
                 </KeyboardAvoidingView>
@@ -1159,23 +1332,23 @@ const PackageManagement = () => {
             {/* ASSIGNMENT DETAIL MODAL                                     */}
             {/* ════════════════════════════════════════════════════════════ */}
             <Modal visible={showDetailModal && !!selectedAssignment} animationType="slide" transparent={true} onRequestClose={() => setShowDetailModal(false)}>
-                <View style={styles.modalOverlay}>
-                    <View style={[styles.modalBox, { maxWidth: 600 }]}>
+                <View style={[styles.modalOverlay, isMobile && { padding: 8 }]}>
+                    <View style={[styles.modalBox, { maxWidth: 600 }, isMobile && { width: '100%', maxHeight: '96%', borderRadius: 12 }]}>
                         <View style={styles.modalHeader}>
                             <View style={styles.modalHeaderTitleRow}>
                                 <Feather name="file-text" size={20} color="#1e293b" style={{ marginRight: 8 }} />
-                                <Text style={styles.modalTitle}>Assignment Details</Text>
+                                <Text style={styles.modalTitle} numberOfLines={1}>Assignment Details</Text>
                             </View>
-                            <TouchableOpacity onPress={() => setShowDetailModal(false)}>
+                            <TouchableOpacity onPress={() => setShowDetailModal(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                                 <Feather name="x" size={20} color="#64748b" />
                             </TouchableOpacity>
                         </View>
 
                         {selectedAssignment && (
-                            <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
-                                <View style={styles.detailHeaderRow}>
-                                    <View>
-                                        <Text style={styles.detailPatientName}>{selectedAssignment.patientName}</Text>
+                            <ScrollView style={[styles.modalBody, isMobile && { padding: 12 }]} showsVerticalScrollIndicator={false}>
+                                <View style={[styles.detailHeaderRow, isMobile && { flexDirection: 'column', alignItems: 'flex-start', gap: 8 }]}>
+                                    <View style={{ flex: 1, minWidth: 0 }}>
+                                        <Text style={styles.detailPatientName} numberOfLines={2}>{selectedAssignment.patientName}</Text>
                                         <Text style={styles.detailPatientMRN}>MRN: {selectedAssignment.patientMRN || '—'}</Text>
                                     </View>
                                     {(() => {
@@ -1193,30 +1366,30 @@ const PackageManagement = () => {
                                 <View style={styles.detailBox}>
                                     <View style={styles.detailBoxTitleRow}>
                                         <Feather name="package" size={15} color="#2563eb" style={{ marginRight: 6 }} />
-                                        <Text style={styles.detailBoxTitle}>{selectedAssignment.packageName}</Text>
+                                        <Text style={[styles.detailBoxTitle, { flex: 1 }]} numberOfLines={2}>{selectedAssignment.packageName}</Text>
                                     </View>
                                     <View style={styles.detailGrid}>
-                                        <View style={styles.detailGridItem}>
+                                        <View style={[styles.detailGridItem, isMobile && { width: '47%' }]}>
                                             <Text style={styles.detailGridLabel}>Effective Price</Text>
                                             <Text style={styles.detailGridValue}>{formatCurrency(selectedAssignment.effectivePrice)}</Text>
                                         </View>
-                                        <View style={styles.detailGridItem}>
+                                        <View style={[styles.detailGridItem, isMobile && { width: '47%' }]}>
                                             <Text style={styles.detailGridLabel}>Extra Charges</Text>
                                             <Text style={styles.detailGridValue}>{formatCurrency(selectedAssignment.totalExtraCharges)}</Text>
                                         </View>
-                                        <View style={styles.detailGridItem}>
+                                        <View style={[styles.detailGridItem, isMobile && { width: '47%' }]}>
                                             <Text style={styles.detailGridLabel}>Assigned</Text>
                                             <Text style={styles.detailGridValue}>{formatDate(selectedAssignment.assignedDate)}</Text>
                                         </View>
-                                        <View style={styles.detailGridItem}>
+                                        <View style={[styles.detailGridItem, isMobile && { width: '47%' }]}>
                                             <Text style={styles.detailGridLabel}>Expires</Text>
                                             <Text style={styles.detailGridValue}>{formatDate(selectedAssignment.expiryDate)}</Text>
                                         </View>
-                                        <View style={styles.detailGridItem}>
+                                        <View style={[styles.detailGridItem, isMobile && { width: '47%' }]}>
                                             <Text style={styles.detailGridLabel}>Assigned By</Text>
                                             <Text style={styles.detailGridValue}>{selectedAssignment.assignedByName || '—'}</Text>
                                         </View>
-                                        <View style={styles.detailGridItem}>
+                                        <View style={[styles.detailGridItem, isMobile && { width: '47%' }]}>
                                             <Text style={styles.detailGridLabel}>Validity</Text>
                                             <Text style={styles.detailGridValue}>{selectedAssignment.validityDays} days</Text>
                                         </View>
@@ -1226,10 +1399,10 @@ const PackageManagement = () => {
                                 <View style={styles.detailServicesSection}>
                                     <Text style={styles.detailSectionTitle}>Service Usage</Text>
                                     {(selectedAssignment.snapshotServices || []).map((s, idx) => (
-                                        <View key={idx} style={styles.detailServiceItem}>
-                                            <View style={{ flex: 1, marginRight: 8 }}>
-                                                <Text style={styles.detailServiceName}>{s.serviceName}</Text>
-                                                <Text style={styles.detailServiceMeta}>
+                                        <View key={idx} style={[styles.detailServiceItem, isSmallMobile && { flexDirection: 'column', alignItems: 'flex-start', gap: 6 }]}>
+                                            <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
+                                                <Text style={styles.detailServiceName} numberOfLines={1}>{s.serviceName}</Text>
+                                                <Text style={styles.detailServiceMeta} numberOfLines={1}>
                                                     {s.serviceCategory} • Extra: {formatCurrency(s.extraChargePerUnit)}/unit
                                                 </Text>
                                             </View>
@@ -1248,8 +1421,8 @@ const PackageManagement = () => {
                                         <Text style={styles.detailSectionTitle}>Usage Log ({selectedAssignment.usageLog.length})</Text>
                                         {selectedAssignment.usageLog.map((log, idx) => (
                                             <View key={idx} style={styles.usageLogCard}>
-                                                <View style={styles.usageLogRow}>
-                                                    <Text style={styles.usageLogName}>{log.serviceName} × {log.quantity}</Text>
+                                                <View style={[styles.usageLogRow, { flexWrap: 'wrap', gap: 4 }]}>
+                                                    <Text style={[styles.usageLogName, { flexShrink: 1 }]} numberOfLines={1}>{log.serviceName} × {log.quantity}</Text>
                                                     {log.isExtra && (
                                                         <Text style={styles.usageLogExtra}>Extra: {formatCurrency(log.extraAmount)}</Text>
                                                     )}
@@ -1264,20 +1437,23 @@ const PackageManagement = () => {
                             </ScrollView>
                         )}
 
-                        <View style={[styles.modalFooter, { justifyContent: 'space-between' }]}>
-                            {selectedAssignment.status === 'ACTIVE' ? (
+                        <View style={[styles.modalFooter, { justifyContent: 'space-between' }, isMobile && { flexDirection: 'column-reverse', gap: 8 }]}>
+                            {selectedAssignment?.status === 'ACTIVE' ? (
                                 <TouchableOpacity
-                                    style={styles.btnDangerSm}
+                                    style={[styles.btnDangerSm, isMobile && { width: '100%', justifyContent: 'center', paddingVertical: 10 }]}
                                     onPress={() => {
                                         setShowDetailModal(false);
                                         setShowConfirmModal({ type: 'cancelAssignment', item: selectedAssignment });
                                     }}
                                 >
-                                    <Feather name="x-circle" size={13} color="#dc2626" style={{ marginRight: 4 }} />
+                                    <Feather name="x-circle" size={14} color="#dc2626" style={{ marginRight: 6 }} />
                                     <Text style={styles.btnDangerSmText}>Cancel Assignment</Text>
                                 </TouchableOpacity>
                             ) : <View />}
-                            <TouchableOpacity style={styles.btnSecondary} onPress={() => setShowDetailModal(false)}>
+                            <TouchableOpacity
+                                style={[styles.btnSecondary, isMobile && { width: '100%', justifyContent: 'center', paddingVertical: 10 }]}
+                                onPress={() => setShowDetailModal(false)}
+                            >
                                 <Text style={styles.btnSecondaryText}>Close</Text>
                             </TouchableOpacity>
                         </View>
@@ -1289,8 +1465,8 @@ const PackageManagement = () => {
             {/* CONFIRMATION DIALOG MODAL                                  */}
             {/* ════════════════════════════════════════════════════════════ */}
             <Modal visible={!!showConfirmModal} animationType="fade" transparent={true} onRequestClose={() => setShowConfirmModal(null)}>
-                <View style={styles.modalOverlay}>
-                    <View style={[styles.modalBox, { maxWidth: 420 }]}>
+                <View style={[styles.modalOverlay, isMobile && { padding: 8 }]}>
+                    <View style={[styles.modalBox, { maxWidth: 420 }, isMobile && { width: '92%', borderRadius: 12 }]}>
                         <View style={styles.confirmBody}>
                             <View style={[
                                 styles.confirmIconContainer,
@@ -1313,16 +1489,16 @@ const PackageManagement = () => {
                             </Text>
                         </View>
 
-                        <View style={[styles.modalFooter, { justifyContent: 'center' }]}>
+                        <View style={[styles.modalFooter, { justifyContent: 'center' }, isMobile && { flexDirection: 'column-reverse', gap: 8 }]}>
                             <TouchableOpacity
-                                style={styles.btnSecondary}
+                                style={[styles.btnSecondary, isMobile && { width: '100%', justifyContent: 'center', paddingVertical: 10 }]}
                                 onPress={() => setShowConfirmModal(null)}
                                 disabled={!!(deletingId || cancellingId)}
                             >
                                 <Text style={styles.btnSecondaryText}>No, Go Back</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
-                                style={[styles.btnDanger, (deletingId || cancellingId) && { opacity: 0.6 }]}
+                                style={[styles.btnDanger, isMobile && { width: '100%', justifyContent: 'center', paddingVertical: 10 }, (deletingId || cancellingId) && { opacity: 0.6 }]}
                                 disabled={!!(deletingId || cancellingId)}
                                 onPress={() => {
                                     if (showConfirmModal?.type === 'delete') handleDeletePackage(showConfirmModal.item);
@@ -1346,12 +1522,12 @@ const PackageManagement = () => {
 
             {/* ── Category Filter Picker Modal ── */}
             <Modal visible={showCategoryPicker} transparent={true} animationType="fade" onRequestClose={() => setShowCategoryPicker(false)}>
-                <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => setShowCategoryPicker(false)}>
-                    <View style={styles.pickerBox}>
+                <TouchableOpacity style={[styles.pickerOverlay, isMobile && { padding: 12 }]} activeOpacity={1} onPress={() => setShowCategoryPicker(false)}>
+                    <View style={[styles.pickerBox, isMobile && { width: '92%', maxWidth: 360, padding: 14 }]}>
                         <Text style={styles.pickerHeaderTitle}>Filter by Category</Text>
                         <ScrollView style={{ maxHeight: 300 }}>
                             <TouchableOpacity
-                                style={[styles.pickerItem, !categoryFilter && styles.pickerItemActive]}
+                                style={[styles.pickerItem, { minHeight: 44, justifyContent: 'center' }, !categoryFilter && styles.pickerItemActive]}
                                 onPress={() => { setCategoryFilter(''); setShowCategoryPicker(false); }}
                             >
                                 <Text style={[styles.pickerItemText, !categoryFilter && styles.pickerItemTextActive]}>All Categories</Text>
@@ -1359,7 +1535,7 @@ const PackageManagement = () => {
                             {CATEGORIES.map(c => (
                                 <TouchableOpacity
                                     key={c}
-                                    style={[styles.pickerItem, categoryFilter === c && styles.pickerItemActive]}
+                                    style={[styles.pickerItem, { minHeight: 44, justifyContent: 'center' }, categoryFilter === c && styles.pickerItemActive]}
                                     onPress={() => { setCategoryFilter(c); setShowCategoryPicker(false); }}
                                 >
                                     <Text style={[styles.pickerItemText, categoryFilter === c && styles.pickerItemTextActive]}>{c}</Text>
@@ -1372,14 +1548,14 @@ const PackageManagement = () => {
 
             {/* ── Status Filter Picker Modal ── */}
             <Modal visible={showStatusPicker} transparent={true} animationType="fade" onRequestClose={() => setShowStatusPicker(false)}>
-                <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => setShowStatusPicker(false)}>
-                    <View style={styles.pickerBox}>
+                <TouchableOpacity style={[styles.pickerOverlay, isMobile && { padding: 12 }]} activeOpacity={1} onPress={() => setShowStatusPicker(false)}>
+                    <View style={[styles.pickerBox, isMobile && { width: '92%', maxWidth: 360, padding: 14 }]}>
                         <Text style={styles.pickerHeaderTitle}>Filter by Status</Text>
                         <ScrollView style={{ maxHeight: 300 }}>
                             {['', 'ACTIVE', 'COMPLETED', 'EXPIRED', 'CANCELLED'].map(s => (
                                 <TouchableOpacity
                                     key={s || 'all'}
-                                    style={[styles.pickerItem, statusFilter === s && styles.pickerItemActive]}
+                                    style={[styles.pickerItem, { minHeight: 44, justifyContent: 'center' }, statusFilter === s && styles.pickerItemActive]}
                                     onPress={() => { setStatusFilter(s); setShowStatusPicker(false); }}
                                 >
                                     <Text style={[styles.pickerItemText, statusFilter === s && styles.pickerItemTextActive]}>
@@ -1394,14 +1570,14 @@ const PackageManagement = () => {
 
             {/* ── Form Category Picker Modal ── */}
             <Modal visible={showFormCategoryPicker} transparent={true} animationType="fade" onRequestClose={() => setShowFormCategoryPicker(false)}>
-                <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => setShowFormCategoryPicker(false)}>
-                    <View style={styles.pickerBox}>
+                <TouchableOpacity style={[styles.pickerOverlay, isMobile && { padding: 12 }]} activeOpacity={1} onPress={() => setShowFormCategoryPicker(false)}>
+                    <View style={[styles.pickerBox, isMobile && { width: '92%', maxWidth: 360, padding: 14 }]}>
                         <Text style={styles.pickerHeaderTitle}>Select Package Category</Text>
                         <ScrollView style={{ maxHeight: 300 }}>
                             {CATEGORIES.map(c => (
                                 <TouchableOpacity
                                     key={c}
-                                    style={[styles.pickerItem, formData.category === c && styles.pickerItemActive]}
+                                    style={[styles.pickerItem, { minHeight: 44, justifyContent: 'center' }, formData.category === c && styles.pickerItemActive]}
                                     onPress={() => { setFormData(p => ({ ...p, category: c })); setShowFormCategoryPicker(false); }}
                                 >
                                     <Text style={[styles.pickerItemText, formData.category === c && styles.pickerItemTextActive]}>{c}</Text>
@@ -1414,14 +1590,14 @@ const PackageManagement = () => {
 
             {/* ── Service Category Picker Modal ── */}
             <Modal visible={activeServiceCategoryPickerIdx !== null} transparent={true} animationType="fade" onRequestClose={() => setActiveServiceCategoryPickerIdx(null)}>
-                <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => setActiveServiceCategoryPickerIdx(null)}>
-                    <View style={styles.pickerBox}>
+                <TouchableOpacity style={[styles.pickerOverlay, isMobile && { padding: 12 }]} activeOpacity={1} onPress={() => setActiveServiceCategoryPickerIdx(null)}>
+                    <View style={[styles.pickerBox, isMobile && { width: '92%', maxWidth: 360, padding: 14 }]}>
                         <Text style={styles.pickerHeaderTitle}>Select Service Category</Text>
                         <ScrollView style={{ maxHeight: 300 }}>
                             {SERVICE_CATEGORIES.map(c => (
                                 <TouchableOpacity
                                     key={c}
-                                    style={styles.pickerItem}
+                                    style={[styles.pickerItem, { minHeight: 44, justifyContent: 'center' }]}
                                     onPress={() => {
                                         if (activeServiceCategoryPickerIdx !== null) {
                                             updateService(activeServiceCategoryPickerIdx, 'serviceCategory', c);
@@ -1439,20 +1615,20 @@ const PackageManagement = () => {
 
             {/* ── Package Picker Modal (for Assignment) ── */}
             <Modal visible={showPackagePicker} transparent={true} animationType="fade" onRequestClose={() => setShowPackagePicker(false)}>
-                <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => setShowPackagePicker(false)}>
-                    <View style={styles.pickerBox}>
+                <TouchableOpacity style={[styles.pickerOverlay, isMobile && { padding: 12 }]} activeOpacity={1} onPress={() => setShowPackagePicker(false)}>
+                    <View style={[styles.pickerBox, isMobile && { width: '92%', maxWidth: 360, padding: 14 }]}>
                         <Text style={styles.pickerHeaderTitle}>Choose Active Package</Text>
                         <ScrollView style={{ maxHeight: 350 }}>
                             {packages.filter(p => p.isActive).map(p => (
                                 <TouchableOpacity
                                     key={p._id}
-                                    style={[styles.pickerItem, assignFormData.packageId === p._id && styles.pickerItemActive]}
+                                    style={[styles.pickerItem, { minHeight: 44, justifyContent: 'center' }, assignFormData.packageId === p._id && styles.pickerItemActive]}
                                     onPress={() => {
                                         setAssignFormData(f => ({ ...f, packageId: p._id }));
                                         setShowPackagePicker(false);
                                     }}
                                 >
-                                    <Text style={[styles.pickerItemText, assignFormData.packageId === p._id && styles.pickerItemTextActive]}>
+                                    <Text style={[styles.pickerItemText, assignFormData.packageId === p._id && styles.pickerItemTextActive]} numberOfLines={2}>
                                         {p.name} — {formatCurrency(p.discountedPrice != null ? p.discountedPrice : p.totalPrice)}
                                     </Text>
                                 </TouchableOpacity>
@@ -1713,8 +1889,7 @@ const styles = StyleSheet.create({
         gap: 14,
     },
     pkgCard: {
-        flex: 1,
-        minWidth: 280,
+        minWidth: 0,
         backgroundColor: '#ffffff',
         borderRadius: 12,
         padding: 16,
@@ -1937,8 +2112,7 @@ const styles = StyleSheet.create({
     },
     // Assignment Cards
     assignCard: {
-        flex: 1,
-        minWidth: 280,
+        minWidth: 0,
         backgroundColor: '#ffffff',
         borderRadius: 12,
         padding: 16,
@@ -2472,6 +2646,121 @@ const styles = StyleSheet.create({
     pickerItemTextActive: {
         color: '#2563eb',
         fontWeight: '600',
+    },
+    // Responsive Layout & Breakpoint Styles
+    headerMobile: {
+        flexDirection: 'column',
+        alignItems: 'flex-start',
+    },
+    headerActionsMobile: {
+        width: '100%',
+        justifyContent: 'space-between',
+        marginTop: 6,
+    },
+    statsGridMobile: {
+        gap: 8,
+    },
+    statCardFull: {
+        minWidth: '100%',
+        width: '100%',
+    },
+    statCardHalf: {
+        minWidth: '47%',
+        width: '47%',
+        flex: 1,
+    },
+    statCardQuarter: {
+        minWidth: '22%',
+        width: '23%',
+        flex: 1,
+    },
+    tabsContainerMobile: {
+        gap: 6,
+    },
+    tabButtonMobile: {
+        flex: 1,
+        justifyContent: 'center',
+        paddingHorizontal: 8,
+    },
+    toolbarMobile: {
+        flexDirection: 'column',
+        alignItems: 'stretch',
+    },
+    searchContainerMobile: {
+        minWidth: '100%',
+        width: '100%',
+    },
+    filterDropdownBtnMobile: {
+        width: '100%',
+        justifyContent: 'space-between',
+    },
+    cardColFull: {
+        width: '100%',
+        minWidth: 0,
+    },
+    cardColHalf: {
+        width: '48.5%',
+        minWidth: 0,
+    },
+    cardColThird: {
+        width: '31.8%',
+        minWidth: 0,
+    },
+    cardColQuarter: {
+        width: '23.8%',
+        minWidth: 0,
+    },
+    formRowStacked: {
+        flexDirection: 'column',
+    },
+    formGroupFull: {
+        width: '100%',
+        marginRight: 0,
+    },
+    modalFooterMobile: {
+        flexDirection: 'column',
+        padding: 12,
+    },
+    serviceItemMobileHeader: {
+        flexDirection: 'row',
+        alignItems: 'flex-end',
+        marginBottom: 8,
+    },
+    patientSelectedCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginTop: 8,
+        padding: 10,
+        backgroundColor: '#f0fdf4',
+        borderWidth: 1,
+        borderColor: '#bbf7d0',
+        borderRadius: 8,
+    },
+    patientSelectedName: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#15803d',
+    },
+    patientSelectedSub: {
+        fontSize: 11,
+        color: '#16a34a',
+        marginTop: 2,
+    },
+    patientChangeBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#ffffff',
+        borderWidth: 1,
+        borderColor: '#fecaca',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 6,
+    },
+    patientChangeBtnText: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#dc2626',
     },
 });
 

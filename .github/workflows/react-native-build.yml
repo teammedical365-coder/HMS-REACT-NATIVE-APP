@@ -171,7 +171,7 @@ jobs:
           LOGO_URL: ${{ github.event.inputs.logoUrl }}
         run: |
           set -euo pipefail
-          node scripts/prepare-launcher-icons.js --clean-mipmaps
+          node scripts/prepare-launcher-icons.js "${LOGO_URL}" --clean-mipmaps --generate-native-res
 
       - name: Verify and Apply App Icons in app.json
         uses: actions/github-script@v7
@@ -227,6 +227,7 @@ jobs:
           APPLICATION_ID: ${{ github.event.inputs.applicationId }}
           EXPO_PUBLIC_API_URL: https://hms-n6nk.onrender.com
           EXPO_PUBLIC_THEME_COLOR: ${{ github.event.inputs.themeColor }}
+          LOGO_URL: ${{ github.event.inputs.logoUrl }}
         run: |
           set -euo pipefail
 
@@ -241,6 +242,9 @@ jobs:
           rm -f android/app/src/main/res/mipmap-*/ic_launcher*
 
           npx expo prebuild --platform android --clean --no-install
+
+          # Ensure authoritative launcher mipmaps are placed directly in native Android resources
+          node scripts/prepare-launcher-icons.js "${LOGO_URL}" --generate-native-res
 
           cd android
           chmod +x ./gradlew

@@ -97,16 +97,6 @@ const HospitalAdminDashboard = () => {
         }
     }, [showCreateForm]);
 
-    useEffect(() => {
-        if (showInventoryForm) {
-            getInventoryDraftWithOffline().then(draft => {
-                if (draft && draft.name) {
-                    setInventoryForm(prev => ({ ...prev, ...draft }));
-                }
-            }).catch(() => {});
-        }
-    }, [showInventoryForm]);
-
     const { user: authUser, isAuthenticated } = useAuth();
     const [datePreset, setDatePreset] = useState('all');
     const [customStartDate, setCustomStartDate] = useState('');
@@ -152,6 +142,16 @@ const HospitalAdminDashboard = () => {
     };
     const [inventoryForm, setInventoryForm] = useState(defaultInventoryForm);
     const [savingInventory, setSavingInventory] = useState(false);
+
+    useEffect(() => {
+        if (showInventoryForm) {
+            getInventoryDraftWithOffline().then(draft => {
+                if (draft && draft.name) {
+                    setInventoryForm(prev => ({ ...prev, ...draft }));
+                }
+            }).catch(() => {});
+        }
+    }, [showInventoryForm]);
 
     // --- Lab Test Pricing State ---
     const [labTests, setLabTests] = useState([]);

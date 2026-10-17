@@ -5,7 +5,7 @@ import { useAppDispatch, useAuth } from '../../store/hooks';
 import { sendOtp, verifyOtp, resendOtp, forceLogin, clearError, resetOtpFlow } from '../../store/slices/authSlice';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NeuralAuthPortal from '../../components/auth/NeuralAuthPortal';
-import { isCentralPlatform } from '../../utils/subdomain';
+import { isCentralPlatform, isHospitalTenantContext } from '../../utils/subdomain';
 
 const CentralAdminLogin = () => {
     const navigation = useNavigation();
@@ -14,8 +14,9 @@ const CentralAdminLogin = () => {
     const [sessionBanner, setSessionBanner] = useState(null);
 
     // On the central platform (Vercel deployment, localhost, or platform root),
-    // omit the staff switch link to prevent navigating into a tenantless Clinical Portal.
-    const showStaffSwitch = !isCentralPlatform();
+    // or when operating within a hospital tenant context,
+    // omit the staff switch link to enforce clean portal isolation.
+    const showStaffSwitch = !isCentralPlatform() && !isHospitalTenantContext();
 
     useEffect(() => {
         const checkSessionBanner = async () => {

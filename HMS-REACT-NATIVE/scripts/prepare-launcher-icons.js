@@ -9,8 +9,9 @@
  * 3. Validates downloaded content (detects HTML 404/500 error pages, truncated/corrupted images).
  * 4. Generates standard 1024x1024 square launcher icon (icon.png) preserving aspect ratio without distortion.
  * 5. Generates 1024x1024 Android adaptive icon foreground (adaptive-icon.png) padded within the 720x720 safe zone.
- * 6. Preserves transparency for transparent logos.
- * 7. Applies safe canonical Medical365 fallback when a custom logo is unavailable or invalid, reporting the source accurately.
+ * 6. Generates native Android launcher mipmap resources (mdpi .. xxxhdpi) in android/app/src/main/res/mipmap-*.
+ * 7. Preserves transparency for transparent logos.
+ * 8. Applies safe canonical Medical365 fallback when a custom logo is unavailable or invalid, reporting the source accurately.
  */
 
 const fs = require('fs');
@@ -22,6 +23,14 @@ const Jimp = require('jimp-compact');
 const MAX_LOGO_BYTES = 5 * 1024 * 1024; // 5 MB limit
 const CONNECT_TIMEOUT_MS = 15000;
 const READ_TIMEOUT_MS = 30000;
+
+const DPI_CONFIGS = [
+  { folder: 'mipmap-mdpi', legacySize: 48, adaptiveSize: 108 },
+  { folder: 'mipmap-hdpi', legacySize: 72, adaptiveSize: 162 },
+  { folder: 'mipmap-xhdpi', legacySize: 96, adaptiveSize: 216 },
+  { folder: 'mipmap-xxhdpi', legacySize: 144, adaptiveSize: 324 },
+  { folder: 'mipmap-xxxhdpi', legacySize: 192, adaptiveSize: 432 },
+];
 
 /**
  * Downloads a remote image buffer with strict safety checks:
@@ -129,6 +138,82 @@ async function fitOnSquareCanvas(sourceImg, canvasSize, safeSize) {
 }
 
 /**
+ * Applies an anti-aliased circular mask to an image for round icons.
+ */
+function applyCircleMask(image) {
+  const circle = image.clone();
+  const width = circle.bitmap.width;
+  const height = circle.bitmap.height;
+  const radius = width / 2;
+  const center = radius;
+
+  circle.scan(0, 0, width, height, (x, y, idx) => {
+    const dist = Math.sqrt(Math.pow(x - center, 2) + Math.pow(y - center, 2));
+    if (dist > radius) {
+      circle.bitmap.data[idx + 3] = 0;
+    } else if (dist > radius - 1) {
+      circle.bitmap.data[idx + 3] = Math.round(circle.bitmap.data[idx + 3] * (radius - dist));
+    }
+  });
+  return circle;
+}
+
+/**
+ * Generates all Android mipmap launcher icons into android/app/src/main/res/mipmap-*
+ * Ensuring both .png and .webp are populated with the hospital's exact logo.
+ */
+async function generateNativeMipmaps(standardIcon, adaptiveIcon, projectRoot) {
+  const resDir = path.join(projectRoot, 'android', 'app', 'src', 'main', 'res');
+  if (!fs.existsSync(resDir)) {
+    console.log(`[prepare-launcher-icons] No android res directory at ${resDir}; skipping native mipmap generation.`);
+    return;
+  }
+
+  for (const cfg of DPI_CONFIGS) {
+    const dpiDir = path.join(resDir, cfg.folder);
+    if (!fs.existsSync(dpiDir)) {
+      fs.mkdirSync(dpiDir, { recursive: true });
+    }
+
+    // 1. Legacy square launcher icon (48x48 .. 192x192)
+    const legacyImg = standardIcon.clone().resize(cfg.legacySize, cfg.legacySize);
+    const legacyPngBuf = await legacyImg.getBufferAsync(Jimp.MIME_PNG);
+    fs.writeFileSync(path.join(dpiDir, 'ic_launcher.png'), legacyPngBuf);
+    fs.writeFileSync(path.join(dpiDir, 'ic_launcher.webp'), legacyPngBuf);
+
+    // 2. Round launcher icon
+    const roundImg = applyCircleMask(legacyImg);
+    const roundPngBuf = await roundImg.getBufferAsync(Jimp.MIME_PNG);
+    fs.writeFileSync(path.join(dpiDir, 'ic_launcher_round.png'), roundPngBuf);
+    fs.writeFileSync(path.join(dpiDir, 'ic_launcher_round.webp'), roundPngBuf);
+
+    // 3. Adaptive icon foreground (108x108 .. 432x432)
+    const fgImg = adaptiveIcon.clone().resize(cfg.adaptiveSize, cfg.adaptiveSize);
+    const fgPngBuf = await fgImg.getBufferAsync(Jimp.MIME_PNG);
+    fs.writeFileSync(path.join(dpiDir, 'ic_launcher_foreground.png'), fgPngBuf);
+    fs.writeFileSync(path.join(dpiDir, 'ic_launcher_foreground.webp'), fgPngBuf);
+  }
+
+  // Ensure mipmap-anydpi-v26 XML files exist
+  const anyDpiDir = path.join(resDir, 'mipmap-anydpi-v26');
+  if (!fs.existsSync(anyDpiDir)) {
+    fs.mkdirSync(anyDpiDir, { recursive: true });
+  }
+
+  const adaptiveXml = `<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/iconBackground"/>
+    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+</adaptive-icon>
+`;
+
+  fs.writeFileSync(path.join(anyDpiDir, 'ic_launcher.xml'), adaptiveXml);
+  fs.writeFileSync(path.join(anyDpiDir, 'ic_launcher_round.xml'), adaptiveXml);
+
+  console.log(`[prepare-launcher-icons] Native Android launcher mipmaps successfully updated across all densities.`);
+}
+
+/**
  * Main icon pipeline orchestrator
  */
 async function prepareLauncherIcons(options = {}) {
@@ -197,8 +282,12 @@ async function prepareLauncherIcons(options = {}) {
         buffer = fs.readFileSync(cleanPath);
       } else {
         let fetchUrl = rawInputLogo;
-        if (fetchUrl.startsWith('/')) {
-          fetchUrl = `https://hms-n6nk.onrender.com${fetchUrl}`;
+        if (!fetchUrl.startsWith('http://') && !fetchUrl.startsWith('https://')) {
+          if (fetchUrl.startsWith('/')) {
+            fetchUrl = `https://hms-n6nk.onrender.com${fetchUrl}`;
+          } else {
+            fetchUrl = `https://hms-n6nk.onrender.com/${fetchUrl}`;
+          }
         }
         buffer = await fetchRemoteImage(fetchUrl);
       }
@@ -241,6 +330,11 @@ async function prepareLauncherIcons(options = {}) {
   const splashImg = await fitOnSquareCanvas(processedImage, 1024, 720);
   await splashImg.writeAsync(splashPath);
 
+  // 5. Generate native Android mipmaps if requested
+  if (options.generateNativeRes !== false) {
+    await generateNativeMipmaps(standardIcon, adaptiveIcon, projectRoot);
+  }
+
   // Verify output files exist and are non-empty
   for (const [name, target] of [['icon.png', iconPath], ['adaptive-icon.png', adaptiveIconPath], ['splash.png', splashPath]]) {
     if (!fs.existsSync(target) || fs.statSync(target).size === 0) {
@@ -274,12 +368,17 @@ async function prepareLauncherIcons(options = {}) {
 // CLI entry point
 if (require.main === module) {
   const args = process.argv.slice(2);
-  const logoArg = args[0] || process.env.LOGO_URL || '';
-  const cleanMipmaps = args.includes('--clean-mipmaps') || process.env.CLEAN_MIPMAPS === 'true';
+  const flags = args.filter(a => a.startsWith('--'));
+  const nonFlags = args.filter(a => !a.startsWith('--'));
+
+  const logoArg = nonFlags.length > 0 ? nonFlags[0] : (process.env.LOGO_URL || '');
+  const cleanMipmaps = flags.includes('--clean-mipmaps') || process.env.CLEAN_MIPMAPS === 'true';
+  const generateNativeRes = flags.includes('--generate-native-res') || !flags.includes('--no-native-res');
 
   prepareLauncherIcons({
     logoUrl: logoArg,
     cleanAndroidMipmaps: cleanMipmaps,
+    generateNativeRes: generateNativeRes,
   })
     .then((result) => {
       console.log(`[prepare-launcher-icons] Done. Result:`, result.source);
@@ -296,4 +395,6 @@ module.exports = {
   fetchRemoteImage,
   decodeBase64Image,
   fitOnSquareCanvas,
+  applyCircleMask,
+  generateNativeMipmaps,
 };

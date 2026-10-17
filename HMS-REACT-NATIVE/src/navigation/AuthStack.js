@@ -7,7 +7,15 @@ import Login from '../screens/user/Login';
 import Signup from '../screens/user/Signup';
 import OTPVerificationScreen from '../screens/Auth/OTPVerificationScreen';
 import { HARDCODED_TENANT } from '../tenant';
-import { getSubdomain, isCentralPlatformDomain } from '../utils/subdomain';
+import { 
+    getSubdomain, 
+    isCentralPlatformDomain,
+    BUILD_TENANT_ID,
+    BUILD_TENANT_SLUG,
+    BUILD_TENANT_IDENTIFIER,
+    HAS_EXPLICIT_HOSPITAL_TENANT_CONFIG,
+    IS_FIXED_NATIVE_WHITE_LABEL_BUILD,
+} from '../utils/subdomain';
 
 // Central Admin Auth
 import CentralAdminLogin from '../screens/centraladmin/CentralAdminLogin';
@@ -30,24 +38,6 @@ import Appointment from '../screens/user/Appointment';
 import AppointmentSuccess from '../screens/user/AppointmentSuccess';
 
 const Stack = createNativeStackNavigator();
-
-// Synchronously resolve build/environment configured tenant
-const BUILD_TENANT_ID = process.env.EXPO_PUBLIC_TENANT_ID || HARDCODED_TENANT?.tenantId || null;
-const BUILD_TENANT_SLUG = process.env.EXPO_PUBLIC_TENANT_SLUG || HARDCODED_TENANT?.slug || null;
-const BUILD_TENANT_IDENTIFIER = BUILD_TENANT_SLUG || BUILD_TENANT_ID || null;
-
-// A valid, explicitly configured hospital tenant in environment/build configuration:
-// Excludes neutral platform identifiers ('medical365', 'admin') and empty strings.
-const HAS_EXPLICIT_HOSPITAL_TENANT_CONFIG = Boolean(
-    BUILD_TENANT_IDENTIFIER &&
-    BUILD_TENANT_IDENTIFIER !== 'medical365' &&
-    BUILD_TENANT_IDENTIFIER !== 'admin'
-);
-
-// Fixed-tenant white-label builds apply strictly to native mobile APK contexts.
-// On Web (Platform.OS === 'web'), the app serves the central platform & web portals,
-// so Central Admin screens MUST ALWAYS remain registered in AuthStack.
-const IS_FIXED_NATIVE_WHITE_LABEL_BUILD = Platform.OS !== 'web' && HAS_EXPLICIT_HOSPITAL_TENANT_CONFIG;
 
 /**
  * Authoritative initial route resolver:
