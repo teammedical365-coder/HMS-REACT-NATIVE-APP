@@ -3,6 +3,14 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 
 export default function RecentAlerts({ alerts = [], onOpenAllAlerts }) {
+  const alertList = Array.isArray(alerts)
+    ? alerts
+    : Array.isArray(alerts?.payload)
+      ? alerts.payload
+      : Array.isArray(alerts?.alerts)
+        ? alerts.alerts
+        : [];
+
   const getSeverityStyle = (severity) => {
     switch (severity) {
       case 'critical':
@@ -39,18 +47,18 @@ export default function RecentAlerts({ alerts = [], onOpenAllAlerts }) {
         </View>
 
         <View style={styles.badge}>
-          <Text style={styles.badgeText}>{alerts.length} Active</Text>
+          <Text style={styles.badgeText}>{alertList.length} Active</Text>
         </View>
       </View>
 
-      {alerts.length === 0 ? (
+      {alertList.length === 0 ? (
         <View style={styles.emptyWrap}>
           <Feather name="check-circle" size={18} color="#10b981" />
           <Text style={styles.emptyText}>No active clinical alarms</Text>
         </View>
       ) : (
         <View style={styles.list}>
-          {alerts.slice(0, 4).map((alert) => {
+          {alertList.slice(0, 4).map((alert) => {
             const style = getSeverityStyle(alert.severity);
             return (
               <View
@@ -74,14 +82,14 @@ export default function RecentAlerts({ alerts = [], onOpenAllAlerts }) {
             );
           })}
 
-          {alerts.length > 4 && onOpenAllAlerts && (
+          {alertList.length > 4 && onOpenAllAlerts && (
             <TouchableOpacity
               style={styles.viewMoreBtn}
               onPress={onOpenAllAlerts}
               activeOpacity={0.7}
             >
               <Text style={styles.viewMoreText}>
-                View all {alerts.length} active alarms →
+                View all {alertList.length} active alarms →
               </Text>
             </TouchableOpacity>
           )}

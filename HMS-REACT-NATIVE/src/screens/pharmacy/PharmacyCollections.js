@@ -140,7 +140,7 @@ const PharmacyCollections = () => {
     return (
         <ScrollView
             style={styles.collectionsContainer}
-            contentContainerStyle={{ paddingBottom: 40 }}
+            contentContainerStyle={{ paddingBottom: 60 }}
             refreshControl={
                 <RefreshControl refreshing={refreshing} onRefresh={() => fetchAnalytics(true)} colors={['#3b82f6']} />
             }
@@ -202,42 +202,57 @@ const PharmacyCollections = () => {
             ) : (
                 <View>
                     <View style={styles.kpiGrid}>
-                        <View style={styles.kpiCard}>
+                        <View style={[styles.kpiCard, width < 420 && { width: '100%', minWidth: '100%' }]}>
                             <View style={[styles.kpiLeftBorder, { backgroundColor: '#3b82f6' }]} />
                             <Text style={styles.kpiTitle}>Total Sales</Text>
-                            <Text style={styles.kpiValue}>₹{(analytics?.totalSales || 0).toFixed(2)}</Text>
+                            <Text style={styles.kpiValue} adjustsFontSizeToFit numberOfLines={1} minimumFontScale={0.7}>
+                                ₹{(analytics?.totalSales || 0).toFixed(2)}
+                            </Text>
                             <View style={styles.kpiSubtextContainer}>
                                 <Text style={styles.kpiSubtext}>Cash: ₹{(analytics?.cashAmount || 0).toFixed(2)}</Text>
                                 <Text style={styles.kpiSubtext}>Online: ₹{((analytics?.upiAmount || 0) + (analytics?.cardAmount || 0)).toFixed(2)}</Text>
                             </View>
                         </View>
 
-                        <View style={styles.kpiCard}>
+                        <View style={[styles.kpiCard, width < 420 && { width: '100%', minWidth: '100%' }]}>
                             <View style={[styles.kpiLeftBorder, { backgroundColor: '#ef4444' }]} />
                             <Text style={styles.kpiTitle}>Total Refunds</Text>
-                            <Text style={[styles.kpiValue, { color: '#ef4444' }]}>₹{(analytics?.totalRefunds || 0).toFixed(2)}</Text>
-                            <Text style={[styles.kpiSubtext, { marginTop: 5 }]}>Dr. Guarantee: ₹{(analytics?.doctorGuaranteedAmount || 0).toFixed(2)}</Text>
+                            <Text style={[styles.kpiValue, { color: '#ef4444' }]} adjustsFontSizeToFit numberOfLines={1} minimumFontScale={0.7}>
+                                ₹{(analytics?.totalRefunds || 0).toFixed(2)}
+                            </Text>
+                            <View style={styles.kpiSubtextContainer}>
+                                <Text style={styles.kpiSubtext}>Dr. Guarantee: ₹{(analytics?.doctorGuaranteedAmount || 0).toFixed(2)}</Text>
+                            </View>
                         </View>
 
-                        <View style={styles.kpiCard}>
+                        <View style={[styles.kpiCard, width < 420 && { width: '100%', minWidth: '100%' }]}>
                             <View style={[styles.kpiLeftBorder, { backgroundColor: '#8b5cf6' }]} />
                             <Text style={styles.kpiTitle}>Net Revenue</Text>
-                            <Text style={styles.kpiValue}>₹{(analytics?.netRevenue || 0).toFixed(2)}</Text>
+                            <Text style={styles.kpiValue} adjustsFontSizeToFit numberOfLines={1} minimumFontScale={0.7}>
+                                ₹{(analytics?.netRevenue || 0).toFixed(2)}
+                            </Text>
                         </View>
 
-                        <View style={styles.kpiCard}>
+                        <View style={[styles.kpiCard, width < 420 && { width: '100%', minWidth: '100%' }]}>
                             <View style={[styles.kpiLeftBorder, { backgroundColor: '#10b981' }]} />
                             <Text style={styles.kpiTitle}>Gross Profit</Text>
-                            <Text style={[styles.kpiValue, { color: '#10b981' }]}>₹{(analytics?.grossProfit || 0).toFixed(2)}</Text>
-                            <Text style={[styles.kpiSubtext, { marginTop: 5 }]}>COGS: ₹{(analytics?.cogs || 0).toFixed(2)}</Text>
+                            <Text style={[styles.kpiValue, { color: '#10b981' }]} adjustsFontSizeToFit numberOfLines={1} minimumFontScale={0.7}>
+                                ₹{(analytics?.grossProfit || 0).toFixed(2)}
+                            </Text>
+                            <View style={styles.kpiSubtextContainer}>
+                                <Text style={styles.kpiSubtext}>COGS: ₹{(analytics?.cogs || 0).toFixed(2)}</Text>
+                            </View>
                         </View>
                     </View>
 
                     <View style={[styles.chartsSection, { flexDirection: isDesktop ? 'row' : 'column' }]}>
                         {/* Top Selling Items */}
                         <View style={styles.chartCard}>
-                            <Text style={styles.chartTitle}>Top Selling Items</Text>
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                                <Text style={styles.chartTitle}>Top Selling Items</Text>
+                                {isMobile && <Text style={{ fontSize: 11, color: '#94a3b8' }}>↔ Scrollable</Text>}
+                            </View>
+                            <ScrollView horizontal showsHorizontalScrollIndicator={true}>
                                 <View style={{ minWidth: 600 }}>
                                     <View style={styles.tableHead}>
                                         <Text style={[styles.th, { width: 200 }]}>Medicine Name</Text>
@@ -274,8 +289,11 @@ const PharmacyCollections = () => {
 
                         {/* Recent Transactions */}
                         <View style={styles.chartCard}>
-                            <Text style={styles.chartTitle}>Recent Transactions</Text>
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                                <Text style={styles.chartTitle}>Recent Transactions</Text>
+                                {isMobile && <Text style={{ fontSize: 11, color: '#94a3b8' }}>↔ Scrollable</Text>}
+                            </View>
+                            <ScrollView horizontal showsHorizontalScrollIndicator={true}>
                                 <View style={{ minWidth: 600 }}>
                                     <View style={styles.tableHead}>
                                         <Text style={[styles.th, { width: 120 }]}>Date</Text>
@@ -424,13 +442,14 @@ const styles = StyleSheet.create({
     },
     kpiSubtextContainer: {
         flexDirection: 'row',
-        gap: 10,
-        marginTop: 5,
+        flexWrap: 'wrap',
+        gap: 8,
+        marginTop: 6,
     },
     kpiSubtext: {
-        fontSize: 13,
+        fontSize: 12,
         color: '#64748b',
-        marginTop: 5,
+        fontWeight: '500',
     },
 
     chartsSection: {

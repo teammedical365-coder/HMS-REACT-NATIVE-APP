@@ -248,31 +248,109 @@ const PurchaseInvoiceHistory = () => {
 
 
             <View style={styles.tableContainer}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={{ minWidth: 900 }}>
-                        <View style={styles.tableHeadRow}>
-                            <Text style={[styles.tableHead, { width: 150 }]}>Invoice Details</Text>
-                            <Text style={[styles.tableHead, { width: 180 }]}>Vendor</Text>
-                            <Text style={[styles.tableHead, { width: 120 }]}>Upload Info</Text>
-                            <Text style={[styles.tableHead, { width: 120 }]}>Progress</Text>
-                            <Text style={[styles.tableHead, { width: 100 }]}>Amount</Text>
-                            <Text style={[styles.tableHead, { width: 100 }]}>Status</Text>
-                            <Text style={[styles.tableHead, { width: 130, textAlign: 'right' }]}>Actions</Text>
-                        </View>
+                {loading ? (
+                    <View style={styles.emptyState}>
+                        <ActivityIndicator size="large" color="#0ea5e9" />
+                        <Text style={styles.emptyStateText}>Loading real-time invoice data...</Text>
+                    </View>
+                ) : filteredInvoices.length === 0 ? (
+                    <View style={styles.emptyState}>
+                        <Text style={{ fontSize: 48, marginBottom: 10 }}>📄</Text>
+                        <Text style={styles.emptyStateTitle}>No Invoices Found</Text>
+                        <Text style={styles.emptyStateText}>Try adjusting your search filters or upload a new invoice.</Text>
+                    </View>
+                ) : isMobile ? (
+                    /* Mobile Stacked Card View */
+                    <View style={styles.mobileListContainer}>
+                        {filteredInvoices.map((inv) => (
+                            <View key={inv._id} style={styles.mobileInvoiceCard}>
+                                <View style={styles.cardHeaderRow}>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={styles.invoiceNumber}>{inv.invoiceNumber || 'N/A'}</Text>
+                                        <Text style={styles.invoiceDate}>{inv.invoiceDate ? formatToDisplay(inv.invoiceDate) : 'No Date'}</Text>
+                                    </View>
+                                    <View style={[styles.statusBadge, inv.status === 'Completed' ? styles.statusCompleted : inv.status === 'Cancelled' ? styles.statusCancelled : styles.statusPending]}>
+                                        <Text style={[styles.statusBadgeText, inv.status === 'Completed' ? styles.statusTextCompleted : inv.status === 'Cancelled' ? styles.statusTextCancelled : styles.statusTextPending]}>{inv.status}</Text>
+                                    </View>
+                                </View>
 
-                        {loading ? (
-                            <View style={styles.emptyState}>
-                                <ActivityIndicator size="large" color="#0ea5e9" />
-                                <Text style={styles.emptyStateText}>Loading real-time invoice data...</Text>
+                                <View style={styles.cardVendorRow}>
+                                    <View style={styles.vendorAvatar}>
+                                        <Text style={styles.vendorAvatarText}>
+                                            {((inv.vendorName && !/plot|road|street|floor|nagar|marg/i.test(inv.vendorName)) ? inv.vendorName[0] : 'V').toUpperCase()}
+                                        </Text>
+                                    </View>
+                                    <View style={{ flex: 1, marginLeft: 10 }}>
+                                        {inv.vendorName && /plot|road|street|floor|nagar|marg/i.test(inv.vendorName) ? (
+                                            <View>
+                                                <Text style={{ color: '#ef4444', fontSize: 13, fontWeight: 'bold' }}>Vendor Missing</Text>
+                                                <Text style={{ fontSize: 11, color: '#94a3b8' }} numberOfLines={1}>Addr: {inv.vendorName}</Text>
+                                            </View>
+                                        ) : (
+                                            <Text style={styles.vendorName} numberOfLines={2}>{inv.vendorName || 'Unknown Vendor'}</Text>
+                                        )}
+                                    </View>
+                                </View>
+
+                                <View style={styles.cardStatsGrid}>
+                                    <View style={styles.cardStatBox}>
+                                        <Text style={styles.cardStatLabel}>Amount</Text>
+                                        <Text style={styles.amountText}>₹{inv.grandTotal?.toLocaleString('en-IN') || 0}</Text>
+                                    </View>
+                                    <View style={styles.cardStatBox}>
+                                        <Text style={styles.cardStatLabel}>Progress</Text>
+                                        <Text style={{ fontSize: 13, fontWeight: '600', color: '#334155' }}>{inv.importedMedicines || 0} / {inv.totalMedicines || 0}</Text>
+                                    </View>
+                                    <View style={styles.cardStatBox}>
+                                        <Text style={styles.cardStatLabel}>Uploaded</Text>
+                                        <Text style={{ fontSize: 12, color: '#64748b' }}>{inv.uploadDate ? new Date(inv.uploadDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short' }) : 'N/A'}</Text>
+                                    </View>
+                                </View>
+
+                                <View style={styles.cardActionsRow}>
+                                    <TouchableOpacity style={styles.mobileActionBtn} onPress={() => handleView(inv)}>
+                                        <Text style={styles.mobileActionBtnText}>👁️ View Details</Text>
+                                    </TouchableOpacity>
+                                    {inv.status === 'Pending' && (
+                                        <TouchableOpacity style={[styles.mobileActionBtn, styles.actionBtnPrimary]} onPress={() => handleProcessInvoice(inv._id)}>
+                                            <Text style={[styles.mobileActionBtnText, { color: 'white' }]}>▶ Import</Text>
+                                        </TouchableOpacity>
+                                    )}
+                                    {inv.uploadedPDF?.generatedName && (
+                                        <TouchableOpacity
+                                            style={styles.mobileActionBtn}
+                                            onPress={() => {
+                                                const pdfUrl = `${(baseURL || '').replace(/\/$/, '')}/uploads/invoices/${inv.uploadedPDF.generatedName}`;
+                                                Linking.openURL(pdfUrl).catch(() => Alert.alert('Error', 'Unable to open invoice PDF'));
+                                            }}
+                                        >
+                                            <Text style={styles.mobileActionBtnText}>⬇️ PDF</Text>
+                                        </TouchableOpacity>
+                                    )}
+                                    {isAdmin && (
+                                        <TouchableOpacity style={[styles.mobileActionBtn, styles.actionBtnDanger]} onPress={() => handleDelete(inv._id)}>
+                                            <Text style={[styles.mobileActionBtnText, { color: '#ef4444' }]}>🗑️</Text>
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
                             </View>
-                        ) : filteredInvoices.length === 0 ? (
-                            <View style={styles.emptyState}>
-                                <Text style={{ fontSize: 48, marginBottom: 10 }}>📄</Text>
-                                <Text style={styles.emptyStateTitle}>No Invoices Found</Text>
-                                <Text style={styles.emptyStateText}>Try adjusting your search filters or upload a new invoice.</Text>
+                        ))}
+                    </View>
+                ) : (
+                    /* Desktop / Tablet Horizontal Table View */
+                    <ScrollView horizontal showsHorizontalScrollIndicator={true}>
+                        <View style={{ minWidth: 900 }}>
+                            <View style={styles.tableHeadRow}>
+                                <Text style={[styles.tableHead, { width: 150 }]}>Invoice Details</Text>
+                                <Text style={[styles.tableHead, { width: 180 }]}>Vendor</Text>
+                                <Text style={[styles.tableHead, { width: 120 }]}>Upload Info</Text>
+                                <Text style={[styles.tableHead, { width: 120 }]}>Progress</Text>
+                                <Text style={[styles.tableHead, { width: 100 }]}>Amount</Text>
+                                <Text style={[styles.tableHead, { width: 100 }]}>Status</Text>
+                                <Text style={[styles.tableHead, { width: 130, textAlign: 'right' }]}>Actions</Text>
                             </View>
-                        ) : (
-                            filteredInvoices.map((inv) => (
+
+                            {filteredInvoices.map((inv) => (
                                 <View key={inv._id} style={styles.tableRow}>
                                     <View style={[styles.tableCell, { width: 150 }]}>
                                         <Text style={styles.invoiceNumber}>{inv.invoiceNumber || 'N/A'}</Text>
@@ -344,14 +422,14 @@ const PurchaseInvoiceHistory = () => {
                                         )}
                                     </View>
                                 </View>
-                            ))
-                        )}
-                    </View>
-                </ScrollView>
+                            ))}
+                        </View>
+                    </ScrollView>
+                )}
             </View>
 
             {/* Premium View Modal */}
-            <Modal visible={showModal} transparent={true} animationType="slide">
+            <Modal visible={showModal} transparent={true} animationType="slide" onRequestClose={() => setShowModal(false)}>
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
                         <View style={styles.modalHeader}>
@@ -806,6 +884,79 @@ const styles = StyleSheet.create({
         color: '#10b981',
         fontWeight: 'bold',
         fontSize: 13,
+    },
+    /* Mobile Card Styles */
+    mobileListContainer: {
+        padding: 12,
+        gap: 12,
+    },
+    mobileInvoiceCard: {
+        backgroundColor: '#ffffff',
+        borderRadius: 12,
+        padding: 14,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+        elevation: 1,
+        gap: 10,
+    },
+    cardHeaderRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        borderBottomWidth: 1,
+        borderBottomColor: '#f1f5f9',
+        paddingBottom: 8,
+    },
+    cardVendorRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    cardStatsGrid: {
+        flexDirection: 'row',
+        backgroundColor: '#f8fafc',
+        borderRadius: 8,
+        padding: 10,
+        justifyContent: 'space-between',
+        borderWidth: 1,
+        borderColor: '#f1f5f9',
+    },
+    cardStatBox: {
+        alignItems: 'center',
+        flex: 1,
+    },
+    cardStatLabel: {
+        fontSize: 11,
+        color: '#64748b',
+        fontWeight: '600',
+        marginBottom: 2,
+        textTransform: 'uppercase',
+    },
+    cardActionsRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+        justifyContent: 'flex-end',
+        alignItems: 'center',
+        paddingTop: 4,
+    },
+    mobileActionBtn: {
+        paddingVertical: 7,
+        paddingHorizontal: 12,
+        backgroundColor: '#f1f5f9',
+        borderRadius: 6,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    mobileActionBtnText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#334155',
     },
 });
 

@@ -35,9 +35,11 @@ const PharmacyReturns = () => {
     const fetchInventory = async () => {
         try {
             const res = await pharmacyAPI.getInventory();
-            if (res.success) setInventory(res.data);
+            const items = res?.medicines || res?.data || res?.inventory || (Array.isArray(res) ? res : []);
+            setInventory(Array.isArray(items) ? items : []);
         } catch (err) {
-            console.error(err);
+            console.error('Error fetching inventory in PharmacyReturns:', err);
+            setInventory([]);
         }
     };
 

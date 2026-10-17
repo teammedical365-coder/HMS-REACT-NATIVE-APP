@@ -12,7 +12,15 @@ import { Feather } from '@expo/vector-icons';
 export default function ActiveAlertsModal({ visible, onClose, alerts = [] }) {
   const [filter, setFilter] = useState('all');
 
-  const filteredAlerts = alerts.filter((a) => {
+  const alertList = Array.isArray(alerts)
+    ? alerts
+    : Array.isArray(alerts?.payload)
+      ? alerts.payload
+      : Array.isArray(alerts?.alerts)
+        ? alerts.alerts
+        : [];
+
+  const filteredAlerts = alertList.filter((a) => {
     if (filter === 'all') return true;
     return a.severity === filter;
   });

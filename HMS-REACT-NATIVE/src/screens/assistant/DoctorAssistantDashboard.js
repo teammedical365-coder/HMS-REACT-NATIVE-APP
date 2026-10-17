@@ -19,6 +19,8 @@ const DoctorAssistantDashboard = () => {
     const navigation = useNavigation();
     const { width } = useWindowDimensions();
     const isMobile = width < 768;
+    const isNarrow = width < 480;
+    const isSmall = width < 360;
 
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -189,8 +191,8 @@ const DoctorAssistantDashboard = () => {
 
             {/* Section: My Assigned Doctors */}
             <View style={styles.sectionCard}>
-                <View style={styles.sectionHeader}>
-                    <View>
+                <View style={[styles.sectionHeader, isNarrow && { flexWrap: 'wrap', gap: 8 }]}>
+                    <View style={{ flex: 1, minWidth: 160 }}>
                         <Text style={styles.sectionTitle}>👨‍⚕️ My Assigned Doctors</Text>
                         <Text style={styles.sectionSubtitle}>
                             Doctors and departments you are authorized to prepare patients for
@@ -237,8 +239,8 @@ const DoctorAssistantDashboard = () => {
 
             {/* Section: Today's Patient Queue */}
             <View style={styles.sectionCard}>
-                <View style={styles.sectionHeader}>
-                    <View>
+                <View style={[styles.sectionHeader, isNarrow && { flexWrap: 'wrap', gap: 8 }]}>
+                    <View style={{ flex: 1, minWidth: 160 }}>
                         <Text style={styles.sectionTitle}>📋 Today's Patient Queue</Text>
                         <Text style={styles.sectionSubtitle}>
                             Patients scheduled with your assigned doctors for pre-consultation preparation
@@ -268,8 +270,8 @@ const DoctorAssistantDashboard = () => {
                     <View style={styles.queueList}>
                         {patientQueue.map(item => (
                             <View key={item.appointmentId} style={styles.queueItemCard}>
-                                <View style={styles.queueItemTop}>
-                                    <View>
+                                <View style={[styles.queueItemTop, isNarrow && { flexWrap: 'wrap', gap: 6 }]}>
+                                    <View style={{ flex: 1, minWidth: 140 }}>
                                         <Text style={styles.patientName}>{item.patient?.name || 'Patient'}</Text>
                                         <Text style={styles.patientUhid}>
                                             UHID: {item.patient?.uhid || 'N/A'} {item.patient?.age ? `• ${item.patient.age}y` : ''} {item.patient?.gender ? `• ${item.patient.gender}` : ''}
@@ -299,7 +301,7 @@ const DoctorAssistantDashboard = () => {
                                     <Text style={styles.progressText}>{item.progressPercentage || 0}%</Text>
                                 </View>
 
-                                <View style={styles.queueItemFooter}>
+                                <View style={[styles.queueItemFooter, isNarrow && { flexWrap: 'wrap', gap: 8 }]}>
                                     {renderStatusBadge(item.preparationStatus)}
 
                                     <TouchableOpacity
@@ -307,7 +309,8 @@ const DoctorAssistantDashboard = () => {
                                             styles.actionBtn,
                                             item.preparationStatus === 'waiting_for_assistant' ? styles.actionStart :
                                             item.preparationStatus === 'preparation_in_progress' ? styles.actionContinue :
-                                            styles.actionView
+                                            styles.actionView,
+                                            isNarrow && { minHeight: 38 }
                                         ]}
                                         onPress={() => navigation.navigate('DoctorAssistantPreparation', { appointmentId: item.appointmentId })}
                                     >
@@ -326,8 +329,8 @@ const DoctorAssistantDashboard = () => {
 
             {/* Section: Authorized Question Library Quick Access */}
             <View style={styles.sectionCard}>
-                <View style={styles.sectionHeader}>
-                    <View>
+                <View style={[styles.sectionHeader, isNarrow && { flexWrap: 'wrap', gap: 8 }]}>
+                    <View style={{ flex: 1, minWidth: 160 }}>
                         <Text style={styles.sectionTitle}>📖 Authorized Question Library</Text>
                         <Text style={styles.sectionSubtitle}>
                             Department-specific patient intake protocols and clinical questionnaires
@@ -405,7 +408,7 @@ const styles = StyleSheet.create({
     },
     contentContainer: {
         padding: 16,
-        paddingBottom: 40,
+        paddingBottom: 60,
     },
     header: {
         marginBottom: 20,
@@ -484,7 +487,7 @@ const styles = StyleSheet.create({
     },
     metricCard: {
         flex: 1,
-        minWidth: 140,
+        minWidth: 130,
         backgroundColor: '#ffffff',
         padding: 14,
         borderRadius: 10,

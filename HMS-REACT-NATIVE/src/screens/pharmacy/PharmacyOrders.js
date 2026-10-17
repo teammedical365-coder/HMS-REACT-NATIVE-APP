@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
     View, Text, TextInput, TouchableOpacity, ScrollView,
-    StyleSheet, ActivityIndicator, Alert, Dimensions, Modal, Platform, useWindowDimensions
+    StyleSheet, ActivityIndicator, Alert, Dimensions, Modal, Platform, useWindowDimensions, KeyboardAvoidingView
 } from 'react-native';
 import DropdownSelect from '../../components/common/DropdownSelect';
 import DatePickerInput, { formatToDisplay, formatToYMD } from '../../components/common/DatePickerInput';
@@ -1287,7 +1287,7 @@ const PharmacyOrders = () => {
             </View>
 
             {/* Bill/Invoice Modal (View Only native implementation) */}
-            <Modal visible={showBillModal} transparent={true} animationType="slide">
+            <Modal visible={showBillModal} transparent={true} animationType="slide" onRequestClose={() => setShowBillModal(false)}>
                 <View style={styles.modalOverlay}>
                     <View style={[styles.modalContent, { width: '90%', maxWidth: 900, maxHeight: '90%' }]}>
                         {showBillModal && selectedOrder && (() => {
@@ -1466,7 +1466,7 @@ const PharmacyOrders = () => {
             </Modal>
 
             {/* Payment Modal */}
-            <Modal visible={showPaymentModal} transparent={true} animationType="fade">
+            <Modal visible={showPaymentModal} transparent={true} animationType="fade" onRequestClose={() => setShowPaymentModal(false)}>
                 <View style={styles.modalOverlay}>
                     <View style={[styles.modalContent, { width: 500, maxWidth: '90%' }]}>
                         <View style={styles.modalHeader}>
@@ -1593,16 +1593,35 @@ const PharmacyOrders = () => {
                 </View>
             </Modal>
             {/* Walk-in / Outside Patient Billing Modal */}
-            <Modal visible={showWalkInModal} transparent={true} animationType="slide">
-                <View style={styles.modalOverlay}>
-                    <View style={[styles.modalContent, { width: '95%', maxWidth: 900, maxHeight: '95%' }]}>
-                        <View style={styles.modalHeader}>
-                            <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#0f172a' }}>🛒 Walk-in / Outside Patient Billing</Text>
-                            <TouchableOpacity onPress={() => setShowWalkInModal(false)}>
-                                <Text style={{ fontSize: 24, color: '#94a3b8' }}>✕</Text>
-                            </TouchableOpacity>
-                        </View>
-                        <ScrollView style={{ flex: 1, padding: 20 }}>
+            <Modal visible={showWalkInModal} transparent={true} animationType="slide" onRequestClose={() => setShowWalkInModal(false)}>
+                <KeyboardAvoidingView
+                    style={{ flex: 1 }}
+                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                >
+                    <View style={styles.modalOverlay}>
+                        <View style={[
+                            styles.modalContent,
+                            {
+                                width: isLargeScreen ? '90%' : '100%',
+                                maxWidth: 900,
+                                maxHeight: isLargeScreen ? '90%' : '96%',
+                                height: isLargeScreen ? '85%' : '94%',
+                                display: 'flex',
+                                flexDirection: 'column'
+                            }
+                        ]}>
+                            <View style={styles.modalHeader}>
+                                <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#0f172a' }}>🛒 Walk-in / Outside Patient Billing</Text>
+                                <TouchableOpacity onPress={() => setShowWalkInModal(false)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                                    <Text style={{ fontSize: 24, color: '#94a3b8' }}>✕</Text>
+                                </TouchableOpacity>
+                            </View>
+                            <ScrollView
+                                style={{ flex: 1, padding: isLargeScreen ? 20 : 12 }}
+                                nestedScrollEnabled={true}
+                                keyboardShouldPersistTaps="handled"
+                                contentContainerStyle={{ paddingBottom: 24 }}
+                            >
                             {/* Patient Info */}
                             <View style={[styles.filterGrid, { marginBottom: 20, flexDirection: isLargeScreen ? 'row' : 'column' }]}>
                                 <View style={styles.formGroup}>
@@ -1803,15 +1822,15 @@ const PharmacyOrders = () => {
                                 </View>
                             </View>
                         </ScrollView>
-                        <View style={styles.modalFooter}>
+                        <View style={[styles.modalFooter, !isLargeScreen && { paddingVertical: 12, paddingHorizontal: 12 }]}>
                             <TouchableOpacity
-                                style={[styles.btnAction, { backgroundColor: '#f1f5f9', paddingHorizontal: 20 }]}
+                                style={[styles.btnAction, { backgroundColor: '#f1f5f9', paddingHorizontal: 18, minHeight: 42 }]}
                                 onPress={() => setShowWalkInModal(false)}
                             >
                                 <Text style={{ color: '#334155', fontWeight: 'bold' }}>Cancel</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
-                                style={[styles.btnAction, { backgroundColor: '#10b981', paddingHorizontal: 20, opacity: (walkInSaving || walkInForm.items.length === 0) ? 0.5 : 1 }]}
+                                style={[styles.btnAction, { backgroundColor: '#10b981', paddingHorizontal: 18, minHeight: 42, opacity: (walkInSaving || walkInForm.items.length === 0) ? 0.5 : 1 }]}
                                 onPress={handleWalkInSubmit}
                                 disabled={walkInSaving || walkInForm.items.length === 0}
                             >
@@ -1822,6 +1841,7 @@ const PharmacyOrders = () => {
                         </View>
                     </View>
                 </View>
+                </KeyboardAvoidingView>
             </Modal>
             </>
             )}

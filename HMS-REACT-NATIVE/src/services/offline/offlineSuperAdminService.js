@@ -36,7 +36,7 @@ import {
   labTestAPI 
 } from '../../utils/api';
 import { getStoreRef } from '../../store/storeRef';
-import { setCacheEntry, getCacheEntry } from './cacheRepository';
+import { setCacheEntry, getCacheEntry, invalidateCache } from './cacheRepository';
 import { checkOnlineStatus } from './networkStatus';
 import {
   enqueueOperation,
@@ -946,13 +946,52 @@ export async function fetchSuperAdminHospitals({
         ? clinData
         : (clinData?.clinics || clinData?.simpleClinics || clinData?.data || []);
 
+      const isClinicDoc = (item) => {
+        if (!item) return false;
+        const rawPlan = String(item.plan || item.planName || item.subscriptionPlan || item.clinicPlan || '').trim().toLowerCase().replace(/[\s-]/g, '_');
+        return item.clinicType === 'clinic' || item.isSimpleClinic === true || (rawPlan.includes('starter') && !rawPlan.includes('multi'));
+      };
+
+      const trueHospitals = rawHospitals.filter(h => !isClinicDoc(h));
+      const trueClinics = rawClinics;
+
       return {
-        hospitals: rawHospitals,
-        clinics: rawClinics,
-        combined: [...rawHospitals, ...rawClinics],
+        hospitals: trueHospitals,
+        clinics: trueClinics,
+        combined: [...trueHospitals, ...trueClinics],
       };
     },
   });
+}
+
+/**
+ * Invalidate super admin hospital caches across RAM and persistent stores.
+ */
+export async function clearSuperAdminHospitalsCache() {
+  for (const key of _questionLibraryMemoryCache.keys()) {
+    if (key.includes('superadmin_hospitals')) {
+      _questionLibraryMemoryCache.delete(key);
+    }
+  }
+  try {
+    const authContext = await getSuperAdminAuthContext();
+    if (authContext.isValid && authContext.tenantId && authContext.userId) {
+      await invalidateCache({
+        tenantId: authContext.tenantId,
+        userId: authContext.userId,
+        resourceType: 'superadmin_hospitals',
+        resourceKey: 'hospitals_all_clinics_false',
+      });
+      await invalidateCache({
+        tenantId: authContext.tenantId,
+        userId: authContext.userId,
+        resourceType: 'superadmin_hospitals',
+        resourceKey: 'hospitals_all_clinics_true',
+      });
+    }
+  } catch (err) {
+    console.warn('[OfflineSuperAdminService] Could not invalidate SQLCipher cache:', err?.message || err);
+  }
 }
 
 /**
@@ -1479,6 +1518,7 @@ export default {
   syncPendingQuestionLibraryOperations,
   clearQuestionLibraryOfflineQueue,
   clearBrowserSessionMemoryCache,
+  clearSuperAdminHospitalsCache,
   discardUserPendingOperations,
   seedSyntheticSuperAdminDataForTesting,
 };

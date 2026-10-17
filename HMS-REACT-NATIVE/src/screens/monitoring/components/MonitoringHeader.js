@@ -22,6 +22,8 @@ export default function MonitoringHeader({
   setSoundMuted,
   activeAlertsCount = 0,
   onOpenAlerts,
+  socketStatus = 'connected',
+  onReconnect,
 }) {
   const [wardModalOpen, setWardModalOpen] = useState(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -60,13 +62,26 @@ export default function MonitoringHeader({
         <View style={styles.titleWrap}>
           <View style={styles.titleRow}>
             <Text style={styles.title}>Real-Time Monitoring</Text>
-            <View style={styles.liveBadge}>
-              <Animated.View style={[styles.liveDot, { opacity: pulseAnim }]} />
-              <Text style={styles.liveText}>LIVE</Text>
-            </View>
-            <View style={styles.simBadge}>
-              <Text style={styles.simText}>SIMULATED</Text>
-            </View>
+            {socketStatus === 'connected' ? (
+              <View style={styles.liveBadge}>
+                <Animated.View style={[styles.liveDot, { opacity: pulseAnim }]} />
+                <Text style={styles.liveText}>LIVE SOCKET</Text>
+              </View>
+            ) : socketStatus === 'reconnecting' ? (
+              <View style={[styles.liveBadge, { backgroundColor: '#fef3c7', borderColor: '#fde68a' }]}>
+                <View style={[styles.liveDot, { backgroundColor: '#f59e0b' }]} />
+                <Text style={[styles.liveText, { color: '#b45309' }]}>RECONNECTING</Text>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={[styles.liveBadge, { backgroundColor: '#fee2e2', borderColor: '#fca5a5' }]}
+                onPress={onReconnect}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.liveDot, { backgroundColor: '#ef4444' }]} />
+                <Text style={[styles.liveText, { color: '#b91c1c' }]}>OFFLINE (Retry)</Text>
+              </TouchableOpacity>
+            )}
           </View>
           <Text style={styles.subtitle} numberOfLines={1}>
             Continuous patient vitals & connected telemetry surveillance

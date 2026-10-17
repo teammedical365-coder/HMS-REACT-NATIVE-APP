@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Modal, ActivityIndicator, Alert, Platform, useWindowDimensions } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Modal, ActivityIndicator, Alert, Platform, useWindowDimensions, KeyboardAvoidingView } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as DocumentPicker from 'expo-document-picker';
 import { pharmacyAPI } from '../../utils/api';
@@ -47,6 +47,7 @@ const DISCOUNT_OPTIONS = [
 ];
 
 const PharmacyInventory = () => {
+    const mainScrollRef = useRef(null);
     const { width: windowWidth } = useWindowDimensions();
     const isDesktop = windowWidth >= 1024;
     const isTablet = windowWidth >= 600 && windowWidth < 1024;
@@ -404,11 +405,46 @@ const PharmacyInventory = () => {
     };
 
     const [savingMedicine, setSavingMedicine] = useState(false);
+    const [deletingId, setDeletingId] = useState(null);
+
+    const executeDelete = async (targetId) => {
+        if (!targetId || deletingId) return;
+        setDeletingId(targetId);
+        const previousMedicines = [...medicines];
+        // Optimistic UI update immediately removes the card from view
+        setMedicines(prev => prev.filter(m => (m._id || m.id) !== targetId && String(m._id || m.id) !== String(targetId)));
+        try {
+            await pharmacyAPI.deleteMedicine(targetId);
+            showSuccessMsg('Medicine removed from inventory');
+            fetchInventory();
+        } catch (error) {
+            console.error("Delete failed.", error);
+            // Revert state on failure
+            setMedicines(previousMedicines);
+            Alert.alert('Error', error.response?.data?.message || 'Failed to delete medicine');
+        } finally {
+            setDeletingId(null);
+        }
+    };
 
     const handleDelete = async (id) => {
+        const targetId = id ? String(id).trim() : null;
+        if (!targetId) {
+            Alert.alert('Error', 'Invalid medicine ID for deletion');
+            return;
+        }
+
         const isOnline = await checkOnlineStatus();
         if (!isOnline) {
             Alert.alert('Action Blocked (Offline)', 'Deleting medicines from hospital inventory requires active server connectivity.');
+            return;
+        }
+
+        if (Platform.OS === 'web' && typeof window !== 'undefined' && window.confirm) {
+            const confirmed = window.confirm('Are you sure you want to remove this medication from inventory?');
+            if (confirmed) {
+                executeDelete(targetId);
+            }
             return;
         }
 
@@ -417,21 +453,13 @@ const PharmacyInventory = () => {
             {
                 text: 'Delete',
                 style: 'destructive',
-                onPress: async () => {
-                    try {
-                        await pharmacyAPI.deleteMedicine(id);
-                        showSuccessMsg('Medicine removed from inventory');
-                        fetchInventory();
-                    } catch (error) {
-                        console.error("Delete failed.", error);
-                        Alert.alert('Error', error.response?.data?.message || 'Failed to delete medicine');
-                    }
-                }
+                onPress: () => executeDelete(targetId)
             }
         ]);
     };
 
     const handleAddMedicine = async () => {
+        if (savingMedicine) return; // Prevent duplicate submission
         if (!newMedicine.name || !newMedicine.name.trim()) {
             Alert.alert('Validation Error', 'Medicine name is required.');
             return;
@@ -657,8 +685,9 @@ const PharmacyInventory = () => {
             discountValue: med.discountValue ? med.discountValue.toString() : ''
         });
         setIsEditing(true);
-        setEditId(med._id);
+        setEditId(med._id || med.id);
         setShowAddModal(true);
+        mainScrollRef.current?.scrollTo({ y: 0, animated: true });
     };
 
     const handleViewDetails = (med) => {
@@ -672,12 +701,13 @@ const PharmacyInventory = () => {
     );
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
-            <OfflineBanner
-                isOffline={offlineState.isOffline}
-                fromCache={offlineState.fromCache}
-                lastFetchedAt={offlineState.lastFetchedAt}
-            />
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            <ScrollView ref={mainScrollRef} style={styles.container} contentContainerStyle={styles.contentContainer} keyboardShouldPersistTaps="handled">
+                <OfflineBanner
+                    isOffline={offlineState.isOffline}
+                    fromCache={offlineState.fromCache}
+                    lastFetchedAt={offlineState.lastFetchedAt}
+                />
 
             {offlineState.isOffline && offlineState.fromCache && (
                 <View style={{ backgroundColor: '#fffbeb', borderColor: '#fde68a', borderWidth: 1, padding: 12, borderRadius: 12, marginBottom: 16 }}>
@@ -1333,11 +1363,16 @@ const PharmacyInventory = () => {
                                                                 <Text style={[styles.medCardActionText, { color: '#b45309' }]}>📌 Stock Adj.</Text>
                                                             </TouchableOpacity>
                                                             <TouchableOpacity
-                                                                style={[styles.medCardActionBtn, { backgroundColor: '#fef2f2', borderColor: '#fecaca' }]}
-                                                                onPress={() => handleDelete(med._id)}
+                                                                style={[styles.medCardActionBtn, { backgroundColor: '#fef2f2', borderColor: '#fecaca' }, deletingId === (med._id || med.id) && { opacity: 0.5 }]}
+                                                                onPress={() => handleDelete(med._id || med.id)}
+                                                                disabled={deletingId === (med._id || med.id)}
                                                                 activeOpacity={0.7}
                                                             >
-                                                                <Text style={[styles.medCardActionText, { color: '#dc2626' }]}>🗑️ Delete</Text>
+                                                                {deletingId === (med._id || med.id) ? (
+                                                                    <ActivityIndicator size="small" color="#dc2626" />
+                                                                ) : (
+                                                                    <Text style={[styles.medCardActionText, { color: '#dc2626' }]}>🗑️ Delete</Text>
+                                                                )}
                                                             </TouchableOpacity>
                                                         </View>
                                                     </View>
@@ -1419,8 +1454,16 @@ const PharmacyInventory = () => {
                                                         <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#ecfdf5', borderColor: '#a7f3d0' }]} onPress={() => handleEdit(med)}>
                                                             <Text>✏️</Text>
                                                         </TouchableOpacity>
-                                                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#fef2f2', borderColor: '#fecaca' }]} onPress={() => handleDelete(med._id)}>
-                                                            <Text>🗑️</Text>
+                                                        <TouchableOpacity
+                                                            style={[styles.actionBtn, { backgroundColor: '#fef2f2', borderColor: '#fecaca' }, deletingId === (med._id || med.id) && { opacity: 0.5 }]}
+                                                            onPress={() => handleDelete(med._id || med.id)}
+                                                            disabled={deletingId === (med._id || med.id)}
+                                                        >
+                                                            {deletingId === (med._id || med.id) ? (
+                                                                <ActivityIndicator size="small" color="#dc2626" />
+                                                            ) : (
+                                                                <Text>🗑️</Text>
+                                                            )}
                                                         </TouchableOpacity>
                                                     </View>
                                                 </View>
@@ -1757,6 +1800,7 @@ const PharmacyInventory = () => {
                 </>
             )}
         </ScrollView>
+        </KeyboardAvoidingView>
     );
 };
 
@@ -1767,6 +1811,7 @@ const styles = StyleSheet.create({
     },
     contentContainer: {
         padding: 14,
+        paddingBottom: 60,
     },
     header: {
         backgroundColor: 'rgba(255, 255, 255, 0.7)',

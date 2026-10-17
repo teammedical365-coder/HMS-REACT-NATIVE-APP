@@ -24,6 +24,7 @@ import {
   DEVICE_TYPE_LABELS,
   getMonitoringSummary,
 } from './monitoringMockData';
+import socket from '../../utils/socket';
 
 // Child components
 import MonitoringHeader from './components/MonitoringHeader';
@@ -66,9 +67,12 @@ const formatAdmittedDate = (dateStr) => {
 
 export default function RealTimeMonitoringDashboard() {
   const { width } = useWindowDimensions();
-  const isDesktop = width >= 992;
-  const isTablet = width >= 768 && width < 992;
+  const isDesktop = width >= 1024;
+  const isTablet = width >= 768 && width < 1024;
   const isMobile = width < 768;
+
+  // Real-time socket status
+  const [socketStatus, setSocketStatus] = useState(socket?.connected ? 'connected' : 'disconnected');
 
   // Loading & cache state
   const [loading, setLoading] = useState(true);
@@ -112,14 +116,14 @@ export default function RealTimeMonitoringDashboard() {
 
     try {
       const data = await getOfflineMonitoringData(!isSilent);
-      setPatients(data.patients || []);
-      setVitalsMap(data.vitalsMap || {});
-      setDevicesMap(data.devicesMap || {});
-      setAlertsMap(data.alertsMap || {});
-      setNotesMap(data.notesMap || {});
-      setTrendsMap(data.trendsMap || {});
-      setHistoryMap(data.historyMap || {});
-      setFromCache(Boolean(data._fromCache));
+      setPatients(Array.isArray(data?.patients) ? data.patients : []);
+      setVitalsMap(data?.vitalsMap || {});
+      setDevicesMap(data?.devicesMap || {});
+      setAlertsMap(data?.alertsMap || {});
+      setNotesMap(data?.notesMap || {});
+      setTrendsMap(data?.trendsMap || {});
+      setHistoryMap(data?.historyMap || {});
+      setFromCache(Boolean(data?._fromCache));
 
       // Auto-select first patient if none selected
       if (!selectedPatientId && data.patients?.length > 0) {
@@ -200,6 +204,110 @@ export default function RealTimeMonitoringDashboard() {
     return () => clearInterval(interval);
   }, [isLiveStreaming, selectedPatientId]);
 
+  // Real-time socket event subscription (telemetry, alerts, patient status)
+  useEffect(() => {
+    if (!socket) return;
+
+    if (!socket.connected) {
+      setSocketStatus('reconnecting');
+      socket.connect();
+    } else {
+      setSocketStatus('connected');
+    }
+
+    const onConnect = () => {
+      setSocketStatus('connected');
+    };
+
+    const onDisconnect = () => {
+      setSocketStatus('disconnected');
+    };
+
+    const onReconnectAttempt = () => {
+      setSocketStatus('reconnecting');
+    };
+
+    // Live telemetry update from vital monitors / wearable devices
+    const onTelemetryUpdate = (data) => {
+      if (!data || !data.patientId) return;
+      setVitalsMap((prev) => {
+        const cur = prev[data.patientId] || {};
+        return {
+          ...prev,
+          [data.patientId]: {
+            ...cur,
+            ...data.vitals,
+            heartRate: data.vitals?.heartRate || cur.heartRate,
+            spo2: data.vitals?.spo2 || cur.spo2,
+            bloodPressure: data.vitals?.bloodPressure || cur.bloodPressure,
+            respiratoryRate: data.vitals?.respiratoryRate || cur.respiratoryRate,
+            temperature: data.vitals?.temperature || cur.temperature,
+          },
+        };
+      });
+    };
+
+    // Live vital alert (tachycardia, desaturation, hypotension, etc.)
+    const onVitalAlert = (data) => {
+      if (!data || !data.patientId) return;
+      setAlertsMap((prev) => {
+        const rawList = prev[data.patientId];
+        const curList = Array.isArray(rawList)
+          ? rawList
+          : Array.isArray(rawList?.payload)
+            ? rawList.payload
+            : Array.isArray(rawList?.alerts)
+              ? rawList.alerts
+              : [];
+        const alertId = data.id || data._id || `${data.patientId}-${Date.now()}`;
+        if (curList.some((a) => (a.id || a._id) === alertId)) return prev;
+        const newAlert = {
+          ...data,
+          id: alertId,
+          timestamp: data.timestamp || new Date().toISOString(),
+        };
+        return {
+          ...prev,
+          [data.patientId]: [newAlert, ...curList],
+        };
+      });
+    };
+
+    // Live patient status change (stable, attention, critical, discharged)
+    const onPatientStatusChange = (data) => {
+      if (!data || !data.patientId) return;
+      setPatients((prev) =>
+        prev.map((p) =>
+          p.id === data.patientId ? { ...p, status: data.status || p.status } : p
+        )
+      );
+    };
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.on('reconnect_attempt', onReconnectAttempt);
+    socket.on('telemetry_update', onTelemetryUpdate);
+    socket.on('vital_alert', onVitalAlert);
+    socket.on('patient_status_change', onPatientStatusChange);
+
+    return () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.off('reconnect_attempt', onReconnectAttempt);
+      socket.off('telemetry_update', onTelemetryUpdate);
+      socket.off('vital_alert', onVitalAlert);
+      socket.off('patient_status_change', onPatientStatusChange);
+    };
+  }, []);
+
+  const handleReconnectSocket = useCallback(() => {
+    if (!socket) return;
+    setSocketStatus('reconnecting');
+    if (!socket.connected) {
+      socket.connect();
+    }
+  }, []);
+
   // Handle adding clinical note
   const handleSaveNote = async (notePayload) => {
     if (!selectedPatientId) return;
@@ -242,26 +350,83 @@ export default function RealTimeMonitoringDashboard() {
   }, [filteredPatients, selectedPatientId]);
 
   const activeVitals = selectedPatient ? vitalsMap[selectedPatient.id] : null;
-  const activeDevices = selectedPatient ? (devicesMap[selectedPatient.id] || []) : [];
-  const activeAlerts = selectedPatient ? (alertsMap[selectedPatient.id] || []) : [];
-  const activeNotes = selectedPatient ? (notesMap[selectedPatient.id] || []) : [];
-  const activeTrends = selectedPatient ? (trendsMap[selectedPatient.id] || {}) : {};
-  const activeHistory = selectedPatient ? (historyMap[selectedPatient.id] || []) : [];
+
+  const rawDevices = selectedPatient ? devicesMap[selectedPatient.id] : [];
+  const activeDevices = Array.isArray(rawDevices)
+    ? rawDevices
+    : Array.isArray(rawDevices?.payload)
+      ? rawDevices.payload
+      : [];
+
+  const rawAlerts = selectedPatient ? alertsMap[selectedPatient.id] : [];
+  const activeAlerts = Array.isArray(rawAlerts)
+    ? rawAlerts
+    : Array.isArray(rawAlerts?.payload)
+      ? rawAlerts.payload
+      : Array.isArray(rawAlerts?.alerts)
+        ? rawAlerts.alerts
+        : Array.isArray(rawAlerts?.data)
+          ? rawAlerts.data
+          : [];
+
+  const rawNotes = selectedPatient ? notesMap[selectedPatient.id] : [];
+  const activeNotes = Array.isArray(rawNotes)
+    ? rawNotes
+    : Array.isArray(rawNotes?.payload)
+      ? rawNotes.payload
+      : [];
+
+  const activeTrends = selectedPatient && trendsMap[selectedPatient.id] && typeof trendsMap[selectedPatient.id] === 'object'
+    ? (trendsMap[selectedPatient.id].payload || trendsMap[selectedPatient.id])
+    : {};
+
+  const rawHistory = selectedPatient ? historyMap[selectedPatient.id] : [];
+  const activeHistory = Array.isArray(rawHistory)
+    ? rawHistory
+    : Array.isArray(rawHistory?.payload)
+      ? rawHistory.payload
+      : [];
+
   const isAlarmSilenced = selectedPatient ? Boolean(alarmSilencedMap[selectedPatient.id]) : false;
 
   // Aggregate all active alerts for the alarms console
   const allAlarms = useMemo(() => {
     const list = [];
+    if (!alertsMap || typeof alertsMap !== 'object') return list;
+
     Object.keys(alertsMap).forEach((pId) => {
       const p = patients.find((pat) => pat.id === pId);
-      const items = alertsMap[pId] || [];
+      const rawEntry = alertsMap[pId];
+
+      if (rawEntry && typeof rawEntry === 'object' && !Array.isArray(rawEntry)) {
+        if (rawEntry.error || rawEntry.failed) {
+          console.warn(`[Monitoring] Patient ${pId} alerts returned error state:`, rawEntry.error || rawEntry.message);
+        }
+      }
+
+      const items = Array.isArray(rawEntry)
+        ? rawEntry
+        : Array.isArray(rawEntry?.payload)
+          ? rawEntry.payload
+          : Array.isArray(rawEntry?.alerts)
+            ? rawEntry.alerts
+            : Array.isArray(rawEntry?.data)
+              ? rawEntry.data
+              : Array.isArray(rawEntry?.items)
+                ? rawEntry.items
+                : Array.isArray(rawEntry?.results)
+                  ? rawEntry.results
+                  : [];
+
       items.forEach((item) => {
-        list.push({
-          ...item,
-          patientName: p?.name || 'Unknown Patient',
-          bed: p?.bed || '--',
-          ward: p?.ward || '--',
-        });
+        if (item && typeof item === 'object') {
+          list.push({
+            ...item,
+            patientName: p?.name || 'Unknown Patient',
+            bed: p?.bed || '--',
+            ward: p?.ward || '--',
+          });
+        }
       });
     });
     return list;
@@ -293,6 +458,8 @@ export default function RealTimeMonitoringDashboard() {
         setSoundMuted={setSoundMuted}
         activeAlertsCount={allAlarms.length}
         onOpenAlerts={() => setActiveAlertsModalVisible(true)}
+        socketStatus={socketStatus}
+        onReconnect={handleReconnectSocket}
       />
 
       {/* KPI Summary 5-Stat Row */}
@@ -360,8 +527,8 @@ export default function RealTimeMonitoringDashboard() {
         </View>
       )}
 
-      {/* Horizontal Patient Carousel (Quick Switcher on mobile/tablet) */}
-      {(isMobile || isTablet) && mobileSection === 'monitor' && (
+      {/* Horizontal Patient Carousel (Quick Switcher on mobile) */}
+      {isMobile && mobileSection === 'monitor' && (
         <View style={styles.patientCarouselWrap}>
           <ScrollView
             horizontal
@@ -416,9 +583,9 @@ export default function RealTimeMonitoringDashboard() {
 
       {/* Main Workspace Layout */}
       <View style={styles.workspace}>
-        {/* LEFT COLUMN: Patient List (Shown on Desktop, or when mobileSection === 'patients' on Mobile) */}
-        {(isDesktop || (isMobile && mobileSection === 'patients')) && (
-          <View style={[styles.leftColumn, isDesktop && { width: 280, flexShrink: 0 }]}>
+        {/* LEFT COLUMN: Patient List (Shown on Desktop & Tablet, or when mobileSection === 'patients' on Mobile) */}
+        {(isDesktop || isTablet || (isMobile && mobileSection === 'patients')) && (
+          <View style={[styles.leftColumn, (isDesktop || isTablet) && { width: isDesktop ? 280 : 240, flexShrink: 0 }]}>
             <MonitoringPatientList
               patients={filteredPatients}
               selectedPatientId={selectedPatient?.id}
@@ -1001,7 +1168,7 @@ const styles = StyleSheet.create({
   },
   centerScrollContent: {
     padding: 10,
-    paddingBottom: 30,
+    paddingBottom: 60,
   },
   rightColumn: {
     width: 290,
@@ -1009,7 +1176,7 @@ const styles = StyleSheet.create({
   },
   rightColumnContent: {
     gap: 8,
-    paddingBottom: 20,
+    paddingBottom: 60,
   },
   mobileRightWidgets: {
     marginTop: 10,

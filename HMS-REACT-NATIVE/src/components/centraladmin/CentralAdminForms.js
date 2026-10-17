@@ -172,7 +172,7 @@ export default function CentralAdminForms({
 
             {/* Submit Button */}
             <TouchableOpacity 
-              style={[styles.chSubmitBtn, { backgroundColor: '#db2777' }]} 
+              style={[styles.chSubmitBtn, { backgroundColor: '#db2777' }, savingClinic && { opacity: 0.6 }]} 
               onPress={handleSaveClinic}
               disabled={savingClinic}
             >
@@ -567,7 +567,7 @@ export default function CentralAdminForms({
 
           {/* Submit Button */}
           <TouchableOpacity 
-            style={styles.chSubmitBtn} 
+            style={[styles.chSubmitBtn, savingHospital && { opacity: 0.6 }]} 
             onPress={handleSaveHospital}
             disabled={savingHospital}
           >

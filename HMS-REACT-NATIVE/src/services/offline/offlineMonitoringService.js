@@ -13,7 +13,7 @@
  *
  * Core Guarantees:
  * - SWR (Stale-While-Revalidate) pattern matching HMS offline infrastructure
- * - Deterministic tenant- and user-isolated cache keys
+ * - Deterministic tenant- and user-isolated cache coordinates conforming to cacheRepository contract
  * - Memory-only volatile cache on Web + encrypted SQLite/AsyncStorage persistence on native
  * - Seamless offline operation: full surveillance data remains responsive during network outages
  * - Session memory purge on user logout
@@ -50,9 +50,9 @@ export const MONITORING_RESOURCE_TYPES = {
 const _monitoringSessionMemory = new Map();
 
 /**
- * Deterministic cache key generator for Clinical Monitoring module.
+ * Deterministic cache coordinate resolver conforming to cacheRepository contract.
  */
-function getMonitoringCacheKey(resourceType, identifier = 'default') {
+export function getMonitoringCoordinates(resourceType, identifier = 'default') {
     let tenantId = 'unknown_tenant';
     let userId = 'anonymous';
 
@@ -61,14 +61,32 @@ function getMonitoringCacheKey(resourceType, identifier = 'default') {
         const state = store?.getState?.();
         const auth = state?.auth;
         if (auth?.user) {
-            userId = auth.user._id || auth.user.id || 'anonymous';
+            userId = auth.user._id || auth.user.id || auth.user.email || 'anonymous';
             tenantId = auth.user.hospitalId || auth.tenant?.id || auth.tenant?.subdomain || 'default_tenant';
         }
     } catch (e) {
         // Fallback safely
     }
 
-    return `rtm_${tenantId}_${userId}_${resourceType}_${identifier}`;
+    const safeTenantId = String(tenantId || 'default_tenant').trim();
+    const safeUserId = String(userId || 'anonymous').trim();
+    const safeResourceType = String(resourceType).trim();
+    const safeResourceKey = String(identifier || 'default').trim();
+
+    return {
+        tenantId: safeTenantId,
+        userId: safeUserId,
+        resourceType: safeResourceType,
+        resourceKey: safeResourceKey,
+        memKey: `rtm_${safeTenantId}_${safeUserId}_${safeResourceType}_${safeResourceKey}`,
+    };
+}
+
+/**
+ * Deterministic cache key generator for Clinical Monitoring module (backwards compatibility).
+ */
+export function getMonitoringCacheKey(resourceType, identifier = 'default') {
+    return getMonitoringCoordinates(resourceType, identifier).memKey;
 }
 
 /**
@@ -96,23 +114,44 @@ export function clearMonitoringSessionMemoryCache(scope = {}) {
  * Get all monitored patients with offline cache support.
  */
 export async function getOfflineMonitoringPatients(forceFresh = false) {
-    const cacheKey = getMonitoringCacheKey(MONITORING_RESOURCE_TYPES.PATIENTS);
+    const { tenantId, userId, resourceType, resourceKey, memKey } = getMonitoringCoordinates(
+        MONITORING_RESOURCE_TYPES.PATIENTS,
+        'all'
+    );
 
-    if (!forceFresh && _monitoringSessionMemory.has(cacheKey)) {
-        const cached = _monitoringSessionMemory.get(cacheKey);
-        return { data: cached.data, _fromCache: true, _cachedAt: cached.timestamp };
+    if (!forceFresh && _monitoringSessionMemory.has(memKey)) {
+        const cached = _monitoringSessionMemory.get(memKey);
+        if (Array.isArray(cached?.data)) {
+            return { data: cached.data, _fromCache: true, _cachedAt: cached.timestamp };
+        }
     }
 
-    const diskCached = await getCacheEntry(cacheKey);
-    if (diskCached && !forceFresh) {
-        _monitoringSessionMemory.set(cacheKey, { data: diskCached, timestamp: Date.now() });
-        return { data: diskCached, _fromCache: true };
+    if (!forceFresh) {
+        try {
+            const cacheResult = await getCacheEntry({ tenantId, userId, resourceType, resourceKey });
+            if (cacheResult && cacheResult.found && Array.isArray(cacheResult.payload)) {
+                _monitoringSessionMemory.set(memKey, { data: cacheResult.payload, timestamp: cacheResult.lastFetchedAt || Date.now() });
+                return { data: cacheResult.payload, _fromCache: true, _cachedAt: cacheResult.lastFetchedAt };
+            }
+        } catch (e) {
+            console.warn('[OfflineMonitoringService] Cache read error for patients:', e);
+        }
     }
 
     // Default seed from verified clinical telemetry records
-    const initialPatients = MOCK_PATIENTS;
-    _monitoringSessionMemory.set(cacheKey, { data: initialPatients, timestamp: Date.now() });
-    await setCacheEntry(cacheKey, initialPatients, { ttlMs: 30 * 60 * 1000 });
+    const initialPatients = Array.isArray(MOCK_PATIENTS) ? MOCK_PATIENTS : [];
+    _monitoringSessionMemory.set(memKey, { data: initialPatients, timestamp: Date.now() });
+    try {
+        await setCacheEntry({
+            tenantId,
+            userId,
+            resourceType,
+            resourceKey,
+            payload: initialPatients,
+        });
+    } catch (e) {
+        // Cache persistence failure is non-fatal
+    }
     return { data: initialPatients, _fromCache: false };
 }
 
@@ -120,21 +159,41 @@ export async function getOfflineMonitoringPatients(forceFresh = false) {
  * Get vitals for a specific patient.
  */
 export async function getOfflinePatientVitals(patientId) {
-    const cacheKey = getMonitoringCacheKey(MONITORING_RESOURCE_TYPES.VITALS, patientId);
+    const { tenantId, userId, resourceType, resourceKey, memKey } = getMonitoringCoordinates(
+        MONITORING_RESOURCE_TYPES.VITALS,
+        patientId
+    );
 
-    if (_monitoringSessionMemory.has(cacheKey)) {
-        return _monitoringSessionMemory.get(cacheKey).data;
+    if (_monitoringSessionMemory.has(memKey)) {
+        const cached = _monitoringSessionMemory.get(memKey);
+        if (cached?.data && typeof cached.data === 'object' && !('found' in cached.data)) {
+            return cached.data;
+        }
     }
 
-    const diskCached = await getCacheEntry(cacheKey);
-    if (diskCached) {
-        _monitoringSessionMemory.set(cacheKey, { data: diskCached, timestamp: Date.now() });
-        return diskCached;
+    try {
+        const cacheResult = await getCacheEntry({ tenantId, userId, resourceType, resourceKey });
+        if (cacheResult && cacheResult.found && cacheResult.payload && typeof cacheResult.payload === 'object') {
+            _monitoringSessionMemory.set(memKey, { data: cacheResult.payload, timestamp: cacheResult.lastFetchedAt || Date.now() });
+            return cacheResult.payload;
+        }
+    } catch (e) {
+        console.warn('[OfflineMonitoringService] Cache read error for vitals:', e);
     }
 
     const vitals = MOCK_VITALS[patientId] || DEFAULT_VITALS;
-    _monitoringSessionMemory.set(cacheKey, { data: vitals, timestamp: Date.now() });
-    await setCacheEntry(cacheKey, vitals, { ttlMs: 30 * 60 * 1000 });
+    _monitoringSessionMemory.set(memKey, { data: vitals, timestamp: Date.now() });
+    try {
+        await setCacheEntry({
+            tenantId,
+            userId,
+            resourceType,
+            resourceKey,
+            payload: vitals,
+        });
+    } catch (e) {
+        // Cache persistence failure is non-fatal
+    }
     return vitals;
 }
 
@@ -142,24 +201,44 @@ export async function getOfflinePatientVitals(patientId) {
  * Get connected devices for a patient or ward.
  */
 export async function getOfflineMonitoringDevices(patientId = null) {
-    const cacheKey = getMonitoringCacheKey(MONITORING_RESOURCE_TYPES.DEVICES, patientId || 'all');
+    const { tenantId, userId, resourceType, resourceKey, memKey } = getMonitoringCoordinates(
+        MONITORING_RESOURCE_TYPES.DEVICES,
+        patientId || 'all'
+    );
 
-    if (_monitoringSessionMemory.has(cacheKey)) {
-        return _monitoringSessionMemory.get(cacheKey).data;
+    if (_monitoringSessionMemory.has(memKey)) {
+        const cached = _monitoringSessionMemory.get(memKey);
+        if (Array.isArray(cached?.data)) {
+            return cached.data;
+        }
     }
 
-    const diskCached = await getCacheEntry(cacheKey);
-    if (diskCached) {
-        _monitoringSessionMemory.set(cacheKey, { data: diskCached, timestamp: Date.now() });
-        return diskCached;
+    try {
+        const cacheResult = await getCacheEntry({ tenantId, userId, resourceType, resourceKey });
+        if (cacheResult && cacheResult.found && Array.isArray(cacheResult.payload)) {
+            _monitoringSessionMemory.set(memKey, { data: cacheResult.payload, timestamp: cacheResult.lastFetchedAt || Date.now() });
+            return cacheResult.payload;
+        }
+    } catch (e) {
+        console.warn('[OfflineMonitoringService] Cache read error for devices:', e);
     }
 
     const devices = patientId
         ? MOCK_DEVICES.filter(d => d.patientId === patientId)
         : MOCK_DEVICES;
 
-    _monitoringSessionMemory.set(cacheKey, { data: devices, timestamp: Date.now() });
-    await setCacheEntry(cacheKey, devices, { ttlMs: 30 * 60 * 1000 });
+    _monitoringSessionMemory.set(memKey, { data: devices, timestamp: Date.now() });
+    try {
+        await setCacheEntry({
+            tenantId,
+            userId,
+            resourceType,
+            resourceKey,
+            payload: devices,
+        });
+    } catch (e) {
+        // Cache persistence failure is non-fatal
+    }
     return devices;
 }
 
@@ -167,21 +246,41 @@ export async function getOfflineMonitoringDevices(patientId = null) {
  * Get telemetry alerts for a patient.
  */
 export async function getOfflinePatientAlerts(patientId) {
-    const cacheKey = getMonitoringCacheKey(MONITORING_RESOURCE_TYPES.ALERTS, patientId);
+    const { tenantId, userId, resourceType, resourceKey, memKey } = getMonitoringCoordinates(
+        MONITORING_RESOURCE_TYPES.ALERTS,
+        patientId
+    );
 
-    if (_monitoringSessionMemory.has(cacheKey)) {
-        return _monitoringSessionMemory.get(cacheKey).data;
+    if (_monitoringSessionMemory.has(memKey)) {
+        const cached = _monitoringSessionMemory.get(memKey);
+        if (Array.isArray(cached?.data)) {
+            return cached.data;
+        }
     }
 
-    const diskCached = await getCacheEntry(cacheKey);
-    if (diskCached) {
-        _monitoringSessionMemory.set(cacheKey, { data: diskCached, timestamp: Date.now() });
-        return diskCached;
+    try {
+        const cacheResult = await getCacheEntry({ tenantId, userId, resourceType, resourceKey });
+        if (cacheResult && cacheResult.found && Array.isArray(cacheResult.payload)) {
+            _monitoringSessionMemory.set(memKey, { data: cacheResult.payload, timestamp: cacheResult.lastFetchedAt || Date.now() });
+            return cacheResult.payload;
+        }
+    } catch (e) {
+        console.warn('[OfflineMonitoringService] Cache read error for alerts:', e);
     }
 
-    const alerts = MOCK_ALERTS[patientId] || [];
-    _monitoringSessionMemory.set(cacheKey, { data: alerts, timestamp: Date.now() });
-    await setCacheEntry(cacheKey, alerts, { ttlMs: 30 * 60 * 1000 });
+    const alerts = Array.isArray(MOCK_ALERTS[patientId]) ? MOCK_ALERTS[patientId] : [];
+    _monitoringSessionMemory.set(memKey, { data: alerts, timestamp: Date.now() });
+    try {
+        await setCacheEntry({
+            tenantId,
+            userId,
+            resourceType,
+            resourceKey,
+            payload: alerts,
+        });
+    } catch (e) {
+        // Cache persistence failure is non-fatal
+    }
     return alerts;
 }
 
@@ -189,21 +288,41 @@ export async function getOfflinePatientAlerts(patientId) {
  * Get trend history for a patient.
  */
 export async function getOfflinePatientTrends(patientId) {
-    const cacheKey = getMonitoringCacheKey(MONITORING_RESOURCE_TYPES.TRENDS, patientId);
+    const { tenantId, userId, resourceType, resourceKey, memKey } = getMonitoringCoordinates(
+        MONITORING_RESOURCE_TYPES.TRENDS,
+        patientId
+    );
 
-    if (_monitoringSessionMemory.has(cacheKey)) {
-        return _monitoringSessionMemory.get(cacheKey).data;
+    if (_monitoringSessionMemory.has(memKey)) {
+        const cached = _monitoringSessionMemory.get(memKey);
+        if (cached?.data && typeof cached.data === 'object' && !('found' in cached.data)) {
+            return cached.data;
+        }
     }
 
-    const diskCached = await getCacheEntry(cacheKey);
-    if (diskCached) {
-        _monitoringSessionMemory.set(cacheKey, { data: diskCached, timestamp: Date.now() });
-        return diskCached;
+    try {
+        const cacheResult = await getCacheEntry({ tenantId, userId, resourceType, resourceKey });
+        if (cacheResult && cacheResult.found && cacheResult.payload && typeof cacheResult.payload === 'object') {
+            _monitoringSessionMemory.set(memKey, { data: cacheResult.payload, timestamp: cacheResult.lastFetchedAt || Date.now() });
+            return cacheResult.payload;
+        }
+    } catch (e) {
+        console.warn('[OfflineMonitoringService] Cache read error for trends:', e);
     }
 
     const trends = MOCK_DEVICE_TRENDS[patientId] || DEFAULT_DEVICE_TRENDS;
-    _monitoringSessionMemory.set(cacheKey, { data: trends, timestamp: Date.now() });
-    await setCacheEntry(cacheKey, trends, { ttlMs: 30 * 60 * 1000 });
+    _monitoringSessionMemory.set(memKey, { data: trends, timestamp: Date.now() });
+    try {
+        await setCacheEntry({
+            tenantId,
+            userId,
+            resourceType,
+            resourceKey,
+            payload: trends,
+        });
+    } catch (e) {
+        // Cache persistence failure is non-fatal
+    }
     return trends;
 }
 
@@ -211,21 +330,41 @@ export async function getOfflinePatientTrends(patientId) {
  * Get clinical shift notes for a patient.
  */
 export async function getOfflinePatientNotes(patientId) {
-    const cacheKey = getMonitoringCacheKey(MONITORING_RESOURCE_TYPES.NOTES, patientId);
+    const { tenantId, userId, resourceType, resourceKey, memKey } = getMonitoringCoordinates(
+        MONITORING_RESOURCE_TYPES.NOTES,
+        patientId
+    );
 
-    if (_monitoringSessionMemory.has(cacheKey)) {
-        return _monitoringSessionMemory.get(cacheKey).data;
+    if (_monitoringSessionMemory.has(memKey)) {
+        const cached = _monitoringSessionMemory.get(memKey);
+        if (Array.isArray(cached?.data)) {
+            return cached.data;
+        }
     }
 
-    const diskCached = await getCacheEntry(cacheKey);
-    if (diskCached) {
-        _monitoringSessionMemory.set(cacheKey, { data: diskCached, timestamp: Date.now() });
-        return diskCached;
+    try {
+        const cacheResult = await getCacheEntry({ tenantId, userId, resourceType, resourceKey });
+        if (cacheResult && cacheResult.found && Array.isArray(cacheResult.payload)) {
+            _monitoringSessionMemory.set(memKey, { data: cacheResult.payload, timestamp: cacheResult.lastFetchedAt || Date.now() });
+            return cacheResult.payload;
+        }
+    } catch (e) {
+        console.warn('[OfflineMonitoringService] Cache read error for notes:', e);
     }
 
-    const notes = MOCK_PATIENT_NOTES[patientId] || [];
-    _monitoringSessionMemory.set(cacheKey, { data: notes, timestamp: Date.now() });
-    await setCacheEntry(cacheKey, notes, { ttlMs: 30 * 60 * 1000 });
+    const notes = Array.isArray(MOCK_PATIENT_NOTES[patientId]) ? MOCK_PATIENT_NOTES[patientId] : [];
+    _monitoringSessionMemory.set(memKey, { data: notes, timestamp: Date.now() });
+    try {
+        await setCacheEntry({
+            tenantId,
+            userId,
+            resourceType,
+            resourceKey,
+            payload: notes,
+        });
+    } catch (e) {
+        // Cache persistence failure is non-fatal
+    }
     return notes;
 }
 
@@ -233,21 +372,37 @@ export async function getOfflinePatientNotes(patientId) {
  * Add a new clinical note for a patient with offline persistence.
  */
 export async function addOfflineClinicalNote(patientId, newNote) {
-    const cacheKey = getMonitoringCacheKey(MONITORING_RESOURCE_TYPES.NOTES, patientId);
+    const { tenantId, userId, resourceType, resourceKey, memKey } = getMonitoringCoordinates(
+        MONITORING_RESOURCE_TYPES.NOTES,
+        patientId
+    );
     let currentNotes = await getOfflinePatientNotes(patientId);
+    if (!Array.isArray(currentNotes)) {
+        currentNotes = [];
+    }
 
     const noteRecord = {
         id: `note_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-        author: newNote.author || 'Clinical Staff',
-        role: newNote.role || 'Staff',
-        time: newNote.time || 'Just now',
-        text: newNote.text || '',
+        author: newNote?.author || 'Clinical Staff',
+        role: newNote?.role || 'Staff',
+        time: newNote?.time || 'Just now',
+        text: newNote?.text || '',
         createdAt: new Date().toISOString(),
     };
 
     const updatedNotes = [noteRecord, ...currentNotes];
-    _monitoringSessionMemory.set(cacheKey, { data: updatedNotes, timestamp: Date.now() });
-    await setCacheEntry(cacheKey, updatedNotes, { ttlMs: 24 * 60 * 60 * 1000 });
+    _monitoringSessionMemory.set(memKey, { data: updatedNotes, timestamp: Date.now() });
+    try {
+        await setCacheEntry({
+            tenantId,
+            userId,
+            resourceType,
+            resourceKey,
+            payload: updatedNotes,
+        });
+    } catch (e) {
+        // Cache persistence failure is non-fatal
+    }
 
     return { success: true, note: noteRecord, allNotes: updatedNotes };
 }
@@ -256,21 +411,41 @@ export async function addOfflineClinicalNote(patientId, newNote) {
  * Get telemetry log history for a patient.
  */
 export async function getOfflineTelemetryHistory(patientId) {
-    const cacheKey = getMonitoringCacheKey(MONITORING_RESOURCE_TYPES.HISTORY, patientId);
+    const { tenantId, userId, resourceType, resourceKey, memKey } = getMonitoringCoordinates(
+        MONITORING_RESOURCE_TYPES.HISTORY,
+        patientId
+    );
 
-    if (_monitoringSessionMemory.has(cacheKey)) {
-        return _monitoringSessionMemory.get(cacheKey).data;
+    if (_monitoringSessionMemory.has(memKey)) {
+        const cached = _monitoringSessionMemory.get(memKey);
+        if (Array.isArray(cached?.data)) {
+            return cached.data;
+        }
     }
 
-    const diskCached = await getCacheEntry(cacheKey);
-    if (diskCached) {
-        _monitoringSessionMemory.set(cacheKey, { data: diskCached, timestamp: Date.now() });
-        return diskCached;
+    try {
+        const cacheResult = await getCacheEntry({ tenantId, userId, resourceType, resourceKey });
+        if (cacheResult && cacheResult.found && Array.isArray(cacheResult.payload)) {
+            _monitoringSessionMemory.set(memKey, { data: cacheResult.payload, timestamp: cacheResult.lastFetchedAt || Date.now() });
+            return cacheResult.payload;
+        }
+    } catch (e) {
+        console.warn('[OfflineMonitoringService] Cache read error for history:', e);
     }
 
-    const history = MOCK_TELEMETRY_HISTORY[patientId] || [];
-    _monitoringSessionMemory.set(cacheKey, { data: history, timestamp: Date.now() });
-    await setCacheEntry(cacheKey, history, { ttlMs: 30 * 60 * 1000 });
+    const history = Array.isArray(MOCK_TELEMETRY_HISTORY[patientId]) ? MOCK_TELEMETRY_HISTORY[patientId] : [];
+    _monitoringSessionMemory.set(memKey, { data: history, timestamp: Date.now() });
+    try {
+        await setCacheEntry({
+            tenantId,
+            userId,
+            resourceType,
+            resourceKey,
+            payload: history,
+        });
+    } catch (e) {
+        // Cache persistence failure is non-fatal
+    }
     return history;
 }
 
@@ -278,22 +453,46 @@ export async function getOfflineTelemetryHistory(patientId) {
  * Save alarm silence state for patient.
  */
 export async function setPatientAlarmSilenced(patientId, isSilenced) {
-    const cacheKey = getMonitoringCacheKey(MONITORING_RESOURCE_TYPES.ALARM_STATE, patientId);
-    _monitoringSessionMemory.set(cacheKey, { data: isSilenced, timestamp: Date.now() });
-    await setCacheEntry(cacheKey, isSilenced, { ttlMs: 4 * 60 * 60 * 1000 });
-    return isSilenced;
+    const { tenantId, userId, resourceType, resourceKey, memKey } = getMonitoringCoordinates(
+        MONITORING_RESOURCE_TYPES.ALARM_STATE,
+        patientId
+    );
+    const silencedBool = Boolean(isSilenced);
+    _monitoringSessionMemory.set(memKey, { data: silencedBool, timestamp: Date.now() });
+    try {
+        await setCacheEntry({
+            tenantId,
+            userId,
+            resourceType,
+            resourceKey,
+            payload: silencedBool,
+        });
+    } catch (e) {
+        // Cache persistence failure is non-fatal
+    }
+    return silencedBool;
 }
 
 /**
  * Get alarm silence state for patient.
  */
 export async function getPatientAlarmSilenced(patientId) {
-    const cacheKey = getMonitoringCacheKey(MONITORING_RESOURCE_TYPES.ALARM_STATE, patientId);
-    if (_monitoringSessionMemory.has(cacheKey)) {
-        return _monitoringSessionMemory.get(cacheKey).data;
+    const { tenantId, userId, resourceType, resourceKey, memKey } = getMonitoringCoordinates(
+        MONITORING_RESOURCE_TYPES.ALARM_STATE,
+        patientId
+    );
+    if (_monitoringSessionMemory.has(memKey)) {
+        return Boolean(_monitoringSessionMemory.get(memKey).data);
     }
-    const diskCached = await getCacheEntry(cacheKey);
-    return Boolean(diskCached);
+    try {
+        const cacheResult = await getCacheEntry({ tenantId, userId, resourceType, resourceKey });
+        if (cacheResult && cacheResult.found) {
+            return Boolean(cacheResult.payload);
+        }
+    } catch (e) {
+        console.warn('[OfflineMonitoringService] Cache read error for alarm state:', e);
+    }
+    return false;
 }
 
 /**
@@ -302,6 +501,7 @@ export async function getPatientAlarmSilenced(patientId) {
  */
 export async function getOfflineMonitoringData(forceFresh = false) {
     const patientsRes = await getOfflineMonitoringPatients(forceFresh);
+    const patientList = Array.isArray(patientsRes?.data) ? patientsRes.data : [];
     const vitalsMap = { ...MOCK_VITALS };
     const devicesMap = {};
     const alertsMap = { ...MOCK_ALERTS };
@@ -309,28 +509,53 @@ export async function getOfflineMonitoringData(forceFresh = false) {
     const trendsMap = { ...MOCK_DEVICE_TRENDS };
     const historyMap = { ...MOCK_TELEMETRY_HISTORY };
 
-    for (const p of patientsRes.data) {
+    for (const p of patientList) {
         devicesMap[p.id] = MOCK_DEVICES.filter(d => d.patientId === p.id);
+
         const pVitals = await getOfflinePatientVitals(p.id);
-        if (pVitals) vitalsMap[p.id] = pVitals;
+        if (pVitals && typeof pVitals === 'object' && !('found' in pVitals)) {
+            vitalsMap[p.id] = pVitals;
+        } else if (pVitals && pVitals.found && pVitals.payload) {
+            vitalsMap[p.id] = pVitals.payload;
+        }
+
         const pAlerts = await getOfflinePatientAlerts(p.id);
-        if (pAlerts) alertsMap[p.id] = pAlerts;
+        if (Array.isArray(pAlerts)) {
+            alertsMap[p.id] = pAlerts;
+        } else if (pAlerts && Array.isArray(pAlerts.payload)) {
+            alertsMap[p.id] = pAlerts.payload;
+        }
+
         const pNotes = await getOfflinePatientNotes(p.id);
-        if (pNotes) notesMap[p.id] = pNotes;
+        if (Array.isArray(pNotes)) {
+            notesMap[p.id] = pNotes;
+        } else if (pNotes && Array.isArray(pNotes.payload)) {
+            notesMap[p.id] = pNotes.payload;
+        }
+
         const pTrends = await getOfflinePatientTrends(p.id);
-        if (pTrends) trendsMap[p.id] = pTrends;
+        if (pTrends && typeof pTrends === 'object' && !('found' in pTrends)) {
+            trendsMap[p.id] = pTrends;
+        } else if (pTrends && pTrends.found && pTrends.payload) {
+            trendsMap[p.id] = pTrends.payload;
+        }
+
         const pHistory = await getOfflineTelemetryHistory(p.id);
-        if (pHistory) historyMap[p.id] = pHistory;
+        if (Array.isArray(pHistory)) {
+            historyMap[p.id] = pHistory;
+        } else if (pHistory && Array.isArray(pHistory.payload)) {
+            historyMap[p.id] = pHistory.payload;
+        }
     }
 
     return {
-        patients: patientsRes.data,
+        patients: patientList,
         vitalsMap,
         devicesMap,
         alertsMap,
         notesMap,
         trendsMap,
         historyMap,
-        _fromCache: Boolean(patientsRes._fromCache),
+        _fromCache: Boolean(patientsRes?._fromCache),
     };
 }

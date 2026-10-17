@@ -233,7 +233,7 @@ export default function CentralAdminHospitalCards({
             const isClinicCard = isClinicEntity(hospital);
             const rawLogo = hospital.brandingSchema?.logoUrl || hospital.branding?.logoUrl;
             const logoUrl = isValidLogoUrl(rawLogo) ? rawLogo : null;
-            const hospitalId = hospital._id || hospital.id;
+            const hospitalId = String(hospital._id || hospital.id || '').trim();
             // Version key: combines logoUrl + save counter so the Image remounts
             // even if the URL string happens to be identical between two saves.
             const logoVersion = brandingVersions[hospitalId] || 0;
@@ -243,7 +243,7 @@ export default function CentralAdminHospitalCards({
 
             return (
               <Pressable
-                key={hospitalId}
+                key={hospitalId || `entity-${hospital.name}-${hospital.slug || ''}`}
                 style={({ pressed, hovered }) => [
                   styles.hospitalCard,
                   { width: cardWidth },
@@ -401,9 +401,9 @@ export default function CentralAdminHospitalCards({
                         Platform.select({ web: { transitionProperty: 'all', transitionDuration: '0.15s', transitionTimingFunction: 'ease', cursor: 'pointer' } }),
                         hovered && { backgroundColor: '#fee2e2', borderColor: '#f87171', transform: [{ translateY: -1 }] },
                         pressed && { transform: [{ scale: 0.96 }] },
-                        (deletingId === hospitalId || !hospitalId) && { opacity: 0.5 },
+                        (Boolean(deletingId) || !hospitalId) && { opacity: 0.5 },
                       ]} 
-                      disabled={deletingId === hospitalId || !hospitalId}
+                      disabled={Boolean(deletingId) || !hospitalId}
                       onPress={(e) => { 
                         e.stopPropagation?.(); 
                         if (deletingId || !hospitalId || hospitalId === 'undefined' || hospitalId === 'null') return;

@@ -69,13 +69,28 @@ module.exports = ({ config }) => {
     applicationId = (config.android && config.android.package) || 'com.medical365.app';
   }
 
+  const iconPath = config.icon || './assets/icon.png';
+  const adaptiveForeground =
+    (config.android && config.android.adaptiveIcon && config.android.adaptiveIcon.foregroundImage) ||
+    './assets/adaptive-icon.png';
+  const adaptiveBg =
+    (config.android && config.android.adaptiveIcon && config.android.adaptiveIcon.backgroundColor) ||
+    '#ffffff';
+
   return {
     ...config,
     name: hospitalName,
     slug: tenantSlug,
+    icon: iconPath,
     android: {
       ...(config.android || {}),
       package: applicationId,
+      icon: (config.android && config.android.icon) || iconPath,
+      adaptiveIcon: {
+        foregroundImage: adaptiveForeground,
+        backgroundColor: adaptiveBg,
+        ...(config.android && config.android.adaptiveIcon ? config.android.adaptiveIcon : {}),
+      },
     },
     extra: {
       ...(config.extra || {}),

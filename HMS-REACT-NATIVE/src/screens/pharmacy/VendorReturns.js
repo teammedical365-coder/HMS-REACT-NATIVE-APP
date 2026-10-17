@@ -6,11 +6,14 @@ import {
 import DropdownSelect from '../../components/common/DropdownSelect';
 import { formatToDisplay } from '../../components/common/DatePickerInput';
 import { pharmacyAPI } from '../../utils/api';
+import { fetchPharmacyInventoryWithOffline } from '../../services/offline/offlinePharmacyService';
 
 const VendorReturns = () => {
     const { width } = useWindowDimensions();
     const [returnsHistory, setReturnsHistory] = useState([]);
     const [inventory, setInventory] = useState([]);
+    const [loadingInventory, setLoadingInventory] = useState(false);
+    const [inventoryError, setInventoryError] = useState(null);
     
     // Form State
     const [vendorName, setVendorName] = useState('');
@@ -28,65 +31,127 @@ const VendorReturns = () => {
     }, []);
 
     const fetchInitialData = async () => {
+        setLoadingInventory(true);
+        setInventoryError(null);
         try {
-            const [returnsRes, invRes] = await Promise.all([
+            const [returnsRes, invRes] = await Promise.allSettled([
                 pharmacyAPI.getVendorReturns(),
-                pharmacyAPI.getInventory()
+                fetchPharmacyInventoryWithOffline({
+                    onCacheHit: (cached) => {
+                        if (cached && Array.isArray(cached.medicines) && cached.medicines.length > 0) {
+                            setInventory(cached.medicines);
+                            setLoadingInventory(false);
+                        }
+                    }
+                })
             ]);
-            if (returnsRes.success) setReturnsHistory(returnsRes.returns || []);
-            if (invRes.success) setInventory(invRes.data || []);
+
+            if (returnsRes.status === 'fulfilled' && returnsRes.value) {
+                const rData = returnsRes.value;
+                if (rData.success || Array.isArray(rData.returns)) {
+                    setReturnsHistory(rData.returns || []);
+                }
+            }
+
+            let loadedMedicines = [];
+            if (invRes.status === 'fulfilled' && invRes.value) {
+                const iData = invRes.value;
+                if (Array.isArray(iData.medicines)) {
+                    loadedMedicines = iData.medicines;
+                } else if (Array.isArray(iData.data)) {
+                    loadedMedicines = iData.data;
+                } else if (Array.isArray(iData.inventory)) {
+                    loadedMedicines = iData.inventory;
+                } else if (Array.isArray(iData)) {
+                    loadedMedicines = iData;
+                }
+            }
+
+            // Fallback to direct API if offline service returned empty
+            if (loadedMedicines.length === 0) {
+                try {
+                    const directRes = await pharmacyAPI.getInventory();
+                    const directData = directRes?.medicines || directRes?.data || directRes?.inventory || directRes?.items || (Array.isArray(directRes) ? directRes : []);
+                    if (Array.isArray(directData) && directData.length > 0) {
+                        loadedMedicines = directData;
+                    }
+                } catch (directErr) {
+                    console.warn('Direct getInventory fallback error in VendorReturns:', directErr);
+                }
+            }
+
+            if (loadedMedicines.length > 0) {
+                setInventory(loadedMedicines);
+            } else if (invRes.status === 'rejected') {
+                setInventoryError('Failed to load inventory');
+            }
         } catch (error) {
-            console.error('Error fetching initial data:', error);
+            console.error('Error fetching initial data in VendorReturns:', error);
+            setInventoryError('Failed to load inventory');
+        } finally {
+            setLoadingInventory(false);
         }
     };
 
     const handleAddItem = () => {
         const qty = Number(returnQuantity);
-        if (!selectedMedicineId || qty <= 0) return;
+        if (!selectedMedicineId) {
+            Alert.alert('Validation Error', 'Please select a medicine');
+            return;
+        }
+        if (isNaN(qty) || qty <= 0) {
+            Alert.alert('Validation Error', 'Please enter a valid quantity greater than 0');
+            return;
+        }
         
-        const medicine = inventory.find(i => i._id === selectedMedicineId);
-        if (!medicine) return;
+        const medicine = inventory.find(i => (i._id || i.id) === selectedMedicineId);
+        if (!medicine) {
+            Alert.alert('Error', 'Selected medicine not found in inventory');
+            return;
+        }
 
-        if (qty > medicine.stock) {
-            Alert.alert('Limit Exceeded', `Cannot return more than current stock (${medicine.stock})`);
+        const currentStock = Number(medicine.stock ?? medicine.quantity ?? 0);
+        if (currentStock > 0 && qty > currentStock) {
+            Alert.alert('Limit Exceeded', `Cannot return more than current stock (${currentStock})`);
             return;
         }
 
         const newItem = {
-            inventoryId: medicine._id,
+            inventoryId: medicine._id || medicine.id,
             medicineName: medicine.name,
             batchNumber: medicine.batchNumber || '',
             quantityReturned: qty,
-            unitPrice: medicine.buyingPrice || medicine.sellingPrice || 0,
+            unitPrice: Number(medicine.buyingPrice || medicine.purchasePrice || medicine.sellingPrice || 0),
             reason: returnReason
         };
 
-        setReturnItems([...returnItems, newItem]);
+        setReturnItems(prev => [...prev, newItem]);
         setSelectedMedicineId('');
         setReturnQuantity('1');
     };
 
     const handleRemoveItem = (index) => {
-        setReturnItems(returnItems.filter((_, i) => i !== index));
+        setReturnItems(prev => prev.filter((_, i) => i !== index));
     };
 
     const totalReturnAmount = returnItems.reduce((sum, item) => sum + (item.quantityReturned * item.unitPrice), 0);
 
     const handleSubmitReturn = async () => {
-        if (!vendorName) return Alert.alert('Validation Error', 'Vendor Name is required');
+        if (loading) return;
+        if (!vendorName.trim()) return Alert.alert('Validation Error', 'Vendor Name is required');
         if (returnItems.length === 0) return Alert.alert('Validation Error', 'Add at least one item to return');
 
         setLoading(true);
         try {
             const payload = {
-                vendorName,
-                invoiceOrBillNo,
+                vendorName: vendorName.trim(),
+                invoiceOrBillNo: invoiceOrBillNo.trim(),
                 items: returnItems,
                 totalReturnAmount
             };
 
             const res = await pharmacyAPI.createVendorReturn(payload);
-            if (res.success) {
+            if (res && (res.success || res._id || res.id)) {
                 Alert.alert('Success', 'Vendor return submitted successfully');
                 // Reset form
                 setVendorName('');
@@ -95,29 +160,51 @@ const VendorReturns = () => {
                 // Refresh data
                 fetchInitialData();
             } else {
-                Alert.alert('Error', res.message || 'Error submitting return');
+                Alert.alert('Error', res?.message || 'Error submitting return');
             }
         } catch (error) {
-            Alert.alert('Error', 'Error submitting return');
-            console.error(error);
+            Alert.alert('Error', error?.response?.data?.message || error?.message || 'Error submitting return');
+            console.error('Error submitting vendor return:', error);
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
     };
 
-    const isLargeScreen = width > 768;
+    const isLargeScreen = width > 900;
+    const isMobile = width < 600;
+
+    // Filter available medicines with stock > 0, or fallback to all inventory if stocks are zero/untracked
+    const availableInventory = inventory.filter(i => {
+        const stockVal = Number(i.stock ?? i.quantity ?? 0);
+        return stockVal > 0;
+    });
+    const displayInventory = availableInventory.length > 0 ? availableInventory : inventory;
+
+    const medicineDropdownOptions = [
+        { label: '-- Choose from Inventory --', value: '' },
+        ...displayInventory.map(i => {
+            const medId = i._id || i.id;
+            const stockVal = Number(i.stock ?? i.quantity ?? 0);
+            const batchInfo = i.batchNumber ? ` (Batch: ${i.batchNumber})` : '';
+            return {
+                label: `${i.name || 'Medicine'} (Stock: ${stockVal})${batchInfo}`,
+                value: medId,
+            };
+        })
+    ];
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+        <ScrollView style={styles.container} contentContainerStyle={[styles.contentContainer, { paddingBottom: 60 }]}>
             <View style={styles.header}>
                 <Text style={styles.headerTitle}>Vendor Returns (RTV)</Text>
             </View>
 
             <View style={[styles.mainLayout, !isLargeScreen && { flexDirection: 'column' }]}>
                 {/* Left Panel: Return Form */}
-                <View style={[styles.panel, isLargeScreen && { flex: 1 }]}>
+                <View style={[styles.panel, isLargeScreen && { flex: 1.2 }]}>
                     <Text style={styles.panelTitle}>New Return to Vendor</Text>
                     
-                    <View style={[styles.formGrid, { flexDirection: isLargeScreen ? 'row' : 'column' }]}>
+                    <View style={[styles.formGrid, { flexDirection: isMobile ? 'column' : 'row' }]}>
                         <View style={styles.formGroup}>
                             <Text style={styles.label}>Vendor Name *</Text>
                             <TextInput 
@@ -125,6 +212,7 @@ const VendorReturns = () => {
                                 value={vendorName}
                                 onChangeText={setVendorName}
                                 placeholder="e.g. PharmaCorp Ltd."
+                                placeholderTextColor="#94a3b8"
                             />
                         </View>
                         <View style={styles.formGroup}>
@@ -134,30 +222,29 @@ const VendorReturns = () => {
                                 value={invoiceOrBillNo}
                                 onChangeText={setInvoiceOrBillNo}
                                 placeholder="Original Invoice No"
+                                placeholderTextColor="#94a3b8"
                             />
                         </View>
                     </View>
 
                     <View style={styles.addItemSection}>
                         <Text style={styles.addItemTitle}>Add Medicine to Return</Text>
-                        <View style={[styles.addItemGrid, !isLargeScreen && { flexDirection: 'column', alignItems: 'stretch' }]}>
-                            <View style={[styles.formGroup, isLargeScreen && { flex: 2 }]}>
-                                <Text style={styles.labelSmall}>Select Medicine</Text>
+                        <View style={[styles.addItemGrid, isMobile && { flexDirection: 'column', alignItems: 'stretch' }]}>
+                            <View style={[styles.formGroup, !isMobile && { flex: 2 }]}>
+                                <Text style={styles.labelSmall}>Select Medicine *</Text>
                                 <DropdownSelect
-                                    options={[
-                                        { label: '-- Choose from Inventory --', value: '' },
-                                        ...inventory.filter(i => (i.stock || 0) > 0).map(i => ({
-                                            label: `${i.name} (Stock: ${i.stock})`,
-                                            value: i._id
-                                        }))
-                                    ]}
+                                    options={medicineDropdownOptions}
                                     value={selectedMedicineId}
                                     onChange={setSelectedMedicineId}
                                     placeholder="-- Choose from Inventory --"
+                                    loading={loadingInventory}
+                                    loadingText="Loading medicines..."
+                                    emptyText={inventoryError || (inventory.length === 0 ? "No inventory medicines found" : "No available medicines")}
+                                    searchable={true}
                                 />
                             </View>
-                            <View style={[styles.formGroup, isLargeScreen && { flex: 1 }]}>
-                                <Text style={styles.labelSmall}>Qty</Text>
+                            <View style={[styles.formGroup, !isMobile && { flex: 1 }]}>
+                                <Text style={styles.labelSmall}>Qty *</Text>
                                 <TextInput 
                                     style={styles.input}
                                     value={returnQuantity}
@@ -165,7 +252,7 @@ const VendorReturns = () => {
                                     keyboardType="numeric"
                                 />
                             </View>
-                            <View style={[styles.formGroup, isLargeScreen && { flex: 1 }]}>
+                            <View style={[styles.formGroup, !isMobile && { flex: 1.2 }]}>
                                 <Text style={styles.labelSmall}>Reason</Text>
                                 <DropdownSelect
                                     options={[
@@ -179,35 +266,35 @@ const VendorReturns = () => {
                                     placeholder="Select Reason"
                                 />
                             </View>
-                            <View style={[styles.formGroup, isLargeScreen && { justifyContent: 'flex-end', marginBottom: 0 }]}>
+                            <View style={[styles.formGroup, !isMobile && { justifyContent: 'flex-end', marginBottom: 0 }]}>
                                 <TouchableOpacity style={styles.btnAdd} onPress={handleAddItem}>
-                                    <Text style={styles.btnAddText}>Add</Text>
+                                    <Text style={styles.btnAddText}>+ Add</Text>
                                 </TouchableOpacity>
                             </View>
                         </View>
                     </View>
 
                     {returnItems.length > 0 && (
-                        <View>
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                                <View style={{ minWidth: 600, width: '100%' }}>
+                        <View style={{ marginTop: 10 }}>
+                            <ScrollView horizontal showsHorizontalScrollIndicator={true}>
+                                <View style={{ minWidth: isMobile ? 520 : '100%' }}>
                                     <View style={styles.tableHeadRow}>
                                         <Text style={[styles.tableHead, { width: 150 }]}>Medicine</Text>
-                                        <Text style={[styles.tableHead, { width: 100 }]}>Batch</Text>
-                                        <Text style={[styles.tableHead, { width: 80 }]}>Qty</Text>
-                                        <Text style={[styles.tableHead, { width: 100 }]}>Price</Text>
-                                        <Text style={[styles.tableHead, { width: 120 }]}>Reason</Text>
-                                        <Text style={[styles.tableHead, { width: 50 }]}></Text>
+                                        <Text style={[styles.tableHead, { width: 90 }]}>Batch</Text>
+                                        <Text style={[styles.tableHead, { width: 60 }]}>Qty</Text>
+                                        <Text style={[styles.tableHead, { width: 80 }]}>Price</Text>
+                                        <Text style={[styles.tableHead, { width: 100 }]}>Reason</Text>
+                                        <Text style={[styles.tableHead, { width: 40 }]}></Text>
                                     </View>
                                     {returnItems.map((item, index) => (
                                         <View key={index} style={styles.tableRow}>
-                                            <Text style={[styles.tableCell, { width: 150 }]}>{item.medicineName}</Text>
-                                            <Text style={[styles.tableCell, { width: 100 }]}>{item.batchNumber}</Text>
-                                            <Text style={[styles.tableCell, { width: 80 }]}>{item.quantityReturned}</Text>
-                                            <Text style={[styles.tableCell, { width: 100 }]}>₹{item.unitPrice}</Text>
-                                            <Text style={[styles.tableCell, { width: 120 }]}>{item.reason}</Text>
+                                            <Text style={[styles.tableCell, { width: 150, fontWeight: '500' }]}>{item.medicineName}</Text>
+                                            <Text style={[styles.tableCell, { width: 90, color: '#64748b' }]}>{item.batchNumber || '-'}</Text>
+                                            <Text style={[styles.tableCell, { width: 60, fontWeight: '600' }]}>{item.quantityReturned}</Text>
+                                            <Text style={[styles.tableCell, { width: 80 }]}>₹{item.unitPrice}</Text>
+                                            <Text style={[styles.tableCell, { width: 100 }]}>{item.reason}</Text>
                                             <TouchableOpacity 
-                                                style={{ width: 50, padding: 8, alignItems: 'flex-end' }}
+                                                style={{ width: 40, padding: 8, alignItems: 'center' }}
                                                 onPress={() => handleRemoveItem(index)}
                                             >
                                                 <Text style={styles.textRemove}>✕</Text>
@@ -228,7 +315,11 @@ const VendorReturns = () => {
                                     onPress={handleSubmitReturn}
                                     disabled={loading}
                                 >
-                                    <Text style={styles.btnSubmitText}>{loading ? 'Submitting...' : 'Submit Return'}</Text>
+                                    {loading ? (
+                                        <ActivityIndicator size="small" color="#fff" />
+                                    ) : (
+                                        <Text style={styles.btnSubmitText}>Submit Return</Text>
+                                    )}
                                 </TouchableOpacity>
                             </View>
                         </View>
@@ -237,15 +328,20 @@ const VendorReturns = () => {
 
                 {/* Right Panel: History */}
                 <View style={[styles.panel, isLargeScreen && { flex: 1 }]}>
-                    <Text style={styles.panelTitle}>Return History</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                        <View style={{ minWidth: 500, width: '100%' }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
+                        <Text style={styles.panelTitle}>Return History</Text>
+                        <TouchableOpacity onPress={fetchInitialData} style={{ padding: 4 }}>
+                            <Text style={{ color: '#2563eb', fontSize: 13, fontWeight: '600' }}>Refresh</Text>
+                        </TouchableOpacity>
+                    </View>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={true}>
+                        <View style={{ minWidth: 460, width: '100%' }}>
                             <View style={styles.historyTableHeadRow}>
-                                <Text style={[styles.historyTableHead, { width: 100 }]}>Date</Text>
-                                <Text style={[styles.historyTableHead, { width: 150 }]}>Vendor</Text>
-                                <Text style={[styles.historyTableHead, { width: 80 }]}>Items</Text>
-                                <Text style={[styles.historyTableHead, { width: 100 }]}>Amount</Text>
-                                <Text style={[styles.historyTableHead, { width: 100 }]}>Status</Text>
+                                <Text style={[styles.historyTableHead, { width: 90 }]}>Date</Text>
+                                <Text style={[styles.historyTableHead, { width: 130 }]}>Vendor</Text>
+                                <Text style={[styles.historyTableHead, { width: 60 }]}>Items</Text>
+                                <Text style={[styles.historyTableHead, { width: 90 }]}>Amount</Text>
+                                <Text style={[styles.historyTableHead, { width: 90 }]}>Status</Text>
                             </View>
                             
                             {returnsHistory.length === 0 ? (
@@ -254,14 +350,20 @@ const VendorReturns = () => {
                                 </View>
                             ) : (
                                 returnsHistory.map((ret, idx) => (
-                                    <View key={idx} style={styles.historyTableRow}>
-                                        <Text style={[styles.historyTableCell, { width: 100 }]}>{formatToDisplay(ret.returnDate)}</Text>
-                                        <Text style={[styles.historyTableCell, { width: 150, fontWeight: '500' }]}>{ret.vendorName}</Text>
-                                        <Text style={[styles.historyTableCell, { width: 80 }]}>{ret.items?.length || 0}</Text>
-                                        <Text style={[styles.historyTableCell, { width: 100, color: '#dc2626', fontWeight: '500' }]}>₹{ret.totalReturnAmount}</Text>
-                                        <View style={{ width: 100, padding: 12, justifyContent: 'center' }}>
-                                            <View style={styles.statusBadge}>
-                                                <Text style={styles.statusBadgeText}>{ret.status}</Text>
+                                    <View key={ret._id || ret.id || idx} style={styles.historyTableRow}>
+                                        <Text style={[styles.historyTableCell, { width: 90 }]}>{formatToDisplay(ret.returnDate || ret.createdAt)}</Text>
+                                        <Text style={[styles.historyTableCell, { width: 130, fontWeight: '500' }]}>{ret.vendorName}</Text>
+                                        <Text style={[styles.historyTableCell, { width: 60 }]}>{ret.items?.length || 0}</Text>
+                                        <Text style={[styles.historyTableCell, { width: 90, color: '#dc2626', fontWeight: '600' }]}>₹{ret.totalReturnAmount || 0}</Text>
+                                        <View style={{ width: 90, paddingVertical: 8, paddingHorizontal: 4, justifyContent: 'center' }}>
+                                            <View style={[
+                                                styles.statusBadge,
+                                                ret.status === 'Completed' || ret.status === 'Approved' ? { backgroundColor: '#dcfce7' } : { backgroundColor: '#fef3c7' }
+                                            ]}>
+                                                <Text style={[
+                                                    styles.statusBadgeText,
+                                                    ret.status === 'Completed' || ret.status === 'Approved' ? { color: '#166534' } : { color: '#92400e' }
+                                                ]}>{ret.status || 'Submitted'}</Text>
                                             </View>
                                         </View>
                                     </View>

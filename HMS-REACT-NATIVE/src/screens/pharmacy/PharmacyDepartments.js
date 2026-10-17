@@ -1,15 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Modal, Dimensions, Alert, useWindowDimensions } from 'react-native';
+import { 
+    View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, 
+    Modal, Dimensions, Alert, useWindowDimensions, KeyboardAvoidingView, 
+    Platform, ActivityIndicator 
+} from 'react-native';
 import { pharmacyAPI, billingAPI } from '../../utils/api';
 import DropdownSelect from '../../components/common/DropdownSelect';
+import { fetchPharmacyInventoryWithOffline } from '../../services/offline/offlinePharmacyService';
 
 const PharmacyDepartments = () => {
     const { width } = useWindowDimensions();
     const isLargeScreen = width > 768;
+    const isMobile = width < 600;
     const [departments, setDepartments] = useState([]);
     const [stocks, setStocks] = useState([]);
     const [inventory, setInventory] = useState([]);
     const [patients, setPatients] = useState([]);
+    const [loadingData, setLoadingData] = useState(false);
 
     // Modals state
     const [showDeptModal, setShowDeptModal] = useState(false);
@@ -22,27 +29,57 @@ const PharmacyDepartments = () => {
     const [usageForm, setUsageForm] = useState({ departmentId: '', medicineId: '', patientId: '', quantity: '', unitPrice: '' });
     const [patientSearch, setPatientSearch] = useState('');
 
+    // Submission locks
+    const [creatingDept, setCreatingDept] = useState(false);
+    const [transferringStock, setTransferringStock] = useState(false);
+    const [recordingUsage, setRecordingUsage] = useState(false);
+
     useEffect(() => {
         fetchData();
-        fetchInventory();
+        fetchInventoryData();
     }, []);
 
     const fetchData = async () => {
+        setLoadingData(true);
         try {
-            const deptRes = await pharmacyAPI.getDepartments();
-            if (deptRes.success) setDepartments(deptRes.departments || []);
+            const [deptRes, stockRes] = await Promise.allSettled([
+                pharmacyAPI.getDepartments(),
+                pharmacyAPI.getDepartmentStocks()
+            ]);
 
-            const stockRes = await pharmacyAPI.getDepartmentStocks();
-            if (stockRes.success) setStocks(stockRes.stocks || []);
+            if (deptRes.status === 'fulfilled' && deptRes.value?.success) {
+                setDepartments(deptRes.value.departments || []);
+            }
+            if (stockRes.status === 'fulfilled' && stockRes.value?.success) {
+                setStocks(stockRes.value.stocks || []);
+            }
         } catch (error) {
-            console.error('Error fetching data:', error);
+            console.error('Error fetching department data:', error);
+        } finally {
+            setLoadingData(false);
         }
     };
 
-    const fetchInventory = async () => {
+    const fetchInventoryData = async () => {
+        try {
+            const res = await fetchPharmacyInventoryWithOffline({
+                onCacheHit: (cached) => {
+                    if (cached && Array.isArray(cached.medicines)) {
+                        setInventory(cached.medicines);
+                    }
+                }
+            });
+            if (res && res.success && Array.isArray(res.medicines)) {
+                setInventory(res.medicines);
+                return;
+            }
+        } catch (offlineErr) {
+            console.warn('fetchPharmacyInventoryWithOffline fallback:', offlineErr);
+        }
+
         try {
             const res = await pharmacyAPI.getInventory();
-            const invData = res.medicines || res.inventory || res.data || res || [];
+            const invData = res?.medicines || res?.inventory || res?.data || (Array.isArray(res) ? res : []);
             setInventory(Array.isArray(invData) ? invData : []);
         } catch (error) {
             console.error('Error fetching inventory:', error);
@@ -50,53 +87,88 @@ const PharmacyDepartments = () => {
     };
 
     const handleCreateDepartment = async () => {
+        if (creatingDept) return;
+        if (!deptForm.name.trim()) {
+            Alert.alert('Validation Error', 'Department name is required');
+            return;
+        }
+
+        setCreatingDept(true);
         try {
-            const res = await pharmacyAPI.createDepartment(deptForm);
-            if (res.success) {
+            const res = await pharmacyAPI.createDepartment({
+                name: deptForm.name.trim(),
+                description: deptForm.description.trim()
+            });
+            if (res && (res.success || res._id || res.id)) {
                 Alert.alert('Success', 'Department created successfully!');
                 setShowDeptModal(false);
                 setDeptForm({ name: '', description: '' });
                 fetchData();
+            } else {
+                Alert.alert('Error', res?.message || 'Error creating department');
             }
         } catch (error) {
-            console.error(error);
-            const msg = error?.response?.data?.message || 'Error creating department';
+            console.error('Error creating department:', error);
+            const msg = error?.response?.data?.message || error?.message || 'Error creating department';
             Alert.alert('Error', msg);
+        } finally {
+            setCreatingDept(false);
         }
     };
 
     const handleTransfer = async () => {
+        if (transferringStock) return;
+        if (!transferForm.departmentId) {
+            Alert.alert('Validation Error', 'Please select a destination department');
+            return;
+        }
+        if (!transferForm.medicineId) {
+            Alert.alert('Validation Error', 'Please select a medicine');
+            return;
+        }
+        const qty = Number(transferForm.quantity);
+        if (isNaN(qty) || qty <= 0) {
+            Alert.alert('Validation Error', 'Please enter a valid quantity greater than 0');
+            return;
+        }
+
+        setTransferringStock(true);
         try {
             const res = await pharmacyAPI.transferToDepartment({
-                ...transferForm,
-                quantity: Number(transferForm.quantity)
+                departmentId: transferForm.departmentId,
+                medicineId: transferForm.medicineId,
+                quantity: qty
             });
-            if (res.success) {
+            if (res && (res.success || res._id || res.id)) {
                 Alert.alert('Success', 'Stock transferred successfully!');
                 setShowTransferModal(false);
                 setTransferForm({ departmentId: '', medicineId: '', quantity: '' });
                 fetchData();
-                fetchInventory(); // refresh main stock
+                fetchInventoryData(); // refresh main stock
+            } else {
+                Alert.alert('Error', res?.message || 'Error transferring stock');
             }
         } catch (error) {
-            console.error(error);
-            const msg = error?.response?.data?.message || 'Error transferring stock';
+            console.error('Error transferring stock:', error);
+            const msg = error?.response?.data?.message || error?.message || 'Error transferring stock';
             Alert.alert('Error', msg);
+        } finally {
+            setTransferringStock(false);
         }
     };
 
     const searchPatients = async (query) => {
         setPatientSearch(query);
         if (usageForm.patientId) {
-            setUsageForm({ ...usageForm, patientId: '' });
+            setUsageForm(prev => ({ ...prev, patientId: '' }));
         }
-        if (query.length < 2) {
+        if (query.trim().length < 2) {
             setPatients([]);
             return;
         }
         try {
-            const res = await billingAPI.searchPatients(query);
-            if (res.success) {
+            const res = await billingAPI.searchPatients(query.trim());
+            if (res && res.success) {
                 setPatients(res.patients || []);
             }
         } catch (error) {
@@ -105,42 +177,76 @@ const PharmacyDepartments = () => {
     };
 
     const handleUsage = async () => {
+        if (recordingUsage) return;
+        if (!usageForm.departmentId) {
+            Alert.alert('Validation Error', 'Please select a department');
+            return;
+        }
+        if (!usageForm.patientId) {
+            Alert.alert('Validation Error', 'Please search and select a patient');
+            return;
+        }
+        if (!usageForm.medicineId) {
+            Alert.alert('Validation Error', 'Please select a medicine');
+            return;
+        }
+        const qty = Number(usageForm.quantity);
+        if (isNaN(qty) || qty <= 0) {
+            Alert.alert('Validation Error', 'Please enter a valid quantity');
+            return;
+        }
+        const price = Number(usageForm.unitPrice);
+        if (isNaN(price) || price < 0) {
+            Alert.alert('Validation Error', 'Please enter a valid unit price');
+            return;
+        }
+
+        setRecordingUsage(true);
         try {
             const res = await pharmacyAPI.recordDepartmentUsage({
-                ...usageForm,
-                quantity: Number(usageForm.quantity),
-                unitPrice: Number(usageForm.unitPrice)
+                departmentId: usageForm.departmentId,
+                medicineId: usageForm.medicineId,
+                patientId: usageForm.patientId,
+                quantity: qty,
+                unitPrice: price
             });
-            if (res.success) {
+            if (res && (res.success || res._id || res.id)) {
                 Alert.alert('Success', 'Usage recorded and patient billed successfully!');
                 setShowUsageModal(false);
                 setUsageForm({ departmentId: '', medicineId: '', patientId: '', quantity: '', unitPrice: '' });
                 setPatientSearch('');
+                setPatients([]);
                 fetchData();
+            } else {
+                Alert.alert('Error', res?.message || 'Error recording usage');
             }
         } catch (error) {
-            console.error(error);
-            const msg = error?.response?.data?.message || 'Error recording usage';
+            console.error('Error recording usage:', error);
+            const msg = error?.response?.data?.message || error?.message || 'Error recording usage';
             Alert.alert('Error', msg);
+        } finally {
+            setRecordingUsage(false);
         }
     };
 
     const handleUsageMedicineChange = (itemValue) => {
         const medId = itemValue;
-        const stockItem = stocks.find(s => s.medicineId?._id === medId && s.departmentId?._id === usageForm.departmentId);
+        const stockItem = stocks.find(s => (s.medicineId?._id || s.medicineId?.id) === medId && (s.departmentId?._id || s.departmentId?.id) === usageForm.departmentId);
 
         setUsageForm(prev => ({
             ...prev,
             medicineId: medId,
-            unitPrice: stockItem ? (stockItem.medicineId?.sellingPrice || 0).toString() : '0'
+            unitPrice: stockItem ? (stockItem.medicineId?.sellingPrice || stockItem.medicineId?.mrp || 0).toString() : '0'
         }));
     };
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
-            <View style={[styles.headerActions, { flexDirection: isLargeScreen ? 'row' : 'column', alignItems: isLargeScreen ? 'center' : 'flex-start' }]}>
-                <Text style={styles.headerTitle}>Departments & Stock Transfers</Text>
-                <View style={styles.actionButtons}>
+        <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 60 }}>
+            <View style={[styles.headerActions, { flexDirection: isLargeScreen ? 'row' : 'column', alignItems: isLargeScreen ? 'center' : 'stretch' }]}>
+                <View style={{ flex: 1, marginBottom: isLargeScreen ? 0 : 12 }}>
+                    <Text style={styles.headerTitle}>Departments & Stock Transfers</Text>
+                </View>
+                <View style={[styles.actionButtons, { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }]}>
                     <TouchableOpacity style={styles.btnPrimary} onPress={() => setShowDeptModal(true)}>
                         <Text style={styles.btnPrimaryText}>+ Add Department</Text>
                     </TouchableOpacity>
@@ -155,7 +261,7 @@ const PharmacyDepartments = () => {
 
             <View style={styles.departmentsGrid}>
                 {departments.map(dept => (
-                    <View key={dept._id} style={styles.departmentCard}>
+                    <View key={dept._id || dept.id} style={styles.departmentCard}>
                         <Text style={styles.deptCardTitle}>{dept.name}</Text>
                         <Text style={styles.deptCardDesc}>{dept.description || 'No description'}</Text>
                     </View>
@@ -163,8 +269,11 @@ const PharmacyDepartments = () => {
             </View>
 
             <View style={styles.stockTableContainer}>
-                <Text style={styles.tableTitle}>Department Stock Levels</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
+                    <Text style={styles.tableTitle}>Department Stock Levels</Text>
+                    {isMobile && <Text style={{ fontSize: 11, color: '#94a3b8' }}>↔ Scrollable</Text>}
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={true}>
                     <View style={{ minWidth: 600 }}>
                         <View style={styles.tableHead}>
                             <Text style={[styles.th, { width: 150 }]}>Department</Text>
@@ -173,10 +282,10 @@ const PharmacyDepartments = () => {
                             <Text style={[styles.th, { width: 150 }]}>Last Updated</Text>
                         </View>
                         {stocks.map(stock => (
-                            <View key={stock._id} style={styles.tableRow}>
+                            <View key={stock._id || stock.id} style={styles.tableRow}>
                                 <Text style={[styles.td, { width: 150 }]}>{stock.departmentId?.name || 'Unknown'}</Text>
                                 <Text style={[styles.td, { width: 200 }]}>{stock.medicineId?.name || 'Unknown'}</Text>
-                                <Text style={[styles.td, { width: 100 }]}>{stock.quantity}</Text>
+                                <Text style={[styles.td, { width: 100, fontWeight: '600' }]}>{stock.quantity}</Text>
                                 <Text style={[styles.td, { width: 150 }]}>
                                     {stock.updatedAt ? new Date(stock.updatedAt).toLocaleDateString() : 'N/A'}
                                 </Text>
@@ -184,7 +293,9 @@ const PharmacyDepartments = () => {
                         ))}
                         {stocks.length === 0 && (
                             <View style={styles.tableRow}>
-                                <Text style={[styles.td, { flex: 1, textAlign: 'center' }]}>No department stock records found.</Text>
+                                <Text style={[styles.td, { flex: 1, textAlign: 'center' }]}>
+                                    {loadingData ? 'Loading stocks...' : 'No department stock records found.'}
+                                </Text>
                             </View>
                         )}
                     </View>
@@ -192,146 +303,163 @@ const PharmacyDepartments = () => {
             </View>
 
             {/* Department Modal */}
-            <Modal visible={showDeptModal} transparent={true} animationType="fade">
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
+            <Modal visible={showDeptModal} transparent={true} animationType="fade" onRequestClose={() => setShowDeptModal(false)}>
+                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalOverlay}>
+                    <View style={[styles.modalContent, { maxHeight: '90%', width: isMobile ? '95%' : 480 }]}>
                         <Text style={styles.modalTitle}>Add New Department</Text>
 
-                        <View style={styles.formGroup}>
-                            <Text style={styles.formLabel}>Department Name</Text>
-                            <TextInput
-                                style={styles.formInput}
-                                value={deptForm.name}
-                                onChangeText={(val) => setDeptForm({...deptForm, name: val})}
-                                placeholder="e.g., ICU, Ward A"
-                            />
-                        </View>
+                        <ScrollView style={{ flexShrink: 1 }} keyboardShouldPersistTaps="handled">
+                            <View style={styles.formGroup}>
+                                <Text style={styles.formLabel}>Department Name *</Text>
+                                <TextInput
+                                    style={styles.formInput}
+                                    value={deptForm.name}
+                                    onChangeText={(val) => setDeptForm(prev => ({ ...prev, name: val }))}
+                                    placeholder="e.g., ICU, Ward A, ER"
+                                    placeholderTextColor="#94a3b8"
+                                />
+                            </View>
 
-                        <View style={styles.formGroup}>
-                            <Text style={styles.formLabel}>Description</Text>
-                            <TextInput
-                                style={[styles.formInput, { height: 80 }]}
-                                value={deptForm.description}
-                                onChangeText={(val) => setDeptForm({...deptForm, description: val})}
-                                multiline={true}
-                            />
-                        </View>
+                            <View style={styles.formGroup}>
+                                <Text style={styles.formLabel}>Description</Text>
+                                <TextInput
+                                    style={[styles.formInput, { height: 80 }]}
+                                    value={deptForm.description}
+                                    onChangeText={(val) => setDeptForm(prev => ({ ...prev, description: val }))}
+                                    placeholder="Optional description"
+                                    placeholderTextColor="#94a3b8"
+                                    multiline={true}
+                                />
+                            </View>
+                        </ScrollView>
 
                         <View style={styles.modalActions}>
-                            <TouchableOpacity style={styles.btnSecondary} onPress={() => setShowDeptModal(false)}>
+                            <TouchableOpacity style={styles.btnSecondary} onPress={() => setShowDeptModal(false)} disabled={creatingDept}>
                                 <Text style={styles.btnSecondaryText}>Cancel</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity style={styles.btnPrimary} onPress={handleCreateDepartment}>
-                                <Text style={styles.btnPrimaryText}>Create</Text>
+                            <TouchableOpacity style={[styles.btnPrimary, creatingDept && { opacity: 0.7 }]} onPress={handleCreateDepartment} disabled={creatingDept}>
+                                {creatingDept ? (
+                                    <ActivityIndicator size="small" color="#fff" />
+                                ) : (
+                                    <Text style={styles.btnPrimaryText}>Create</Text>
+                                )}
                             </TouchableOpacity>
                         </View>
                     </View>
-                </View>
+                </KeyboardAvoidingView>
             </Modal>
 
             {/* Transfer Modal */}
             <Modal visible={showTransferModal} transparent={true} animationType="fade" onRequestClose={() => setShowTransferModal(false)}>
-                <View style={styles.modalOverlay}>
-                    <View style={[styles.modalContent, { maxHeight: '90%' }]}>
-                        <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled={true}>
-                            <Text style={styles.modalTitle}>Transfer Stock to Department</Text>
+                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalOverlay}>
+                    <View style={[styles.modalContent, { maxHeight: '92%', width: isMobile ? '95%' : 500, flexDirection: 'column' }]}>
+                        <Text style={styles.modalTitle}>Transfer Stock to Department</Text>
 
+                        <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled={true} keyboardShouldPersistTaps="handled" style={{ flexShrink: 1 }}>
                             <View style={styles.formGroup}>
-                                <Text style={styles.formLabel}>Department</Text>
+                                <Text style={styles.formLabel}>Department *</Text>
                                 <DropdownSelect
                                     insideModal={true}
                                     options={[
                                         { label: 'Select Department', value: '' },
-                                        ...departments.map(d => ({ label: d.name, value: d._id }))
+                                        ...departments.map(d => ({ label: d.name, value: d._id || d.id }))
                                     ]}
                                     value={transferForm.departmentId}
-                                    onChange={(val) => setTransferForm({...transferForm, departmentId: val})}
+                                    onChange={(val) => setTransferForm(prev => ({ ...prev, departmentId: val }))}
                                     placeholder="Select Department"
                                 />
                             </View>
 
                             <View style={styles.formGroup}>
-                                <Text style={styles.formLabel}>Medicine (From Main Stock)</Text>
+                                <Text style={styles.formLabel}>Medicine (From Main Stock) *</Text>
                                 <DropdownSelect
                                     insideModal={true}
                                     options={[
                                         { label: 'Select Medicine', value: '' },
                                         ...inventory.map(med => ({
                                             label: `${med.name} (Available: ${med.stockQuantity != null ? med.stockQuantity : (med.stock || 0)})`,
-                                            value: med._id
+                                            value: med._id || med.id
                                         }))
                                     ]}
                                     value={transferForm.medicineId}
-                                    onChange={(val) => setTransferForm({...transferForm, medicineId: val})}
+                                    onChange={(val) => setTransferForm(prev => ({ ...prev, medicineId: val }))}
                                     placeholder="Select Medicine"
+                                    searchable={true}
                                 />
                             </View>
 
                             <View style={styles.formGroup}>
-                                <Text style={styles.formLabel}>Quantity to Transfer</Text>
+                                <Text style={styles.formLabel}>Quantity to Transfer *</Text>
                                 <TextInput
                                     style={styles.formInput}
                                     value={transferForm.quantity}
-                                    onChangeText={(val) => setTransferForm({...transferForm, quantity: val})}
+                                    onChangeText={(val) => setTransferForm(prev => ({ ...prev, quantity: val }))}
                                     keyboardType="numeric"
+                                    placeholder="Enter quantity"
+                                    placeholderTextColor="#94a3b8"
                                 />
                             </View>
-
-                            <View style={styles.modalActions}>
-                                <TouchableOpacity style={styles.btnSecondary} onPress={() => setShowTransferModal(false)}>
-                                    <Text style={styles.btnSecondaryText}>Cancel</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity style={styles.btnPrimary} onPress={handleTransfer}>
-                                    <Text style={styles.btnPrimaryText}>Transfer</Text>
-                                </TouchableOpacity>
-                            </View>
                         </ScrollView>
+
+                        <View style={styles.modalActions}>
+                            <TouchableOpacity style={styles.btnSecondary} onPress={() => setShowTransferModal(false)} disabled={transferringStock}>
+                                <Text style={styles.btnSecondaryText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.btnPrimary, transferringStock && { opacity: 0.7 }]} onPress={handleTransfer} disabled={transferringStock}>
+                                {transferringStock ? (
+                                    <ActivityIndicator size="small" color="#fff" />
+                                ) : (
+                                    <Text style={styles.btnPrimaryText}>Transfer</Text>
+                                )}
+                            </TouchableOpacity>
+                        </View>
                     </View>
-                </View>
+                </KeyboardAvoidingView>
             </Modal>
 
             {/* Usage Modal */}
             <Modal visible={showUsageModal} transparent={true} animationType="fade" onRequestClose={() => setShowUsageModal(false)}>
-                <View style={styles.modalOverlay}>
-                    <View style={[styles.modalContent, { maxHeight: '90%' }]}>
-                        <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled={true}>
-                            <Text style={styles.modalTitle}>Record Usage & Bill Patient</Text>
+                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalOverlay}>
+                    <View style={[styles.modalContent, { maxHeight: '94%', width: isMobile ? '95%' : 540, flexDirection: 'column' }]}>
+                        <Text style={styles.modalTitle}>Record Usage & Bill Patient</Text>
 
+                        <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled={true} keyboardShouldPersistTaps="handled" style={{ flexShrink: 1 }}>
                             <View style={styles.formGroup}>
-                                <Text style={styles.formLabel}>Department Using Stock</Text>
+                                <Text style={styles.formLabel}>Department Using Stock *</Text>
                                 <DropdownSelect
                                     insideModal={true}
                                     options={[
                                         { label: 'Select Department', value: '' },
-                                        ...departments.map(d => ({ label: d.name, value: d._id }))
+                                        ...departments.map(d => ({ label: d.name, value: d._id || d.id }))
                                     ]}
                                     value={usageForm.departmentId}
-                                    onChange={(val) => setUsageForm({...usageForm, departmentId: val})}
+                                    onChange={(val) => setUsageForm(prev => ({ ...prev, departmentId: val, medicineId: '' }))}
                                     placeholder="Select Department"
                                 />
                             </View>
 
                             <View style={styles.formGroup}>
-                                <Text style={styles.formLabel}>Patient (Search)</Text>
+                                <Text style={styles.formLabel}>Patient (Search) *</Text>
                                 <TextInput
                                     style={styles.formInput}
                                     value={patientSearch}
                                     onChangeText={searchPatients}
                                     placeholder="Type patient name or ID..."
+                                    placeholderTextColor="#94a3b8"
                                 />
                                 {patients.length > 0 && !usageForm.patientId && (
                                     <View style={styles.searchResults}>
                                         {patients.map(p => (
                                             <TouchableOpacity
-                                                key={p._id}
+                                                key={p._id || p.id}
                                                 style={styles.searchResultItem}
                                                 onPress={() => {
-                                                    setUsageForm({...usageForm, patientId: p._id});
-                                                    setPatientSearch(`${p.name} (${p.patientId})`);
+                                                    setUsageForm(prev => ({ ...prev, patientId: p._id || p.id }));
+                                                    setPatientSearch(`${p.name} (${p.patientId || 'ID'})`);
                                                     setPatients([]);
                                                 }}
                                             >
-                                                <Text style={styles.searchResultText}>{p.name} - {p.patientId}</Text>
+                                                <Text style={styles.searchResultText}>{p.name} - {p.patientId || ''}</Text>
                                             </TouchableOpacity>
                                         ))}
                                     </View>
@@ -339,54 +467,63 @@ const PharmacyDepartments = () => {
                             </View>
 
                             <View style={styles.formGroup}>
-                                <Text style={styles.formLabel}>Medicine Used</Text>
+                                <Text style={styles.formLabel}>Medicine Used *</Text>
                                 <DropdownSelect
                                     insideModal={true}
                                     options={[
                                         { label: 'Select Medicine', value: '' },
-                                        ...stocks.filter(s => s.departmentId?._id === usageForm.departmentId).map(s => ({
-                                            label: `${s.medicineId?.name || 'Medicine'} (Stock: ${s.quantity})`,
-                                            value: s.medicineId?._id
+                                        ...stocks.filter(s => (s.departmentId?._id || s.departmentId?.id) === usageForm.departmentId).map(s => ({
+                                            label: `${s.medicineId?.name || 'Medicine'} (Dept Stock: ${s.quantity})`,
+                                            value: s.medicineId?._id || s.medicineId?.id
                                         }))
                                     ]}
                                     value={usageForm.medicineId}
                                     onChange={handleUsageMedicineChange}
                                     placeholder="Select Medicine"
+                                    searchable={true}
                                 />
                             </View>
 
-                            <View style={{ flexDirection: 'row', gap: 10 }}>
-                                <View style={[styles.formGroup, { flex: 1 }]}>
-                                    <Text style={styles.formLabel}>Quantity Used</Text>
+                            <View style={{ flexDirection: isMobile ? 'column' : 'row', gap: 10 }}>
+                                <View style={[styles.formGroup, !isMobile && { flex: 1 }]}>
+                                    <Text style={styles.formLabel}>Quantity Used *</Text>
                                     <TextInput
                                         style={styles.formInput}
                                         value={usageForm.quantity}
-                                        onChangeText={(val) => setUsageForm({...usageForm, quantity: val})}
+                                        onChangeText={(val) => setUsageForm(prev => ({ ...prev, quantity: val }))}
                                         keyboardType="numeric"
+                                        placeholder="Qty"
+                                        placeholderTextColor="#94a3b8"
                                     />
                                 </View>
-                                <View style={[styles.formGroup, { flex: 1 }]}>
-                                    <Text style={styles.formLabel}>Unit Price (₹)</Text>
+                                <View style={[styles.formGroup, !isMobile && { flex: 1 }]}>
+                                    <Text style={styles.formLabel}>Unit Price (₹) *</Text>
                                     <TextInput
                                         style={styles.formInput}
                                         value={usageForm.unitPrice}
-                                        onChangeText={(val) => setUsageForm({...usageForm, unitPrice: val})}
+                                        onChangeText={(val) => setUsageForm(prev => ({ ...prev, unitPrice: val }))}
                                         keyboardType="numeric"
+                                        placeholder="Unit Price"
+                                        placeholderTextColor="#94a3b8"
                                     />
                                 </View>
                             </View>
-
-                            <View style={styles.modalActions}>
-                                <TouchableOpacity style={styles.btnSecondary} onPress={() => setShowUsageModal(false)}>
-                                    <Text style={styles.btnSecondaryText}>Cancel</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity style={styles.btnSuccess} onPress={handleUsage}>
-                                    <Text style={styles.btnSuccessText}>Record & Bill</Text>
-                                </TouchableOpacity>
-                            </View>
                         </ScrollView>
+
+                        <View style={styles.modalActions}>
+                            <TouchableOpacity style={styles.btnSecondary} onPress={() => setShowUsageModal(false)} disabled={recordingUsage}>
+                                <Text style={styles.btnSecondaryText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.btnSuccess, recordingUsage && { opacity: 0.7 }]} onPress={handleUsage} disabled={recordingUsage}>
+                                {recordingUsage ? (
+                                    <ActivityIndicator size="small" color="#fff" />
+                                ) : (
+                                    <Text style={styles.btnSuccessText}>Record & Bill</Text>
+                                )}
+                            </TouchableOpacity>
+                        </View>
                     </View>
-                </View>
+                </KeyboardAvoidingView>
             </Modal>
 
         </ScrollView>

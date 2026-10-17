@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
     View,
     Text,
@@ -18,6 +18,7 @@ import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path, Defs, LinearGradient as SvgLinearGradient, Stop, Circle, Rect, G } from 'react-native-svg';
 import { simpleClinicAPI, rnBuildAPI } from '../../utils/api';
+import { clearSuperAdminHospitalsCache } from '../../services/offline/offlineSuperAdminService';
 
 function WhiteLabelBuilder({ hospital }) {
     const hospitalId = hospital?._id || hospital?.id;
@@ -201,7 +202,8 @@ function WhiteLabelBuilder({ hospital }) {
 }
 
 const CentralAdminClinicDetails = ({ clinic, onBack, onDeleteSuccess }) => {
-    const clinicId = clinic?._id || clinic?.id;
+    const clinicId = String(clinic?._id || clinic?.id || '').trim();
+    const isDeletingClinicRef = useRef(false);
     const { width } = useWindowDimensions();
     const isMobile = width < 768;
     const isTablet = width >= 768 && width < 1024;
@@ -473,16 +475,19 @@ const CentralAdminClinicDetails = ({ clinic, onBack, onDeleteSuccess }) => {
 
     // Handle Delete Simple Clinic
     const handleDeleteClinic = async () => {
+        if (isDeletingClinicRef.current || deletingClinic) return;
         if (!clinicId || clinicId === 'undefined' || clinicId === 'null') {
             setError('Cannot delete clinic: Invalid or missing clinic ID.');
             setDeleteModalVisible(false);
             return;
         }
+        isDeletingClinicRef.current = true;
         setDeletingClinic(true);
         try {
             const res = await simpleClinicAPI.deleteClinic(clinicId);
             if (res && res.success !== false) {
                 setDeleteModalVisible(false);
+                clearSuperAdminHospitalsCache();
                 if (onDeleteSuccess) {
                     onDeleteSuccess();
                 } else if (onBack) {
@@ -496,6 +501,7 @@ const CentralAdminClinicDetails = ({ clinic, onBack, onDeleteSuccess }) => {
             setError(err?.response?.data?.message || err.message || 'Error deleting clinic');
             setDeleteModalVisible(false);
         } finally {
+            isDeletingClinicRef.current = false;
             setDeletingClinic(false);
         }
     };
