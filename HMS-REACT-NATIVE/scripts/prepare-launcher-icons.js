@@ -175,23 +175,26 @@ async function generateNativeMipmaps(standardIcon, adaptiveIcon, projectRoot) {
       fs.mkdirSync(dpiDir, { recursive: true });
     }
 
+    // Clean any existing launcher icons in this density folder to avoid duplicate resource collisions (e.g. .webp vs .png)
+    const existingLauncherFiles = fs.readdirSync(dpiDir).filter(f => f.startsWith('ic_launcher'));
+    for (const f of existingLauncherFiles) {
+      try { fs.unlinkSync(path.join(dpiDir, f)); } catch (e) {}
+    }
+
     // 1. Legacy square launcher icon (48x48 .. 192x192)
     const legacyImg = standardIcon.clone().resize(cfg.legacySize, cfg.legacySize);
     const legacyPngBuf = await legacyImg.getBufferAsync(Jimp.MIME_PNG);
     fs.writeFileSync(path.join(dpiDir, 'ic_launcher.png'), legacyPngBuf);
-    fs.writeFileSync(path.join(dpiDir, 'ic_launcher.webp'), legacyPngBuf);
 
     // 2. Round launcher icon
     const roundImg = applyCircleMask(legacyImg);
     const roundPngBuf = await roundImg.getBufferAsync(Jimp.MIME_PNG);
     fs.writeFileSync(path.join(dpiDir, 'ic_launcher_round.png'), roundPngBuf);
-    fs.writeFileSync(path.join(dpiDir, 'ic_launcher_round.webp'), roundPngBuf);
 
     // 3. Adaptive icon foreground (108x108 .. 432x432)
     const fgImg = adaptiveIcon.clone().resize(cfg.adaptiveSize, cfg.adaptiveSize);
     const fgPngBuf = await fgImg.getBufferAsync(Jimp.MIME_PNG);
     fs.writeFileSync(path.join(dpiDir, 'ic_launcher_foreground.png'), fgPngBuf);
-    fs.writeFileSync(path.join(dpiDir, 'ic_launcher_foreground.webp'), fgPngBuf);
   }
 
   // Ensure mipmap-anydpi-v26 XML files exist

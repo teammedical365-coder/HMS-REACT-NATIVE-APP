@@ -244,7 +244,7 @@ jobs:
           npx expo prebuild --platform android --clean --no-install
 
           # Ensure authoritative launcher mipmaps are placed directly in native Android resources
-          node scripts/prepare-launcher-icons.js "${LOGO_URL}" --generate-native-res
+          node scripts/prepare-launcher-icons.js "${LOGO_URL}" --clean-mipmaps --generate-native-res
 
           cd android
           chmod +x ./gradlew
