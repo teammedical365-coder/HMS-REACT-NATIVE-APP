@@ -177,6 +177,7 @@ jobs:
         uses: actions/github-script@v7
         env:
           SELECTED_ICON_SOURCE: ${{ env.SELECTED_ICON_SOURCE }}
+          LOGO_URL: ${{ github.event.inputs.logoUrl }}
         with:
           script: |
             const fs = require('fs');
@@ -185,6 +186,7 @@ jobs:
             const iconPath = 'HMS-REACT-NATIVE/assets/icon.png';
             const adaptivePath = 'HMS-REACT-NATIVE/assets/adaptive-icon.png';
             const selectedSource = process.env.SELECTED_ICON_SOURCE || 'UNKNOWN';
+            const rawLogo = (process.env.LOGO_URL || '').trim();
 
             if (!fs.existsSync(iconPath) || fs.statSync(iconPath).size === 0) {
               core.setFailed(`Required icon asset missing or empty at ${iconPath}`);
@@ -193,6 +195,12 @@ jobs:
 
             if (!fs.existsSync(adaptivePath) || fs.statSync(adaptivePath).size === 0) {
               core.setFailed(`Required adaptive icon asset missing or empty at ${adaptivePath}`);
+              return;
+            }
+
+            const isCustomCandidate = rawLogo.length > 0 && !['default', 'none', 'null'].includes(rawLogo.toLowerCase());
+            if (isCustomCandidate && selectedSource !== 'WHITE_LABEL') {
+              core.setFailed(`Hospital custom logo URL "${rawLogo}" failed to produce WHITE_LABEL icon asset (resolved source: ${selectedSource})`);
               return;
             }
 
@@ -244,7 +252,7 @@ jobs:
           npx expo prebuild --platform android --clean --no-install
 
           # Ensure authoritative launcher mipmaps are placed directly in native Android resources
-          node scripts/prepare-launcher-icons.js "${LOGO_URL}" --clean-mipmaps --generate-native-res
+          node scripts/prepare-launcher-icons.js "${LOGO_URL}" --clean-mipmaps --generate-native-res --use-cached
 
           cd android
           chmod +x ./gradlew

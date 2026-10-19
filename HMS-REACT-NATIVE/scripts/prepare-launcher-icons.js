@@ -6,12 +6,14 @@
  * Responsibilities:
  * 1. Cleans existing launcher icon assets to guarantee strict tenant isolation.
  * 2. Fetches and validates the hospital's selected APK logo (remote URL, base64 data URI, or local).
- * 3. Validates downloaded content (detects HTML 404/500 error pages, truncated/corrupted images).
- * 4. Generates standard 1024x1024 square launcher icon (icon.png) preserving aspect ratio without distortion.
- * 5. Generates 1024x1024 Android adaptive icon foreground (adaptive-icon.png) padded within the 720x720 safe zone.
- * 6. Generates native Android launcher mipmap resources (mdpi .. xxxhdpi) in android/app/src/main/res/mipmap-*.
- * 7. Preserves transparency for transparent logos.
- * 8. Applies safe canonical Medical365 fallback when a custom logo is unavailable or invalid, reporting the source accurately.
+ * 3. Validates downloaded content (detects HTML 404/500 error pages, truncated/corrupted images, checks magic bytes).
+ * 4. Strictly fails when a candidate custom logo cannot be fetched/parsed (no silent fallback to default icon).
+ * 5. Generates standard 1024x1024 square launcher icon (icon.png) preserving aspect ratio without distortion.
+ * 6. Generates 1024x1024 Android adaptive icon foreground (adaptive-icon.png) padded within the 720x720 safe zone.
+ * 7. Generates native Android launcher mipmap resources (mdpi .. xxxhdpi) in android/app/src/main/res/mipmap-*.
+ * 8. Preserves transparency for transparent logos.
+ * 9. Caches downloaded/verified logo buffer locally to enable seamless reuse across build steps without redundant network calls.
+ * 10. Allows safe canonical Medical365 fallback ONLY when no custom logo is configured (e.g. 'default' or empty), reporting source accurately.
  */
 
 const fs = require('fs');
@@ -33,6 +35,95 @@ const DPI_CONFIGS = [
 ];
 
 /**
+ * Detects image MIME type from binary magic bytes.
+ * Returns MIME string or null if unrecognized / non-image.
+ */
+function detectImageType(buffer) {
+  if (!buffer || buffer.length < 4) return null;
+
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (
+    buffer.length >= 8 &&
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4E &&
+    buffer[3] === 0x47 &&
+    buffer[4] === 0x0D &&
+    buffer[5] === 0x0A &&
+    buffer[6] === 0x1A &&
+    buffer[7] === 0x0A
+  ) {
+    return 'image/png';
+  }
+
+  // JPEG: FF D8 FF
+  if (
+    buffer.length >= 3 &&
+    buffer[0] === 0xFF &&
+    buffer[1] === 0xD8 &&
+    buffer[2] === 0xFF
+  ) {
+    return 'image/jpeg';
+  }
+
+  // WebP: RIFF....WEBP
+  if (
+    buffer.length >= 12 &&
+    buffer.toString('ascii', 0, 4) === 'RIFF' &&
+    buffer.toString('ascii', 8, 12) === 'WEBP'
+  ) {
+    return 'image/webp';
+  }
+
+  // BMP: 42 4D (BM)
+  if (buffer[0] === 0x42 && buffer[1] === 0x4D) {
+    return 'image/bmp';
+  }
+
+  // GIF: 47 49 46 38 (GIF8)
+  if (buffer.length >= 4 && buffer.toString('ascii', 0, 4) === 'GIF8') {
+    return 'image/gif';
+  }
+
+  // Check for HTML / XML / text
+  const textPrefix = buffer.slice(0, 100).toString('utf8').trim().toLowerCase();
+  if (
+    textPrefix.startsWith('<!doctype html') ||
+    textPrefix.startsWith('<html') ||
+    textPrefix.startsWith('<?xml') ||
+    textPrefix.startsWith('<svg')
+  ) {
+    return 'text/html-or-svg';
+  }
+
+  return null;
+}
+
+/**
+ * Validates buffer is a non-empty, supported raster image.
+ */
+function validateImageBuffer(buffer, sourceDescription) {
+  if (!buffer || buffer.length === 0) {
+    throw new Error(`Logo file from "${sourceDescription}" is empty (0 bytes)`);
+  }
+
+  const detected = detectImageType(buffer);
+  if (detected === 'text/html-or-svg') {
+    throw new Error(
+      `Logo from "${sourceDescription}" returned text/HTML or SVG content instead of a supported raster image (PNG or JPEG)`
+    );
+  }
+
+  if (!detected) {
+    throw new Error(
+      `Logo from "${sourceDescription}" is not a recognized or supported image format (unsupported magic bytes)`
+    );
+  }
+
+  return detected;
+}
+
+/**
  * Downloads a remote image buffer with strict safety checks:
  * - Content-Type validation (rejects text/html, text/plain)
  * - Size limit enforcement
@@ -48,58 +139,62 @@ async function fetchRemoteImage(urlStr) {
     }
 
     const client = url.protocol === 'http:' ? http : https;
-    const req = client.get(url, {
-      timeout: CONNECT_TIMEOUT_MS,
-      headers: {
-        'User-Agent': 'Medical365-WhiteLabel-IconPipeline/1.0',
-        'Accept': 'image/png,image/jpeg,image/webp,image/*;q=0.8'
-      }
-    }, (res) => {
-      // Follow redirects (up to 3)
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        let redirectUrl = res.headers.location;
-        if (!redirectUrl.startsWith('http')) {
-          redirectUrl = new URL(redirectUrl, urlStr).href;
+    const req = client.get(
+      url,
+      {
+        timeout: CONNECT_TIMEOUT_MS,
+        headers: {
+          'User-Agent': 'Medical365-WhiteLabel-IconPipeline/1.0',
+          Accept: 'image/png,image/jpeg,image/*;q=0.8',
+        },
+      },
+      (res) => {
+        // Follow redirects (up to 3)
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          let redirectUrl = res.headers.location;
+          if (!redirectUrl.startsWith('http')) {
+            redirectUrl = new URL(redirectUrl, urlStr).href;
+          }
+          res.resume(); // drain stream
+          return resolve(fetchRemoteImage(redirectUrl));
         }
-        res.resume(); // drain stream
-        return resolve(fetchRemoteImage(redirectUrl));
-      }
 
-      if (res.statusCode !== 200) {
-        res.resume();
-        return reject(new Error(`HTTP error ${res.statusCode} ${res.statusMessage}`));
-      }
-
-      const contentType = (res.headers['content-type'] || '').toLowerCase();
-      if (contentType.includes('text/html') || contentType.includes('application/json')) {
-        res.resume();
-        return reject(new Error(`Remote returned non-image Content-Type: ${contentType}`));
-      }
-
-      const chunks = [];
-      let totalBytes = 0;
-
-      res.on('data', (chunk) => {
-        totalBytes += chunk.length;
-        if (totalBytes > MAX_LOGO_BYTES) {
-          req.destroy(new Error(`Logo exceeds maximum allowed size of ${MAX_LOGO_BYTES} bytes`));
-          return;
+        if (res.statusCode !== 200) {
+          res.resume();
+          return reject(new Error(`HTTP error ${res.statusCode} ${res.statusMessage}`));
         }
-        chunks.push(chunk);
-      });
 
-      res.on('end', () => {
-        const buffer = Buffer.concat(chunks);
-        if (buffer.length === 0) {
-          return reject(new Error('Downloaded logo is empty (0 bytes)'));
+        const contentType = (res.headers['content-type'] || '').toLowerCase();
+        if (contentType.includes('text/html') || contentType.includes('application/json')) {
+          res.resume();
+          return reject(new Error(`Remote returned non-image Content-Type: ${contentType}`));
         }
-        resolve(buffer);
-      });
 
-      res.on('error', (err) => {
-        reject(err);
-      });
-    });
+        const chunks = [];
+        let totalBytes = 0;
+
+        res.on('data', (chunk) => {
+          totalBytes += chunk.length;
+          if (totalBytes > MAX_LOGO_BYTES) {
+            req.destroy(new Error(`Logo exceeds maximum allowed size of ${MAX_LOGO_BYTES} bytes`));
+            return;
+          }
+          chunks.push(chunk);
+        });
+
+        res.on('end', () => {
+          const buffer = Buffer.concat(chunks);
+          if (buffer.length === 0) {
+            return reject(new Error('Downloaded logo is empty (0 bytes)'));
+          }
+          resolve(buffer);
+        });
+
+        res.on('error', (err) => {
+          reject(err);
+        });
+      }
+    );
 
     req.setTimeout(READ_TIMEOUT_MS, () => {
       req.destroy(new Error(`Download timed out after ${READ_TIMEOUT_MS}ms`));
@@ -115,7 +210,7 @@ async function fetchRemoteImage(urlStr) {
  * Parses and decodes a data:image/... URI into a Buffer
  */
 function decodeBase64Image(dataUri) {
-  const match = dataUri.match(/^data:image\/(png|jpeg|jpg|webp);base64,(.+)$/i);
+  const match = dataUri.match(/^data:image\/(png|jpeg|jpg|webp|bmp);base64,(.+)$/i);
   if (!match) {
     throw new Error('Malformed or unsupported Base64 image data URI');
   }
@@ -160,7 +255,7 @@ function applyCircleMask(image) {
 
 /**
  * Generates all Android mipmap launcher icons into android/app/src/main/res/mipmap-*
- * Ensuring both .png and .webp are populated with the hospital's exact logo.
+ * Ensuring standard .png files are populated with the hospital's exact logo.
  */
 async function generateNativeMipmaps(standardIcon, adaptiveIcon, projectRoot) {
   const resDir = path.join(projectRoot, 'android', 'app', 'src', 'main', 'res');
@@ -176,9 +271,11 @@ async function generateNativeMipmaps(standardIcon, adaptiveIcon, projectRoot) {
     }
 
     // Clean any existing launcher icons in this density folder to avoid duplicate resource collisions (e.g. .webp vs .png)
-    const existingLauncherFiles = fs.readdirSync(dpiDir).filter(f => f.startsWith('ic_launcher'));
+    const existingLauncherFiles = fs.readdirSync(dpiDir).filter((f) => f.startsWith('ic_launcher'));
     for (const f of existingLauncherFiles) {
-      try { fs.unlinkSync(path.join(dpiDir, f)); } catch (e) {}
+      try {
+        fs.unlinkSync(path.join(dpiDir, f));
+      } catch (e) {}
     }
 
     // 1. Legacy square launcher icon (48x48 .. 192x192)
@@ -213,6 +310,28 @@ async function generateNativeMipmaps(standardIcon, adaptiveIcon, projectRoot) {
   fs.writeFileSync(path.join(anyDpiDir, 'ic_launcher.xml'), adaptiveXml);
   fs.writeFileSync(path.join(anyDpiDir, 'ic_launcher_round.xml'), adaptiveXml);
 
+  // Ensure values/colors.xml has iconBackground
+  const valuesDir = path.join(resDir, 'values');
+  if (!fs.existsSync(valuesDir)) {
+    fs.mkdirSync(valuesDir, { recursive: true });
+  }
+  const colorsPath = path.join(valuesDir, 'colors.xml');
+  if (fs.existsSync(colorsPath)) {
+    let colorsXml = fs.readFileSync(colorsPath, 'utf8');
+    if (!colorsXml.includes('name="iconBackground"')) {
+      colorsXml = colorsXml.replace(
+        '</resources>',
+        '  <color name="iconBackground">#ffffff</color>\n</resources>'
+      );
+      fs.writeFileSync(colorsPath, colorsXml);
+    }
+  } else {
+    fs.writeFileSync(
+      colorsPath,
+      '<resources>\n  <color name="iconBackground">#ffffff</color>\n</resources>\n'
+    );
+  }
+
   console.log(`[prepare-launcher-icons] Native Android launcher mipmaps successfully updated across all densities.`);
 }
 
@@ -223,40 +342,17 @@ async function prepareLauncherIcons(options = {}) {
   const projectRoot = options.projectRoot || path.resolve(__dirname, '..');
   const assetsDir = options.assetsDir || path.join(projectRoot, 'assets');
   const canonicalLogoPath = options.canonicalLogoPath || path.join(assetsDir, 'medical365-logo.png');
-  const rawInputLogo = (options.logoUrl || process.env.LOGO_URL || '').trim();
+  const rawInputLogo = (options.logoUrl !== undefined ? options.logoUrl : (process.env.LOGO_URL || '')).trim();
 
   const iconPath = path.join(assetsDir, 'icon.png');
   const adaptiveIconPath = path.join(assetsDir, 'adaptive-icon.png');
   const splashPath = path.join(assetsDir, 'splash.png');
-  const rawFilePath = path.join(assetsDir, 'icon_raw');
+  const cachedSourcePath = path.join(assetsDir, 'icon_raw_source.bin');
+  const legacyRawPath = path.join(assetsDir, 'icon_raw');
 
   // Verify canonical logo exists
   if (!fs.existsSync(canonicalLogoPath) || fs.statSync(canonicalLogoPath).size === 0) {
     throw new Error(`Canonical Medical365 logo missing or empty at ${canonicalLogoPath}`);
-  }
-
-  // 1. Clean previous build assets for strict tenant isolation
-  for (const f of [iconPath, adaptiveIconPath, splashPath, rawFilePath]) {
-    try {
-      if (fs.existsSync(f)) fs.unlinkSync(f);
-    } catch (e) {}
-  }
-
-  // Clean stale mipmaps if requested or if android directory exists
-  if (options.cleanAndroidMipmaps) {
-    const resDir = path.join(projectRoot, 'android', 'app', 'src', 'main', 'res');
-    if (fs.existsSync(resDir)) {
-      const mipmapDirs = fs.readdirSync(resDir).filter(d => d.startsWith('mipmap-'));
-      for (const mDir of mipmapDirs) {
-        const fullMDir = path.join(resDir, mDir);
-        if (fs.statSync(fullMDir).isDirectory()) {
-          const files = fs.readdirSync(fullMDir).filter(f => f.startsWith('ic_launcher'));
-          for (const f of files) {
-            try { fs.unlinkSync(path.join(fullMDir, f)); } catch (e) {}
-          }
-        }
-      }
-    }
   }
 
   let selectedSource = 'MEDICAL365';
@@ -270,53 +366,129 @@ async function prepareLauncherIcons(options = {}) {
     normalizedInput !== 'null'
   );
 
-  if (isCandidateUrl) {
-    console.log(`[prepare-launcher-icons] Processing candidate APK logo: ${rawInputLogo.startsWith('data:') ? 'data:image/... [base64]' : rawInputLogo}`);
-    let buffer = null;
+  // 1. Check if we should reuse cached asset (e.g. post-prebuild native resource generation)
+  const canUseCache = options.useCached && (
+    (fs.existsSync(cachedSourcePath) && fs.statSync(cachedSourcePath).size > 0) ||
+    (fs.existsSync(iconPath) && fs.statSync(iconPath).size > 0)
+  );
 
+  if (canUseCache) {
+    console.log(`[prepare-launcher-icons] Reusing cached white-label logo asset from previous build step.`);
     try {
-      if (rawInputLogo.startsWith('data:image/')) {
-        buffer = decodeBase64Image(rawInputLogo);
-      } else if (fs.existsSync(rawInputLogo)) {
-        buffer = fs.readFileSync(rawInputLogo);
-      } else if (rawInputLogo.startsWith('file://')) {
-        const filePath = new URL(rawInputLogo).pathname;
-        const cleanPath = process.platform === 'win32' && filePath.startsWith('/') ? filePath.slice(1) : filePath;
-        buffer = fs.readFileSync(cleanPath);
+      if (fs.existsSync(cachedSourcePath)) {
+        processedImage = await Jimp.read(fs.readFileSync(cachedSourcePath));
       } else {
-        let fetchUrl = rawInputLogo;
-        if (!fetchUrl.startsWith('http://') && !fetchUrl.startsWith('https://')) {
-          if (fetchUrl.startsWith('/')) {
-            fetchUrl = `https://hms-n6nk.onrender.com${fetchUrl}`;
-          } else {
-            fetchUrl = `https://hms-n6nk.onrender.com/${fetchUrl}`;
-          }
-        }
-        buffer = await fetchRemoteImage(fetchUrl);
+        processedImage = await Jimp.read(iconPath);
       }
-
-      if (buffer && buffer.length > 0) {
-        // Validate with Jimp
-        const candidateImg = await Jimp.read(buffer);
-        if (candidateImg.bitmap.width > 0 && candidateImg.bitmap.height > 0) {
-          processedImage = candidateImg;
-          selectedSource = 'WHITE_LABEL';
-          console.log(`[prepare-launcher-icons] Successfully loaded white-label logo: ${candidateImg.bitmap.width}x${candidateImg.bitmap.height}`);
-        }
-      }
-    } catch (err) {
-      console.warn(`[prepare-launcher-icons] WARNING: Failed to fetch/parse white-label logo: ${err.message}. Falling back to canonical Medical365 logo.`);
-      selectedSource = 'FALLBACK_MEDICAL365';
+      selectedSource = 'WHITE_LABEL';
+    } catch (e) {
+      console.warn(`[prepare-launcher-icons] Failed to read cached asset (${e.message}), will re-process source.`);
+      processedImage = null;
     }
-  } else {
-    console.log(`[prepare-launcher-icons] No custom logo specified (value='${rawInputLogo || 'empty'}'). Using canonical Medical365 logo.`);
-    selectedSource = 'MEDICAL365';
   }
 
-  // Fallback to canonical logo if candidate failed or was default
+  if (!processedImage) {
+    // Clean previous build assets for strict tenant isolation
+    for (const f of [iconPath, adaptiveIconPath, splashPath, cachedSourcePath, legacyRawPath]) {
+      try {
+        if (fs.existsSync(f)) fs.unlinkSync(f);
+      } catch (e) {}
+    }
+
+    if (isCandidateUrl) {
+      console.log(
+        `[prepare-launcher-icons] Processing candidate APK logo: ${
+          rawInputLogo.startsWith('data:') ? 'data:image/... [base64]' : rawInputLogo
+        }`
+      );
+      let buffer = null;
+
+      try {
+        if (rawInputLogo.startsWith('data:image/')) {
+          buffer = decodeBase64Image(rawInputLogo);
+        } else if (fs.existsSync(rawInputLogo)) {
+          buffer = fs.readFileSync(rawInputLogo);
+        } else if (rawInputLogo.startsWith('file://')) {
+          const filePath = new URL(rawInputLogo).pathname;
+          const cleanPath = process.platform === 'win32' && filePath.startsWith('/') ? filePath.slice(1) : filePath;
+          buffer = fs.readFileSync(cleanPath);
+        } else {
+          let fetchUrl = rawInputLogo;
+          if (!fetchUrl.startsWith('http://') && !fetchUrl.startsWith('https://')) {
+            if (fetchUrl.startsWith('/')) {
+              fetchUrl = `https://hms-n6nk.onrender.com${fetchUrl}`;
+            } else {
+              fetchUrl = `https://hms-n6nk.onrender.com/${fetchUrl}`;
+            }
+          }
+          buffer = await fetchRemoteImage(fetchUrl);
+        }
+
+        // Validate buffer magic bytes before decoding
+        validateImageBuffer(buffer, rawInputLogo.slice(0, 100));
+
+        // Validate image with Jimp
+        const candidateImg = await Jimp.read(buffer);
+        if (!candidateImg || candidateImg.bitmap.width <= 0 || candidateImg.bitmap.height <= 0) {
+          throw new Error('Image decoded with invalid dimensions (0x0)');
+        }
+
+        processedImage = candidateImg;
+        selectedSource = 'WHITE_LABEL';
+
+        // Cache downloaded buffer for post-prebuild reuse
+        try {
+          fs.writeFileSync(cachedSourcePath, buffer);
+        } catch (e) {}
+
+        console.log(
+          `[prepare-launcher-icons] Successfully loaded white-label logo: ${candidateImg.bitmap.width}x${candidateImg.bitmap.height}`
+        );
+      } catch (err) {
+        if (options.allowFallback) {
+          console.warn(
+            `[prepare-launcher-icons] WARNING: Failed to fetch/parse white-label logo: ${err.message}. Falling back to canonical Medical365 logo.`
+          );
+          selectedSource = 'FALLBACK_MEDICAL365';
+          processedImage = null;
+        } else {
+          // Explicit failure: do NOT silently build with default icon when a custom hospital logo was configured
+          throw new Error(`Failed to process white-label hospital logo from "${rawInputLogo}": ${err.message}`);
+        }
+      }
+    } else {
+      console.log(
+        `[prepare-launcher-icons] No custom logo specified (value='${rawInputLogo || 'empty'}'). Using canonical Medical365 logo.`
+      );
+      selectedSource = 'MEDICAL365';
+    }
+  }
+
+  // Fallback to canonical logo ONLY if candidate failed under allowFallback or input was default
   if (!processedImage) {
     processedImage = await Jimp.read(canonicalLogoPath);
-    console.log(`[prepare-launcher-icons] Loaded canonical Medical365 logo: ${processedImage.bitmap.width}x${processedImage.bitmap.height}`);
+    console.log(
+      `[prepare-launcher-icons] Loaded canonical Medical365 logo: ${processedImage.bitmap.width}x${processedImage.bitmap.height}`
+    );
+  }
+
+  // Clean stale native mipmaps if requested or if android directory exists
+  if (options.cleanAndroidMipmaps) {
+    const resDir = path.join(projectRoot, 'android', 'app', 'src', 'main', 'res');
+    if (fs.existsSync(resDir)) {
+      const mipmapDirs = fs.readdirSync(resDir).filter((d) => d.startsWith('mipmap-'));
+      for (const mDir of mipmapDirs) {
+        const fullMDir = path.join(resDir, mDir);
+        if (fs.statSync(fullMDir).isDirectory()) {
+          const files = fs.readdirSync(fullMDir).filter((f) => f.startsWith('ic_launcher'));
+          for (const f of files) {
+            try {
+              fs.unlinkSync(path.join(fullMDir, f));
+            } catch (e) {}
+          }
+        }
+      }
+    }
   }
 
   // 2. Generate standard 1024x1024 square icon (icon.png)
@@ -339,7 +511,11 @@ async function prepareLauncherIcons(options = {}) {
   }
 
   // Verify output files exist and are non-empty
-  for (const [name, target] of [['icon.png', iconPath], ['adaptive-icon.png', adaptiveIconPath], ['splash.png', splashPath]]) {
+  for (const [name, target] of [
+    ['icon.png', iconPath],
+    ['adaptive-icon.png', adaptiveIconPath],
+    ['splash.png', splashPath],
+  ]) {
     if (!fs.existsSync(target) || fs.statSync(target).size === 0) {
       throw new Error(`Failed to generate output asset: ${name}`);
     }
@@ -371,30 +547,36 @@ async function prepareLauncherIcons(options = {}) {
 // CLI entry point
 if (require.main === module) {
   const args = process.argv.slice(2);
-  const flags = args.filter(a => a.startsWith('--'));
-  const nonFlags = args.filter(a => !a.startsWith('--'));
+  const flags = args.filter((a) => a.startsWith('--'));
+  const nonFlags = args.filter((a) => !a.startsWith('--'));
 
   const logoArg = nonFlags.length > 0 ? nonFlags[0] : (process.env.LOGO_URL || '');
   const cleanMipmaps = flags.includes('--clean-mipmaps') || process.env.CLEAN_MIPMAPS === 'true';
-  const generateNativeRes = flags.includes('--generate-native-res') || !flags.includes('--no-native-res');
+  const generateNativeRes = !flags.includes('--no-native-res');
+  const useCached = flags.includes('--use-cached') || process.env.USE_CACHED_ICON === 'true';
+  const allowFallback = flags.includes('--allow-fallback') || process.env.ALLOW_ICON_FALLBACK === 'true';
 
   prepareLauncherIcons({
     logoUrl: logoArg,
     cleanAndroidMipmaps: cleanMipmaps,
     generateNativeRes: generateNativeRes,
+    useCached: useCached,
+    allowFallback: allowFallback,
   })
     .then((result) => {
       console.log(`[prepare-launcher-icons] Done. Result:`, result.source);
       process.exit(0);
     })
     .catch((err) => {
-      console.error(`[prepare-launcher-icons] Fatal error:`, err);
+      console.error(`[prepare-launcher-icons] Fatal error:`, err.message);
       process.exit(1);
     });
 }
 
 module.exports = {
   prepareLauncherIcons,
+  detectImageType,
+  validateImageBuffer,
   fetchRemoteImage,
   decodeBase64Image,
   fitOnSquareCanvas,

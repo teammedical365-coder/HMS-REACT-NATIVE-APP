@@ -87,9 +87,8 @@ module.exports = ({ config }) => {
       package: applicationId,
       icon: (config.android && config.android.icon) || iconPath,
       adaptiveIcon: {
-        foregroundImage: adaptiveForeground,
         backgroundColor: adaptiveBg,
-        ...(config.android && config.android.adaptiveIcon ? config.android.adaptiveIcon : {}),
+        foregroundImage: adaptiveForeground,
       },
     },
     extra: {
