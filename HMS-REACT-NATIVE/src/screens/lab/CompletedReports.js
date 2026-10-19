@@ -8,6 +8,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import * as Print from 'expo-print';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
+import { safePrintDocument } from '../../utils/printHelper';
 import { fetchLabRequests } from '../../store/slices/labSlice';
 import DatePickerInput from '../../components/common/DatePickerInput';
 import { fetchLabCompletedReportsWithOffline } from '../../services/offline/offlineLabService';
@@ -144,47 +145,21 @@ const CompletedReports = () => {
     };
 
     const handlePrint = async (url) => {
-        if (!url) return;
+        if (!url) {
+            Alert.alert("Report Unavailable", "This diagnostic record does not have an attached digital report document to print.");
+            return;
+        }
         const isOnline = await checkOnlineStatus();
         if (!isOnline && url.startsWith('http')) {
             Alert.alert("Network Required", "Printing remote report documents requires an active internet connection.");
             return;
         }
 
-        if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof document !== 'undefined') {
-            try {
-                const response = await fetch(url);
-                const blob = await response.blob();
-                const blobUrl = URL.createObjectURL(blob);
-
-                const iframe = document.createElement('iframe');
-                iframe.style.display = 'none';
-                iframe.src = blobUrl;
-
-                const cleanup = () => {
-                    if (document.body.contains(iframe)) {
-                        document.body.removeChild(iframe);
-                    }
-                    URL.revokeObjectURL(blobUrl);
-                };
-
-                document.body.appendChild(iframe);
-                iframe.onload = () => {
-                    iframe.contentWindow.focus();
-                    iframe.contentWindow.onafterprint = cleanup;
-                    iframe.contentWindow.print();
-                };
-            } catch (error) {
-                console.error("Print failed, falling back to new tab:", error);
-                window.open(url, '_blank');
-            }
-        } else {
-            try {
-                await Print.printAsync({ uri: url });
-            } catch (error) {
-                console.error("Native print failed, falling back to open URL:", error);
-                Linking.openURL(url).catch(() => Alert.alert("Error", "Unable to open or print document"));
-            }
+        try {
+            await safePrintDocument(url);
+        } catch (error) {
+            console.error("Print failed, falling back to open URL:", error);
+            Linking.openURL(url).catch(() => Alert.alert("Error", "Unable to open or print document."));
         }
     };
 

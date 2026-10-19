@@ -23,6 +23,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
+import { isUserCancellation, escapeHtml } from '../../utils/printHelper';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import DatePickerInput from '../../components/common/DatePickerInput';
 import DropdownSelect from '../../components/common/DropdownSelect';
@@ -1174,8 +1175,11 @@ const PatientBillingProfile = () => {
             }
             await Print.printAsync({ html: htmlContent });
         } catch (err) {
+            if (isUserCancellation(err)) {
+                return;
+            }
             console.error('Print error:', err);
-            // Fallback to generate and share
+            // Fallback to generate and share only on actual print errors
             await downloadPdfDocument(htmlContent, 'Print_Document');
         }
     };
@@ -1217,17 +1221,28 @@ const PatientBillingProfile = () => {
             // Open native share/save dialog if available
             const isSharingAvailable = await Sharing.isAvailableAsync();
             if (isSharingAvailable) {
-                await Sharing.shareAsync(fileUri, {
-                    UTI: 'com.adobe.pdf',
-                    mimeType: 'application/pdf',
-                    dialogTitle: pdfFileName,
-                });
-                toast.success('Receipt PDF generated successfully');
+                try {
+                    await Sharing.shareAsync(fileUri, {
+                        UTI: 'com.adobe.pdf',
+                        mimeType: 'application/pdf',
+                        dialogTitle: pdfFileName,
+                    });
+                    toast.success('Receipt PDF generated successfully');
+                } catch (shareErr) {
+                    if (isUserCancellation(shareErr)) return;
+                    throw shareErr;
+                }
             } else {
                 // Fallback to native print spooler
-                await Print.printAsync({ html: htmlContent });
+                try {
+                    await Print.printAsync({ html: htmlContent });
+                } catch (printErr) {
+                    if (isUserCancellation(printErr)) return;
+                    throw printErr;
+                }
             }
         } catch (err) {
+            if (isUserCancellation(err)) return;
             console.error('Download PDF error:', err);
             toast.error(err?.message || 'Failed to download bill PDF');
         }

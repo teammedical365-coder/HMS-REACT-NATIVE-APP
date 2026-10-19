@@ -10,6 +10,8 @@ import {
     Alert,
     Platform
 } from 'react-native';
+import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
 import * as DocumentPicker from 'expo-document-picker';
 import { voiceScribeAPI } from '../../utils/api';
 
@@ -27,6 +29,19 @@ const inputLanguages = [
     { code: 'ml-IN', label: 'Malayalam (മലയാളം)' },
 ];
 
+const outputLanguages = [
+    'English',
+    'Hindi',
+    'Bengali',
+    'Marathi',
+    'Gujarati',
+    'Tamil',
+    'Telugu',
+    'Kannada',
+    'Punjabi',
+    'Malayalam'
+];
+
 const VoiceScribe = ({
     appointmentId,
     patientId,
@@ -37,6 +52,7 @@ const VoiceScribe = ({
     isLocked = false
 }) => {
     const [selectedInputLang, setSelectedInputLang] = useState('auto');
+    const [selectedOutputLang, setSelectedOutputLang] = useState('English');
     const [uiStatus, setUiStatus] = useState('IDLE'); // IDLE | RECORDING | PROCESSING | REVIEW | APPROVED | ERROR
     const [recordingTime, setRecordingTime] = useState(0);
     const [statusMessage, setStatusMessage] = useState('');
@@ -46,6 +62,7 @@ const VoiceScribe = ({
     // Live transcript & consultation text
     const [consultationText, setConsultationText] = useState('');
     const [audioFile, setAudioFile] = useState(null);
+    const [recordedAudioUri, setRecordedAudioUri] = useState(null);
 
     // Analysis results
     const [analysisData, setAnalysisData] = useState({
@@ -72,6 +89,7 @@ const VoiceScribe = ({
     const timerRef = useRef(null);
     const mediaRecorderRef = useRef(null);
     const audioChunksRef = useRef([]);
+    const recordingRef = useRef(null);
 
     // Load existing record for appointment if present
     useEffect(() => {
@@ -91,7 +109,7 @@ const VoiceScribe = ({
         }
     }, [appointmentId]);
 
-    // Timer effect
+    // Timer fallback effect
     useEffect(() => {
         if (uiStatus === 'RECORDING') {
             timerRef.current = setInterval(() => {
@@ -105,6 +123,25 @@ const VoiceScribe = ({
         };
     }, [uiStatus]);
 
+    // Resource cleanup on component unmount
+    useEffect(() => {
+        return () => {
+            if (recordingRef.current) {
+                recordingRef.current.stopAndUnloadAsync()
+                    .then(() => {
+                        const uri = recordingRef.current?.getURI();
+                        if (uri) {
+                            FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
+                        }
+                    })
+                    .catch(() => {});
+            }
+            if (recordedAudioUri) {
+                FileSystem.deleteAsync(recordedAudioUri, { idempotent: true }).catch(() => {});
+            }
+        };
+    }, [recordedAudioUri]);
+
     // Format seconds
     const formatTime = (secs) => {
         const m = Math.floor(secs / 60);
@@ -112,9 +149,11 @@ const VoiceScribe = ({
         return `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
     };
 
-    // Start Recording (Web browser native MediaRecorder fallback or text input)
+    // Start Recording (Native expo-av hardware microphone or Web MediaRecorder fallback)
     const handleStartRecording = async () => {
         setErrorMessage('');
+        setStatusMessage('');
+
         if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.mediaDevices) {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -131,33 +170,132 @@ const VoiceScribe = ({
                 mediaRecorder.start(250);
                 setUiStatus('RECORDING');
                 setRecordingTime(0);
-                setStatusMessage('Recording consultation audio live...');
+                setStatusMessage('Recording consultation audio live in browser...');
             } catch (err) {
-                console.warn('Microphone access error:', err);
-                Alert.alert('Microphone Notice', 'Web microphone access denied or not supported. You can enter or paste the consultation transcript directly below.');
-                setUiStatus('RECORDING');
+                console.warn('Web microphone access error:', err);
+                Alert.alert('Microphone Access Notice', 'Web microphone access denied or not supported. You can enter or paste the consultation transcript directly below.');
+                setErrorMessage('Microphone access denied. You may dictate or type notes manually.');
             }
         } else {
-            // Mobile platform: hardware recording requires native package (expo-av)
-            setUiStatus('RECORDING');
-            setRecordingTime(0);
-            setStatusMessage('Consultation recording active. Type or dictate doctor notes below, or upload an audio recording file.');
-        }
-    };
+            // Native Android / iOS recording via expo-av
+            try {
+                const permission = await Audio.requestPermissionsAsync();
+                if (!permission.granted) {
+                    Alert.alert(
+                        'Microphone Permission Required',
+                        'VoiceScribe requires microphone access to record doctor-patient consultations for clinical transcription. Please allow microphone access in device settings, or dictate/paste notes manually.'
+                    );
+                    setErrorMessage('Microphone permission denied. Enter notes manually below.');
+                    return;
+                }
 
-    // Stop Recording
-    const handleStopRecording = () => {
-        if (Platform.OS === 'web' && mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-            mediaRecorderRef.current.stop();
-            if (mediaRecorderRef.current.stream) {
-                mediaRecorderRef.current.stream.getTracks().forEach(t => t.stop());
+                // Audio session configuration for clinical speech capture
+                await Audio.setAudioModeAsync({
+                    allowsRecordingIOS: true,
+                    playsInSilentModeIOS: true,
+                    staysActiveInBackground: false,
+                    shouldDuckAndroid: true,
+                    playThroughEarpieceAndroid: false,
+                });
+
+                // Clear any leftover recording resource
+                if (recordingRef.current) {
+                    try {
+                        await recordingRef.current.stopAndUnloadAsync();
+                    } catch (_) {}
+                    recordingRef.current = null;
+                }
+                if (recordedAudioUri) {
+                    FileSystem.deleteAsync(recordedAudioUri, { idempotent: true }).catch(() => {});
+                    setRecordedAudioUri(null);
+                }
+
+                // Create and begin native recording with progress callback
+                const { recording } = await Audio.Recording.createAsync(
+                    Audio.RecordingOptionsPresets.HIGH_QUALITY,
+                    (status) => {
+                        if (status?.isRecording && status.durationMillis !== undefined) {
+                            setRecordingTime(Math.floor(status.durationMillis / 1000));
+                        }
+                    },
+                    500
+                );
+
+                recordingRef.current = recording;
+                setUiStatus('RECORDING');
+                setRecordingTime(0);
+                setStatusMessage('Recording consultation audio live via native microphone...');
+            } catch (err) {
+                console.error('Failed to start native microphone recording:', err);
+                const msg = err?.message || 'Could not access device microphone. Please check permissions.';
+                setErrorMessage(msg);
+                Alert.alert('Microphone Error', msg);
             }
         }
-        setUiStatus('IDLE');
-        setStatusMessage('Recording finished. Ready to analyze.');
     };
 
-    // Pick Audio File
+    // Stop and finalize recording
+    const handleStopRecording = async () => {
+        if (Platform.OS === 'web' && mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+            try {
+                mediaRecorderRef.current.stop();
+                if (mediaRecorderRef.current.stream) {
+                    mediaRecorderRef.current.stream.getTracks().forEach(t => t.stop());
+                }
+            } catch (_) {}
+            setUiStatus('IDLE');
+            setStatusMessage('Web recording finished. Ready to analyze.');
+        } else if (recordingRef.current) {
+            try {
+                await recordingRef.current.stopAndUnloadAsync();
+                const uri = recordingRef.current.getURI();
+                recordingRef.current = null;
+                if (uri) {
+                    setRecordedAudioUri(uri);
+                    setStatusMessage(`Audio captured (${formatTime(recordingTime)}). Ready to generate clinical analysis.`);
+                }
+            } catch (err) {
+                console.error('Failed to stop native recording:', err);
+                setErrorMessage('Error stopping audio recording: ' + err.message);
+            }
+            setUiStatus('IDLE');
+        } else {
+            setUiStatus('IDLE');
+        }
+    };
+
+    // Cancel recording safely and clean up temporary audio files
+    const handleCancelRecording = async () => {
+        if (Platform.OS === 'web' && mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+            try {
+                mediaRecorderRef.current.stop();
+                if (mediaRecorderRef.current.stream) {
+                    mediaRecorderRef.current.stream.getTracks().forEach(t => t.stop());
+                }
+            } catch (_) {}
+            audioChunksRef.current = [];
+        } else if (recordingRef.current) {
+            try {
+                await recordingRef.current.stopAndUnloadAsync();
+                const uri = recordingRef.current.getURI();
+                recordingRef.current = null;
+                if (uri) {
+                    await FileSystem.deleteAsync(uri, { idempotent: true });
+                }
+            } catch (_) {}
+        }
+
+        if (recordedAudioUri) {
+            FileSystem.deleteAsync(recordedAudioUri, { idempotent: true }).catch(() => {});
+            setRecordedAudioUri(null);
+        }
+
+        setUiStatus('IDLE');
+        setRecordingTime(0);
+        setStatusMessage('Recording cancelled.');
+    };
+
+    // Pick Audio File fallback
     const handlePickAudioFile = async () => {
         try {
             const result = await DocumentPicker.getDocumentAsync({
@@ -166,6 +304,11 @@ const VoiceScribe = ({
             });
             if (!result.canceled && result.assets && result.assets.length > 0) {
                 setAudioFile(result.assets[0]);
+                // Clear any live recording if a file is attached
+                if (recordedAudioUri) {
+                    FileSystem.deleteAsync(recordedAudioUri, { idempotent: true }).catch(() => {});
+                    setRecordedAudioUri(null);
+                }
                 setStatusMessage(`Audio file attached: ${result.assets[0].name}`);
             }
         } catch (err) {
@@ -173,10 +316,19 @@ const VoiceScribe = ({
         }
     };
 
+    // Clear recorded audio
+    const handleClearRecordedAudio = async () => {
+        if (recordedAudioUri) {
+            await FileSystem.deleteAsync(recordedAudioUri, { idempotent: true }).catch(() => {});
+            setRecordedAudioUri(null);
+            setStatusMessage('Recorded audio removed.');
+        }
+    };
+
     // Analyze Audio / Consultation Text
     const handleAnalyze = async () => {
-        if (!consultationText.trim() && !audioFile && audioChunksRef.current.length === 0) {
-            Alert.alert('Required', 'Please record audio, attach an audio file, or type the consultation transcript.');
+        if (!consultationText.trim() && !audioFile && !recordedAudioUri && audioChunksRef.current.length === 0) {
+            Alert.alert('Audio or Dictation Required', 'Please record live consultation audio, attach an audio file, or enter consultation notes.');
             return;
         }
 
@@ -187,22 +339,35 @@ const VoiceScribe = ({
         try {
             const formData = new FormData();
             formData.append('language', selectedInputLang);
+            formData.append('inputLanguage', selectedInputLang);
+            formData.append('outputLanguage', selectedOutputLang);
             if (patientId) formData.append('patientId', patientId);
             if (appointmentId) formData.append('appointmentId', appointmentId);
 
             if (consultationText.trim()) {
                 formData.append('transcriptText', consultationText.trim());
+                formData.append('liveTranscript', consultationText.trim());
             }
 
-            if (audioFile) {
+            if (recordedAudioUri) {
+                // Native recorded audio handoff (Multer processes req.file directly on backend)
+                formData.append('audio', {
+                    uri: recordedAudioUri,
+                    name: 'consultation.m4a',
+                    type: 'audio/m4a'
+                });
+                formData.append('mimeType', 'audio/m4a');
+            } else if (audioFile) {
                 formData.append('audio', {
                     uri: audioFile.uri,
                     name: audioFile.name || 'recording.m4a',
                     type: audioFile.mimeType || 'audio/m4a'
                 });
+                formData.append('mimeType', audioFile.mimeType || 'audio/m4a');
             } else if (Platform.OS === 'web' && audioChunksRef.current.length > 0) {
                 const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
                 formData.append('audio', audioBlob, 'consultation.webm');
+                formData.append('mimeType', 'audio/webm');
             }
 
             const res = await voiceScribeAPI.analyze(formData);
@@ -212,6 +377,12 @@ const VoiceScribe = ({
                 if (res.data._id) setServerRecordId(res.data._id);
                 setUiStatus('REVIEW');
                 setStatusMessage('Analysis complete! Review clinical summary and SOAP note below.');
+
+                // Clean up temporary recording once processed
+                if (recordedAudioUri) {
+                    FileSystem.deleteAsync(recordedAudioUri, { idempotent: true }).catch(() => {});
+                    setRecordedAudioUri(null);
+                }
             } else {
                 throw new Error(res?.message || 'Clinical analysis failed');
             }
@@ -232,6 +403,7 @@ const VoiceScribe = ({
                 patientId,
                 appointmentId,
                 analysis: analysisData,
+                outputLanguage: selectedOutputLang,
                 status: 'DRAFT'
             };
             const res = await voiceScribeAPI.saveDraft(payload);
@@ -248,7 +420,7 @@ const VoiceScribe = ({
         }
     };
 
-    // Approve & Apply directly into consultation session notepad
+    // Approve & Apply safely into consultation session notepad (does not overwrite existing doctor notes)
     const handleApprove = async () => {
         setSubmittingAction(true);
         try {
@@ -256,7 +428,6 @@ const VoiceScribe = ({
                 await voiceScribeAPI.approve(serverRecordId, { analysis: analysisData });
             }
 
-            // Apply directly into doctor sessionData if setSessionData provided
             if (setSessionData) {
                 const soap = analysisData.soap || {};
                 const summary = analysisData.clinicalSummary || {};
@@ -265,9 +436,13 @@ const VoiceScribe = ({
 
                 setSessionData(prev => ({
                     ...prev,
-                    diagnosis: assessment || prev.diagnosis || '',
-                    notes: `${prev.notes ? prev.notes + '\n\n' : ''}--- VoiceScribe SOAP Note ---\nS: ${soap.subjective || ''}\nO: ${soap.objective || ''}\nA: ${soap.assessment || ''}\nP: ${soap.plan || ''}`.trim(),
-                    chiefComplaint: complaints || prev.chiefComplaint || ''
+                    diagnosis: prev?.diagnosis
+                        ? `${prev.diagnosis}${assessment ? '; ' + assessment : ''}`
+                        : (assessment || ''),
+                    notes: `${prev?.notes ? prev.notes + '\n\n' : ''}--- VoiceScribe SOAP Note ---\nS: ${soap.subjective || ''}\nO: ${soap.objective || ''}\nA: ${soap.assessment || ''}\nP: ${soap.plan || ''}`.trim(),
+                    chiefComplaint: prev?.chiefComplaint
+                        ? `${prev.chiefComplaint}${complaints ? '; ' + complaints : ''}`
+                        : (complaints || '')
                 }));
             }
 
@@ -295,9 +470,14 @@ const VoiceScribe = ({
                         if (serverRecordId) {
                             try { await voiceScribeAPI.discard(serverRecordId); } catch (_) {}
                         }
+                        if (recordedAudioUri) {
+                            FileSystem.deleteAsync(recordedAudioUri, { idempotent: true }).catch(() => {});
+                            setRecordedAudioUri(null);
+                        }
                         setUiStatus('IDLE');
                         setConsultationText('');
                         setAudioFile(null);
+                        setRecordingTime(0);
                         setAnalysisData({
                             transcript: '',
                             clinicalSummary: { chiefComplaint: [], historyOfPresentIllness: '', symptoms: [], vitalsMentioned: [], examinationFindings: [], assessment: [], plan: [], followUp: '' },
@@ -317,16 +497,16 @@ const VoiceScribe = ({
                     <Text style={styles.headerTitle}>🎙️ VoiceScribe AI Clinical Scribe</Text>
                     <View style={[styles.statusBadge, uiStatus === 'RECORDING' ? styles.statusRecording : uiStatus === 'APPROVED' ? styles.statusApproved : styles.statusIdle]}>
                         <Text style={styles.statusBadgeText}>
-                            {uiStatus === 'RECORDING' ? `🔴 ${formatTime(recordingTime)}` : uiStatus}
+                            {uiStatus === 'RECORDING' ? `🔴 REC ${formatTime(recordingTime)}` : uiStatus}
                         </Text>
                     </View>
                 </View>
                 <Text style={styles.headerSub}>
-                    Multilingual ambient AI clinical assistant for doctor-patient consultations.
+                    Native ambient AI clinical scribe for doctor-patient consultations.
                 </Text>
 
                 {/* Input Language Chips */}
-                <Text style={styles.sectionMiniTitle}>Spoken Language</Text>
+                <Text style={styles.sectionMiniTitle}>Spoken Consultation Language</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.langScroll}>
                     {inputLanguages.map(l => (
                         <TouchableOpacity
@@ -340,6 +520,22 @@ const VoiceScribe = ({
                         </TouchableOpacity>
                     ))}
                 </ScrollView>
+
+                {/* Output Language Chips */}
+                <Text style={[styles.sectionMiniTitle, { marginTop: 10 }]}>Clinical Summary Output Language</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.langScroll}>
+                    {outputLanguages.map(lang => (
+                        <TouchableOpacity
+                            key={lang}
+                            style={[styles.langChip, selectedOutputLang === lang && styles.langChipActive]}
+                            onPress={() => setSelectedOutputLang(lang)}
+                        >
+                            <Text style={[styles.langChipText, selectedOutputLang === lang && styles.langChipTextActive]}>
+                                {lang}
+                            </Text>
+                        </TouchableOpacity>
+                    ))}
+                </ScrollView>
             </View>
 
             {/* Recording / Input Card */}
@@ -348,18 +544,36 @@ const VoiceScribe = ({
 
                 <View style={styles.recControlsRow}>
                     {uiStatus === 'RECORDING' ? (
-                        <TouchableOpacity style={[styles.controlBtn, styles.stopBtn]} onPress={handleStopRecording}>
-                            <Text style={styles.controlBtnText}>⏹️ Stop Recording</Text>
-                        </TouchableOpacity>
+                        <>
+                            <TouchableOpacity style={[styles.controlBtn, styles.stopBtn]} onPress={handleStopRecording}>
+                                <Text style={styles.controlBtnText}>⏹️ Stop Recording</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.controlBtn, styles.cancelBtn]} onPress={handleCancelRecording}>
+                                <Text style={styles.controlBtnText}>❌ Cancel</Text>
+                            </TouchableOpacity>
+                        </>
                     ) : (
-                        <TouchableOpacity style={[styles.controlBtn, styles.recordBtn]} onPress={handleStartRecording}>
+                        <TouchableOpacity
+                            style={[styles.controlBtn, styles.recordBtn, isLocked && { opacity: 0.5 }]}
+                            onPress={handleStartRecording}
+                            disabled={isLocked}
+                        >
                             <Text style={styles.controlBtnText}>🔴 Start Live Consultation</Text>
                         </TouchableOpacity>
                     )}
                     <TouchableOpacity style={[styles.controlBtn, styles.fileBtn]} onPress={handlePickAudioFile}>
-                        <Text style={styles.fileBtnText}>📁 {audioFile ? audioFile.name.substring(0, 14) + '...' : 'Attach Audio'}</Text>
+                        <Text style={styles.fileBtnText}>📁 {audioFile ? audioFile.name.substring(0, 12) + '...' : 'Attach Audio'}</Text>
                     </TouchableOpacity>
                 </View>
+
+                {recordedAudioUri && uiStatus !== 'RECORDING' && (
+                    <View style={styles.audioPreviewCard}>
+                        <Text style={styles.audioPreviewText}>🎧 Native Audio Captured ({formatTime(recordingTime)})</Text>
+                        <TouchableOpacity onPress={handleClearRecordedAudio} style={styles.audioClearBtn}>
+                            <Text style={styles.audioClearBtnText}>🗑️ Remove</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
 
                 {statusMessage ? (
                     <Text style={styles.statusMsgText}>{statusMessage}</Text>
@@ -372,14 +586,16 @@ const VoiceScribe = ({
                     value={consultationText}
                     onChangeText={setConsultationText}
                     placeholder="Dictate or type consultation conversation here. The AI will convert it into a structured clinical summary and SOAP note."
+                    placeholderTextColor="#94a3b8"
                     multiline
                     numberOfLines={4}
+                    editable={!isLocked}
                 />
 
                 <TouchableOpacity
-                    style={[styles.analyzeBtn, uiStatus === 'PROCESSING' && { opacity: 0.6 }]}
+                    style={[styles.analyzeBtn, (uiStatus === 'PROCESSING' || isLocked) && { opacity: 0.6 }]}
                     onPress={handleAnalyze}
-                    disabled={uiStatus === 'PROCESSING'}
+                    disabled={uiStatus === 'PROCESSING' || isLocked}
                 >
                     {uiStatus === 'PROCESSING' ? (
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -434,6 +650,7 @@ const VoiceScribe = ({
                                 value={analysisData.soap?.subjective}
                                 onChangeText={v => setAnalysisData(prev => ({ ...prev, soap: { ...prev.soap, subjective: v } }))}
                                 multiline
+                                editable={!isLocked && uiStatus !== 'APPROVED'}
                             />
                         </View>
                         <View style={styles.soapCard}>
@@ -443,6 +660,7 @@ const VoiceScribe = ({
                                 value={analysisData.soap?.objective}
                                 onChangeText={v => setAnalysisData(prev => ({ ...prev, soap: { ...prev.soap, objective: v } }))}
                                 multiline
+                                editable={!isLocked && uiStatus !== 'APPROVED'}
                             />
                         </View>
                         <View style={styles.soapCard}>
@@ -452,6 +670,7 @@ const VoiceScribe = ({
                                 value={analysisData.soap?.assessment}
                                 onChangeText={v => setAnalysisData(prev => ({ ...prev, soap: { ...prev.soap, assessment: v } }))}
                                 multiline
+                                editable={!isLocked && uiStatus !== 'APPROVED'}
                             />
                         </View>
                         <View style={styles.soapCard}>
@@ -461,6 +680,7 @@ const VoiceScribe = ({
                                 value={analysisData.soap?.plan}
                                 onChangeText={v => setAnalysisData(prev => ({ ...prev, soap: { ...prev.soap, plan: v } }))}
                                 multiline
+                                editable={!isLocked && uiStatus !== 'APPROVED'}
                             />
                         </View>
                     </View>
@@ -473,14 +693,14 @@ const VoiceScribe = ({
                         <TouchableOpacity
                             style={styles.saveDraftBtn}
                             onPress={handleSaveDraft}
-                            disabled={submittingAction}
+                            disabled={submittingAction || isLocked}
                         >
                             <Text style={styles.saveDraftBtnText}>💾 Save Draft</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
-                            style={[styles.approveBtn, submittingAction && { opacity: 0.6 }]}
+                            style={[styles.approveBtn, (submittingAction || isLocked) && { opacity: 0.6 }]}
                             onPress={handleApprove}
-                            disabled={submittingAction}
+                            disabled={submittingAction || isLocked}
                         >
                             <Text style={styles.approveBtnText}>
                                 {submittingAction ? 'Applying...' : '✅ Approve & Apply'}
@@ -517,9 +737,14 @@ const styles = StyleSheet.create({
     controlBtn: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
     recordBtn: { backgroundColor: '#ef4444' },
     stopBtn: { backgroundColor: '#1e293b' },
+    cancelBtn: { backgroundColor: '#64748b' },
     fileBtn: { backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#cbd5e1' },
     controlBtnText: { color: '#ffffff', fontWeight: '700', fontSize: 13 },
     fileBtnText: { color: '#1e293b', fontWeight: '600', fontSize: 12 },
+    audioPreviewCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f0fdf4', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#bbf7d0', marginBottom: 10 },
+    audioPreviewText: { fontSize: 12, fontWeight: '700', color: '#166534' },
+    audioClearBtn: { backgroundColor: '#fee2e2', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+    audioClearBtnText: { fontSize: 11, fontWeight: '700', color: '#dc2626' },
     statusMsgText: { fontSize: 12, color: '#2563eb', fontWeight: '600', marginBottom: 8 },
     inputLabel: { fontSize: 12, fontWeight: '700', color: '#475569', marginBottom: 4, marginTop: 4 },
     textInput: { borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, fontSize: 13, color: '#0f172a', backgroundColor: '#f8fafc', marginBottom: 10 },

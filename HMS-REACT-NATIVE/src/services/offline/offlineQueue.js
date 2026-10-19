@@ -27,6 +27,35 @@ import {
 // Fails closed across restarts on web to ensure zero plaintext disk persistence.
 const _memoryOutbox = new Map();
 
+// ── Queue Event Listeners (Redux & UI Synchronization) ──────────────────────
+const _queueEventListeners = new Set();
+
+/**
+ * Subscribe to queue mutation lifecycle events.
+ * Returns an unsubscribe callback.
+ * 
+ * @param {Function} listener (eventType: string, eventData: Object) => void
+ * @returns {Function} unsubscribe
+ */
+export function subscribeQueueEvents(listener) {
+  if (typeof listener === 'function') {
+    _queueEventListeners.add(listener);
+    return () => _queueEventListeners.delete(listener);
+  }
+  return () => {};
+}
+
+function notifyQueueEvent(eventType, eventData = {}) {
+  for (const listener of _queueEventListeners) {
+    try {
+      listener(eventType, eventData);
+    } catch (err) {
+      console.warn('[OfflineQueue] Queue event listener error:', err.message);
+    }
+  }
+}
+
+
 /**
  * Validates operation status.
  */
@@ -142,6 +171,7 @@ export async function enqueueOperation({
 
   // 2. On Web: strictly volatile session memory only
   if (Platform.OS === 'web') {
+    notifyQueueEvent('item_enqueued', { operationId: opId, tenantId, userId, resourceType, operationType, entry });
     return {
       success: true,
       operationId: opId,
@@ -155,6 +185,7 @@ export async function enqueueOperation({
   const isSecure = await isDatabaseSecure();
   if (!isSecure) {
     console.warn(`[OfflineQueue] 🛡️ Database encryption unverified. Outbox item ${opId} stored in volatile memory only.`);
+    notifyQueueEvent('item_enqueued', { operationId: opId, tenantId, userId, resourceType, operationType, entry });
     return {
       success: true,
       operationId: opId,
@@ -196,6 +227,8 @@ export async function enqueueOperation({
     ]);
 
     console.log(`[OfflineQueue] Persisted outbox operation [${opId}] for [${resourceType}/${operationType}] [tenant:${tenantId}]`);
+
+    notifyQueueEvent('item_enqueued', { operationId: opId, tenantId, userId, resourceType, operationType, entry });
 
     return {
       success: true,
@@ -341,12 +374,14 @@ export async function markOperationSyncing(operationId) {
         'UPDATE offline_outbox SET status = ?, updated_at = ? WHERE operation_id = ?;',
         ['syncing', now, String(operationId)]
       );
+      notifyQueueEvent('item_syncing', { operationId });
       return true;
     } catch (dbErr) {
       console.warn(`[OfflineQueue] Failed to update syncing state for ${operationId}:`, dbErr.message);
     }
   }
 
+  notifyQueueEvent('item_syncing', { operationId });
   return true;
 }
 
@@ -386,12 +421,14 @@ export async function markOperationFailed(operationId, errorMessage = '', { maxR
         'UPDATE offline_outbox SET status = ?, retry_count = retry_count + 1, error_message = ?, updated_at = ? WHERE operation_id = ?;',
         [newStatus, cleanError, now, String(operationId)]
       );
+      notifyQueueEvent('item_failed', { operationId, status: newStatus, error: cleanError, retryCount });
       return true;
     } catch (dbErr) {
       console.warn(`[OfflineQueue] Failed to record failure for ${operationId}:`, dbErr.message);
     }
   }
 
+  notifyQueueEvent('item_failed', { operationId, status: newStatus, error: cleanError, retryCount });
   return true;
 }
 
@@ -417,12 +454,14 @@ export async function markOperationSynced(operationId) {
         'UPDATE offline_outbox SET status = ?, updated_at = ? WHERE operation_id = ?;',
         ['synced', now, String(operationId)]
       );
+      notifyQueueEvent('item_synced', { operationId });
       return true;
     } catch (dbErr) {
       console.warn(`[OfflineQueue] Failed to mark synced for ${operationId}:`, dbErr.message);
     }
   }
 
+  notifyQueueEvent('item_synced', { operationId });
   return true;
 }
 
@@ -443,12 +482,14 @@ export async function removeOperation(operationId) {
         'DELETE FROM offline_outbox WHERE operation_id = ?;',
         [String(operationId)]
       );
+      notifyQueueEvent('item_removed', { operationId });
       return true;
     } catch (dbErr) {
       console.warn(`[OfflineQueue] Failed to remove operation ${operationId}:`, dbErr.message);
     }
   }
 
+  notifyQueueEvent('item_removed', { operationId });
   return true;
 }
 
@@ -479,12 +520,14 @@ export async function clearOutbox({ tenantId, userId }) {
         'DELETE FROM offline_outbox WHERE tenant_id = ? AND user_id = ?;',
         [normTenant, normUser]
       );
+      notifyQueueEvent('queue_cleared', { tenantId: normTenant, userId: normUser });
       return true;
     } catch (dbErr) {
       console.warn('[OfflineQueue] Failed to clear persistent outbox:', dbErr.message);
     }
   }
 
+  notifyQueueEvent('queue_cleared', { tenantId: normTenant, userId: normUser });
   return true;
 }
 
@@ -514,6 +557,16 @@ export function clearMemoryOutbox({ tenantId = null, userId = null } = {}) {
 }
 
 /**
+ * Generic status updater for compatibility across services.
+ */
+export async function markOperationStatus(operationId, status, errorMessage = null) {
+  if (status === 'syncing') return markOperationSyncing(operationId);
+  if (status === 'synced') return markOperationSynced(operationId);
+  if (status === 'failed' || status === 'needs_attention') return markOperationFailed(operationId, errorMessage);
+  return false;
+}
+
+/**
  * Diagnostics stats.
  */
 export function getMemoryOutboxStats() {
@@ -530,8 +583,10 @@ export default {
   markOperationSyncing,
   markOperationFailed,
   markOperationSynced,
+  markOperationStatus,
   removeOperation,
   clearOutbox,
   clearMemoryOutbox,
   getMemoryOutboxStats,
+  subscribeQueueEvents,
 };

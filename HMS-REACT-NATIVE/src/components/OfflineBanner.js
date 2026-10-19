@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { subscribeNetworkStatus, pingServer, isOnline as checkIsOnline } from '../utils/networkStatus';
+import { useSelector, useDispatch } from 'react-redux';
+import { subscribeNetworkStatus, pingServer, isOnline as checkIsOnline } from '../services/offline/networkStatus';
+import { setSyncStatus } from '../store/slices/offlineSlice';
 
 function formatLastSynced(timestamp) {
   if (!timestamp) return null;
@@ -28,9 +30,17 @@ export default function OfflineBanner({
   customMessage,
   moduleName,
 } = {}) {
-  // If isOffline is explicitly provided as a boolean, respect it; otherwise monitor network
+  const dispatch = useDispatch();
+  const reduxOffline = useSelector((state) => state?.offline);
+
+  // If isOffline is explicitly provided as a prop, respect it; otherwise read Redux / NetInfo
   const isControlled = typeof isOffline === 'boolean';
-  const [autoOnline, setAutoOnline] = useState(() => checkIsOnline());
+  const reduxOnline = reduxOffline?.isOnline;
+  const pendingCount = reduxOffline?.pendingCount || 0;
+  const syncStatus = reduxOffline?.syncStatus || 'idle';
+  const syncErrors = reduxOffline?.syncErrors || [];
+
+  const [autoOnline, setAutoOnline] = useState(() => (typeof reduxOnline === 'boolean' ? reduxOnline : checkIsOnline()));
   const [showReconnected, setShowReconnected] = useState(false);
   const reconnectedTimerRef = useRef(null);
 
@@ -69,7 +79,7 @@ export default function OfflineBanner({
     };
   }, []);
 
-  const effectiveOffline = isControlled ? isOffline : !autoOnline;
+  const effectiveOffline = isControlled ? isOffline : (reduxOnline !== undefined ? !reduxOnline : !autoOnline);
   const effectiveOnline = !effectiveOffline;
 
   const handleRetry = async () => {
@@ -82,24 +92,54 @@ export default function OfflineBanner({
     }
   };
 
-  if (effectiveOnline && !showReconnected) return null;
+  // Determine visibility
+  const isSyncing = syncStatus === 'syncing';
+  const hasSyncError = syncStatus === 'error';
+  const hasPendingOnline = effectiveOnline && pendingCount > 0;
 
-  const syncedText = formatLastSynced(lastFetchedAt);
+  if (effectiveOnline && !showReconnected && !isSyncing && !hasSyncError && !hasPendingOnline) {
+    return null;
+  }
+
+  const syncedText = formatLastSynced(lastFetchedAt || reduxOffline?.lastSyncAt);
 
   let bannerText = '';
-  if (effectiveOnline && showReconnected) {
-    bannerText = '✅ Connected — System synchronized.';
-  } else if (customMessage) {
-    bannerText = customMessage;
-  } else if (fromCache) {
-    const scopePrefix = moduleName ? `${moduleName}: ` : '';
-    bannerText = `⚠️ ${scopePrefix}Offline Mode — Displaying cached records${syncedText ? ` (Last synced: ${syncedText})` : ''}${isSynthetic ? ' [Synthetic Benchmark]' : ''}`;
-  } else {
-    bannerText = '⚠️ You are currently offline. Retrying...';
+  let bgStyle = styles.offlineBg;
+  let showSpinner = false;
+
+  if (isSyncing) {
+    bgStyle = styles.syncingBg;
+    showSpinner = true;
+    bannerText = `🔄 Synchronizing ${pendingCount > 0 ? `${pendingCount} ` : ''}offline records with server...`;
+  } else if (hasSyncError) {
+    bgStyle = styles.errorBg;
+    const errDetail = syncErrors[0]?.message ? `: ${syncErrors[0].message}` : '';
+    bannerText = `⚠️ Synchronization error${errDetail}. Tap Retry to resubmit.`;
+  } else if (effectiveOffline) {
+    bgStyle = styles.offlineBg;
+    if (customMessage) {
+      bannerText = customMessage;
+    } else if (pendingCount > 0) {
+      bannerText = `⚠️ Offline Mode — ${pendingCount} pending mutation${pendingCount > 1 ? 's' : ''} stored securely in SQLite outbox.`;
+    } else if (fromCache) {
+      const scopePrefix = moduleName ? `${moduleName}: ` : '';
+      bannerText = `⚠️ ${scopePrefix}Offline Mode — Displaying cached records${syncedText ? ` (Last synced: ${syncedText})` : ''}${isSynthetic ? ' [Synthetic Benchmark]' : ''}`;
+    } else {
+      bannerText = '⚠️ You are currently offline. Changes will queue safely.';
+    }
+  } else if (hasPendingOnline) {
+    bgStyle = styles.pendingBg;
+    bannerText = `📤 ${pendingCount} offline update${pendingCount > 1 ? 's' : ''} queued for sync.`;
+  } else if (effectiveOnline && showReconnected) {
+    bgStyle = styles.onlineBg;
+    bannerText = '✅ Connected — System synchronized with server.';
   }
 
   return (
-    <View style={[styles.container, effectiveOnline ? styles.onlineBg : styles.offlineBg]}>
+    <View style={[styles.container, bgStyle]}>
+      {showSpinner && (
+        <ActivityIndicator size="small" color="#ffffff" style={{ marginRight: 8 }} />
+      )}
       <Text style={styles.text} numberOfLines={2}>
         {bannerText}
       </Text>
@@ -114,6 +154,15 @@ export default function OfflineBanner({
           ) : (
             <Text style={styles.retryText}>Retry</Text>
           )}
+        </TouchableOpacity>
+      )}
+      {effectiveOnline && hasSyncError && (
+        <TouchableOpacity 
+          style={[styles.retryBtn, retrying && styles.retryBtnDisabled]} 
+          onPress={handleRetry}
+          disabled={retrying}
+        >
+          <Text style={styles.retryText}>Retry Sync</Text>
         </TouchableOpacity>
       )}
     </View>
@@ -131,6 +180,15 @@ const styles = StyleSheet.create({
   },
   offlineBg: {
     backgroundColor: '#dc2626',
+  },
+  syncingBg: {
+    backgroundColor: '#0284c7',
+  },
+  pendingBg: {
+    backgroundColor: '#d97706',
+  },
+  errorBg: {
+    backgroundColor: '#b91c1c',
   },
   onlineBg: {
     backgroundColor: '#16a34a',

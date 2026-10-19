@@ -7,6 +7,7 @@ import DropdownSelect from '../../components/common/DropdownSelect';
 import { pharmacyOrderAPI, pharmacyAPI } from '../../utils/api';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import { isUserCancellation } from '../../utils/printHelper';
 
 const PharmacyReturns = () => {
     const { width } = useWindowDimensions();
@@ -211,17 +212,24 @@ const PharmacyReturns = () => {
             const html = buildCreditNoteHTML(returnData, orderInfo);
             await Print.printAsync({ html });
         } catch (pdfError) {
+            if (isUserCancellation(pdfError)) return;
             console.error('❌ [PDF GENERATION FAILED]:', pdfError);
-            // Fallback: try to share as PDF file
+            // Fallback: try to share as PDF file only if print genuinely errored
             try {
                 const html = buildCreditNoteHTML(returnData, orderInfo);
                 const { uri } = await Print.printToFileAsync({ html, base64: false });
                 if (await Sharing.isAvailableAsync()) {
-                    await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+                    try {
+                        await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+                    } catch (shareCancel) {
+                        if (isUserCancellation(shareCancel)) return;
+                        throw shareCancel;
+                    }
                 } else {
                     Alert.alert('PDF Saved', `Credit note saved to: ${uri}`);
                 }
             } catch (shareError) {
+                if (isUserCancellation(shareError)) return;
                 console.error('❌ [PDF SHARE FAILED]:', shareError);
                 Alert.alert('Notice', 'Return processed successfully, but failed to generate the PDF receipt.');
             }

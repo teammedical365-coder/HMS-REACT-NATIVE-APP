@@ -11,7 +11,9 @@ import publicDataReducer from './slices/publicDataSlice';
 import adminEntitiesReducer from './slices/adminEntitiesSlice';
 import labReducer from './slices/labSlice';
 import notificationReducer from './slices/notificationSlice';
+import offlineReducer, { resetOfflineState } from './slices/offlineSlice';
 import { setStoreRef, setLogoutThunk } from './storeRef';
+import { initOfflineReduxBridge } from '../services/offline/offlineReduxBridge';
 
 // Persist only the auth slice — keeps the user logged in across app restarts.
 // All other slices are transient and refetch fresh data on mount.
@@ -30,6 +32,7 @@ const rootReducer = combineReducers({
   adminEntities: adminEntitiesReducer,
   lab: labReducer,
   notifications: notificationReducer,
+  offline: offlineReducer,
 });
 
 /**
@@ -40,6 +43,7 @@ const rootReducer = combineReducers({
 const authLogoutMiddleware = (storeApi) => (next) => (action) => {
   if (action?.type === 'auth/logout') {
     const currentUser = storeApi.getState()?.auth?.user || storeApi.getState()?.auth?.departingUser;
+    storeApi.dispatch(resetOfflineState());
     if (currentUser) {
       performLogoutCleanup(currentUser).catch(() => {});
     }
@@ -61,5 +65,6 @@ export const persistor = persistStore(store);
 
 setStoreRef(store);
 setLogoutThunk(logout);
+initOfflineReduxBridge(store);
 
 export default store;

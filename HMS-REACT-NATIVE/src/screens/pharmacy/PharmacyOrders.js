@@ -11,6 +11,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import { isUserCancellation } from '../../utils/printHelper';
 import {
     fetchPharmacyOrdersWithOffline,
     fetchPharmacyInventoryWithOffline,
@@ -1431,6 +1432,7 @@ const PharmacyOrders = () => {
                                                     const html = buildReceiptHTML(selectedOrder, invoiceData, hospitalInfo, discountPercent);
                                                     await Print.printAsync({ html });
                                                 } catch (e) {
+                                                    if (isUserCancellation(e)) return;
                                                     console.error('Print error:', e);
                                                     Alert.alert('Print Error', 'Could not print receipt. ' + (e.message || ''));
                                                 }
@@ -1442,11 +1444,17 @@ const PharmacyOrders = () => {
                                                     const html = buildReceiptHTML(selectedOrder, invoiceData, hospitalInfo, discountPercent);
                                                     const { uri } = await Print.printToFileAsync({ html, base64: false });
                                                     if (await Sharing.isAvailableAsync()) {
-                                                        await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+                                                        try {
+                                                            await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+                                                        } catch (shareErr) {
+                                                            if (isUserCancellation(shareErr)) return;
+                                                            throw shareErr;
+                                                        }
                                                     } else {
                                                         Alert.alert('PDF Saved', `Invoice saved to: ${uri}`);
                                                     }
                                                 } catch (e) {
+                                                    if (isUserCancellation(e)) return;
                                                     console.error('Share error:', e);
                                                     Alert.alert('Share Error', 'Could not share receipt. ' + (e.message || ''));
                                                 }

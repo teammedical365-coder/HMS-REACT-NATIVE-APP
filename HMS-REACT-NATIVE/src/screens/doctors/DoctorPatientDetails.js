@@ -8,6 +8,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { Picker } from '@react-native-picker/picker';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import { isUserCancellation, escapeHtml } from '../../utils/printHelper';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
 
 import {
@@ -1058,6 +1059,7 @@ const DoctorPatientDetails = () => {
             const html = getPrescriptionHTML();
             await Print.printAsync({ html });
         } catch (err) {
+            if (isUserCancellation(err)) return;
             console.error("Print error:", err);
             Alert.alert("Print Error", err.message || "Failed to print prescription");
         }
@@ -1083,6 +1085,7 @@ const DoctorPatientDetails = () => {
                         return;
                     }
                 } catch (webErr) {
+                    if (isUserCancellation(webErr)) return;
                     await Print.printAsync({ html });
                     return;
                 }
@@ -1091,15 +1094,21 @@ const DoctorPatientDetails = () => {
             const file = await Print.printToFileAsync({ html });
             const canShare = await Sharing.isAvailableAsync();
             if (canShare) {
-                await Sharing.shareAsync(file.uri, {
-                    UTI: '.pdf',
-                    mimeType: 'application/pdf',
-                    dialogTitle: isCumulative ? 'Cumulative Clinical Record' : 'Prescription Slip'
-                });
+                try {
+                    await Sharing.shareAsync(file.uri, {
+                        UTI: '.pdf',
+                        mimeType: 'application/pdf',
+                        dialogTitle: isCumulative ? 'Cumulative Clinical Record' : 'Prescription Slip'
+                    });
+                } catch (shareErr) {
+                    if (isUserCancellation(shareErr)) return;
+                    throw shareErr;
+                }
             } else {
                 Alert.alert("PDF Generated", `Saved to: ${file.uri}`);
             }
         } catch (err) {
+            if (isUserCancellation(err)) return;
             console.error("PDF generation error:", err);
             Alert.alert("Export Error", err.message || "Failed to export PDF");
         }
@@ -1201,15 +1210,21 @@ const DoctorPatientDetails = () => {
             const file = await Print.printToFileAsync({ html });
             const canShare = await Sharing.isAvailableAsync();
             if (canShare) {
-                await Sharing.shareAsync(file.uri, {
-                    UTI: '.pdf',
-                    mimeType: 'application/pdf',
-                    dialogTitle: 'Consultation Receipt'
-                });
+                try {
+                    await Sharing.shareAsync(file.uri, {
+                        UTI: '.pdf',
+                        mimeType: 'application/pdf',
+                        dialogTitle: 'Consultation Receipt'
+                    });
+                } catch (shareErr) {
+                    if (isUserCancellation(shareErr)) return;
+                    throw shareErr;
+                }
             } else {
                 Alert.alert("Receipt Generated", `Saved to: ${file.uri}`);
             }
         } catch (err) {
+            if (isUserCancellation(err)) return;
             console.error("Receipt generation error:", err);
             Alert.alert("Export Error", err.message || "Failed to export Receipt PDF");
         }
