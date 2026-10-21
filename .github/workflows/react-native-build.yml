@@ -21,6 +21,10 @@ on:
       rnBuildId:
         description: 'RN Build Correlation ID'
         required: true
+      signingMode:
+        description: 'Signing mode: "legacy_debug" (default) or "production" (signed with production release keystore)'
+        required: false
+        default: 'legacy_debug'
 
 jobs:
   build-and-deploy:
@@ -41,6 +45,7 @@ jobs:
           APP_ID: ${{ github.event.inputs.applicationId }}
           THEME_COLOR: ${{ github.event.inputs.themeColor }}
           RN_BUILD_ID: ${{ github.event.inputs.rnBuildId }}
+          SIGNING_MODE: ${{ github.event.inputs.signingMode || 'legacy_debug' }}
         run: |
           set -euo pipefail
 
@@ -69,8 +74,62 @@ jobs:
             exit 1
           fi
 
+          if [ "$SIGNING_MODE" != "legacy_debug" ] && [ "$SIGNING_MODE" != "production" ]; then
+            echo "::error::Invalid signingMode '$SIGNING_MODE'. Expected 'legacy_debug' or 'production'."
+            exit 1
+          fi
+
           echo "Input validation passed."
           echo "Received and validated rnBuildId: $RN_BUILD_ID"
+          echo "Selected signingMode: $SIGNING_MODE"
+
+      - name: Prepare Production Keystore
+        id: setup_keystore
+        if: ${{ (github.event.inputs.signingMode || 'legacy_debug') == 'production' }}
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::ANDROID_RELEASE_KEYSTORE_BASE64 secret is not configured in repository secrets."
+            exit 1
+          fi
+          if [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::error::ANDROID_KEYSTORE_PASSWORD secret is not configured in repository secrets."
+            exit 1
+          fi
+          if [ -z "$KEY_ALIAS" ]; then
+            echo "::error::ANDROID_KEY_ALIAS secret is not configured in repository secrets."
+            exit 1
+          fi
+          if [ -z "$KEY_PASSWORD" ]; then
+            echo "::error::ANDROID_KEY_PASSWORD secret is not configured in repository secrets."
+            exit 1
+          fi
+
+          KEYSTORE_DIR="${{ runner.temp }}/keystore"
+          mkdir -p "$KEYSTORE_DIR"
+          KEYSTORE_FILE="$KEYSTORE_DIR/release.keystore"
+
+          echo "$KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_FILE"
+          chmod 600 "$KEYSTORE_FILE"
+
+          if [ ! -s "$KEYSTORE_FILE" ]; then
+            echo "::error::Decoded keystore file is empty or corrupted."
+            exit 1
+          fi
+
+          echo "ANDROID_KEYSTORE_PATH=$KEYSTORE_FILE" >> $GITHUB_ENV
+          echo "ANDROID_KEY_ALIAS=$KEY_ALIAS" >> $GITHUB_ENV
+          echo "PRODUCTION_RELEASE_BUILD=true" >> $GITHUB_ENV
+          echo "::add-mask::$KEYSTORE_PASSWORD"
+          echo "::add-mask::$KEY_PASSWORD"
+          echo "ANDROID_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> $GITHUB_ENV
+          echo "ANDROID_KEY_PASSWORD=$KEY_PASSWORD" >> $GITHUB_ENV
+          echo "Production keystore staged securely at $KEYSTORE_FILE with 600 permissions."
 
       - name: Setup Java
         uses: actions/setup-java@v3
@@ -251,6 +310,9 @@ jobs:
 
           npx expo prebuild --platform android --clean --no-install
 
+          # Ensure safe release signing configuration is present in android/app/build.gradle
+          node scripts/configure-release-signing.js
+
           # Ensure authoritative launcher mipmaps are placed directly in native Android resources
           node scripts/prepare-launcher-icons.js "${LOGO_URL}" --clean-mipmaps --generate-native-res --use-cached
 
@@ -283,6 +345,60 @@ jobs:
 
           file output_artifacts/app-rn.apk output_artifacts/app-rn.aab
           ls -lh output_artifacts/
+
+      - name: Verify APK Signature
+        id: verify_signature
+        run: |
+          set -euo pipefail
+          SIGNING_MODE="${{ github.event.inputs.signingMode || 'legacy_debug' }}"
+          APK_PATH="output_artifacts/app-rn.apk"
+          EXPECTED_PROD_SHA256="9C:28:0C:E7:AC:22:44:CB:7F:1E:EE:B8:0D:B4:E0:7E:49:29:3E:51:7B:9F:4A:3E:76:52:86:F3:CE:46:47:49"
+
+          echo "Verifying cryptographic signature on $APK_PATH (mode: $SIGNING_MODE)..."
+
+          if [ ! -f "$APK_PATH" ] || [ ! -s "$APK_PATH" ]; then
+            echo "::error::Target APK was not found or is empty at $APK_PATH"
+            exit 1
+          fi
+
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f 2>/dev/null | sort -V | tail -n 1 || true)
+          if [ -z "$APKSIGNER" ] || [ ! -x "$APKSIGNER" ]; then
+            if [ "$SIGNING_MODE" = "production" ]; then
+              echo "::error::apksigner tool is required for production signature verification but was not found in $ANDROID_HOME/build-tools."
+              exit 1
+            else
+              echo "::warning::apksigner not found in $ANDROID_HOME/build-tools. Skipping signature verification in legacy_debug mode."
+              exit 0
+            fi
+          fi
+
+          if ! VERIFY_OUTPUT=$("$APKSIGNER" verify --print-certs "$APK_PATH"); then
+            echo "::error::apksigner verification failed on $APK_PATH"
+            exit 1
+          fi
+
+          echo "Certificate verification details:"
+          echo "$VERIFY_OUTPUT"
+
+          ACTUAL_SHA256_RAW=$(echo "$VERIFY_OUTPUT" | grep -i "SHA-256 digest:" | head -n 1 | sed -e 's/^.*[sS][hH][aA]-256 digest:[[:space:]]*//' || true)
+          ACTUAL_SHA256=$(echo "$ACTUAL_SHA256_RAW" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')
+          EXPECTED_SHA256=$(echo "$EXPECTED_PROD_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')
+
+          if [ "$SIGNING_MODE" = "production" ]; then
+            if [ -z "$ACTUAL_SHA256" ]; then
+              echo "::error::CRITICAL SECURITY FAILURE: Could not extract signer SHA-256 digest from apksigner output."
+              exit 1
+            fi
+
+            if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+              echo "::error::CRITICAL SECURITY FAILURE: Production APK signer SHA-256 digest ($ACTUAL_SHA256) does not match expected Medical365 release key fingerprint ($EXPECTED_SHA256)!"
+              exit 1
+            fi
+
+            echo "Production cryptographic signature successfully verified against Medical365 release key ($EXPECTED_SHA256)."
+          else
+            echo "Legacy debug mode active (signingMode: $SIGNING_MODE). Signer SHA-256: $ACTUAL_SHA256"
+          fi
 
       - name: Upload Build Artifacts (APK and AAB)
         id: upload_artifacts
@@ -403,3 +519,11 @@ jobs:
             "https://hms-n6nk.onrender.com/api/superadmin/hospitals/webhook/github-rn?secret=${WEBHOOK_SECRET}" \
             -H 'Content-Type: application/json' \
             --data "{\"tenantId\":\"${TENANT_ID}\",\"rnBuildId\":\"${RN_BUILD_ID}\",\"status\":\"FAILED\",\"error\":\"RN GitHub Action workflow failed\"}"
+
+      - name: Clean up Keystore
+        if: always()
+        run: |
+          if [ -n "${ANDROID_KEYSTORE_PATH:-}" ] && [ -f "$ANDROID_KEYSTORE_PATH" ]; then
+            shred -u "$ANDROID_KEYSTORE_PATH" 2>/dev/null || rm -f "$ANDROID_KEYSTORE_PATH"
+            echo "Production keystore temporary runner file destroyed safely."
+          fi

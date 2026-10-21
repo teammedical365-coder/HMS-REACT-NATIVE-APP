@@ -5,3 +5,10 @@ dist/
 **/dist/
 scratch/
 **/scratch/
+
+# Android release signing artifacts — never commit
+*.keystore
+!**/debug.keystore
+*.jks
+*.p12
+*.base64.txt
