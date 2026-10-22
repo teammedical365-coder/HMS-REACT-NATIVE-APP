@@ -1,0 +1,182 @@
+name: OTA Release Workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'EAS update channel (e.g. production, pilot, staging)'
+        required: true
+        default: 'production'
+      message:
+        description: 'Release title or summary'
+        required: true
+        default: 'Automated OTA Release'
+      releaseNotes:
+        description: 'Clinical changes or detailed release notes'
+        required: false
+        default: ''
+      targetCommitSha:
+        description: 'Approved Git SHA (leave empty for current HEAD)'
+        required: false
+        default: ''
+      releaseId:
+        description: 'Backend release correlation ID'
+        required: false
+        default: ''
+      targetRuntimeVersion:
+        description: 'Target runtime version cohort (e.g. 1.0.0) or "current" to resolve from config'
+        required: false
+        default: 'current'
+
+jobs:
+  publish-ota-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout Code at Target SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.targetCommitSha || github.ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: 'HMS-REACT-NATIVE/package-lock.json'
+
+      - name: Setup EAS CLI
+        run: npm install -g eas-cli
+
+      - name: Install Dependencies
+        working-directory: ./HMS-REACT-NATIVE
+        run: npm ci
+
+      - name: Verify EAS Credentials & Configuration
+        working-directory: ./HMS-REACT-NATIVE
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID || vars.EAS_PROJECT_ID || '' }}
+        run: |
+          set -euo pipefail
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "::error::EXPO_TOKEN secret is not configured in repository secrets."
+            echo "To publish OTA updates, generate an Expo Access Token at https://expo.dev/settings/access-tokens and add it as EXPO_TOKEN in GitHub repository secrets."
+            exit 1
+          fi
+
+          HAS_FILE_PROJECT_ID=$(node -e "try { const c = JSON.parse(require('fs').readFileSync('app.json', 'utf8')); console.log(Boolean(c.expo?.extra?.eas?.projectId)); } catch(e) { console.log(false); }")
+          if [ -z "$EAS_PROJECT_ID" ] && [ "$HAS_FILE_PROJECT_ID" != "true" ]; then
+            echo "::error::EAS Project ID is not configured."
+            echo "Please link your Expo project by running 'npx eas project:init' locally or configuring EAS_PROJECT_ID in GitHub repository secrets/variables."
+            exit 1
+          fi
+
+      - name: Resolve & Validate OTA Runtime Target
+        working-directory: ./HMS-REACT-NATIVE
+        env:
+          TARGET_RUNTIME: ${{ github.event.inputs.targetRuntimeVersion || 'current' }}
+        run: |
+          set -euo pipefail
+          echo "Resolving and validating target runtime version cohort..."
+          node scripts/verify-ota-runtime-targeting.js --target-runtime "$TARGET_RUNTIME"
+
+      - name: Enforce Tenant-Neutral Bundle Safety Preflight
+        working-directory: ./HMS-REACT-NATIVE
+        env:
+          EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID || vars.EAS_PROJECT_ID || '' }}
+          STRICT_PROJECT_CHECK: 'true'
+        run: |
+          set -euo pipefail
+          echo "Executing fail-closed tenant-neutrality preflight..."
+          node scripts/verify-ota-tenant-neutrality.js
+
+      - name: Publish OTA Update to Channel
+        id: publish_step
+        working-directory: ./HMS-REACT-NATIVE
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID || vars.EAS_PROJECT_ID || '' }}
+          UPDATE_CHANNEL: ${{ github.event.inputs.channel }}
+          UPDATE_MESSAGE: ${{ github.event.inputs.message }}
+          VERSION_NAME: ${{ env.RESOLVED_RUNTIME_VERSION }}
+          EXPO_PUBLIC_TENANT_ID: ''
+          EXPO_PUBLIC_TENANT_SLUG: ''
+          EXPO_PUBLIC_HOSPITAL_NAME: ''
+          BUILD_TENANT_ID: ''
+          BUILD_TENANT_SLUG: ''
+          HARDCODED_TENANT: ''
+          TENANT_ID: ''
+          TENANT_SLUG: ''
+          HOSPITAL_NAME: ''
+          APPLICATION_ID: ''
+        run: |
+          set -euo pipefail
+          node scripts/verify-ota-tenant-neutrality.js
+          node scripts/verify-ota-runtime-targeting.js --target-runtime "$VERSION_NAME"
+
+          echo "Publishing tenant-neutral OTA update to channel '$UPDATE_CHANNEL' for validated runtime '$VERSION_NAME'..."
+          PUBLISH_OUTPUT=$(eas update --channel "$UPDATE_CHANNEL" --message "$UPDATE_MESSAGE" --non-interactive 2>&1)
+          echo "$PUBLISH_OUTPUT"
+
+          # Extract EAS Update ID if available from CLI output
+          UPDATE_ID=$(echo "$PUBLISH_OUTPUT" | grep -oE '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' | head -n 1 || echo "")
+          echo "EAS_UPDATE_ID=${UPDATE_ID}" >> $GITHUB_ENV
+          echo "Extracted EAS Update ID: ${UPDATE_ID:-N/A}"
+
+      - name: Send Completion Webhook (Phase 5)
+        id: notify_ota_completed
+        if: success()
+        env:
+          WEBHOOK_SECRET: ${{ secrets.RN_WEBHOOK_SECRET || secrets.GITHUB_WEBHOOK_SECRET }}
+          RELEASE_ID: ${{ github.event.inputs.releaseId }}
+          CHANNEL: ${{ github.event.inputs.channel }}
+          TARGET_RUNTIME: ${{ env.RESOLVED_RUNTIME_VERSION }}
+          EAS_UPDATE_ID: ${{ env.EAS_UPDATE_ID || '' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${WEBHOOK_SECRET:-}" ]; then
+            echo "::warning::Webhook secret not configured, skipping backend notification."
+            exit 0
+          fi
+
+          echo "Sending OTA completion callback for releaseId: '${RELEASE_ID:-NONE}'..."
+          HTTP_STATUS=$(curl -sS \
+            -o /tmp/ota-completed-response.txt \
+            -w "%{http_code}" \
+            --retry 3 \
+            --retry-delay 2 \
+            --retry-max-time 60 \
+            -X POST \
+            "https://hms-n6nk.onrender.com/api/superadmin/releases/webhook/ota?secret=${WEBHOOK_SECRET}" \
+            -H 'Content-Type: application/json' \
+            --data "{\"releaseId\":\"${RELEASE_ID}\",\"channel\":\"${CHANNEL}\",\"targetRuntimeVersion\":\"${TARGET_RUNTIME}\",\"easUpdateId\":\"${EAS_UPDATE_ID}\",\"status\":\"COMPLETED\"}") || true
+
+          echo "OTA Completion callback HTTP status: ${HTTP_STATUS:-UNKNOWN}"
+          if [ -f /tmp/ota-completed-response.txt ]; then
+            cat /tmp/ota-completed-response.txt
+          fi
+
+      - name: Send Failure Webhook (Phase 5)
+        if: failure() && steps.notify_ota_completed.outcome != 'success'
+        env:
+          WEBHOOK_SECRET: ${{ secrets.RN_WEBHOOK_SECRET || secrets.GITHUB_WEBHOOK_SECRET }}
+          RELEASE_ID: ${{ github.event.inputs.releaseId }}
+          CHANNEL: ${{ github.event.inputs.channel }}
+        run: |
+          set -euo pipefail
+          if [ -z "${WEBHOOK_SECRET:-}" ]; then
+            echo "::warning::Webhook secret not configured, skipping failure notification."
+            exit 0
+          fi
+
+          echo "Sending OTA failure callback for releaseId: '${RELEASE_ID:-NONE}'..."
+          curl -sS \
+            --retry 3 \
+            --retry-delay 2 \
+            --retry-max-time 60 \
+            -X POST \
+            "https://hms-n6nk.onrender.com/api/superadmin/releases/webhook/ota?secret=${WEBHOOK_SECRET}" \
+            -H 'Content-Type: application/json' \
+            --data "{\"releaseId\":\"${RELEASE_ID}\",\"channel\":\"${CHANNEL}\",\"status\":\"FAILED\",\"error\":\"OTA Release workflow execution failed\"}" || true

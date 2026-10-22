@@ -1,5 +1,26 @@
 import { Platform } from 'react-native';
+import * as Application from 'expo-application';
 import { HARDCODED_TENANT } from '../tenant';
+import { isHospitalPackageId } from './packageIdentity';
+
+export { isHospitalPackageId };
+
+/**
+ * Safely resolves the native Android applicationId / bundleIdentifier.
+ * Returns null on web or if the native module is unlinked.
+ */
+export const getNativeApplicationId = () => {
+    if (Platform.OS === 'web') return null;
+    try {
+        if (Application && typeof Application.applicationId === 'string') {
+            const appId = Application.applicationId.trim();
+            if (appId.length > 0) return appId;
+        }
+    } catch (e) {
+        // Native module unavailable (e.g. running on web or unlinked dev environment)
+    }
+    return null;
+};
 
 // Synchronously resolve build/environment configured tenant
 export const BUILD_TENANT_ID = process.env.EXPO_PUBLIC_TENANT_ID || HARDCODED_TENANT?.tenantId || null;
@@ -15,18 +36,21 @@ export const HAS_EXPLICIT_HOSPITAL_TENANT_CONFIG = Boolean(
 );
 
 // Fixed-tenant white-label builds apply strictly to native mobile APK contexts.
-export const IS_FIXED_NATIVE_WHITE_LABEL_BUILD = Platform.OS !== 'web' && HAS_EXPLICIT_HOSPITAL_TENANT_CONFIG;
+// Bound permanently to the native package ID anchor, immune to OTA bundle constant overrides.
+export const IS_FIXED_NATIVE_WHITE_LABEL_BUILD =
+    Platform.OS !== 'web' &&
+    (isHospitalPackageId(getNativeApplicationId()) || HAS_EXPLICIT_HOSPITAL_TENANT_CONFIG);
 
 /**
  * Evaluates whether the application is currently operating within a configured hospital tenant context.
  * Returns true for:
- * 1. Fixed-tenant hospital APK.
+ * 1. Fixed-tenant hospital APK (anchored by native package ID or build configuration).
  * 2. Local web or deployment running with an explicitly configured hospital Tenant ID or Slug (e.g. EXPO_PUBLIC_TENANT_ID).
  * 3. Web session opened using a tenant-specific URL (subdomain, custom hospital domain, or query params).
  * 4. Runtime context passed from caller (route params, branding context, or auth state).
  */
 export const isHospitalTenantContext = (runtimeContext = {}) => {
-    // 1. Authoritative build or environment configured hospital tenant (APK or Web)
+    // 1. Authoritative build, native package ID, or environment configured hospital tenant (APK or Web)
     if (HAS_EXPLICIT_HOSPITAL_TENANT_CONFIG || IS_FIXED_NATIVE_WHITE_LABEL_BUILD) {
         return true;
     }

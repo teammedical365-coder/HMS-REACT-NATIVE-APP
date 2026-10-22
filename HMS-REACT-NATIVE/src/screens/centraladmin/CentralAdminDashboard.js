@@ -16,6 +16,9 @@ import HospitalBrandingEditor from '../../components/HospitalBrandingEditor';
 import RevenuePlanEditorModal from '../../components/centraladmin/RevenuePlanEditorModal';
 import AdminLabs from '../admin/AdminLabs';
 import AdminPharmacy from '../admin/AdminPharmacy';
+import CentralAdminReleaseConsole from '../../components/centraladmin/CentralAdminReleaseConsole';
+import useAppUpdate from '../../hooks/useAppUpdate';
+import AppUpdateModal from '../../components/updates/AppUpdateModal';
 import { fetchSuperAdminHospitals, fetchSuperAdminQuestionLibrary, clearSuperAdminHospitalsCache } from '../../services/offline/offlineSuperAdminService';
 import { subscribeNetworkStatus } from '../../services/offline/networkStatus';
 import OfflineBanner from '../../components/OfflineBanner';
@@ -43,6 +46,7 @@ const isSafeUrl = (url) => {
 export default function CentralAdminDashboard() {
   const navigation = useNavigation(); 
   const route = useRoute();
+  const updateState = useAppUpdate({ autoCheck: true });
   const { width } = useWindowDimensions();
   const isDesktop = width >= 1280;
   const isLaptop = width >= 1024 && width < 1280;
@@ -120,6 +124,8 @@ export default function CentralAdminDashboard() {
   const configurationItems = [
     { title: 'Roles & Permissions', sub: 'Create and manage user roles', icon: <Feather name="key" size={20} color="#3b82f6" />, bg: '#eff6ff', color: '#3b82f6', route: 'AdminRoles' },
     { title: 'Question Library', sub: 'Configure assessment forms', icon: <Feather name="help-circle" size={20} color="#8b5cf6" />, bg: '#f5f3ff', color: '#8b5cf6', route: 'AdminQuestionLibrary' },
+    { title: 'Releases & OTA', sub: 'Manage OTA updates, native builds & deployments', icon: <Feather name="layers" size={20} color="#6366f1" />, bg: '#eef2ff', color: '#6366f1', tab: 'releases' },
+    { title: 'Check for Updates', sub: 'Scan and install latest mobile app updates', icon: <Feather name="download-cloud" size={20} color="#059669" />, bg: '#ecfdf5', color: '#059669', onPress: () => updateState.checkForUpdate(true) },
     { title: 'Lab Tests', sub: 'Manage lab test catalog', icon: <Feather name="activity" size={20} color="#d946ef" />, bg: '#fdf4ff', color: '#d946ef', route: 'AdminLabTests' },
     { title: 'Test Packages', sub: 'Bundle lab tests into packages', icon: <Feather name="package" size={20} color="#22c55e" />, bg: '#f0fdf4', color: '#22c55e', route: 'AdminTestPackages' },
     { title: 'Medicine Catalog', sub: 'Global medicine library', icon: <Feather name="heart" size={20} color="#ea580c" />, bg: '#fff7ed', color: '#ea580c', route: 'AdminMedicines' },
@@ -130,12 +136,13 @@ export default function CentralAdminDashboard() {
   ];
 
   useEffect(() => {
-    // Check for openTab from navigation state only when it changes
-    if (route.params?.openTab) {
-      setActiveTab(route.params.openTab);
-      navigation.setParams({ openTab: undefined });
+    // Check for openTab or tab from navigation state
+    const targetTab = route.params?.openTab || route.params?.tab;
+    if (targetTab) {
+      setActiveTab(targetTab);
+      navigation.setParams({ openTab: undefined, tab: undefined });
     }
-  }, [route.params?.openTab, navigation]);
+  }, [route.params?.openTab, route.params?.tab, navigation]);
 
   useEffect(() => {
     if (route.params?.hospital) {
@@ -776,7 +783,7 @@ export default function CentralAdminDashboard() {
         />
 
         {/* Child Component 4: Hospital & Clinic List Grid */}
-        {(activeTab !== 'revenue-plans' && activeTab !== 'configurations' && activeTab !== 'labs' && activeTab !== 'pharmacy') && (
+        {(activeTab !== 'revenue-plans' && activeTab !== 'configurations' && activeTab !== 'labs' && activeTab !== 'pharmacy' && activeTab !== 'releases') && (
           <CentralAdminHospitalCards 
             loading={loading}
             hospitals={hospitals}
@@ -937,7 +944,15 @@ export default function CentralAdminDashboard() {
                 <TouchableOpacity 
                   key={idx} 
                   style={styles.configCard}
-                  onPress={() => item.tab ? setActiveTab(item.tab) : navigation.navigate(item.route)}
+                  onPress={() => {
+                    if (item.onPress) {
+                      item.onPress();
+                    } else if (item.tab) {
+                      setActiveTab(item.tab);
+                    } else if (item.route) {
+                      navigation.navigate(item.route);
+                    }
+                  }}
                 >
                   <View style={[styles.configIconBox, { backgroundColor: item.bg }]}>
                     {item.icon}
@@ -977,6 +992,13 @@ export default function CentralAdminDashboard() {
               <Text style={styles.btnBackConfigText}>← Back to Configurations</Text>
             </TouchableOpacity>
             <AdminPharmacy />
+          </View>
+        )}
+
+        {/* Release Console View */}
+        {activeTab === 'releases' && (
+          <View style={{ width: '100%', marginTop: 14 }}>
+            <CentralAdminReleaseConsole onBack={() => setActiveTab('configurations')} />
           </View>
         )}
 
@@ -1039,6 +1061,19 @@ export default function CentralAdminDashboard() {
             setRevenuePlanModalData(null);
           }
         }}
+      />
+
+      <AppUpdateModal
+        visible={updateState.modalVisible}
+        status={updateState.status}
+        updateInfo={updateState.updateInfo}
+        downloadProgress={updateState.downloadProgress}
+        errorMessage={updateState.errorMessage}
+        recoveryMetadata={updateState.recoveryMetadata}
+        onUpdateNow={updateState.downloadAndApply}
+        onLater={updateState.deferUpdate}
+        onClose={updateState.closeModal}
+        onResetRecovery={updateState.resetRecovery}
       />
       </SafeAreaView>
     </LinearGradient>

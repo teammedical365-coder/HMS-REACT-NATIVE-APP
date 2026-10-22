@@ -15,7 +15,13 @@ import {
     BUILD_TENANT_IDENTIFIER,
     HAS_EXPLICIT_HOSPITAL_TENANT_CONFIG,
     IS_FIXED_NATIVE_WHITE_LABEL_BUILD,
+    getNativeApplicationId,
+    isHospitalPackageId,
 } from '../utils/subdomain';
+import { useBranding } from '../context/BrandingContext';
+
+// Connection Error Screen for Dedicated White-Label Hospital APKs
+import HospitalConnectionError from '../screens/Auth/HospitalConnectionError';
 
 // Central Admin Auth
 import CentralAdminLogin from '../screens/centraladmin/CentralAdminLogin';
@@ -124,16 +130,33 @@ const resolveInitialRoute = () => {
         return 'CentralAdminLogin';
     }
 
-    // 2. Native fixed-tenant hospital APK
+    // 2. Dedicated native hospital APK anchored by native package ID
+    const nativeAppId = getNativeApplicationId();
+    if (isHospitalPackageId(nativeAppId)) {
+        return 'Login';
+    }
+
+    // 3. Native fixed-tenant hospital APK via build configuration
     if (IS_FIXED_NATIVE_WHITE_LABEL_BUILD) {
         return 'Login';
     }
 
-    // 3. Fallback based on original prior committed code: CentralAdminLogin
+    // 4. Fallback based on original prior committed code: CentralAdminLogin
     return 'CentralAdminLogin';
 };
 
 const AuthStack = () => {
+    const { branding, resolutionError } = useBranding();
+    const nativeAppId = getNativeApplicationId();
+    const isDedicatedWhiteLabel = isHospitalPackageId(nativeAppId) || IS_FIXED_NATIVE_WHITE_LABEL_BUILD;
+
+    // Fail closed: If this is a dedicated native hospital APK and identity resolution failed
+    // with no valid cached hospital branding, display HospitalConnectionError immediately.
+    // Under NO circumstances may an unresolved hospital APK fall through to CentralAdminLogin.
+    if (isHospitalPackageId(nativeAppId) && resolutionError && (!branding || branding._isBaseline)) {
+        return <HospitalConnectionError />;
+    }
+
     const initialRoute = resolveInitialRoute();
 
     return (
@@ -146,6 +169,7 @@ const AuthStack = () => {
         >
             {/* Hospital User Auth & Workflow */}
             <Stack.Screen name="Login" component={Login} />
+            <Stack.Screen name="HospitalConnectionError" component={HospitalConnectionError} />
             <Stack.Screen name="Signup" component={Signup} />
             <Stack.Screen name="OTP" component={OTPVerificationScreen} />
 
@@ -155,8 +179,8 @@ const AuthStack = () => {
             <Stack.Screen name="Appointment" component={Appointment} />
             <Stack.Screen name="AppointmentSuccess" component={AppointmentSuccess} />
 
-            {/* Central Admin (Omitted ONLY in fixed-tenant native white-label builds to enforce portal isolation) */}
-            {!IS_FIXED_NATIVE_WHITE_LABEL_BUILD && (
+            {/* Central Admin (Omitted in all dedicated white-label builds to enforce portal isolation) */}
+            {!isDedicatedWhiteLabel && (
                 <>
                     <Stack.Screen name="CentralAdminLogin" component={CentralAdminLogin} />
                     <Stack.Screen name="CentralAdminSignup" component={CentralAdminSignup} />

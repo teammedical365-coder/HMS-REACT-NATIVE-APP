@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL, STORAGE_KEYS } from './Constants';
 import { getStoreRef, dispatchLogout } from '../store/storeRef';
 import { HARDCODED_TENANT } from '../tenant';
+import { isHospitalPackageId, getNativeApplicationId } from './subdomain';
 
 export const baseURL = API_BASE_URL;
 
@@ -228,10 +229,14 @@ export const authAPI = {
     try {
       const payload = { email, password, loginType };
 
-      const idToUse = hospitalId || (loginType !== 'admin' ? (process.env.EXPO_PUBLIC_TENANT_ID || HARDCODED_TENANT?.tenantId) : null);
+      const isDedicated = isHospitalPackageId(getNativeApplicationId());
+      const defaultTenantId = isDedicated ? null : (process.env.EXPO_PUBLIC_TENANT_ID || HARDCODED_TENANT?.tenantId);
+      const defaultTenantSlug = isDedicated ? null : (process.env.EXPO_PUBLIC_TENANT_SLUG || HARDCODED_TENANT?.slug);
+
+      const idToUse = hospitalId || (loginType !== 'admin' ? defaultTenantId : null);
       if (idToUse) payload.hospitalId = idToUse;
 
-      const slugToUse = hospitalSlug || (loginType !== 'admin' ? (process.env.EXPO_PUBLIC_TENANT_SLUG || HARDCODED_TENANT?.slug) : null);
+      const slugToUse = hospitalSlug || (loginType !== 'admin' ? defaultTenantSlug : null);
       if (slugToUse) payload.hospitalSlug = slugToUse;
 
       const response = await apiClient.post('/api/auth/otp/send', payload);
@@ -825,6 +830,22 @@ export const rnBuildAPI = {
     `${baseURL}/api/superadmin/hospitals/${id}/download/rn-apk`,
   getAabDownloadUrl: (id) =>
     `${baseURL}/api/superadmin/hospitals/${id}/download/rn-aab`,
+};
+
+// ─── Super Admin Release Management API (Phase 7) ────────────────────────────
+export const releaseAPI = {
+  getReleases: async (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return (await apiClient.get(`/api/superadmin/releases${qs ? `?${qs}` : ''}`)).data;
+  },
+  getMetrics: async () =>
+    (await apiClient.get('/api/superadmin/releases/metrics')).data,
+  dispatchOta: async (data) =>
+    (await apiClient.post('/api/superadmin/releases/dispatch-ota', data)).data,
+  rollback: async (data) =>
+    (await apiClient.post('/api/superadmin/releases/rollback', data)).data,
+  recordDownload: async (releaseId) =>
+    (await apiClient.post('/api/superadmin/releases/telemetry/download', { releaseId })).data,
 };
 
 // ─── Finance API ──────────────────────────────────────────────────────────────

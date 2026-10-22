@@ -21,10 +21,30 @@ on:
       rnBuildId:
         description: 'RN Build Correlation ID'
         required: true
+      versionCode:
+        description: 'Native Android Version Code (integer > 0)'
+        required: false
+        default: '1'
+      versionName:
+        description: 'Native Android Version Name (semver, e.g. 1.0.0)'
+        required: false
+        default: '1.0.0'
+      targetCommitSha:
+        description: 'Target Git commit SHA to checkout and build from'
+        required: false
+        default: ''
+      releaseId:
+        description: 'Backend Release ID for correlation and release artifact tracking'
+        required: false
+        default: ''
       signingMode:
         description: 'Signing mode: "legacy_debug" (default) or "production" (signed with production release keystore)'
         required: false
         default: 'legacy_debug'
+      uploadToBackend:
+        description: 'Controls whether artifacts are uploaded to the backend and completion/failure callbacks are sent'
+        required: false
+        default: 'true'
 
 jobs:
   build-and-deploy:
@@ -37,6 +57,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.targetCommitSha || github.ref }}
 
       - name: Validate Inputs
         env:
@@ -45,7 +67,10 @@ jobs:
           APP_ID: ${{ github.event.inputs.applicationId }}
           THEME_COLOR: ${{ github.event.inputs.themeColor }}
           RN_BUILD_ID: ${{ github.event.inputs.rnBuildId }}
+          VERSION_CODE: ${{ github.event.inputs.versionCode || '1' }}
+          VERSION_NAME: ${{ github.event.inputs.versionName || '1.0.0' }}
           SIGNING_MODE: ${{ github.event.inputs.signingMode || 'legacy_debug' }}
+          UPLOAD_TO_BACKEND: ${{ github.event.inputs.uploadToBackend || 'true' }}
         run: |
           set -euo pipefail
 
@@ -74,14 +99,37 @@ jobs:
             exit 1
           fi
 
+          if ! [[ "$VERSION_CODE" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Invalid versionCode '$VERSION_CODE'. Expected positive integer."
+            exit 1
+          fi
+
+          if [ "$VERSION_CODE" -gt 2100000000 ]; then
+            echo "::error::versionCode '$VERSION_CODE' exceeds Android maximum limit (2100000000)."
+            exit 1
+          fi
+
+          if ! [[ "$VERSION_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Invalid versionName '$VERSION_NAME'. Expected semantic version (e.g. 1.0.0)."
+            exit 1
+          fi
+
           if [ "$SIGNING_MODE" != "legacy_debug" ] && [ "$SIGNING_MODE" != "production" ]; then
             echo "::error::Invalid signingMode '$SIGNING_MODE'. Expected 'legacy_debug' or 'production'."
             exit 1
           fi
 
+          if [ "$UPLOAD_TO_BACKEND" != "true" ] && [ "$UPLOAD_TO_BACKEND" != "false" ]; then
+            echo "::error::Invalid uploadToBackend '$UPLOAD_TO_BACKEND'. Expected 'true' or 'false'."
+            exit 1
+          fi
+
           echo "Input validation passed."
           echo "Received and validated rnBuildId: $RN_BUILD_ID"
+          echo "Validated native versionCode: $VERSION_CODE"
+          echo "Validated native versionName: $VERSION_NAME"
           echo "Selected signingMode: $SIGNING_MODE"
+          echo "Upload to backend: $UPLOAD_TO_BACKEND"
 
       - name: Prepare Production Keystore
         id: setup_keystore
@@ -193,8 +241,22 @@ jobs:
             // Wire app icon to white-label asset
             config.expo.icon = './assets/icon.png';
 
+            // Configure native Android versionCode and semantic versionName (Phase 3)
+            const rawVersionCode = context.payload.inputs.versionCode;
+            const rawVersionName = context.payload.inputs.versionName;
+
+            const parsedVersionCode = (rawVersionCode && /^[1-9][0-9]*$/.test(String(rawVersionCode).trim()))
+              ? parseInt(String(rawVersionCode).trim(), 10)
+              : (config.expo.android?.versionCode || 1);
+            const parsedVersionName = (rawVersionName && String(rawVersionName).trim())
+              ? String(rawVersionName).trim()
+              : (config.expo.version || '1.0.0');
+
+            config.expo.version = parsedVersionName;
+
             if (!config.expo.android) config.expo.android = {};
             config.expo.android.package = applicationId;
+            config.expo.android.versionCode = parsedVersionCode;
             config.expo.android.icon = './assets/icon.png';
 
             // Ensure adaptiveIcon does not override hospital logo with a default icon
@@ -211,7 +273,7 @@ jobs:
             }
 
             fs.writeFileSync(appJsonPath, JSON.stringify(config, null, 2) + '\n');
-            core.info(`Updated app.json: name=${hospitalName}, slug=${slug}, package=${applicationId}, icon=${config.expo.icon}`);
+            core.info(`Updated app.json: name=${hospitalName}, slug=${slug}, package=${applicationId}, versionCode=${parsedVersionCode}, version=${parsedVersionName}, icon=${config.expo.icon}`);
 
             // Inject white-label tenant identity into src/tenant.js
             const tenantJsPath = 'HMS-REACT-NATIVE/src/tenant.js';
@@ -223,6 +285,8 @@ jobs:
             core.exportVariable('EXPO_PUBLIC_HOSPITAL_NAME', hospitalName);
             core.exportVariable('EXPO_PUBLIC_TENANT_SLUG', slug);
             core.exportVariable('APPLICATION_ID', applicationId);
+            core.exportVariable('VERSION_CODE', String(parsedVersionCode));
+            core.exportVariable('VERSION_NAME', parsedVersionName);
 
       - name: Download & Process Logo
         working-directory: ./HMS-REACT-NATIVE
@@ -295,6 +359,10 @@ jobs:
           EXPO_PUBLIC_API_URL: https://hms-n6nk.onrender.com
           EXPO_PUBLIC_THEME_COLOR: ${{ github.event.inputs.themeColor }}
           LOGO_URL: ${{ github.event.inputs.logoUrl }}
+          VERSION_CODE: ${{ env.VERSION_CODE || github.event.inputs.versionCode || '1' }}
+          VERSION_NAME: ${{ env.VERSION_NAME || github.event.inputs.versionName || '1.0.0' }}
+          EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID || vars.EAS_PROJECT_ID || '' }}
+          REQUIRE_OTA_CONFIG: 'true'
         run: |
           set -euo pipefail
 
@@ -308,7 +376,13 @@ jobs:
           # Clean any stale mipmap icons before expo prebuild to ensure tenant isolation
           rm -f android/app/src/main/res/mipmap-*/ic_launcher*
 
+          # Fail immediately before prebuild if mandatory OTA release configuration is missing or invalid
+          node scripts/verify-base-apk-ota-config.js --pre-build
+
           npx expo prebuild --platform android --clean --no-install
+
+          # Fail immediately before Gradle if native AndroidManifest is missing required Expo Updates meta-data
+          node scripts/verify-base-apk-ota-config.js --post-prebuild
 
           # Ensure safe release signing configuration is present in android/app/build.gradle
           node scripts/configure-release-signing.js
@@ -345,6 +419,17 @@ jobs:
 
           file output_artifacts/app-rn.apk output_artifacts/app-rn.aab
           ls -lh output_artifacts/
+
+          # Compute SHA-256 checksums for release verification and backend tracking
+          cd output_artifacts
+          sha256sum app-rn.apk > checksum.sha256
+          sha256sum app-rn.aab >> checksum.sha256
+          cat checksum.sha256
+          APK_SHA=$(sha256sum app-rn.apk | awk '{print $1}')
+          AAB_SHA=$(sha256sum app-rn.aab | awk '{print $1}')
+          echo "APK_SHA256=$APK_SHA" >> $GITHUB_ENV
+          echo "AAB_SHA256=$AAB_SHA" >> $GITHUB_ENV
+          cd ..
 
       - name: Verify APK Signature
         id: verify_signature
@@ -408,15 +493,18 @@ jobs:
           path: |
             output_artifacts/app-rn.apk
             output_artifacts/app-rn.aab
+            output_artifacts/checksum.sha256
           if-no-files-found: error
 
       - name: Upload Build Artifacts to Backend (Phase 1)
         id: upload_artifacts_backend
-        if: success()
+        if: success() && (github.event.inputs.uploadToBackend != 'false')
         env:
           WEBHOOK_SECRET: ${{ secrets.RN_WEBHOOK_SECRET }}
           TENANT_ID: ${{ github.event.inputs.tenantId }}
           RN_BUILD_ID: ${{ github.event.inputs.rnBuildId }}
+          RELEASE_ID: ${{ github.event.inputs.releaseId || '' }}
+          APK_SHA256: ${{ env.APK_SHA256 || '' }}
         run: |
           set -euo pipefail
 
@@ -430,7 +518,7 @@ jobs:
             exit 1
           fi
 
-          echo "Phase 1: Uploading APK/AAB with rnBuildId: $RN_BUILD_ID..."
+          echo "Phase 1: Uploading APK/AAB with rnBuildId: $RN_BUILD_ID (releaseId: ${RELEASE_ID:-none})..."
 
           HTTP_STATUS=$(curl -sS \
             -o /tmp/rn-upload-response.txt \
@@ -443,7 +531,9 @@ jobs:
             -F "apk=@output_artifacts/app-rn.apk" \
             -F "aab=@output_artifacts/app-rn.aab" \
             -F "tenantId=${TENANT_ID}" \
-            -F "rnBuildId=${RN_BUILD_ID}")
+            -F "rnBuildId=${RN_BUILD_ID}" \
+            -F "releaseId=${RELEASE_ID:-}" \
+            -F "checksumSha256=${APK_SHA256:-}")
 
           echo "Upload HTTP status: $HTTP_STATUS"
           echo "Upload response:"
@@ -458,11 +548,13 @@ jobs:
 
       - name: Final Completion Callback (Phase 2)
         id: notify_completed
-        if: success()
+        if: success() && (github.event.inputs.uploadToBackend != 'false')
         env:
           WEBHOOK_SECRET: ${{ secrets.RN_WEBHOOK_SECRET }}
           TENANT_ID: ${{ github.event.inputs.tenantId }}
           RN_BUILD_ID: ${{ github.event.inputs.rnBuildId }}
+          RELEASE_ID: ${{ github.event.inputs.releaseId || '' }}
+          APK_SHA256: ${{ env.APK_SHA256 || '' }}
         run: |
           set -euo pipefail
 
@@ -471,7 +563,7 @@ jobs:
             exit 1
           fi
 
-          echo "Phase 2: Sending final completion callback for rnBuildId: $RN_BUILD_ID..."
+          echo "Phase 2: Sending final completion callback for rnBuildId: $RN_BUILD_ID (releaseId: ${RELEASE_ID:-none})..."
 
           HTTP_STATUS=$(curl -sS \
             -o /tmp/rn-completed-response.txt \
@@ -482,7 +574,7 @@ jobs:
             -X POST \
             "https://hms-n6nk.onrender.com/api/superadmin/hospitals/webhook/github-rn?secret=${WEBHOOK_SECRET}" \
             -H 'Content-Type: application/json' \
-            --data "{\"tenantId\":\"${TENANT_ID}\",\"rnBuildId\":\"${RN_BUILD_ID}\",\"status\":\"COMPLETED\"}")
+            --data "{\"tenantId\":\"${TENANT_ID}\",\"rnBuildId\":\"${RN_BUILD_ID}\",\"status\":\"COMPLETED\",\"releaseId\":\"${RELEASE_ID:-}\",\"checksumSha256\":\"${APK_SHA256:-}\"}")
 
           echo "Completion callback HTTP status: $HTTP_STATUS"
           echo "Completion callback response:"
@@ -496,11 +588,12 @@ jobs:
           echo "Phase 2 completion callback acknowledged by backend. Build is now COMPLETED."
 
       - name: Notify Backend Webhook (Failure)
-        if: failure() && steps.notify_completed.outcome != 'success'
+        if: failure() && steps.notify_completed.outcome != 'success' && (github.event.inputs.uploadToBackend != 'false')
         env:
           WEBHOOK_SECRET: ${{ secrets.RN_WEBHOOK_SECRET }}
           TENANT_ID: ${{ github.event.inputs.tenantId }}
           RN_BUILD_ID: ${{ github.event.inputs.rnBuildId }}
+          RELEASE_ID: ${{ github.event.inputs.releaseId || '' }}
         run: |
           set -euo pipefail
 
@@ -509,7 +602,7 @@ jobs:
             exit 1
           fi
 
-          echo "Sending failure webhook for rnBuildId: $RN_BUILD_ID"
+          echo "Sending failure webhook for rnBuildId: $RN_BUILD_ID (releaseId: ${RELEASE_ID:-none})"
 
           curl -f -sS \
             --retry 3 \
@@ -518,7 +611,7 @@ jobs:
             -X POST \
             "https://hms-n6nk.onrender.com/api/superadmin/hospitals/webhook/github-rn?secret=${WEBHOOK_SECRET}" \
             -H 'Content-Type: application/json' \
-            --data "{\"tenantId\":\"${TENANT_ID}\",\"rnBuildId\":\"${RN_BUILD_ID}\",\"status\":\"FAILED\",\"error\":\"RN GitHub Action workflow failed\"}"
+            --data "{\"tenantId\":\"${TENANT_ID}\",\"rnBuildId\":\"${RN_BUILD_ID}\",\"status\":\"FAILED\",\"releaseId\":\"${RELEASE_ID:-}\",\"error\":\"RN GitHub Action workflow failed\"}"
 
       - name: Clean up Keystore
         if: always()

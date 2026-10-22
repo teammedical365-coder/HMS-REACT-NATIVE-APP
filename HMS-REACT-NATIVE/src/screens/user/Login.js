@@ -12,6 +12,8 @@ import {
     BUILD_TENANT_SLUG,
     IS_FIXED_NATIVE_WHITE_LABEL_BUILD,
     isHospitalTenantContext,
+    getNativeApplicationId,
+    isHospitalPackageId,
 } from '../../utils/subdomain';
 
 const Login = () => {
@@ -24,6 +26,8 @@ const Login = () => {
     const [formData, setFormData] = useState({ email: '', password: '', hospitalSlug: '' });
     const [localError, setLocalError] = useState(null);
     const searchParams = route.params || {};
+    const nativeAppId = getNativeApplicationId();
+    const isDedicatedHospital = isHospitalPackageId(nativeAppId);
     const isHospitalTenant = isHospitalTenantContext({
         routeParams: searchParams,
         branding,
@@ -35,15 +39,26 @@ const Login = () => {
         dispatch(resetOtpFlow());
 
         // For native white-label APK, ensure authoritative tenant identity is recorded in storage
-        if (IS_FIXED_NATIVE_WHITE_LABEL_BUILD) {
-            if (BUILD_TENANT_SLUG) {
-                AsyncStorage.setItem('tenantSlug', BUILD_TENANT_SLUG).catch(() => {});
+        if (isDedicatedHospital) {
+            const resolvedSlug = (branding && !branding._isBaseline && branding.slug) || null;
+            const resolvedId = (branding && !branding._isBaseline && (branding.hospitalId || branding._tenantId)) || null;
+            if (resolvedSlug) {
+                AsyncStorage.setItem('tenantSlug', resolvedSlug).catch(() => {});
             }
-            if (BUILD_TENANT_ID) {
-                AsyncStorage.setItem('hospitalId', String(BUILD_TENANT_ID)).catch(() => {});
+            if (resolvedId) {
+                AsyncStorage.setItem('hospitalId', String(resolvedId)).catch(() => {});
+            }
+        } else if (IS_FIXED_NATIVE_WHITE_LABEL_BUILD) {
+            const resolvedSlug = (branding && !branding._isBaseline && branding.slug) || BUILD_TENANT_SLUG;
+            const resolvedId = (branding && !branding._isBaseline && (branding.hospitalId || branding._tenantId)) || BUILD_TENANT_ID;
+            if (resolvedSlug) {
+                AsyncStorage.setItem('tenantSlug', resolvedSlug).catch(() => {});
+            }
+            if (resolvedId) {
+                AsyncStorage.setItem('hospitalId', String(resolvedId)).catch(() => {});
             }
         }
-    }, [dispatch]);
+    }, [dispatch, branding, isDedicatedHospital]);
 
     useEffect(() => {
         if (isAuthenticated && user) {
@@ -112,17 +127,23 @@ const Login = () => {
         if (!creds.id || !creds.password) return;
 
         let slug;
-        if (IS_FIXED_NATIVE_WHITE_LABEL_BUILD) {
+        let effectiveHospitalId;
+
+        if (isDedicatedHospital) {
+            // Dedicated native package identity takes STRICT PRECEDENCE over bundle constants.
+            // When branding is baseline or unresolved, NEVER fall back to untrusted bundle constants!
+            slug = (branding && !branding._isBaseline && branding.slug) || undefined;
+            effectiveHospitalId = (branding && !branding._isBaseline && (branding.hospitalId || branding._tenantId)) || undefined;
+        } else if (IS_FIXED_NATIVE_WHITE_LABEL_BUILD) {
             // For a hospital-specific white-label APK, the build tenant is strictly authoritative.
-            // Stale AsyncStorage, deep-link query params, or form fields cannot redirect to another hospital.
-            slug = BUILD_TENANT_SLUG || undefined;
+            slug = (branding && !branding._isBaseline && branding.slug) || BUILD_TENANT_SLUG || undefined;
+            effectiveHospitalId = (branding && !branding._isBaseline && (branding.hospitalId || branding._tenantId)) || BUILD_TENANT_ID || undefined;
         } else {
             // Dynamic multi-tenant workflow: resolve from form input, route params, or stored session
             const storedSlug = await AsyncStorage.getItem('tenantSlug').catch(() => null);
-            slug = formData.hospitalSlug || searchParams.slug || searchParams.tenantId || storedSlug || BUILD_TENANT_SLUG || undefined;
+            slug = formData.hospitalSlug || searchParams.slug || searchParams.tenantId || storedSlug || (branding && !branding._isBaseline && branding.slug) || BUILD_TENANT_SLUG || undefined;
+            effectiveHospitalId = (branding && !branding._isBaseline && (branding.hospitalId || branding._tenantId)) || searchParams.hospitalId || searchParams.tenantId || BUILD_TENANT_ID || undefined;
         }
-
-        const effectiveHospitalId = BUILD_TENANT_ID || searchParams.hospitalId || searchParams.tenantId || undefined;
 
         try {
             await dispatch(sendOtp({
@@ -172,7 +193,7 @@ const Login = () => {
                 loading={loading}
                 error={error || localError}
                 successMsg={otpSuccessMsg}
-                extraFooter={!isHospitalTenant ? (
+                extraFooter={(!isHospitalTenant && !isDedicatedHospital) ? (
                     <View style={{ alignItems: 'center', marginTop: 14 }}>
                         <TouchableOpacity
                             onPress={() => navigation.navigate('CentralAdminLogin')}

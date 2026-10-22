@@ -22,6 +22,8 @@ import DashboardScreen from '../screens/DashboardScreen';
 import DashboardLayout from '../components/layouts/DashboardLayout';
 import { useBranding } from '../context/BrandingContext';
 import { connectAuthenticatedSocket, disconnectSocket } from '../utils/socket';
+import useAppUpdate from '../hooks/useAppUpdate';
+import AppUpdateModal from '../components/updates/AppUpdateModal';
 
 const Stack = createNativeStackNavigator();
 
@@ -36,6 +38,7 @@ const FallbackStack = () => (
 const AppNavigator = () => {
     const { loading: isLoading, isAuthenticated, user } = useAuth();
     const { loadBranding } = useBranding();
+    const updateState = useAppUpdate({ autoCheck: isAuthenticated });
 
     // Auto-load hospital branding when user logs in (Web App.jsx 1:1 Parity)
     React.useEffect(() => {
@@ -117,6 +120,21 @@ const AppNavigator = () => {
                     renderRoleStack()
                 )}
             </Stack.Navigator>
+
+            {isAuthenticated && (
+                <AppUpdateModal
+                    visible={updateState.modalVisible}
+                    status={updateState.status}
+                    updateInfo={updateState.updateInfo}
+                    downloadProgress={updateState.downloadProgress}
+                    errorMessage={updateState.errorMessage}
+                    recoveryMetadata={updateState.recoveryMetadata}
+                    onUpdateNow={updateState.downloadAndApply}
+                    onLater={updateState.deferUpdate}
+                    onClose={updateState.closeModal}
+                    onResetRecovery={updateState.resetRecovery}
+                />
+            )}
 
             {isLoading && (
                 <View style={styles.globalLoadingOverlay}>

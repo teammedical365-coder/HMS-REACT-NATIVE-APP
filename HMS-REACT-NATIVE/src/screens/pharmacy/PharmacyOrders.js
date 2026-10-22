@@ -23,6 +23,7 @@ import {
 import { checkOnlineStatus } from '../../services/offline/networkStatus';
 import OfflineBanner from '../../components/OfflineBanner';
 import OfflineEmptyState from '../../components/OfflineEmptyState';
+import { getNativeApplicationId, isHospitalPackageId } from '../../utils/subdomain';
 
 const backendUrl = API_BASE_URL;
 
@@ -272,7 +273,23 @@ const PharmacyOrders = () => {
             // Tier 3: Query scoped by hospitalId if available
             if (!docs || docs.length === 0) {
                 try {
-                    const hid = hospitalInfo?._id || hospitalInfo?.id || (await AsyncStorage.getItem(STORAGE_KEYS.HOSPITAL_BRANDING_ID)) || process.env.EXPO_PUBLIC_TENANT_ID;
+                    const isDedicated = isHospitalPackageId(getNativeApplicationId());
+                    let hid = hospitalInfo?._id || hospitalInfo?.id;
+                    if (!hid) {
+                        hid = await AsyncStorage.getItem(STORAGE_KEYS.HOSPITAL_BRANDING_ID);
+                    }
+                    if (!hid) {
+                        try {
+                            const cachedRaw = await AsyncStorage.getItem(STORAGE_KEYS.HOSPITAL_BRANDING);
+                            if (cachedRaw) {
+                                const parsed = JSON.parse(cachedRaw);
+                                hid = parsed.hospitalId || parsed._tenantId || parsed._id;
+                            }
+                        } catch (_) {}
+                    }
+                    if (!hid && !isDedicated) {
+                        hid = process.env.EXPO_PUBLIC_TENANT_ID || null;
+                    }
                     if (hid) {
                         const token = await getAuthToken();
                         const headers = {};
@@ -335,7 +352,10 @@ const PharmacyOrders = () => {
         try {
             const res = await hospitalAPI.getMyHospital();
             if (res.success && res.hospital) {
+                const hid = res.hospital._id || res.hospital.id;
                 setHospitalInfo({
+                    _id: hid,
+                    id: hid,
                     name: res.hospital.name,
                     address: res.hospital.address,
                     phone: res.hospital.phone,

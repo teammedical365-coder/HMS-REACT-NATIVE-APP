@@ -8,9 +8,10 @@ import { publicAPI, patientAuthAPI } from '../../utils/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NeuralAuthPortal from '../../components/auth/NeuralAuthPortal';
 import { HARDCODED_TENANT } from '../../tenant';
+import { getNativeApplicationId, isHospitalPackageId } from '../../utils/subdomain';
 
 const PatientPortalLogin = () => {
-    const { loadBranding } = useBranding();
+    const { loadBranding, branding } = useBranding();
     const navigation = useNavigation();
     const route = useRoute();
     const dispatch = useDispatch();
@@ -25,14 +26,23 @@ const PatientPortalLogin = () => {
             try {
                 setLoading(true);
                 let domain = null;
-                if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.hostname) {
+
+                const nativeAppId = getNativeApplicationId();
+                const isDedicatedHospital = isHospitalPackageId(nativeAppId);
+
+                // Dedicated native package identity takes STRICT PRECEDENCE over bundle constants
+                if (isDedicatedHospital && branding && !branding._isBaseline) {
+                    domain = branding.hospitalId || branding.slug || null;
+                }
+
+                if (!domain && Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.hostname) {
                     const host = window.location.hostname;
                     if (host !== 'localhost' && !host.startsWith('127.') && !host.startsWith('192.')) {
                         domain = host;
                     }
                 }
                 
-                if (!domain) {
+                if (!domain && !isDedicatedHospital) {
                     domain = route.params?.tenantId ||
                         route.params?.slug ||
                         (await AsyncStorage.getItem('tenant_id')) ||
@@ -45,7 +55,9 @@ const PatientPortalLogin = () => {
                 }
 
                 if (!domain) {
-                    const fallbackName = process.env.EXPO_PUBLIC_HOSPITAL_NAME || HARDCODED_TENANT?.name || branding?.hospitalName || 'Hospital Portal';
+                    const fallbackName = isDedicatedHospital
+                        ? (branding?.hospitalName || 'Hospital Portal')
+                        : (process.env.EXPO_PUBLIC_HOSPITAL_NAME || HARDCODED_TENANT?.name || branding?.hospitalName || 'Hospital Portal');
                     setHospital({
                         id: null,
                         name: fallbackName,
@@ -69,8 +81,8 @@ const PatientPortalLogin = () => {
                     }
                 } else {
                     // Fallback to configured build tenant branding if tenant lookup returned empty
-                    const defaultId = process.env.EXPO_PUBLIC_TENANT_ID || HARDCODED_TENANT?.tenantId || HARDCODED_TENANT?.slug || null;
-                    const defaultName = process.env.EXPO_PUBLIC_HOSPITAL_NAME || HARDCODED_TENANT?.name || branding?.hospitalName || 'Hospital Portal';
+                    const defaultId = isDedicatedHospital ? null : (process.env.EXPO_PUBLIC_TENANT_ID || HARDCODED_TENANT?.tenantId || HARDCODED_TENANT?.slug || null);
+                    const defaultName = isDedicatedHospital ? (branding?.hospitalName || 'Hospital Portal') : (process.env.EXPO_PUBLIC_HOSPITAL_NAME || HARDCODED_TENANT?.name || branding?.hospitalName || 'Hospital Portal');
                     setHospital({
                         id: defaultId,
                         name: defaultName,
@@ -79,8 +91,8 @@ const PatientPortalLogin = () => {
                 }
             } catch (err) {
                 console.warn('Could not load hospital branding, applying fallback:', err?.message || err);
-                const defaultId = process.env.EXPO_PUBLIC_TENANT_ID || HARDCODED_TENANT?.tenantId || HARDCODED_TENANT?.slug || null;
-                const defaultName = process.env.EXPO_PUBLIC_HOSPITAL_NAME || HARDCODED_TENANT?.name || branding?.hospitalName || 'Hospital Portal';
+                const defaultId = isDedicatedHospital ? null : (process.env.EXPO_PUBLIC_TENANT_ID || HARDCODED_TENANT?.tenantId || HARDCODED_TENANT?.slug || null);
+                const defaultName = isDedicatedHospital ? (branding?.hospitalName || 'Hospital Portal') : (process.env.EXPO_PUBLIC_HOSPITAL_NAME || HARDCODED_TENANT?.name || branding?.hospitalName || 'Hospital Portal');
                 setHospital({
                     id: defaultId,
                     name: defaultName,
@@ -107,8 +119,12 @@ const PatientPortalLogin = () => {
             return;
         }
 
-        const defaultId = process.env.EXPO_PUBLIC_TENANT_ID || HARDCODED_TENANT?.tenantId || HARDCODED_TENANT?.slug;
-        const hospitalId = hospital?.id || defaultId;
+        const nativeAppId = getNativeApplicationId();
+        const isDedicatedHospital = isHospitalPackageId(nativeAppId);
+        const resolvedTenantId = (isDedicatedHospital && branding && !branding._isBaseline && (branding.hospitalId || branding._tenantId)) || null;
+
+        const defaultId = isDedicatedHospital ? null : (process.env.EXPO_PUBLIC_TENANT_ID || HARDCODED_TENANT?.tenantId || HARDCODED_TENANT?.slug);
+        const hospitalId = resolvedTenantId || hospital?.id || defaultId;
 
         setIsSubmitting(true);
         try {

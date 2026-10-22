@@ -34,6 +34,12 @@ const TAB_THEMES = {
     color: '#d97706',
     shadow: 'rgba(217, 119, 6, 0.18)',
   },
+  releases: {
+    bg: '#f0fdfa',
+    border: '#99f6e4',
+    color: '#0d9488',
+    shadow: 'rgba(13, 148, 136, 0.18)',
+  },
   configurations: {
     bg: '#f0fdfa',
     border: '#99f6e4',
@@ -91,6 +97,7 @@ export default function CentralAdminTabs({ activeTab, setActiveTab, onRevenueAna
     { id: 'clinic-basic', label: 'Clinic Basic Plan', iconType: 'edit' },
     { id: 'simple-clinics', label: 'Starter Plan', iconType: 'file' },
     { id: 'revenue-plans', label: 'Revenue Plans', iconType: 'credit-card' },
+    { id: 'releases', label: 'Releases & OTA', iconType: 'layers' },
     { id: 'configurations', label: 'Configurations', iconType: 'settings' },
   ];
 
@@ -154,6 +161,14 @@ export default function CentralAdminTabs({ activeTab, setActiveTab, onRevenueAna
             <Rect x="14" y="3" width="7" height="7" rx="1" />
             <Rect x="14" y="14" width="7" height="7" rx="1" />
             <Rect x="3" y="14" width="7" height="7" rx="1" />
+          </Svg>
+        );
+      case 'layers':
+        return (
+          <Svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke={strokeColor} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <Path d="M12 2L2 7l10 5 10-5-10-5z" />
+            <Path d="M2 17l10 5 10-5" />
+            <Path d="M2 12l10 5 10-5" />
           </Svg>
         );
       default:
@@ -224,6 +239,46 @@ export default function CentralAdminTabs({ activeTab, setActiveTab, onRevenueAna
             <Text style={{ color: '#ffffff', fontSize: 10, marginLeft: 6 }}>▼</Text>
           </Pressable>
 
+          {/* Quick-Access Releases & OTA Action Button */}
+          <Pressable
+            style={({ pressed, hovered }) => [
+              localStyles.releasesHeaderBtn,
+              activeTab === 'releases' && localStyles.releasesHeaderBtnActive,
+              isMobile && { paddingVertical: 10, paddingHorizontal: isSmallPhone ? 10 : 14, flexShrink: 0 },
+              hovered && {
+                backgroundColor: activeTab === 'releases' ? '#0f766e' : '#f0fdfa',
+                borderColor: '#0d9488',
+                transform: [{ translateY: -1 }],
+                ...Platform.select({
+                  web: {
+                    boxShadow: '0 4px 12px rgba(13, 148, 136, 0.2)',
+                    cursor: 'pointer',
+                    transitionProperty: 'all',
+                    transitionDuration: '0.2s',
+                    transitionTimingFunction: 'ease',
+                  }
+                }),
+              },
+              pressed && {
+                transform: [{ scale: 0.97 }]
+              }
+            ]}
+            onPress={() => setActiveTab('releases')}
+          >
+            <Svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={activeTab === 'releases' ? '#ffffff' : '#0d9488'} strokeWidth={2.2} style={{ marginRight: 6 }}>
+              <Path d="M12 2L2 7l10 5 10-5-10-5z" />
+              <Path d="M2 17l10 5 10-5" />
+              <Path d="M2 12l10 5 10-5" />
+            </Svg>
+            <Text style={[
+              localStyles.releasesHeaderBtnText,
+              activeTab === 'releases' && localStyles.releasesHeaderBtnTextActive,
+              isMobile && { fontSize: isSmallPhone ? 11.5 : 12.5 }
+            ]}>
+              Releases & OTA
+            </Text>
+          </Pressable>
+
           <Pressable 
             style={({ pressed, hovered }) => [
               localStyles.refreshBtn, 
@@ -272,7 +327,7 @@ export default function CentralAdminTabs({ activeTab, setActiveTab, onRevenueAna
       <View style={[styles.tabsNavContainer, isMobile && { marginTop: 10, marginBottom: 18 }]}>
         <ScrollView 
           horizontal 
-          showsHorizontalScrollIndicator={false}
+          showsHorizontalScrollIndicator={true}
           nestedScrollEnabled={true}
           contentContainerStyle={[styles.tabsScrollWrapper, isMobile && { gap: 8, paddingBottom: 8 }]} 
         >
@@ -389,5 +444,32 @@ const localStyles = StyleSheet.create({
   },
   tabPillTextInactive: {
     color: '#334155',
+  },
+  releasesHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: '#f0fdfa',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#99f6e4',
+    shadowColor: 'rgba(13, 148, 136, 0.1)',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  releasesHeaderBtnActive: {
+    backgroundColor: '#0d9488',
+    borderColor: '#0f766e',
+  },
+  releasesHeaderBtnText: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#0d9488',
+  },
+  releasesHeaderBtnTextActive: {
+    color: '#ffffff',
   },
 });

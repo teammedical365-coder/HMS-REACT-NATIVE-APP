@@ -105,6 +105,7 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
         if (isCentralAdmin) {
             return [
                 { label: 'System Overview', path: 'CentralAdminDashboard', icon: <Feather name="grid" size={18} /> },
+                { label: 'Releases & OTA', path: 'CentralAdminReleaseConsole', icon: <Feather name="layers" size={18} /> },
                 { label: 'Question Library', path: 'AdminQuestionLibrary', icon: <Feather name="layers" size={18} /> },
                 { label: 'Consent Hub', path: 'ConsentManagement', icon: <Feather name="clipboard" size={18} /> },
                 { label: 'Role & Permissions', path: 'AdminRoles', icon: <Feather name="shield" size={18} /> },
