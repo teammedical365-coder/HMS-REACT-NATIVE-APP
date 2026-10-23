@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const withGradleMemory = require('./plugins/withGradleMemory');
 
 function getTenantFromFile() {
   try {
@@ -177,7 +178,7 @@ module.exports = ({ config }) => {
 
   const versionName = resolvedVersionName || '1.0.0';
 
-  return {
+  const resolvedConfig = {
     ...config,
     name: hospitalName,
     slug: 'medical-365',
@@ -215,4 +216,7 @@ module.exports = ({ config }) => {
       ...(easProjectId ? { eas: { projectId: easProjectId } } : {}),
     },
   };
+
+  return withGradleMemory(resolvedConfig);
 };
+

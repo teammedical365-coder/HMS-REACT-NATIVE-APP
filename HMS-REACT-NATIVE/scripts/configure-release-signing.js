@@ -20,6 +20,7 @@ function configureReleaseSigning() {
 
   if (content.includes('ANDROID_KEYSTORE_PATH') && content.includes('signingConfigs.release')) {
     console.log('[configure-release-signing] Production release signing block already configured in build.gradle.');
+    configureGradleMemoryProperties();
     return;
   }
 
@@ -74,10 +75,45 @@ function configureReleaseSigning() {
 
   fs.writeFileSync(gradlePath, content, 'utf8');
   console.log('[configure-release-signing] Successfully ensured production release signing in build.gradle.');
+
+  configureGradleMemoryProperties();
+}
+
+function configureGradleMemoryProperties() {
+  const propsPath = path.join(__dirname, '..', 'android', 'gradle.properties');
+  if (!fs.existsSync(propsPath)) {
+    return;
+  }
+  let content = fs.readFileSync(propsPath, 'utf8');
+  const targetJvmArgs =
+    'org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8';
+
+  if (content.includes('org.gradle.jvmargs=')) {
+    content = content.replace(/org\.gradle\.jvmargs=.*/g, targetJvmArgs);
+  } else {
+    content += `\n${targetJvmArgs}\n`;
+  }
+
+  if (content.includes('org.gradle.parallel=')) {
+    content = content.replace(/org\.gradle\.parallel=.*/g, 'org.gradle.parallel=false');
+  } else {
+    content += '\norg.gradle.parallel=false\n';
+  }
+
+  if (content.includes('org.gradle.workers.max=')) {
+    content = content.replace(/org\.gradle\.workers\.max=.*/g, 'org.gradle.workers.max=2');
+  } else {
+    content += '\norg.gradle.workers.max=2\n';
+  }
+
+  fs.writeFileSync(propsPath, content, 'utf8');
+  console.log(
+    '[configure-release-signing] Successfully ensured Gradle JVM memory and concurrency settings in gradle.properties.'
+  );
 }
 
 if (require.main === module) {
   configureReleaseSigning();
 }
 
-module.exports = { configureReleaseSigning };
+module.exports = { configureReleaseSigning, configureGradleMemoryProperties };
