@@ -1,7 +1,8 @@
 {
   "expo": {
     "name": "Medical365",
-    "slug": "medical365",
+    "slug": "medical-365",
+    "owner": "teammedical365",
     "version": "1.0.0",
     "runtimeVersion": {
       "policy": "appVersion"
@@ -43,11 +44,18 @@
     "android": {
       "package": "com.medical365.app",
       "versionCode": 1,
-      "permissions": ["RECORD_AUDIO"],
+      "permissions": [
+        "RECORD_AUDIO"
+      ],
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
+      }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "e122d869-b7fd-4732-9584-0e00a0466021"
       }
     }
   }

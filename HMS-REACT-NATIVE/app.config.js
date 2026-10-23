@@ -23,6 +23,22 @@ const isValidAppId = (id) =>
   typeof id === 'string' &&
   /^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$/.test(id.trim());
 
+const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+const PLACEHOLDER_PROJECT_IDS = [
+  '00000000-0000-0000-0000-000000000000',
+  'YOUR_EAS_PROJECT_ID',
+  'your-project-id',
+];
+
+function isPlaceholderProjectId(id) {
+  if (!id || typeof id !== 'string') return true;
+  const trimmed = id.trim();
+  if (PLACEHOLDER_PROJECT_IDS.includes(trimmed)) return true;
+  if (/^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(trimmed)) return true;
+  return false;
+}
+
 module.exports = ({ config }) => {
   const tenantFromFile = getTenantFromFile();
 
@@ -77,11 +93,11 @@ module.exports = ({ config }) => {
     (config.android && config.android.adaptiveIcon && config.android.adaptiveIcon.backgroundColor) ||
     '#ffffff';
 
-  const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+  const isReleaseOta = process.env.REQUIRE_OTA_CONFIG === 'true';
 
   const easProjectId =
     process.env.EAS_PROJECT_ID ||
-    (config.extra && config.extra.eas && config.extra.eas.projectId) ||
+    (!isReleaseOta && config.extra && config.extra.eas && config.extra.eas.projectId) ||
     null;
 
   if (easProjectId && !UUID_REGEX.test(String(easProjectId).trim())) {
@@ -109,10 +125,15 @@ module.exports = ({ config }) => {
     (config.updates && config.updates.requestHeaders && config.updates.requestHeaders['expo-channel-name']) ||
     'production';
 
-  if (process.env.REQUIRE_OTA_CONFIG === 'true') {
+  if (isReleaseOta) {
     if (!easProjectId) {
       throw new Error(
         '[OTA CONFIG ERROR] Mandatory OTA configuration missing: EAS_PROJECT_ID is required for OTA-capable release builds.'
+      );
+    }
+    if (isPlaceholderProjectId(easProjectId)) {
+      throw new Error(
+        `[OTA CONFIG ERROR] Configured EAS_PROJECT_ID "${easProjectId}" is a placeholder and cannot be used for OTA-capable release builds.`
       );
     }
     if (!updatesUrl) {
@@ -159,7 +180,8 @@ module.exports = ({ config }) => {
   return {
     ...config,
     name: hospitalName,
-    slug: tenantSlug,
+    slug: 'medical-365',
+    owner: 'teammedical365',
     version: versionName,
     icon: iconPath,
     updates: {
