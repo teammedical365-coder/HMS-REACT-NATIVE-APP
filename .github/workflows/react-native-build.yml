@@ -46,10 +46,15 @@ on:
         required: false
         default: 'true'
 
+env:
+  EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID }}
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID }}
     concurrency:
       group: rn-build-${{ github.event.inputs.tenantId }}
       cancel-in-progress: false
@@ -71,8 +76,24 @@ jobs:
           VERSION_NAME: ${{ github.event.inputs.versionName || '1.0.0' }}
           SIGNING_MODE: ${{ github.event.inputs.signingMode || 'legacy_debug' }}
           UPLOAD_TO_BACKEND: ${{ github.event.inputs.uploadToBackend || 'true' }}
+          EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID }}
         run: |
           set -euo pipefail
+
+          if [ -z "$EAS_PROJECT_ID" ]; then
+            echo "::error::Mandatory EAS_PROJECT_ID is missing from repository variables (vars.EAS_PROJECT_ID)."
+            exit 1
+          fi
+
+          if ! [[ "$EAS_PROJECT_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+            echo "::error::Configured EAS_PROJECT_ID is invalid: expected 36-character UUID format."
+            exit 1
+          fi
+
+          if [ "$EAS_PROJECT_ID" = "00000000-0000-0000-0000-000000000000" ] || [ "$EAS_PROJECT_ID" = "YOUR_EAS_PROJECT_ID" ]; then
+            echo "::error::Configured EAS_PROJECT_ID is a placeholder and cannot be used for base APK release."
+            exit 1
+          fi
 
           if [ -z "$TENANT_ID" ]; then
             echo "::error::tenantId is required and cannot be empty"
@@ -361,7 +382,7 @@ jobs:
           LOGO_URL: ${{ github.event.inputs.logoUrl }}
           VERSION_CODE: ${{ env.VERSION_CODE || github.event.inputs.versionCode || '1' }}
           VERSION_NAME: ${{ env.VERSION_NAME || github.event.inputs.versionName || '1.0.0' }}
-          EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID || vars.EAS_PROJECT_ID || '' }}
+          EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID }}
           REQUIRE_OTA_CONFIG: 'true'
         run: |
           set -euo pipefail
