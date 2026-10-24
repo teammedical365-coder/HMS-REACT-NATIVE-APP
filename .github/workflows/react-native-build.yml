@@ -313,9 +313,10 @@ jobs:
         working-directory: ./HMS-REACT-NATIVE
         env:
           LOGO_URL: ${{ github.event.inputs.logoUrl }}
+          EXPO_PUBLIC_HOSPITAL_NAME: ${{ github.event.inputs.hospitalName }}
         run: |
           set -euo pipefail
-          node scripts/prepare-launcher-icons.js "${LOGO_URL}" --clean-mipmaps --generate-native-res
+          node scripts/prepare-launcher-icons.js "${LOGO_URL}" --clean-mipmaps --generate-native-res --hospital-name "${{ github.event.inputs.hospitalName }}"
 
       - name: Verify and Apply App Icons in app.json
         uses: actions/github-script@v7
@@ -384,6 +385,7 @@ jobs:
           VERSION_NAME: ${{ env.VERSION_NAME || github.event.inputs.versionName || '1.0.0' }}
           EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID }}
           REQUIRE_OTA_CONFIG: 'true'
+          REQUIRE_TENANT_CONFIG: 'true'
         run: |
           set -euo pipefail
 
@@ -408,8 +410,8 @@ jobs:
           # Ensure safe release signing configuration is present in android/app/build.gradle
           node scripts/configure-release-signing.js
 
-          # Ensure authoritative launcher mipmaps are placed directly in native Android resources
-          node scripts/prepare-launcher-icons.js "${LOGO_URL}" --clean-mipmaps --generate-native-res --use-cached
+          # Ensure authoritative launcher mipmaps and splash drawables are placed directly in native Android resources
+          node scripts/prepare-launcher-icons.js "${LOGO_URL}" --clean-mipmaps --generate-native-res --use-cached --hospital-name "$EXPO_PUBLIC_HOSPITAL_NAME"
 
           cd android
           chmod +x ./gradlew

@@ -38,8 +38,8 @@ export const isCacheValidForTarget = (cachedData, savedId, targetId, targetSlug,
   // 0. Dedicated Native White-Label Hardware Anchor:
   if (targetPackageId) {
     const cachedPkg = cachedData.packageId || cachedData._tenantPackageId;
-    if (cachedPkg && String(cachedPkg).toLowerCase() !== String(targetPackageId).toLowerCase()) {
-      return false; // Mismatched native package ID!
+    if (!cachedPkg || String(cachedPkg).toLowerCase() !== String(targetPackageId).toLowerCase()) {
+      return false; // Missing or mismatched native package ID!
     }
   }
 

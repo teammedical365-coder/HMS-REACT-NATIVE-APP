@@ -34,6 +34,14 @@ const DPI_CONFIGS = [
   { folder: 'mipmap-xxxhdpi', legacySize: 192, adaptiveSize: 432 },
 ];
 
+const SPLASH_DPI_CONFIGS = [
+  { folder: 'drawable-mdpi', size: 288 },
+  { folder: 'drawable-hdpi', size: 432 },
+  { folder: 'drawable-xhdpi', size: 576 },
+  { folder: 'drawable-xxhdpi', size: 864 },
+  { folder: 'drawable-xxxhdpi', size: 1152 },
+];
+
 /**
  * Detects image MIME type from binary magic bytes.
  * Returns MIME string or null if unrecognized / non-image.
@@ -336,6 +344,61 @@ async function generateNativeMipmaps(standardIcon, adaptiveIcon, projectRoot) {
 }
 
 /**
+ * Generates Android splash screen logo drawables into android/app/src/main/res/drawable-*
+ * Ensuring native cold-start splash screens display the hospital's exact logo.
+ */
+async function generateNativeSplash(processedImage, projectRoot) {
+  const resDir = path.join(projectRoot, 'android', 'app', 'src', 'main', 'res');
+  if (!fs.existsSync(resDir)) {
+    console.log(`[prepare-launcher-icons] No android res directory at ${resDir}; skipping native splash generation.`);
+    return;
+  }
+
+  for (const cfg of SPLASH_DPI_CONFIGS) {
+    const dpiDir = path.join(resDir, cfg.folder);
+    if (!fs.existsSync(dpiDir)) {
+      fs.mkdirSync(dpiDir, { recursive: true });
+    }
+
+    const splashTarget = path.join(dpiDir, 'splashscreen_logo.png');
+    // Fit hospital logo centered on canvas preserving aspect ratio
+    const splashImg = await fitOnSquareCanvas(processedImage, cfg.size, Math.round(cfg.size * 0.75));
+    const splashBuf = await splashImg.getBufferAsync(Jimp.MIME_PNG);
+    fs.writeFileSync(splashTarget, splashBuf);
+  }
+
+  console.log(`[prepare-launcher-icons] Native Android splash screen drawables successfully updated across all densities.`);
+}
+
+/**
+ * Updates native app_name in android/app/src/main/res/values/strings.xml
+ * Ensuring native Android launcher label matches the hospital's display name.
+ */
+function updateNativeAppName(hospitalName, projectRoot) {
+  if (!hospitalName || typeof hospitalName !== 'string') return;
+  const cleanName = hospitalName.trim();
+  if (!cleanName) return;
+
+  const stringsPath = path.join(projectRoot, 'android', 'app', 'src', 'main', 'res', 'values', 'strings.xml');
+  if (fs.existsSync(stringsPath)) {
+    let content = fs.readFileSync(stringsPath, 'utf8');
+    const escaped = cleanName
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/'/g, "\\'")
+      .replace(/"/g, '\\"');
+    if (content.includes('name="app_name"')) {
+      content = content.replace(/<string name="app_name">.*?<\/string>/, `<string name="app_name">${escaped}</string>`);
+    } else {
+      content = content.replace('</resources>', `  <string name="app_name">${escaped}</string>\n</resources>`);
+    }
+    fs.writeFileSync(stringsPath, content);
+    console.log(`[prepare-launcher-icons] Native Android app_name updated in strings.xml to "${cleanName}".`);
+  }
+}
+
+/**
  * Main icon pipeline orchestrator
  */
 async function prepareLauncherIcons(options = {}) {
@@ -472,7 +535,7 @@ async function prepareLauncherIcons(options = {}) {
     );
   }
 
-  // Clean stale native mipmaps if requested or if android directory exists
+  // Clean stale native mipmaps and splash drawables if requested or if android directory exists
   if (options.cleanAndroidMipmaps) {
     const resDir = path.join(projectRoot, 'android', 'app', 'src', 'main', 'res');
     if (fs.existsSync(resDir)) {
@@ -486,6 +549,16 @@ async function prepareLauncherIcons(options = {}) {
               fs.unlinkSync(path.join(fullMDir, f));
             } catch (e) {}
           }
+        }
+      }
+      const drawableDirs = fs.readdirSync(resDir).filter((d) => d.startsWith('drawable-'));
+      for (const dDir of drawableDirs) {
+        const fullDDir = path.join(resDir, dDir);
+        if (fs.statSync(fullDDir).isDirectory()) {
+          const splashFile = path.join(fullDDir, 'splashscreen_logo.png');
+          try {
+            if (fs.existsSync(splashFile)) fs.unlinkSync(splashFile);
+          } catch (e) {}
         }
       }
     }
@@ -505,9 +578,14 @@ async function prepareLauncherIcons(options = {}) {
   const splashImg = await fitOnSquareCanvas(processedImage, 1024, 720);
   await splashImg.writeAsync(splashPath);
 
-  // 5. Generate native Android mipmaps if requested
+  // 5. Generate native Android mipmaps and splash screen drawables if requested
   if (options.generateNativeRes !== false) {
     await generateNativeMipmaps(standardIcon, adaptiveIcon, projectRoot);
+    await generateNativeSplash(processedImage, projectRoot);
+    const resolvedHospitalName = options.hospitalName || process.env.EXPO_PUBLIC_HOSPITAL_NAME || process.env.HOSPITAL_NAME || '';
+    if (resolvedHospitalName) {
+      updateNativeAppName(resolvedHospitalName, projectRoot);
+    }
   }
 
   // Verify output files exist and are non-empty
@@ -556,8 +634,17 @@ if (require.main === module) {
   const useCached = flags.includes('--use-cached') || process.env.USE_CACHED_ICON === 'true';
   const allowFallback = flags.includes('--allow-fallback') || process.env.ALLOW_ICON_FALLBACK === 'true';
 
+  let hospitalNameArg = '';
+  const hIdx = args.indexOf('--hospital-name');
+  if (hIdx !== -1 && args[hIdx + 1]) {
+    hospitalNameArg = args[hIdx + 1];
+  } else {
+    hospitalNameArg = process.env.EXPO_PUBLIC_HOSPITAL_NAME || process.env.HOSPITAL_NAME || '';
+  }
+
   prepareLauncherIcons({
     logoUrl: logoArg,
+    hospitalName: hospitalNameArg,
     cleanAndroidMipmaps: cleanMipmaps,
     generateNativeRes: generateNativeRes,
     useCached: useCached,
@@ -582,4 +669,8 @@ module.exports = {
   fitOnSquareCanvas,
   applyCircleMask,
   generateNativeMipmaps,
+  generateNativeSplash,
+  updateNativeAppName,
+  SPLASH_DPI_CONFIGS,
+  DPI_CONFIGS,
 };

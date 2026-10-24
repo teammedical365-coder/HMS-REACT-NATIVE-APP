@@ -43,16 +43,29 @@ function isPlaceholderProjectId(id) {
 module.exports = ({ config }) => {
   const tenantFromFile = getTenantFromFile();
 
+  // Check for conflicting environment variables vs tenant.js
+  const envHospitalName = process.env.EXPO_PUBLIC_HOSPITAL_NAME || process.env.HOSPITAL_NAME;
+  if (tenantFromFile.name && envHospitalName && tenantFromFile.name.trim() !== envHospitalName.trim()) {
+    throw new Error(
+      `[TENANT CONFIG CONFLICT] Environment hospital name ("${envHospitalName.trim()}") conflicts with tenant.js name ("${tenantFromFile.name.trim()}").`
+    );
+  }
+
+  const envTenantSlug = process.env.EXPO_PUBLIC_TENANT_SLUG || process.env.TENANT_SLUG;
+  if (tenantFromFile.slug && envTenantSlug && tenantFromFile.slug.trim() !== envTenantSlug.trim()) {
+    throw new Error(
+      `[TENANT CONFIG CONFLICT] Environment tenant slug ("${envTenantSlug.trim()}") conflicts with tenant.js slug ("${tenantFromFile.slug.trim()}").`
+    );
+  }
+
   const hospitalName =
-    process.env.EXPO_PUBLIC_HOSPITAL_NAME ||
-    process.env.HOSPITAL_NAME ||
+    envHospitalName ||
     tenantFromFile.name ||
     config.name ||
     'Medical365';
 
   const tenantSlug =
-    process.env.EXPO_PUBLIC_TENANT_SLUG ||
-    process.env.TENANT_SLUG ||
+    envTenantSlug ||
     tenantFromFile.slug ||
     hospitalName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') ||
     'medical365';
@@ -64,6 +77,28 @@ module.exports = ({ config }) => {
     null;
 
   const safeAppIdSegment = tenantSlug.replace(/[^a-z0-9]/g, '').toLowerCase() || 'app';
+
+  // Validate APPLICATION_ID if explicitly supplied
+  if (process.env.APPLICATION_ID) {
+    if (!isValidAppId(process.env.APPLICATION_ID)) {
+      throw new Error(
+        `[TENANT CONFIG ERROR] Invalid APPLICATION_ID format: "${process.env.APPLICATION_ID}". Must be valid reverse-DNS format.`
+      );
+    }
+  }
+
+  // Check for conflicting APPLICATION_ID vs config.android.package
+  if (
+    process.env.APPLICATION_ID &&
+    config.android &&
+    config.android.package &&
+    config.android.package !== 'com.medical365.app' &&
+    config.android.package.trim() !== process.env.APPLICATION_ID.trim()
+  ) {
+    throw new Error(
+      `[TENANT CONFIG CONFLICT] APPLICATION_ID ("${process.env.APPLICATION_ID.trim()}") conflicts with pre-configured config.android.package ("${config.android.package.trim()}"). Rejecting mismatched tenant build configuration.`
+    );
+  }
 
   // Package ID resolution in strict order of authority:
   // 1. Explicitly supplied, validated APPLICATION_ID from env (e.g. CI workflow or disambiguated backend ID)
@@ -84,6 +119,45 @@ module.exports = ({ config }) => {
     applicationId = `com.medical365.${safeAppIdSegment}`;
   } else {
     applicationId = (config.android && config.android.package) || 'com.medical365.app';
+  }
+
+  // Conflict check: packageId must not point to a different tenant than hospitalName / safeAppIdSegment
+  if (
+    applicationId !== 'com.medical365.app' &&
+    safeAppIdSegment !== 'app' &&
+    safeAppIdSegment !== 'medical365'
+  ) {
+    const pkgSegment = applicationId.replace(/^com\.medical365\./, '');
+    if (pkgSegment !== safeAppIdSegment && !pkgSegment.startsWith(safeAppIdSegment) && !safeAppIdSegment.startsWith(pkgSegment)) {
+      throw new Error(
+        `[TENANT CONFIG CONFLICT] Configured tenant (${hospitalName} / slug: ${tenantSlug}) conflicts with packageId (${applicationId}).`
+      );
+    }
+  }
+
+  // Strict tenant build enforcement
+  const isRequireTenantConfig = process.env.REQUIRE_TENANT_CONFIG === 'true';
+  if (isRequireTenantConfig) {
+    if (!tenantId) {
+      throw new Error(
+        '[TENANT CONFIG ERROR] Mandatory tenant configuration missing: tenantId is required when REQUIRE_TENANT_CONFIG=true.'
+      );
+    }
+    if (!hospitalName || hospitalName === 'Medical365') {
+      throw new Error(
+        '[TENANT CONFIG ERROR] Mandatory tenant configuration missing: non-default hospitalName is required when REQUIRE_TENANT_CONFIG=true.'
+      );
+    }
+    if (!tenantSlug || tenantSlug === 'medical365') {
+      throw new Error(
+        '[TENANT CONFIG ERROR] Mandatory tenant configuration missing: non-default tenantSlug is required when REQUIRE_TENANT_CONFIG=true.'
+      );
+    }
+    if (!applicationId || applicationId === 'com.medical365.app' || !isValidAppId(applicationId)) {
+      throw new Error(
+        `[TENANT CONFIG ERROR] Mandatory tenant configuration missing: valid white-label applicationId is required when REQUIRE_TENANT_CONFIG=true (got: "${applicationId}").`
+      );
+    }
   }
 
   const iconPath = config.icon || './assets/icon.png';
@@ -185,6 +259,11 @@ module.exports = ({ config }) => {
     owner: 'teammedical365',
     version: versionName,
     icon: iconPath,
+    splash: {
+      image: (config.splash && config.splash.image) || './assets/splash.png',
+      resizeMode: (config.splash && config.splash.resizeMode) || 'contain',
+      backgroundColor: (config.splash && config.splash.backgroundColor) || adaptiveBg || '#ffffff',
+    },
     updates: {
       ...(config.updates || {}),
       enabled: true,
@@ -205,6 +284,11 @@ module.exports = ({ config }) => {
       adaptiveIcon: {
         backgroundColor: adaptiveBg,
         foregroundImage: adaptiveForeground,
+      },
+      splash: {
+        image: (config.android && config.android.splash && config.android.splash.image) || (config.splash && config.splash.image) || './assets/splash.png',
+        resizeMode: (config.android && config.android.splash && config.android.splash.resizeMode) || (config.splash && config.splash.resizeMode) || 'contain',
+        backgroundColor: (config.android && config.android.splash && config.android.splash.backgroundColor) || (config.splash && config.splash.backgroundColor) || adaptiveBg || '#ffffff',
       },
     },
     extra: {

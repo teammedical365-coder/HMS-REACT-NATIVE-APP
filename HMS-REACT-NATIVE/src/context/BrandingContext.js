@@ -105,7 +105,8 @@ export const BrandingProvider = ({ children }) => {
           ...rawBranding,
           hospitalId: response.data.hospitalId || rawBranding.hospitalId || null,
           _tenantId: response.data.hospitalId || rawBranding.hospitalId || null,
-          _tenantSlug: rawBranding.slug || null,
+          _tenantSlug: rawBranding.slug || response.data.slug || null,
+          slug: rawBranding.slug || response.data.slug || null,
           _tenantPackageId: packageId,
           packageId: packageId,
           logoUrl: isCleanUrl(rawBranding.logoUrl) ? rawBranding.logoUrl : null,
@@ -118,7 +119,7 @@ export const BrandingProvider = ({ children }) => {
           _isBaseline: false,
         };
 
-        await saveBrandingData(brandingData, brandingData.hospitalId, rawBranding.slug, packageId);
+        await saveBrandingData(brandingData, brandingData.hospitalId, brandingData._tenantSlug, packageId);
         lastLoadedIdRef.current = fetchKey;
         setBranding(brandingData);
         brandingRef.current = brandingData;
@@ -430,6 +431,8 @@ export const BrandingProvider = ({ children }) => {
     branding,
     hospitalName: branding?.hospitalName || branding?.appName || (isDedicatedWhiteLabel ? 'Hospital Portal' : (BUILD_HOSPITAL_NAME || 'Medical 365')),
     tenantId: (branding && !branding._isBaseline && (branding.hospitalId || branding._tenantId)) || (isDedicatedWhiteLabel ? null : BUILD_TENANT_ID) || null,
+    tenantSlug: (branding && !branding._isBaseline && (branding._tenantSlug || branding.slug)) || (isDedicatedWhiteLabel ? null : BUILD_TENANT_SLUG) || null,
+    packageId: branding?.packageId || (isDedicatedWhiteLabel ? nativeAppId : null),
     isHydrated,
     loading,
     resolutionError,
@@ -439,7 +442,7 @@ export const BrandingProvider = ({ children }) => {
     retryResolution,
     resetBranding,
     getTheme,
-  }), [branding, isHydrated, loading, resolutionError, loadBranding, loadBrandingBySlug, loadBrandingByPackageId, retryResolution, resetBranding, isDedicatedWhiteLabel]);
+  }), [branding, isHydrated, loading, resolutionError, loadBranding, loadBrandingBySlug, loadBrandingByPackageId, retryResolution, resetBranding, isDedicatedWhiteLabel, nativeAppId]);
 
   return (
     <BrandingContext.Provider value={contextValue}>
