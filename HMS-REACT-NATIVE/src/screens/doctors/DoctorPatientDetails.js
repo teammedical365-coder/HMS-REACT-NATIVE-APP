@@ -12,7 +12,7 @@ import { isUserCancellation, escapeHtml } from '../../utils/printHelper';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
 
 import {
-    doctorAPI, labTestAPI, questionLibraryAPI, hospitalAPI,
+    doctorAPI, assistantAPI, labTestAPI, questionLibraryAPI, hospitalAPI,
     patientAPI, receptionAPI, otAPI, adminEntitiesAPI, referralAPI, publicAPI
 } from '../../utils/api';
 import { toast, confirmToast } from '../../utils/confirmToast';
@@ -242,6 +242,7 @@ const DoctorPatientDetails = () => {
         lastFetchedAt: null,
     });
     const [isDraftSaved, setIsDraftSaved] = useState(false);
+    const [assistantPrep, setAssistantPrep] = useState(null);
 
     // Tab Scroll ref
     const tabsScrollViewRef = useRef(null);
@@ -345,6 +346,14 @@ const DoctorPatientDetails = () => {
                                 }
                             } catch (dErr) { }
 
+                            // Fetch Doctor Assistant Preparation if available (1:1 Web Parity)
+                            try {
+                                const prepRes = await assistantAPI.getPreparation(currentApptId);
+                                if (prepRes?.success && prepRes.preparation) {
+                                    setAssistantPrep(prepRes.preparation);
+                                }
+                            } catch (pErr) { }
+
                             setLoading(false);
                             return;
                         }
@@ -400,6 +409,15 @@ const DoctorPatientDetails = () => {
                         if (res.departments) {
                             setHospitalDepartments(res.departments);
                         }
+
+                        // Fetch Doctor Assistant Preparation if available (1:1 Web Parity)
+                        try {
+                            const prepRes = await assistantAPI.getPreparation(currentApptId);
+                            if (prepRes?.success && prepRes.preparation) {
+                                setAssistantPrep(prepRes.preparation);
+                            }
+                        } catch (pErr) { }
+
                         setLoading(false);
                         return;
                     }
@@ -655,6 +673,34 @@ const DoctorPatientDetails = () => {
             console.error('Error creating surgery plan:', err);
             Alert.alert('Error', err.response?.data?.message || err.message || 'Error creating surgery plan');
         }
+    };
+
+    const handleAcceptVitals = () => {
+        if (!assistantPrep?.vitals) return;
+        const v = assistantPrep.vitals;
+        setIntakeData(prev => ({
+            ...prev,
+            bp: v.bp || prev.bp,
+            pulse: v.pulse || prev.pulse,
+            temperature: v.temperature || prev.temperature,
+            spo2: v.spo2 || prev.spo2,
+            weight: v.weight || prev.weight,
+            height: v.height || prev.height,
+            bmi: v.bmi || prev.bmi,
+            bloodSugar: v.bloodSugar || prev.bloodSugar,
+            painScale: v.painScore || prev.painScale,
+        }));
+        Alert.alert('Assistant Vitals Accepted', 'Pre-consultation triage vitals copied into consultation form.');
+    };
+
+    const handleImportNotes = () => {
+        const noteContent = assistantPrep?.draftClinicalNotes || assistantPrep?.draftNotes || assistantPrep?.preparation?.assistantRemarks;
+        if (!noteContent) return;
+        setSessionData(prev => ({
+            ...prev,
+            notes: prev.notes ? `${prev.notes}\n\n[Assistant Intake]: ${noteContent}` : `[Assistant Intake]: ${noteContent}`
+        }));
+        Alert.alert('Notes Imported', 'Assistant intake notes copied into doctor consultation notes.');
     };
 
     const handleSaveConsultationDraft = async () => {
@@ -1427,6 +1473,134 @@ const DoctorPatientDetails = () => {
                             {/* OVERVIEW TAB */}
                             {activeTab === 'overview' && (
                                 <View style={styles.tabPanel}>
+                                    {/* Doctor Assistant Pre-Consultation Triage (1:1 Web Parity) */}
+                                    {Boolean(assistantPrep) && (
+                                        <View style={styles.assistantTriageCard}>
+                                            <View style={styles.assistantTriageHeader}>
+                                                <View style={styles.assistantTriageTitleRow}>
+                                                    <Text style={styles.assistantTriageIcon}>🩺</Text>
+                                                    <View style={{ flex: 1 }}>
+                                                        <Text style={styles.assistantTriageTitle}>Doctor Assistant Pre-Consultation Triage</Text>
+                                                        <Text style={styles.assistantTriageSubtitle}>
+                                                            Prepared by {assistantPrep.preparedByName || assistantPrep.preparedBy?.name || 'Doctor Assistant'} • Status: {assistantPrep.preparationStatus || 'Ready'}
+                                                        </Text>
+                                                    </View>
+                                                </View>
+                                                <View style={styles.assistantActionsRow}>
+                                                    {Boolean(assistantPrep.vitals) && (
+                                                        <TouchableOpacity style={styles.acceptVitalsBtn} onPress={handleAcceptVitals} activeOpacity={0.8}>
+                                                            <Feather name="check" size={13} color="#ffffff" style={{ marginRight: 4 }} />
+                                                            <Text style={styles.acceptVitalsBtnText}>Accept Vitals</Text>
+                                                        </TouchableOpacity>
+                                                    )}
+                                                    {Boolean(assistantPrep.draftClinicalNotes || assistantPrep.draftNotes || assistantPrep.preparation?.assistantRemarks) && (
+                                                        <TouchableOpacity style={styles.importNotesBtn} onPress={handleImportNotes} activeOpacity={0.8}>
+                                                            <Feather name="download" size={13} color="#0d9488" style={{ marginRight: 4 }} />
+                                                            <Text style={styles.importNotesBtnText}>Import Notes</Text>
+                                                        </TouchableOpacity>
+                                                    )}
+                                                </View>
+                                            </View>
+
+                                            {/* Triage Vitals Grid */}
+                                            {Boolean(assistantPrep.vitals) && (
+                                                <View style={styles.assistantVitalsGrid}>
+                                                    {Boolean(assistantPrep.vitals.bp) && (
+                                                        <View style={styles.assistantVitalBox}>
+                                                            <Text style={styles.assistantVitalLabel}>BP</Text>
+                                                            <Text style={styles.assistantVitalVal}>{assistantPrep.vitals.bp}</Text>
+                                                        </View>
+                                                    )}
+                                                    {Boolean(assistantPrep.vitals.pulse) && (
+                                                        <View style={styles.assistantVitalBox}>
+                                                            <Text style={styles.assistantVitalLabel}>Pulse</Text>
+                                                            <Text style={styles.assistantVitalVal}>{assistantPrep.vitals.pulse} bpm</Text>
+                                                        </View>
+                                                    )}
+                                                    {Boolean(assistantPrep.vitals.temperature) && (
+                                                        <View style={styles.assistantVitalBox}>
+                                                            <Text style={styles.assistantVitalLabel}>Temp</Text>
+                                                            <Text style={styles.assistantVitalVal}>{assistantPrep.vitals.temperature} °F</Text>
+                                                        </View>
+                                                    )}
+                                                    {Boolean(assistantPrep.vitals.spo2) && (
+                                                        <View style={styles.assistantVitalBox}>
+                                                            <Text style={styles.assistantVitalLabel}>SpO₂</Text>
+                                                            <Text style={styles.assistantVitalVal}>{assistantPrep.vitals.spo2}%</Text>
+                                                        </View>
+                                                    )}
+                                                    {Boolean(assistantPrep.vitals.weight) && (
+                                                        <View style={styles.assistantVitalBox}>
+                                                            <Text style={styles.assistantVitalLabel}>Weight</Text>
+                                                            <Text style={styles.assistantVitalVal}>{assistantPrep.vitals.weight} kg</Text>
+                                                        </View>
+                                                    )}
+                                                    {Boolean(assistantPrep.vitals.height) && (
+                                                        <View style={styles.assistantVitalBox}>
+                                                            <Text style={styles.assistantVitalLabel}>Height</Text>
+                                                            <Text style={styles.assistantVitalVal}>{assistantPrep.vitals.height} cm</Text>
+                                                        </View>
+                                                    )}
+                                                    {Boolean(assistantPrep.vitals.bloodSugar) && (
+                                                        <View style={styles.assistantVitalBox}>
+                                                            <Text style={styles.assistantVitalLabel}>Blood Sugar</Text>
+                                                            <Text style={styles.assistantVitalVal}>{assistantPrep.vitals.bloodSugar} mg/dL</Text>
+                                                        </View>
+                                                    )}
+                                                    {Boolean(assistantPrep.vitals.painScore) && (
+                                                        <View style={styles.assistantVitalBox}>
+                                                            <Text style={styles.assistantVitalLabel}>Pain Scale</Text>
+                                                            <Text style={styles.assistantVitalVal}>{assistantPrep.vitals.painScore} / 10</Text>
+                                                        </View>
+                                                    )}
+                                                </View>
+                                            )}
+
+                                            {/* Clinical History & Chief Complaints */}
+                                            {Boolean(assistantPrep.preparation) && (
+                                                <View style={styles.assistantHistoryBox}>
+                                                    <Text style={styles.assistantHistoryTitle}>📝 Pre-Consultation History & Complaints</Text>
+                                                    {Boolean(assistantPrep.preparation.chiefComplaint) && (
+                                                        <View style={styles.assistantHistoryRow}>
+                                                            <Text style={styles.assistantHistoryLabel}>Chief Complaint:</Text>
+                                                            <Text style={styles.assistantHistoryValue}>{assistantPrep.preparation.chiefComplaint}</Text>
+                                                        </View>
+                                                    )}
+                                                    {Boolean(assistantPrep.preparation.historyOfPresentIllness) && (
+                                                        <View style={styles.assistantHistoryRow}>
+                                                            <Text style={styles.assistantHistoryLabel}>HPI:</Text>
+                                                            <Text style={styles.assistantHistoryValue}>{assistantPrep.preparation.historyOfPresentIllness}</Text>
+                                                        </View>
+                                                    )}
+                                                    {Boolean(assistantPrep.preparation.allergies) && (
+                                                        <View style={styles.assistantHistoryRow}>
+                                                            <Text style={[styles.assistantHistoryLabel, { color: '#dc2626' }]}>Allergies:</Text>
+                                                            <Text style={[styles.assistantHistoryValue, { color: '#dc2626', fontWeight: '700' }]}>{assistantPrep.preparation.allergies}</Text>
+                                                        </View>
+                                                    )}
+                                                    {Boolean(assistantPrep.preparation.currentMedicines) && (
+                                                        <View style={styles.assistantHistoryRow}>
+                                                            <Text style={styles.assistantHistoryLabel}>Current Meds:</Text>
+                                                            <Text style={styles.assistantHistoryValue}>{assistantPrep.preparation.currentMedicines}</Text>
+                                                        </View>
+                                                    )}
+                                                    {Boolean(assistantPrep.preparation.pastMedicalHistory) && (
+                                                        <View style={styles.assistantHistoryRow}>
+                                                            <Text style={styles.assistantHistoryLabel}>Past History:</Text>
+                                                            <Text style={styles.assistantHistoryValue}>{assistantPrep.preparation.pastMedicalHistory}</Text>
+                                                        </View>
+                                                    )}
+                                                    {Boolean(assistantPrep.preparation.assistantRemarks) && (
+                                                        <View style={styles.assistantHistoryRow}>
+                                                            <Text style={styles.assistantHistoryLabel}>Assistant Remarks:</Text>
+                                                            <Text style={styles.assistantHistoryValue}>{assistantPrep.preparation.assistantRemarks}</Text>
+                                                        </View>
+                                                    )}
+                                                </View>
+                                            )}
+                                        </View>
+                                    )}
+
                                     <Text style={styles.panelTitle}>📋 Patient Overview</Text>
                                     <View style={styles.overviewGrid}>
                                         <View style={styles.ovCard}><Text style={styles.ovLabel}>Full Name</Text><Text style={styles.ovValue}>{patient.name || '-'}</Text></View>
@@ -2776,6 +2950,28 @@ const styles = StyleSheet.create({
     pdfSectionHead: { fontSize: 13.5, fontWeight: 'bold', color: '#0f172a', marginTop: 12, marginBottom: 8, borderBottomWidth: 1, borderColor: '#e2e8f0', paddingBottom: 4 },
     pdfMedItem: { backgroundColor: '#f8fafc', padding: 8, borderRadius: 6, marginBottom: 6, borderWidth: 1, borderColor: '#e2e8f0' },
     pdfFooterBar: { padding: 16, borderTopWidth: 1, borderColor: '#e2e8f0', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', gap: 10 },
+
+    // Doctor Assistant Pre-Consultation Triage (1:1 Web Parity)
+    assistantTriageCard: { backgroundColor: '#f0fdfa', borderRadius: 12, borderWidth: 1.5, borderColor: '#99f6e4', padding: 14, marginBottom: 16 },
+    assistantTriageHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 12 },
+    assistantTriageTitleRow: { flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 200 },
+    assistantTriageIcon: { fontSize: 22, marginRight: 8 },
+    assistantTriageTitle: { fontSize: 13.5, fontWeight: '800', color: '#0f766e' },
+    assistantTriageSubtitle: { fontSize: 11, color: '#115e59', marginTop: 2 },
+    assistantActionsRow: { flexDirection: 'row', gap: 8 },
+    acceptVitalsBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0d9488', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 7 },
+    acceptVitalsBtnText: { color: '#ffffff', fontSize: 11.5, fontWeight: '700' },
+    importNotesBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#0d9488', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 7 },
+    importNotesBtnText: { color: '#0d9488', fontSize: 11.5, fontWeight: '700' },
+    assistantVitalsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
+    assistantVitalBox: { flex: 1, minWidth: 80, backgroundColor: '#ffffff', borderRadius: 8, padding: 8, borderWidth: 1, borderColor: '#ccfbf1', alignItems: 'center' },
+    assistantVitalLabel: { fontSize: 10, color: '#64748b', fontWeight: '700', textTransform: 'uppercase' },
+    assistantVitalVal: { fontSize: 12.5, fontWeight: '800', color: '#0f766e', marginTop: 2 },
+    assistantHistoryBox: { backgroundColor: '#ffffff', borderRadius: 8, padding: 10, borderWidth: 1, borderColor: '#ccfbf1' },
+    assistantHistoryTitle: { fontSize: 12, fontWeight: '700', color: '#0f766e', marginBottom: 6 },
+    assistantHistoryRow: { flexDirection: 'row', marginBottom: 4, flexWrap: 'wrap' },
+    assistantHistoryLabel: { fontSize: 11, fontWeight: '700', color: '#334155', width: 110 },
+    assistantHistoryValue: { fontSize: 11, color: '#475569', flex: 1 },
 });
 
 export default DoctorPatientDetails;

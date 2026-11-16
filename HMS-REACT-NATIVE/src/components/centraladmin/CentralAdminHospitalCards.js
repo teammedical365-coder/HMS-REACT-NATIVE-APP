@@ -27,6 +27,7 @@ const normalizePlan = (value) => {
   if (plan.includes('multi_speciality') || plan.includes('multi_specialty')) return 'multi-speciality';
   if (plan.includes('clinic_basic') || plan === 'basic') return 'clinic-basic';
   if (plan.includes('starter') && !plan.includes('multi')) return 'simple-clinics';
+  if (plan.includes('free_doctor')) return 'free-doctor-opd';
   return plan;
 };
 
@@ -38,6 +39,7 @@ export default function CentralAdminHospitalCards({
   onEditHospital,
   onDeleteHospital,
   onBrandingHospital,
+  onNabhHospital,
   showHospitalForm,
   showHospitalAdminForm,
   editHospital,
@@ -81,6 +83,11 @@ export default function CentralAdminHospitalCards({
     // Starter Plan / Simple Clinics tab
     if (activeTab === 'simple-clinics' || activeTab === 'starter') {
       return isClinic;
+    }
+
+    // Free Doctor OPD Plan tab (1:1 Web Parity)
+    if (activeTab === 'free-doctor-opd' || activeTab === 'free_doctor_opd') {
+      return plan === 'free-doctor-opd' || plan === 'free_doctor_opd';
     }
 
     // All hospital plan tabs: Simple Clinics must NEVER appear here
@@ -373,6 +380,20 @@ export default function CentralAdminHospitalCards({
                         onPress={(e) => { e.stopPropagation?.(); onBrandingHospital?.(hospital); }}
                       >
                         <Text style={styles.btnSmBrandingText}>🎨 Branding</Text>
+                      </Pressable>
+                    )}
+
+                    {!isClinicCard && activeTab !== 'simple-clinics' && (
+                      <Pressable 
+                        style={({ pressed, hovered }) => [
+                          styles.btnSmEdit,
+                          { backgroundColor: hospital?.accreditation?.enabled ? '#ecfdf5' : '#f1f5f9', borderColor: hospital?.accreditation?.enabled ? '#6ee7b7' : '#cbd5e1' },
+                          Platform.select({ web: { transitionProperty: 'all', transitionDuration: '0.15s', transitionTimingFunction: 'ease', cursor: 'pointer' } }),
+                          pressed && { transform: [{ scale: 0.96 }] },
+                        ]} 
+                        onPress={(e) => { e.stopPropagation?.(); onNabhHospital?.(hospital); }}
+                      >
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: hospital?.accreditation?.enabled ? '#047857' : '#334155' }}>🏅 NABH</Text>
                       </Pressable>
                     )}
 

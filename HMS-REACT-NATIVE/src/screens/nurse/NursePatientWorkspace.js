@@ -32,6 +32,11 @@ import {
 } from '../../utils/api';
 import OfflineBanner from '../../components/OfflineBanner';
 import OfflineEmptyState from '../../components/OfflineEmptyState';
+import InpatientCommunicationModal from '../../components/ipd/InpatientCommunicationModal';
+import TPRChartModal from '../../components/ipd/TPRChartModal';
+import InpatientClinicalNotesModal from '../../components/ipd/InpatientClinicalNotesModal';
+import ProgressNotesModal from '../../components/ipd/ProgressNotesModal';
+import DrugChartModal from '../../components/ipd/DrugChartModal';
 import { checkOnlineStatus } from '../../services/offline/networkStatus';
 import {
     fetchNurseAdmissionDetailsWithOffline,
@@ -191,6 +196,13 @@ const NursePatientWorkspace = () => {
     const [newCathModalOpen, setNewCathModalOpen] = useState(false);
 
     // Assignment & Discharge Modals
+    // NABH Clinical Documentation Modals
+    const [communicationModalVisible, setCommunicationModalVisible] = useState(false);
+    const [tprModalVisible, setTprModalVisible] = useState(false);
+    const [clinicalNotesModalVisible, setClinicalNotesModalVisible] = useState(false);
+    const [progressNotesModalVisible, setProgressNotesModalVisible] = useState(false);
+    const [drugChartModalVisible, setDrugChartModalVisible] = useState(false);
+
     const [assignModalOpen, setAssignModalOpen] = useState(false);
     const [assignForm, setAssignForm] = useState({ nurseId: '', shift: 'Morning', notes: '' });
     const [clearanceModalOpen, setClearanceModalOpen] = useState(false);
@@ -1728,6 +1740,30 @@ const NursePatientWorkspace = () => {
                         <Feather name="refresh-cw" size={15} color="#ffffff" />
                     </TouchableOpacity>
                 </View>
+
+                {/* NABH Clinical Quick Actions Bar */}
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickActionsBar}>
+                    <TouchableOpacity style={styles.quickActionBtn} onPress={() => setCommunicationModalVisible(true)}>
+                        <Feather name="plus" size={12} color="#ffffff" />
+                        <Text style={styles.quickActionBtnText}>Add Note</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.quickActionBtn} onPress={() => setTprModalVisible(true)}>
+                        <Feather name="printer" size={12} color="#ffffff" />
+                        <Text style={styles.quickActionBtnText}>TPR Chart</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.quickActionBtn} onPress={() => setClinicalNotesModalVisible(true)}>
+                        <Feather name="file-text" size={12} color="#ffffff" />
+                        <Text style={styles.quickActionBtnText}>Clinical Notes</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.quickActionBtn} onPress={() => setProgressNotesModalVisible(true)}>
+                        <Feather name="file-plus" size={12} color="#ffffff" />
+                        <Text style={styles.quickActionBtnText}>Progress Notes</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.quickActionBtn} onPress={() => setDrugChartModalVisible(true)}>
+                        <Feather name="droplet" size={12} color="#ffffff" />
+                        <Text style={styles.quickActionBtnText}>Drug Chart</Text>
+                    </TouchableOpacity>
+                </ScrollView>
             </LinearGradient>
 
             {/* 14 Tabs Horizontal Scroller */}
@@ -2237,6 +2273,43 @@ const NursePatientWorkspace = () => {
                     </KeyboardAvoidingView>
                 </View>
             </Modal>
+
+            {/* ── NABH Clinical Documentation Modals ── */}
+            <InpatientCommunicationModal
+                visible={communicationModalVisible}
+                onClose={() => setCommunicationModalVisible(false)}
+                admissionId={admissionId}
+                patientName={patientName}
+                ipdNumber={admission?.ipdNumber}
+            />
+            <TPRChartModal
+                visible={tprModalVisible}
+                onClose={() => setTprModalVisible(false)}
+                admissionId={admissionId}
+                patient={patient}
+                admission={admission}
+            />
+            <InpatientClinicalNotesModal
+                visible={clinicalNotesModalVisible}
+                onClose={() => setClinicalNotesModalVisible(false)}
+                admissionId={admissionId}
+                patient={patient}
+                admission={admission}
+            />
+            <ProgressNotesModal
+                visible={progressNotesModalVisible}
+                onClose={() => setProgressNotesModalVisible(false)}
+                admissionId={admissionId}
+                patient={patient}
+                admission={admission}
+            />
+            <DrugChartModal
+                visible={drugChartModalVisible}
+                onClose={() => setDrugChartModalVisible(false)}
+                admissionId={admissionId}
+                patient={patient}
+                admission={admission}
+            />
         </ScrollView>
     );
 };
@@ -2360,10 +2433,31 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255, 255, 255, 0.18)',
         minWidth: 40,
         minHeight: 40,
-        borderRadius: 10,
+        borderRadius: 20,
         justifyContent: 'center',
         alignItems: 'center',
-        flexShrink: 0,
+    },
+    quickActionsBar: {
+        flexDirection: 'row',
+        gap: 8,
+        marginTop: 10,
+        paddingBottom: 2,
+    },
+    quickActionBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 5,
+        backgroundColor: 'rgba(255, 255, 255, 0.22)',
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.4)',
+    },
+    quickActionBtnText: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#ffffff',
     },
 
     // Tab Navigation

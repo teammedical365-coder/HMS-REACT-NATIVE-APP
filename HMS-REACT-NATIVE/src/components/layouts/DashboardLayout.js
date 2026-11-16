@@ -102,6 +102,16 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
     const isCentralAdmin = (role === 'centraladmin' || role === 'superadmin');
 
     const getMenu = () => {
+        if (user?.subscriptionPlan === 'free_doctor_opd') {
+            return [
+                { label: 'Doctor Patient Tray', path: 'DoctorPatientTray', icon: <Feather name="activity" size={18} /> },
+                { label: 'Appointment Desk', path: 'AppointmentManagement', icon: <Feather name="calendar" size={18} /> },
+                { label: 'Payment & History', path: 'MoneyTracker', icon: <Feather name="dollar-sign" size={18} /> },
+                { label: 'Revisit Schedule', path: 'RevisitSchedule', icon: <Feather name="clock" size={18} /> },
+                { label: 'Patient Monitoring', path: 'PatientMonitoring', icon: <Feather name="users" size={18} /> },
+            ];
+        }
+
         if (isCentralAdmin) {
             return [
                 { label: 'System Overview', path: 'CentralAdminDashboard', icon: <Feather name="grid" size={18} /> },
@@ -139,6 +149,8 @@ const DashboardSidebar = ({ isOpen, setOpen, isMobile }) => {
             }
             return [
                 { label: 'Hospital Overview', path: 'HospitalAdminDashboard', icon: <Feather name="home" size={18} /> },
+                { label: 'Data Migration', path: 'DataMigration', icon: <Feather name="upload-cloud" size={18} /> },
+                { label: 'Local Database Sync', path: 'LocalSync', icon: <Feather name="refresh-cw" size={18} /> },
                 { label: 'Vial Management', path: 'VialManagement', icon: <Feather name="box" size={18} /> },
                 { label: 'Clinical Questions', path: 'HospitalAdminQuestionLibrary', icon: <Feather name="file-text" size={18} /> },
                 { label: 'Staff Management', path: 'Admin', icon: <Feather name="users" size={18} /> },

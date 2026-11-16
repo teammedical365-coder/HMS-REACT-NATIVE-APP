@@ -13,6 +13,8 @@ import CentralAdminHospitalDetails from '../../components/centraladmin/CentralAd
 import CentralAdminClinicDetails from '../../components/centraladmin/CentralAdminClinicDetails';
 import CentralAdminForms from '../../components/centraladmin/CentralAdminForms';
 import HospitalBrandingEditor from '../../components/HospitalBrandingEditor';
+import NabhAccreditationModal from '../../components/centraladmin/NabhAccreditationModal';
+import NabhComplianceHub from './NabhComplianceHub';
 import RevenuePlanEditorModal from '../../components/centraladmin/RevenuePlanEditorModal';
 import AdminLabs from '../admin/AdminLabs';
 import AdminPharmacy from '../admin/AdminPharmacy';
@@ -66,6 +68,7 @@ export default function CentralAdminDashboard() {
   const [revenueData, setRevenueData] = useState(null);
   
   const [brandingHospital, setBrandingHospital] = useState(null);
+  const [nabhHospital, setNabhHospital] = useState(null);
   // Controlled per-hospital version counters for image cache busting.
   // Incremented on every successful branding save — Image key = `logoUrl-vN`
   // so it remounts even when the same URL is pasted twice.
@@ -783,7 +786,7 @@ export default function CentralAdminDashboard() {
         />
 
         {/* Child Component 4: Hospital & Clinic List Grid */}
-        {(activeTab !== 'revenue-plans' && activeTab !== 'configurations' && activeTab !== 'labs' && activeTab !== 'pharmacy' && activeTab !== 'releases') && (
+        {(activeTab !== 'revenue-plans' && activeTab !== 'configurations' && activeTab !== 'labs' && activeTab !== 'pharmacy' && activeTab !== 'releases' && activeTab !== 'nabh-compliance') && (
           <CentralAdminHospitalCards 
             loading={loading}
             hospitals={hospitals}
@@ -844,6 +847,7 @@ export default function CentralAdminDashboard() {
             onDeleteClinic={handleDeleteClinic}
             deletingId={deletingId}
             onBrandingHospital={(h) => setBrandingHospital(h)}
+            onNabhHospital={(h) => setNabhHospital(h)}
             brandingVersions={brandingVersions}
           />
         )}
@@ -1002,6 +1006,13 @@ export default function CentralAdminDashboard() {
           </View>
         )}
 
+        {/* NABH Compliance Hub View (1:1 Web Parity) */}
+        {activeTab === 'nabh-compliance' && (
+          <View style={{ width: '100%', marginTop: 14 }}>
+            <NabhComplianceHub />
+          </View>
+        )}
+
       </ScrollView>
 
       {/* Modals */}
@@ -1036,6 +1047,17 @@ export default function CentralAdminDashboard() {
             }}
           />
         </Modal>
+      )}
+
+      {Boolean(nabhHospital) && (
+        <NabhAccreditationModal
+          hospital={nabhHospital}
+          onClose={() => setNabhHospital(null)}
+          onUpdated={async (res) => {
+            await fetchHospitals();
+            setSuccess(res?.message || 'NABH accreditation updated successfully!');
+          }}
+        />
       )}
 
       <RevenuePlanEditorModal 

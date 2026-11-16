@@ -24,6 +24,7 @@ import AdminPharmacy from '../screens/admin/AdminPharmacy';
 import AdminReception from '../screens/admin/AdminReception';
 import SuperAdmin from '../screens/administration/SuperAdmin';
 import CentralAdminReleaseConsole from '../components/centraladmin/CentralAdminReleaseConsole';
+import NabhComplianceHub from '../screens/centraladmin/NabhComplianceHub';
 
 // -- Hospital Admin Pages --
 import HospitalAdminDashboard from '../screens/hospitaladmin/HospitalAdminDashboard';
@@ -33,6 +34,15 @@ import HospitalAdminQuestionLibrary from '../screens/hospitaladmin/HospitalAdmin
 import BedManagement from '../screens/hospitaladmin/BedManagement'; // Based on audit
 import HospitalAdminRefunds from '../screens/hospitaladmin/HospitalAdminRefunds';
 import PackageManagement from '../screens/hospitaladmin/PackageManagement';
+import DataMigration from '../screens/hospitaladmin/DataMigration';
+import LocalSync from '../screens/hospitaladmin/LocalSync';
+
+// -- Dedicated Free Doctor OPD Pages --
+import DoctorPatientTray from '../screens/opd/DoctorPatientTray';
+import AppointmentManagement from '../screens/opd/AppointmentManagement';
+import MoneyTracker from '../screens/opd/MoneyTracker';
+import RevisitSchedule from '../screens/opd/RevisitSchedule';
+import PatientMonitoring from '../screens/opd/PatientMonitoring';
 
 // -- Doctor Pages --
 import DoctorDashboard from '../screens/doctors/DoctorDashboard';
@@ -143,6 +153,7 @@ export const CentralAdminApp = () => (
         <Stack.Screen name="SuperAdmin" component={withLayout(SuperAdmin)} />
         <Stack.Screen name="CentralAdminReleaseConsole" component={withLayout(CentralAdminReleaseConsole)} />
         <Stack.Screen name="RealTimeMonitoringDashboard" component={withLayout(RealTimeMonitoringDashboard)} />
+        <Stack.Screen name="NabhComplianceHub" component={withLayout(NabhComplianceHub)} />
     </Stack.Navigator>
 );
 
@@ -167,6 +178,9 @@ export const HospitalAdminApp = () => {
             <Stack.Screen name="BedManagement" component={withLayout(BedManagement)} />
             <Stack.Screen name="HospitalAdminRefunds" component={withLayout(HospitalAdminRefunds)} />
             <Stack.Screen name="PackageManagement" component={withLayout(PackageManagement)} />
+            <Stack.Screen name="DataMigration" component={withLayout(DataMigration)} />
+            <Stack.Screen name="LocalSync" component={withLayout(LocalSync)} />
+            <Stack.Screen name="NabhComplianceHub" component={withLayout(NabhComplianceHub)} />
 
             {/* Admin Management Modules */}
             <Stack.Screen name="AdminMainDashboard" component={withLayout(AdminMainDashboard)} />
@@ -372,5 +386,18 @@ export const AssistantApp = () => (
         <Stack.Screen name="DoctorAssistantQueue" component={withLayout(DoctorAssistantQueue)} />
         <Stack.Screen name="DoctorAssistantQuestionLibrary" component={withLayout(DoctorAssistantQuestionLibrary)} />
         <Stack.Screen name="DoctorAssistantPreparation" component={withLayout(DoctorAssistantPreparation)} />
+    </Stack.Navigator>
+);
+
+// -- Dedicated Single Doctor Free OPD App Stack (Strictly 5 Modules 1:1 Parity) --
+export const DoctorOpdApp = () => (
+    <Stack.Navigator initialRouteName="DoctorPatientTray" screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
+        <Stack.Screen name="DoctorPatientTray" component={withLayout(DoctorPatientTray)} />
+        <Stack.Screen name="AppointmentManagement" component={withLayout(AppointmentManagement)} />
+        <Stack.Screen name="MoneyTracker" component={withLayout(MoneyTracker)} />
+        <Stack.Screen name="RevisitSchedule" component={withLayout(RevisitSchedule)} />
+        <Stack.Screen name="PatientMonitoring" component={withLayout(PatientMonitoring)} />
+        <Stack.Screen name="DoctorPatientDetails" component={withLayout(DoctorPatientDetails)} />
+        <Stack.Screen name="UnifiedPatientProfile" component={withLayout(UnifiedPatientProfile)} />
     </Stack.Navigator>
 );

@@ -740,6 +740,8 @@ export const hospitalAPI = {
     return (await apiClient.delete(`/api/hospitals/${id}`)).data;
   },
   getMyHospital: async () => (await apiClient.get('/api/hospitals/my-hospital')).data,
+  getNabhStatus: async (id) => (await apiClient.get(`/api/hospitals/${id}/nabh`)).data,
+  updateNabhStatus: async (id, data) => (await apiClient.put(`/api/hospitals/${id}/nabh`, data)).data,
   getUpiIds: async () =>
     (await apiClient.get('/api/hospitals/my-hospital/upi-ids')).data,
   updateUpiIds: async (upiIds) =>
@@ -1351,6 +1353,30 @@ export const ipdClinicalAPI = {
   createDischargeOrder: async (admissionId, data) => (await apiClient.post(`/api/ipd-clinical/admissions/${admissionId}/discharge-order`, data)).data,
   saveDischargeSummary: async (admissionId, data) => (await apiClient.post(`/api/ipd-clinical/admissions/${admissionId}/discharge-summary`, data)).data,
   getDischargeSummary: async (admissionId) => (await apiClient.get(`/api/ipd-clinical/admissions/${admissionId}/discharge-summary`)).data,
+
+  // Exact 2-Page In-Patient Clinical Notes
+  getInpatientClinicalNotes: async (admissionId) => (await apiClient.get(`/api/ipd-clinical/admissions/${admissionId}/clinical-notes`)).data,
+  saveInpatientClinicalNotes: async (admissionId, data) => (await apiClient.put(`/api/ipd-clinical/admissions/${admissionId}/clinical-notes`, data)).data,
+
+  // Patient & Nurse Interaction Notes / Communication (chronological + audit trail)
+  getPatientNurseCommunication: async (admissionId) => (await apiClient.get(`/api/ipd-clinical/admissions/${admissionId}/communication`)).data,
+  addPatientNurseCommunication: async (admissionId, data) => (await apiClient.post(`/api/ipd-clinical/admissions/${admissionId}/communication`, data)).data,
+  editPatientNurseCommunication: async (admissionId, noteId, data) => (await apiClient.patch(`/api/ipd-clinical/admissions/${admissionId}/communication/${noteId}`, data)).data,
+
+  // Exact 1-Page IPD Clinical Progress Notes (+ Continuation Sheets & Edit Audit)
+  getProgressNotes: async (admissionId) => (await apiClient.get(`/api/ipd-clinical/admissions/${admissionId}/progress-notes`)).data,
+  addProgressNote: async (admissionId, data) => (await apiClient.post(`/api/ipd-clinical/admissions/${admissionId}/progress-notes`, data)).data,
+  editProgressNote: async (admissionId, noteId, data) => (await apiClient.patch(`/api/ipd-clinical/admissions/${admissionId}/progress-notes/${noteId}`, data)).data,
+
+  // Exact 2-Page IPD Drug Chart (Allergies, STAT Doses, IV Fluids & MAR Grid)
+  getDrugChart: async (admissionId) => (await apiClient.get(`/api/ipd-clinical/admissions/${admissionId}/drug-chart`)).data,
+  saveDrugChartAllergies: async (admissionId, data) => (await apiClient.put(`/api/ipd-clinical/admissions/${admissionId}/drug-chart/allergies`, data)).data,
+  addDrugChartStatDose: async (admissionId, data) => (await apiClient.post(`/api/ipd-clinical/admissions/${admissionId}/drug-chart/stat-doses`, data)).data,
+  updateDrugChartStatDose: async (admissionId, entryId, data) => (await apiClient.patch(`/api/ipd-clinical/admissions/${admissionId}/drug-chart/stat-doses/${entryId}`, data)).data,
+  addDrugChartIVFluid: async (admissionId, data) => (await apiClient.post(`/api/ipd-clinical/admissions/${admissionId}/drug-chart/iv-fluids`, data)).data,
+  updateDrugChartIVFluid: async (admissionId, entryId, data) => (await apiClient.patch(`/api/ipd-clinical/admissions/${admissionId}/drug-chart/iv-fluids/${entryId}`, data)).data,
+  administerDrugChartMAR: async (admissionId, data) => (await apiClient.post(`/api/ipd-clinical/admissions/${admissionId}/drug-chart/mar-administer`, data)).data,
+  correctDrugChartMAR: async (admissionId, marId, data) => (await apiClient.patch(`/api/ipd-clinical/admissions/${admissionId}/drug-chart/mar/${marId}/correct`, data)).data,
 };
 
 // ─── Nursing Notes API ────────────────────────────────────────────────────────
@@ -1567,6 +1593,190 @@ export const packageAPI = {
   cancelAssignment: async (assignmentId, data) => (await apiClient.patch(`/api/packages/assignments/${assignmentId}/cancel`, data)).data,
 
   getDashboardStats: async () => (await apiClient.get('/api/packages/stats/dashboard')).data,
+};
+
+// ─── Free Doctor OPD API ──────────────────────────────────────────────────────
+export const freeOpdAPI = {
+  // 1. Patient Monitoring
+  searchPatients: async (params = {}) => {
+    const response = await apiClient.get('/api/doctor/patients/search', { params });
+    return response.data;
+  },
+  getPatientOverview: async (patientId) => {
+    const response = await apiClient.get(`/api/doctor/patients/${patientId}/overview`);
+    return response.data;
+  },
+  registerPatient: async (payload) => {
+    const response = await apiClient.post('/api/doctor/patients/register', payload);
+    return response.data;
+  },
+
+  // 2. Doctor Patient Tray
+  getTodayTray: async (date) => {
+    const response = await apiClient.get('/api/doctor/tray/today', { params: { date } });
+    return response.data;
+  },
+  startConsultation: async (appointmentId) => {
+    const response = await apiClient.patch(`/api/doctor/tray/${appointmentId}/start`);
+    return response.data;
+  },
+  completeConsultation: async (appointmentId, payload = {}) => {
+    const response = await apiClient.patch(`/api/doctor/tray/${appointmentId}/complete`, payload);
+    return response.data;
+  },
+  updateConsultationStatus: async (appointmentId, status, payload = {}) => {
+    const response = await apiClient.patch(`/api/doctor/tray/${appointmentId}/status`, { status, ...payload });
+    return response.data;
+  },
+
+  // 3. Appointment Management
+  createAppointment: async (payload) => {
+    const response = await apiClient.post('/api/doctor/appointments', payload);
+    return response.data;
+  },
+  listAppointments: async (params = {}) => {
+    const response = await apiClient.get('/api/doctor/appointments', { params });
+    return response.data;
+  },
+  rescheduleAppointment: async (appointmentId, payload) => {
+    const response = await apiClient.patch(`/api/doctor/appointments/${appointmentId}/reschedule`, payload);
+    return response.data;
+  },
+  cancelAppointment: async (appointmentId, reason = '') => {
+    const response = await apiClient.patch(`/api/doctor/appointments/${appointmentId}/cancel`, { reason });
+    return response.data;
+  },
+
+  // 4. Money Tracker
+  getMoneySummary: async () => {
+    const response = await apiClient.get('/api/doctor/money-tracker/summary');
+    return response.data;
+  },
+  getTransactions: async (params = {}) => {
+    const response = await apiClient.get('/api/doctor/money-tracker/transactions', { params });
+    return response.data;
+  },
+  recordFee: async (appointmentId, payload) => {
+    const response = await apiClient.post(`/api/doctor/appointments/${appointmentId}/record-payment`, payload);
+    return response.data;
+  },
+
+  // 5. Revisit Schedule
+  getRevisits: async (params = {}) => {
+    const response = await apiClient.get('/api/doctor/revisits', { params });
+    return response.data;
+  },
+  saveFollowUpDate: async (appointmentId, followUpDate) => {
+    const response = await apiClient.patch(`/api/doctor/appointments/${appointmentId}/follow-up`, { followUpDate });
+    return response.data;
+  },
+  bookRevisitAppointment: async (originalAppointmentId, payload) => {
+    const response = await apiClient.post(`/api/doctor/revisits/${originalAppointmentId}/book-appointment`, payload);
+    return response.data;
+  },
+
+  // Prescriptions
+  savePrescription: async (payload) => {
+    const response = await apiClient.post('/api/doctor/prescriptions', payload);
+    return response.data;
+  },
+  getPatientPrescriptions: async (patientId) => {
+    const response = await apiClient.get(`/api/doctor/prescriptions/patient/${patientId}`);
+    return response.data;
+  },
+};
+
+// ─── Data Migration API (Hospital Admin) ──────────────────────────────────────
+export const migrationAPI = {
+  listSessions: async () => (await apiClient.get('/api/migrations')).data,
+  createSession: async () => (await apiClient.post('/api/migrations')).data,
+  getSession: async (migrationId) => (await apiClient.get(`/api/migrations/${migrationId}`)).data,
+  uploadFiles: async (migrationId, formData) => {
+    const response = await apiClient.post(`/api/migrations/${migrationId}/files`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    return response.data;
+  },
+  analyzeSession: async (migrationId) => (await apiClient.post(`/api/migrations/${migrationId}/analyze`)).data,
+  generateAiMapping: async (migrationId) => (await apiClient.post(`/api/migrations/${migrationId}/ai-mapping`)).data,
+  updateMapping: async (migrationId, data) => (await apiClient.put(`/api/migrations/${migrationId}/mapping`, data)).data,
+  acceptHighConfidence: async (migrationId) => (await apiClient.post(`/api/migrations/${migrationId}/accept-high-confidence`)).data,
+  createCustomField: async (migrationId, data) => (await apiClient.post(`/api/migrations/${migrationId}/custom-field`, data)).data,
+  approveMapping: async (migrationId) => (await apiClient.post(`/api/migrations/${migrationId}/approve`)).data,
+  saveTemplate: async (migrationId, data) => (await apiClient.post(`/api/migrations/${migrationId}/save-template`, data)).data,
+  listTemplates: async () => (await apiClient.get('/api/migrations/templates')).data,
+  getCanonicalSchema: async (entity = '') => (await apiClient.get(`/api/migrations/canonical-schema${entity ? '?entity=' + entity : ''}`)).data,
+  prepareAndValidate: async (migrationId) => (await apiClient.post(`/api/migrations/${migrationId}/prepare`)).data,
+  getPreview: async (migrationId) => (await apiClient.get(`/api/migrations/${migrationId}/preview`)).data,
+  getStagedRecords: async (migrationId, params = {}) => (await apiClient.get(`/api/migrations/${migrationId}/records`, { params })).data,
+  getRecordDetail: async (migrationId, recordId) => (await apiClient.get(`/api/migrations/${migrationId}/records/${recordId}`)).data,
+  updateDuplicateDecision: async (migrationId, recordId, data) => (await apiClient.put(`/api/migrations/${migrationId}/records/${recordId}/duplicate-decision`, data)).data,
+  markReadyForImport: async (migrationId) => (await apiClient.post(`/api/migrations/${migrationId}/mark-ready`)).data,
+  executeImport: async (migrationId) => (await apiClient.post(`/api/migrations/${migrationId}/import`)).data,
+  getImportProgress: async (migrationId) => (await apiClient.get(`/api/migrations/${migrationId}/import-progress`)).data,
+  getFailedRecords: async (migrationId, params = {}) => (await apiClient.get(`/api/migrations/${migrationId}/failed-records`, { params })).data,
+};
+
+// ─── Local Database Agent & Sync APIs ─────────────────────────────────────────
+export const localAgentAPI = {
+  getStatus: async () => (await apiClient.get('/api/local-agent/status')).data,
+  provision: async (customName = '') => (await apiClient.post('/api/local-agent/provision', { customName })).data,
+  testConnection: async () => (await apiClient.post('/api/local-agent/test-connection')).data,
+  revoke: async () => (await apiClient.post('/api/local-agent/revoke')).data,
+};
+
+export const localSyncAPI = {
+  getSyncStatus: async () => (await apiClient.get('/api/local-sync/status')).data,
+  startInitialSync: async () => (await apiClient.post('/api/local-sync/start-initial-sync')).data,
+  syncNow: async () => (await apiClient.post('/api/local-sync/sync-now')).data,
+  retryFailed: async () => (await apiClient.post('/api/local-sync/retry-failed')).data,
+  getConflicts: async (params = {}) => (await apiClient.get('/api/local-sync/conflicts', { params })).data,
+  getConflictDetail: async (conflictId) => (await apiClient.get(`/api/local-sync/conflicts/${conflictId}`)).data,
+  resolveConflict: async (conflictId, data = {}) => (await apiClient.post(`/api/local-sync/conflicts/${conflictId}/resolve`, data)).data,
+  dismissConflict: async (conflictId, data = {}) => (await apiClient.post(`/api/local-sync/conflicts/${conflictId}/dismiss`, data)).data,
+  getUploadStats: async () => (await apiClient.get('/api/local-sync/upload-stats')).data,
+  triggerUploadNow: async () => (await apiClient.post('/api/local-sync/upload-now')).data,
+  getSyncHealth: async () => (await apiClient.get('/api/local-sync/health')).data,
+  verifyIntegrity: async () => (await apiClient.post('/api/local-sync/verify-integrity')).data,
+  getRebuildStatus: async () => (await apiClient.get('/api/local-sync/rebuild-status')).data,
+  rebuildLocalDatabase: async (confirmationToken) => (await apiClient.post('/api/local-sync/rebuild', { confirmationToken })).data,
+  getBackupStatus: async () => (await apiClient.get('/api/local-sync/backup-status')).data,
+};
+
+// ─── ABDM ABHA Integration API ────────────────────────────────────────────────
+export const abdmAPI = {
+  getStatus: async (patientId) => (await apiClient.get(`/api/abdm/abha/status/${patientId}`)).data,
+  startLink: async (data) => (await apiClient.post('/api/abdm/abha/link/start', data)).data,
+  verifyLink: async (data) => (await apiClient.post('/api/abdm/abha/link/verify', data)).data,
+  startCreate: async (data) => (await apiClient.post('/api/abdm/abha/create/start', data)).data,
+  verifyCreate: async (data) => (await apiClient.post('/api/abdm/abha/create/verify', data)).data,
+  getBridgeConfig: async () => (await apiClient.get('/api/abdm/bridge/config')).data,
+  registerBridgeUrl: async (data = {}) => (await apiClient.patch('/api/abdm/bridge/url', data)).data,
+  probeBridge: async () => (await apiClient.get('/api/abdm/bridge/probe')).data,
+  verifyBridgeServices: async () => (await apiClient.get('/api/abdm/bridge/verify')).data,
+  registerHospitalHip: async (hospitalId, data) => (await apiClient.put(`/api/abdm/bridge/hospitals/${hospitalId}/hip`, data)).data,
+  getHospitalStatus: async () => (await apiClient.get('/api/abdm/bridge/hospital')).data,
+};
+
+// ─── Multi-Factor Authentication (MFA / 2FA) API ──────────────────────────────
+export const mfaAPI = {
+  setup: async () => (await apiClient.post('/api/mfa/setup')).data,
+  verifySetup: async (token) => (await apiClient.post('/api/mfa/verify-setup', { token })).data,
+  completeLogin: async (preAuthToken, token) => (await apiClient.post('/api/mfa/complete-login', { preAuthToken, token })).data,
+  disable: async (token) => (await apiClient.delete('/api/mfa/disable', { data: { token } })).data,
+};
+
+// ─── NABH Accreditation & Quality Standards API ───────────────────────────────
+export const nabhAPI = {
+  getStandards: async (params = {}) => (await apiClient.get('/api/nabh/standards', { params })).data,
+  seedStandards: async () => (await apiClient.post('/api/nabh/standards/seed')).data,
+  getOverview: async () => (await apiClient.get('/api/nabh/overview')).data,
+  getHospitalCompliance: async (hospitalId) => (await apiClient.get(`/api/nabh/hospitals/${hospitalId}/compliance`)).data,
+  updateStandardCompliance: async (hospitalId, standardCode, data) => (await apiClient.put(`/api/nabh/hospitals/${hospitalId}/compliance/${standardCode}`, data)).data,
+  listCapas: async (hospitalId, params = {}) => (await apiClient.get(`/api/nabh/hospitals/${hospitalId}/capa`, { params })).data,
+  createCapa: async (hospitalId, data) => (await apiClient.post(`/api/nabh/hospitals/${hospitalId}/capa`, data)).data,
+  updateCapa: async (hospitalId, capaId, data) => (await apiClient.patch(`/api/nabh/hospitals/${hospitalId}/capa/${capaId}`, data)).data,
+  getQualityIndicators: async (hospitalId, params = {}) => (await apiClient.get(`/api/nabh/hospitals/${hospitalId}/quality-indicators`, { params })).data,
 };
 
 export default apiClient;

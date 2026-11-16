@@ -16,9 +16,11 @@ import {
     CashierApp,
     NurseApp,
     PatientApp,
-    AssistantApp
+    AssistantApp,
+    DoctorOpdApp
 } from './RoleStacks';
 import DashboardScreen from '../screens/DashboardScreen';
+import RoleDashboard from '../screens/RoleDashboard';
 import DashboardLayout from '../components/layouts/DashboardLayout';
 import { useBranding } from '../context/BrandingContext';
 import { connectAuthenticatedSocket, disconnectSocket } from '../utils/socket';
@@ -30,7 +32,7 @@ const Stack = createNativeStackNavigator();
 const FallbackStack = () => (
     <DashboardLayout>
         <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
-            <Stack.Screen name="Dashboard" component={DashboardScreen} />
+            <Stack.Screen name="RoleDashboard" component={RoleDashboard} />
         </Stack.Navigator>
     </DashboardLayout>
 );
@@ -63,6 +65,11 @@ const AppNavigator = () => {
     }, [isAuthenticated, user]);
 
     const renderRoleStack = () => {
+        // Free Doctor OPD check (1:1 Web Parity)
+        if (user?.subscriptionPlan === 'free_doctor_opd') {
+            return <Stack.Screen name="DoctorOpd" component={DoctorOpdApp} />;
+        }
+
         const rawRole = typeof user?.role === 'object' ? user?.role?.name : user?.role;
         const role = (rawRole || '').toLowerCase().replace(/\s+/g, '');
 

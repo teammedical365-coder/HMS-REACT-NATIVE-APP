@@ -28,6 +28,18 @@ const TAB_THEMES = {
     color: '#ec4899',
     shadow: 'rgba(236, 72, 153, 0.18)',
   },
+  'free-doctor-opd': {
+    bg: '#ecfdf5',
+    border: '#a7f3d0',
+    color: '#059669',
+    shadow: 'rgba(5, 150, 105, 0.18)',
+  },
+  'nabh-compliance': {
+    bg: '#eff6ff',
+    border: '#bfdbfe',
+    color: '#2563eb',
+    shadow: 'rgba(37, 99, 235, 0.18)',
+  },
   'revenue-plans': {
     bg: '#fef3c7',
     border: '#fde68a',
@@ -96,8 +108,10 @@ export default function CentralAdminTabs({ activeTab, setActiveTab, onRevenueAna
     { id: 'multi-speciality', label: 'Multi-Speciality Starter', iconType: 'file' },
     { id: 'clinic-basic', label: 'Clinic Basic Plan', iconType: 'edit' },
     { id: 'simple-clinics', label: 'Starter Plan', iconType: 'file' },
+    { id: 'free-doctor-opd', label: 'Free Doctor OPD', iconType: 'file' },
     { id: 'revenue-plans', label: 'Revenue Plans', iconType: 'credit-card' },
     { id: 'releases', label: 'Releases & OTA', iconType: 'layers' },
+    { id: 'nabh-compliance', label: 'NABH Hub', iconType: 'layers' },
     { id: 'configurations', label: 'Configurations', iconType: 'settings' },
   ];
 

@@ -28,6 +28,7 @@ import { patientAPI, receptionAPI, reportAPI, consentAPI } from '../../utils/api
 import { fetchPatientProfileWithOffline } from '../../services/offline/offlineReceptionService';
 import { useAuth } from '../../store/hooks';
 import DoctorIPDOrdersPanel from '../../components/ipd/DoctorIPDOrdersPanel';
+import AbdmSection from '../../components/abdm/AbdmSection';
 import FamilyHealthTree from './FamilyHealthTree';
 import PatientVialsSection from '../../components/vials/PatientVialsSection';
 
@@ -916,6 +917,17 @@ const UnifiedPatientProfile = () => {
                     <Text style={styles.addAllergyBtnText}>+ Add</Text>
                 </TouchableOpacity>
             </View>
+
+            {/* ====== ABDM / ABHA INTEGRATION SECTION (1:1 Web Parity) ====== */}
+            <AbdmSection
+                patient={patientData}
+                onPatientUpdate={(updatedAbha) => {
+                    setPatientData(prev => ({
+                        ...prev,
+                        abdm: { ...prev?.abdm, ...updatedAbha, isVerified: true }
+                    }));
+                }}
+            />
 
             {/* ====== TAB NAVIGATION ====== */}
             <ScrollView

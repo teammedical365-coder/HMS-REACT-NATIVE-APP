@@ -38,9 +38,9 @@ const CentralAdminLogin = () => {
 
     useEffect(() => {
         if (isAuthenticated && user) {
-            navigation.navigate('CentralAdminDrawer');
+            // AppNavigator automatically mounts the role-based stack when isAuthenticated is true
         }
-    }, [isAuthenticated, user, navigation]);
+    }, [isAuthenticated, user]);
 
     const handleLoginSubmit = ({ id, password }) => {
         dispatch(clearError());

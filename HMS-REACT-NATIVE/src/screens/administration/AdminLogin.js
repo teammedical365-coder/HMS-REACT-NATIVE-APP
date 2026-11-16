@@ -16,20 +16,9 @@ const AdminLogin = () => {
 
     useEffect(() => {
         if (isAuthenticated && user) {
-            const normalizedRole = user?.role ? user.role.toLowerCase() : '';
-            let targetPath = 'UserDrawer'; // Fallback
-            
-            if (normalizedRole === 'centraladmin' || normalizedRole === 'superadmin') {
-                targetPath = 'CentralAdminDrawer';
-            } else if (normalizedRole === 'hospitaladmin') {
-                targetPath = 'HospitalAdminDrawer';
-            } else if (normalizedRole === 'admin') {
-                targetPath = 'AdminDrawer';
-            }
-
-            navigation.navigate(targetPath);
+            // AppNavigator automatically mounts the role-based stack when isAuthenticated is true
         }
-    }, [isAuthenticated, user, navigation]);
+    }, [isAuthenticated, user]);
 
     const handleLoginSubmit = ({ id, password }) => {
         dispatch(clearError());
