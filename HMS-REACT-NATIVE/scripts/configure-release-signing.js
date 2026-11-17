@@ -106,9 +106,33 @@ function configureGradleMemoryProperties() {
     content += '\norg.gradle.workers.max=2\n';
   }
 
+  // Enforce exactly one active expo.useLegacyPackaging=true property
+  const lines = content.split(/\r?\n/);
+  const updatedLines = [];
+  let legacyPackagingSet = false;
+
+  for (const line of lines) {
+    // Check if line is an active expo.useLegacyPackaging definition (not commented with # or !)
+    if (/^\s*expo\.useLegacyPackaging\s*=/i.test(line)) {
+      if (!legacyPackagingSet) {
+        updatedLines.push('expo.useLegacyPackaging=true');
+        legacyPackagingSet = true;
+      }
+      // Drop any duplicate active expo.useLegacyPackaging entries
+    } else {
+      updatedLines.push(line);
+    }
+  }
+
+  if (!legacyPackagingSet) {
+    updatedLines.push('expo.useLegacyPackaging=true');
+  }
+
+  content = updatedLines.join('\n');
+
   fs.writeFileSync(propsPath, content, 'utf8');
   console.log(
-    '[configure-release-signing] Successfully ensured Gradle JVM memory and concurrency settings in gradle.properties.'
+    '[configure-release-signing] Successfully ensured Gradle JVM memory, concurrency, and legacy packaging settings in gradle.properties.'
   );
 }
 
