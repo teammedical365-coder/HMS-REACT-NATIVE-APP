@@ -492,6 +492,56 @@ jobs:
           ACTUAL_SHA256=$(echo "$ACTUAL_SHA256_RAW" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')
           EXPECTED_SHA256=$(echo "$EXPECTED_PROD_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')
 
+          echo "CERT_SHA256=$ACTUAL_SHA256" >> $GITHUB_ENV
+
+          # 1. Verify AAB digital signature using jarsigner
+          echo "Verifying cryptographic digital signature on output_artifacts/app-rn.aab..."
+          JARSIGNER_OUT=$(jarsigner -verify output_artifacts/app-rn.aab 2>&1 || true)
+          if echo "$JARSIGNER_OUT" | grep -q "jar is unsigned"; then
+            echo "::error::CRITICAL SECURITY FAILURE: Release AAB is unsigned!"
+            exit 1
+          fi
+          if ! echo "$JARSIGNER_OUT" | grep -q "jar verified"; then
+            echo "::error::Release AAB failed signature verification: $JARSIGNER_OUT"
+            exit 1
+          fi
+          echo "Release AAB digital signature verified successfully via jarsigner."
+
+          # 2. Extract AAB signer certificate SHA-256 fingerprint using keytool
+          AAB_CERT_OUT=$(keytool -printcert -jarfile output_artifacts/app-rn.aab 2>/dev/null || true)
+          AAB_SHA256_RAW=$(echo "$AAB_CERT_OUT" | grep -i "SHA256:" | head -n 1 | sed -e 's/^.*[sS][hH][aA]256:[[:space:]]*//' || true)
+          AAB_CERT_SHA256=$(echo "$AAB_SHA256_RAW" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')
+          echo "AAB Signer certificate SHA-256: $AAB_CERT_SHA256"
+          echo "AAB_CERT_SHA256=$AAB_CERT_SHA256" >> $GITHUB_ENV
+
+          # 3. Verify AAB signer matches APK signer
+          if [ -n "$ACTUAL_SHA256" ] && [ -n "$AAB_CERT_SHA256" ] && [ "$ACTUAL_SHA256" != "$AAB_CERT_SHA256" ]; then
+            echo "::error::CRITICAL SECURITY FAILURE: Signer certificate mismatch between APK ($ACTUAL_SHA256) and AAB ($AAB_CERT_SHA256)!"
+            exit 1
+          fi
+
+          # 4. Extract and verify package ID from APK via aapt
+          AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt -type f 2>/dev/null | sort -V | tail -n 1 || true)
+          if [ -n "$AAPT" ] && [ -x "$AAPT" ]; then
+            VERIFIED_PKG=$("$AAPT" dump badging "$APK_PATH" | grep "package: name=" | sed -e "s/^.*name='//" -e "s/'.*$//" || true)
+            echo "VERIFIED_PACKAGE_ID=$VERIFIED_PKG" >> $GITHUB_ENV
+            echo "Verified package ID from APK: $VERIFIED_PKG"
+            if [ -n "$APPLICATION_ID" ] && [ -n "$VERIFIED_PKG" ] && [ "$VERIFIED_PKG" != "$APPLICATION_ID" ]; then
+              echo "::error::CRITICAL SECURITY FAILURE: APK package ID ($VERIFIED_PKG) does not match expected APPLICATION_ID ($APPLICATION_ID)!"
+              exit 1
+            fi
+          fi
+
+          # 5. Verify AAB package belongs to the expected package
+          if [ -n "$APPLICATION_ID" ]; then
+            if ! unzip -p output_artifacts/app-rn.aab base/manifest/AndroidManifest.xml 2>/dev/null | strings | grep -F "$APPLICATION_ID" >/dev/null 2>&1; then
+              echo "::error::CRITICAL SECURITY FAILURE: AAB manifest does not match expected APPLICATION_ID ($APPLICATION_ID)!"
+              exit 1
+            fi
+            echo "Release AAB verified to belong to package: $APPLICATION_ID"
+          fi
+
+          # 6. Verify signing mode requirements
           if [ "$SIGNING_MODE" = "production" ]; then
             if [ -z "$ACTUAL_SHA256" ]; then
               echo "::error::CRITICAL SECURITY FAILURE: Could not extract signer SHA-256 digest from apksigner output."
@@ -503,7 +553,12 @@ jobs:
               exit 1
             fi
 
-            echo "Production cryptographic signature successfully verified against Medical365 release key ($EXPECTED_SHA256)."
+            if [ "$AAB_CERT_SHA256" != "$EXPECTED_SHA256" ]; then
+              echo "::error::CRITICAL SECURITY FAILURE: Production AAB signer SHA-256 digest ($AAB_CERT_SHA256) does not match expected Medical365 release key fingerprint ($EXPECTED_SHA256)!"
+              exit 1
+            fi
+
+            echo "Production cryptographic signatures for both APK and AAB successfully verified against Medical365 release key ($EXPECTED_SHA256)."
           else
             echo "Legacy debug mode active (signingMode: $SIGNING_MODE). Signer SHA-256: $ACTUAL_SHA256"
           fi
@@ -546,9 +601,6 @@ jobs:
           HTTP_STATUS=$(curl -sS \
             -o /tmp/rn-upload-response.txt \
             -w "%{http_code}" \
-            --retry 3 \
-            --retry-delay 2 \
-            --retry-max-time 90 \
             -X POST \
             "https://hms-n6nk.onrender.com/api/superadmin/hospitals/webhook/github-rn/upload-build?secret=${WEBHOOK_SECRET}&tenantId=${TENANT_ID}&rnBuildId=${RN_BUILD_ID}" \
             -F "apk=@output_artifacts/app-rn.apk" \
@@ -556,7 +608,12 @@ jobs:
             -F "tenantId=${TENANT_ID}" \
             -F "rnBuildId=${RN_BUILD_ID}" \
             -F "releaseId=${RELEASE_ID:-}" \
-            -F "checksumSha256=${APK_SHA256:-}")
+            -F "checksumSha256=${APK_SHA256:-}" \
+            -F "aabChecksumSha256=${AAB_SHA256:-}" \
+            -F "certFingerprintSha256=${CERT_SHA256:-}" \
+            -F "aabCertFingerprintSha256=${AAB_CERT_SHA256:-}" \
+            -F "verifiedPackageId=${VERIFIED_PACKAGE_ID:-${APPLICATION_ID}}" \
+            -F "signingMode=${SIGNING_MODE}")
 
           echo "Upload HTTP status: $HTTP_STATUS"
           echo "Upload response:"
